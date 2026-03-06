@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/cockroachdb/errors"
+
 	"github.com/hdt3213/godis/cluster"
 	"github.com/hdt3213/godis/config"
 	"github.com/hdt3213/godis/database"
@@ -38,39 +40,78 @@ func fileExists(filename string) bool {
 
 func main() {
 	print(banner)
-	logger.Setup(&logger.Settings{
+	if err := logger.Setup(&logger.Settings{
 		Path:       "logs",
 		Name:       "godis",
 		Ext:        "log",
 		TimeFormat: "2006-01-02",
-	})
-	configFilename := os.Getenv("CONFIG")
-	if configFilename == "" {
-		if fileExists("redis.conf") {
-			config.SetupConfig("redis.conf")
-		} else {
-			config.Properties = defaultProperties
-		}
-	} else {
-		config.SetupConfig(configFilename)
+	}); err != nil {
+		fmt.Fprintf(os.Stderr, "setup logger failed: %v\n", err)
 	}
+	
+	if err := setupConfig(); err != nil {
+		logger.Fatalf("setup config failed: %+v", err)
+	}
+	
 	listenAddr := fmt.Sprintf("%s:%d", config.Properties.Bind, config.Properties.Port)
 	
 	var err error
 	if config.Properties.UseGnet {
-		var db idatabase.DB
-		if config.Properties.ClusterEnable {
-			db = cluster.MakeCluster()
-		} else {
-			db = database.NewStandaloneServer()
-		}
-		server := gnet.NewGnetServer(db)
-		err = server.Run(listenAddr)
+		err = runGnetServer(listenAddr)
 	} else {
-		handler := stdserver.MakeHandler()
-		err = stdserver.Serve(listenAddr, handler)
+		err = runStdServer(listenAddr)
 	}
 	if err != nil {
-		logger.Errorf("start server failed: %v", err)
+		logger.Fatalf("start server failed: %+v", err)
 	}
+}
+
+func setupConfig() error {
+	configFilename := os.Getenv("CONFIG")
+	if configFilename == "" {
+		if fileExists("redis.conf") {
+			if err := config.SetupConfig("redis.conf"); err != nil {
+				return errors.Wrap(err, "setup config from redis.conf failed")
+			}
+		} else {
+			config.Properties = defaultProperties
+		}
+	} else {
+		if err := config.SetupConfig(configFilename); err != nil {
+			return errors.Wrapf(err, "setup config from %s failed", configFilename)
+		}
+	}
+	return nil
+}
+
+func runGnetServer(listenAddr string) error {
+	var db idatabase.DB
+	var err error
+	if config.Properties.ClusterEnable {
+		db, err = cluster.MakeCluster()
+		if err != nil {
+			return errors.Wrap(err, "create cluster failed")
+		}
+	} else {
+		db, err = database.NewStandaloneServer()
+		if err != nil {
+			return errors.Wrap(err, "create standalone server failed")
+		}
+	}
+	server := gnet.NewGnetServer(db)
+	if err := server.Run(listenAddr); err != nil {
+		return errors.Wrap(err, "run gnet server failed")
+	}
+	return nil
+}
+
+func runStdServer(listenAddr string) error {
+	handler, err := stdserver.MakeHandler()
+	if err != nil {
+		return errors.Wrap(err, "create handler failed")
+	}
+	if err := stdserver.Serve(listenAddr, handler); err != nil {
+		return errors.Wrap(err, "serve failed")
+	}
+	return nil
 }

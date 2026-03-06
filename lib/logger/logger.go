@@ -112,7 +112,9 @@ func NewFileLogger(settings *Settings) (*Logger, error) {
 			if path.Join(settings.Path, logFilename) != logger.logFile.Name() {
 				logFile, err := mustOpen(logFilename, settings.Path)
 				if err != nil {
-					panic("open log " + logFilename + " failed: " + err.Error())
+					// Log to stderr instead of panic
+					fmt.Fprintf(os.Stderr, "open log %s failed: %v\n", logFilename, err)
+					continue
 				}
 				logger.logFile = logFile
 				logger.logger = log.New(io.MultiWriter(os.Stdout, logFile), "", flags)
@@ -125,12 +127,16 @@ func NewFileLogger(settings *Settings) (*Logger, error) {
 }
 
 // Setup initializes DefaultLogger
-func Setup(settings *Settings) {
+func Setup(settings *Settings) error {
 	logger, err := NewFileLogger(settings)
 	if err != nil {
-		panic(err)
+		// Fallback to stdout logger
+		DefaultLogger = NewStdoutLogger()
+		Errorf("create file logger failed: %v, fallback to stdout", err)
+		return err
 	}
 	DefaultLogger = logger
+	return nil
 }
 
 // Output sends a msg to logger

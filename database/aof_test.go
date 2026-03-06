@@ -116,7 +116,7 @@ func TestAof(t *testing.T) {
 	dbNum := 4
 	size := 10
 	var prefixes []string
-	aofWriteDB := NewStandaloneServer()
+	aofWriteDB := MustNewStandaloneServer()
 	// generate test data
 	for i := 0; i < dbNum; i++ {
 		prefix := utils.RandString(8)
@@ -124,7 +124,7 @@ func TestAof(t *testing.T) {
 		makeTestData(aofWriteDB, i, prefix, size)
 	}
 	aofWriteDB.Close()                 // wait for aof finished
-	aofReadDB := NewStandaloneServer() // start new db and read aof file
+	aofReadDB := MustNewStandaloneServer() // start new db and read aof file
 	for i := 0; i < dbNum; i++ {
 		prefix := prefixes[i]
 		validateTestData(t, aofReadDB, i, prefix, size)
@@ -153,7 +153,7 @@ func TestRDB(t *testing.T) {
 	size := 10
 	var prefixes []string
 	conn := connection.NewFakeConn()
-	writeDB := NewStandaloneServer()
+	writeDB := MustNewStandaloneServer()
 	for i := 0; i < dbNum; i++ {
 		prefix := utils.RandString(8)
 		prefixes = append(prefixes, prefix)
@@ -162,7 +162,7 @@ func TestRDB(t *testing.T) {
 	time.Sleep(time.Second) // wait for aof finished
 	writeDB.Exec(conn, utils.ToCmdLine("save"))
 	writeDB.Close()
-	readDB := NewStandaloneServer() // start new db and read aof file
+	readDB := MustNewStandaloneServer() // start new db and read aof file
 	for i := 0; i < dbNum; i++ {
 		prefix := prefixes[i]
 		validateTestData(t, readDB, i, prefix, size)
@@ -186,7 +186,7 @@ func TestRewriteAOF(t *testing.T) {
 		AofUseRdbPreamble: false,
 		AppendFsync:       aof.FsyncEverySec,
 	}
-	aofWriteDB := NewStandaloneServer()
+	aofWriteDB := MustNewStandaloneServer()
 	size := 1
 	dbNum := 4
 	var prefixes []string
@@ -199,7 +199,7 @@ func TestRewriteAOF(t *testing.T) {
 	aofWriteDB.Exec(nil, utils.ToCmdLine("rewriteaof"))
 	time.Sleep(2 * time.Second)        // wait for async goroutine finish its job
 	aofWriteDB.Close()                 // wait for aof finished
-	aofReadDB := NewStandaloneServer() // start new db and read aof file
+	aofReadDB := MustNewStandaloneServer() // start new db and read aof file
 	for i := 0; i < dbNum; i++ {
 		prefix := prefixes[i]
 		validateTestData(t, aofReadDB, i, prefix, size)
@@ -227,7 +227,7 @@ func TestRewriteAOF2(t *testing.T) {
 	keySize1 := 100
 	keySize2 := 250
 	/* write data */
-	aofWriteDB := NewStandaloneServer()
+	aofWriteDB := MustNewStandaloneServer()
 	dbNum := 4
 	conn := connection.NewFakeConn()
 	for i := 0; i < dbNum; i++ {
@@ -263,12 +263,15 @@ func TestRewriteAOF2(t *testing.T) {
 		t.Error(doRewriteErr, "do rewrite failed")
 		return
 	}
-	aofWriteDB.persister.FinishRewrite(ctx)
+	if err := aofWriteDB.persister.FinishRewrite(ctx); err != nil {
+		t.Error(err)
+		return
+	}
 	<-ch
 	aofWriteDB.Close() // wait for aof finished
 
 	// start new db and read aof file
-	aofReadDB := NewStandaloneServer()
+	aofReadDB := MustNewStandaloneServer()
 	for i := 0; i < dbNum; i++ {
 		conn.SelectDB(i)
 

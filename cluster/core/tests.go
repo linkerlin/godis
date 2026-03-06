@@ -12,7 +12,7 @@ func MakeTestCluster(ids []string) map[string]*Cluster {
 	connections := NewInMemConnectionFactory()
 	connections.nodes = nodes
 	for _, id := range ids {
-		db := dbimpl.NewStandaloneServer()
+		db := dbimpl.MustNewStandaloneServer()
 		cluster := &Cluster{
 			db:              db,
 			config:          &Config{},

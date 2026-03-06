@@ -9,6 +9,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/cockroachdb/errors"
+
 	"github.com/hdt3213/godis/aof"
 	"github.com/hdt3213/godis/config"
 	"github.com/hdt3213/godis/interface/database"
@@ -41,6 +43,9 @@ type Server struct {
 
 	// slow log record
 	slogLogger *SlowLogger
+	
+	// initialization error if any
+	initErr error
 }
 
 func fileExists(filename string) bool {
@@ -48,17 +53,19 @@ func fileExists(filename string) bool {
 	return err == nil && !info.IsDir()
 }
 
-// NewStandaloneServer creates a standalone redis server, with multi database and all other funtions
-func NewStandaloneServer() *Server {
+// NewStandaloneServer creates a standalone redis server, with multi database and all other functions
+func NewStandaloneServer() (*Server, error) {
 	server := &Server{}
 	if config.Properties.Databases == 0 {
 		config.Properties.Databases = 16
 	}
-	// creat tmp dir
+	
+	// create tmp dir
 	err := os.MkdirAll(config.GetTmpDir(), os.ModePerm)
 	if err != nil {
-		panic(fmt.Errorf("create tmp dir failed: %v", err))
+		return nil, errors.Wrap(err, "create tmp dir failed")
 	}
+	
 	// make db set
 	server.dbSet = make([]*atomic.Value, config.Properties.Databases)
 	for i := range server.dbSet {
@@ -69,6 +76,7 @@ func NewStandaloneServer() *Server {
 		server.dbSet[i] = holder
 	}
 	server.hub = pubsub.MakeHub()
+	
 	// record aof
 	validAof := false
 	if config.Properties.AppendOnly {
@@ -76,7 +84,7 @@ func NewStandaloneServer() *Server {
 		aofHandler, err := NewPersister(server,
 			config.Properties.AppendFilename, true, config.Properties.AppendFsync)
 		if err != nil {
-			panic(err)
+			return nil, errors.Wrap(err, "create persister failed")
 		}
 		server.bindPersister(aofHandler)
 	}
@@ -84,7 +92,7 @@ func NewStandaloneServer() *Server {
 		// load rdb
 		err := server.loadRdbFile()
 		if err != nil {
-			logger.Error(err)
+			logger.Errorf("load rdb file failed: %+v", err)
 		}
 	}
 	server.slaveStatus = initReplSlaveStatus()
@@ -95,6 +103,15 @@ func NewStandaloneServer() *Server {
 	// record slow log
 	server.slogLogger = NewSlowLogger(config.Properties.SlowLogMaxLen, config.Properties.SlowLogSlowerThan)
 
+	return server, nil
+}
+
+// MustNewStandaloneServer creates a standalone server, panics on error (for backward compatibility)
+func MustNewStandaloneServer() *Server {
+	server, err := NewStandaloneServer()
+	if err != nil {
+		logger.Fatalf("failed to create server: %+v", err)
+	}
 	return server
 }
 
@@ -102,11 +119,12 @@ func NewStandaloneServer() *Server {
 // parameter `cmdLine` contains command and its arguments, for example: "set key value"
 func (server *Server) Exec(c redis.Connection, cmdLine [][]byte) (result redis.Reply) {
 	defer func() {
-		if err := recover(); err != nil {
-			logger.Warn(fmt.Sprintf("error occurs: %v\n%s", err, string(debug.Stack())))
+		if r := recover(); r != nil {
+			logger.Errorf("panic in Exec: %v\n%s", r, string(debug.Stack()))
 			result = &protocol.UnknownErrReply{}
 		}
 	}()
+	
 	// Record the start time of command execution
 	GodisExecCommandStartUnixTime := time.Now()
 
@@ -232,7 +250,9 @@ func (server *Server) AfterClientClose(c redis.Connection) {
 // Close graceful shutdown database
 func (server *Server) Close() {
 	// stop slaveStatus first
-	server.slaveStatus.close()
+	if server.slaveStatus != nil {
+		server.slaveStatus.close()
+	}
 	if server.persister != nil {
 		server.persister.Close()
 	}
@@ -264,15 +284,18 @@ func (server *Server) flushDB(dbIndex int) redis.Reply {
 		return protocol.MakeErrReply("ERR DB index is out of range")
 	}
 	newDB := makeDB()
-	server.loadDB(dbIndex, newDB)
-	return &protocol.OkReply{}
+	return server.loadDB(dbIndex, newDB)
 }
 
 func (server *Server) loadDB(dbIndex int, newDB *DB) redis.Reply {
 	if dbIndex >= len(server.dbSet) || dbIndex < 0 {
 		return protocol.MakeErrReply("ERR DB index is out of range")
 	}
-	oldDB := server.mustSelectDB(dbIndex)
+	oldDB, err := server.selectDBSafe(dbIndex)
+	if err != nil {
+		logger.Errorf("loadDB failed: %+v", err)
+		return protocol.MakeErrReply("ERR internal error")
+	}
 	newDB.index = dbIndex
 	newDB.addAof = oldDB.addAof // inherit oldDB
 	server.dbSet[dbIndex].Store(newDB)
@@ -298,32 +321,44 @@ func (server *Server) selectDB(dbIndex int) (*DB, *protocol.StandardErrReply) {
 	return server.dbSet[dbIndex].Load().(*DB), nil
 }
 
-// mustSelectDB is like selectDB, but panics if an error occurs.
-func (server *Server) mustSelectDB(dbIndex int) *DB {
-	selectedDB, err := server.selectDB(dbIndex)
-	if err != nil {
-		panic(err)
+// selectDBSafe returns the database safely with error handling
+func (server *Server) selectDBSafe(dbIndex int) (*DB, error) {
+	if dbIndex >= len(server.dbSet) || dbIndex < 0 {
+		return nil, errors.Newf("DB index %d is out of range", dbIndex)
 	}
-	return selectedDB
+	return server.dbSet[dbIndex].Load().(*DB), nil
 }
 
 // ForEach traverses all the keys in the given database
-func (server *Server) ForEach(dbIndex int, cb func(key string, data *database.DataEntity, expiration *time.Time) bool) {
-	server.mustSelectDB(dbIndex).ForEach(cb)
+func (server *Server) ForEach(dbIndex int, cb func(key string, data *database.DataEntity, expiration *time.Time) bool) error {
+	db, err := server.selectDBSafe(dbIndex)
+	if err != nil {
+		return err
+	}
+	db.ForEach(cb)
+	return nil
 }
 
 // GetEntity returns the data entity to the given key
-func (server *Server) GetEntity(dbIndex int, key string) (*database.DataEntity, bool) {
-	return server.mustSelectDB(dbIndex).GetEntity(key)
+func (server *Server) GetEntity(dbIndex int, key string) (*database.DataEntity, bool, error) {
+	db, err := server.selectDBSafe(dbIndex)
+	if err != nil {
+		return nil, false, err
+	}
+	return db.GetEntity(key), true
 }
 
-func (server *Server) GetExpiration(dbIndex int, key string) *time.Time {
-	raw, ok := server.mustSelectDB(dbIndex).ttlMap.Get(key)
+func (server *Server) GetExpiration(dbIndex int, key string) (*time.Time, error) {
+	db, err := server.selectDBSafe(dbIndex)
+	if err != nil {
+		return nil, err
+	}
+	raw, ok := db.ttlMap.Get(key)
 	if !ok {
-		return nil
+		return nil, nil
 	}
 	expireTime, _ := raw.(time.Time)
-	return &expireTime
+	return &expireTime, nil
 }
 
 // ExecMulti executes multi commands transaction Atomically and Isolated
@@ -336,18 +371,32 @@ func (server *Server) ExecMulti(conn redis.Connection, watching map[string]uint3
 }
 
 // RWLocks lock keys for writing and reading
-func (server *Server) RWLocks(dbIndex int, writeKeys []string, readKeys []string) {
-	server.mustSelectDB(dbIndex).RWLocks(writeKeys, readKeys)
+func (server *Server) RWLocks(dbIndex int, writeKeys []string, readKeys []string) error {
+	db, err := server.selectDBSafe(dbIndex)
+	if err != nil {
+		return err
+	}
+	db.RWLocks(writeKeys, readKeys)
+	return nil
 }
 
 // RWUnLocks unlock keys for writing and reading
-func (server *Server) RWUnLocks(dbIndex int, writeKeys []string, readKeys []string) {
-	server.mustSelectDB(dbIndex).RWUnLocks(writeKeys, readKeys)
+func (server *Server) RWUnLocks(dbIndex int, writeKeys []string, readKeys []string) error {
+	db, err := server.selectDBSafe(dbIndex)
+	if err != nil {
+		return err
+	}
+	db.RWUnLocks(writeKeys, readKeys)
+	return nil
 }
 
 // GetUndoLogs return rollback commands
-func (server *Server) GetUndoLogs(dbIndex int, cmdLine [][]byte) []CmdLine {
-	return server.mustSelectDB(dbIndex).GetUndoLogs(cmdLine)
+func (server *Server) GetUndoLogs(dbIndex int, cmdLine [][]byte) ([]CmdLine, error) {
+	db, err := server.selectDBSafe(dbIndex)
+	if err != nil {
+		return nil, err
+	}
+	return db.GetUndoLogs(cmdLine), nil
 }
 
 // ExecWithLock executes normal commands, invoker should provide locks
@@ -397,8 +446,8 @@ func BGSaveRDB(db *Server, args [][]byte) redis.Reply {
 	}
 	go func() {
 		defer func() {
-			if err := recover(); err != nil {
-				logger.Error(err)
+			if r := recover(); r != nil {
+				logger.Errorf("panic in BGSaveRDB: %v", r)
 			}
 		}()
 		rdbFilename := config.Properties.RDBFilename
@@ -407,16 +456,19 @@ func BGSaveRDB(db *Server, args [][]byte) redis.Reply {
 		}
 		err := db.persister.GenerateRDB(rdbFilename)
 		if err != nil {
-			logger.Error(err)
+			logger.Errorf("BGSaveRDB failed: %+v", err)
 		}
 	}()
 	return protocol.MakeStatusReply("Background saving started")
 }
 
 // GetDBSize returns keys count and ttl key count
-func (server *Server) GetDBSize(dbIndex int) (int, int) {
-	db := server.mustSelectDB(dbIndex)
-	return db.data.Len(), db.ttlMap.Len()
+func (server *Server) GetDBSize(dbIndex int) (int, int, error) {
+	db, err := server.selectDBSafe(dbIndex)
+	if err != nil {
+		return 0, 0, err
+	}
+	return db.data.Len(), db.ttlMap.Len(), nil
 }
 
 func (server *Server) startReplCron() {
@@ -430,9 +482,12 @@ func (server *Server) startReplCron() {
 }
 
 // GetAvgTTL Calculate the average expiration time of keys
-func (server *Server) GetAvgTTL(dbIndex, randomKeyCount int) int64 {
+func (server *Server) GetAvgTTL(dbIndex, randomKeyCount int) (int64, error) {
 	var ttlCount int64
-	db := server.mustSelectDB(dbIndex)
+	db, err := server.selectDBSafe(dbIndex)
+	if err != nil {
+		return 0, err
+	}
 	keys := db.data.RandomKeys(randomKeyCount)
 	for _, k := range keys {
 		t := time.Now()
@@ -446,22 +501,32 @@ func (server *Server) GetAvgTTL(dbIndex, randomKeyCount int) int64 {
 			ttlCount += expireTime.Sub(t).Microseconds()
 		}
 	}
-	return ttlCount / int64(len(keys))
+	if len(keys) == 0 {
+		return 0, nil
+	}
+	return ttlCount / int64(len(keys)), nil
 }
 
 func (server *Server) SetKeyInsertedCallback(cb database.KeyEventCallback) {
 	server.insertCallback = cb
 	for i := range server.dbSet {
-		db := server.mustSelectDB(i)
+		db, err := server.selectDBSafe(i)
+		if err != nil {
+			logger.Errorf("SetKeyInsertedCallback failed for db %d: %+v", i, err)
+			continue
+		}
 		db.insertCallback = cb
 	}
-
 }
 
 func (server *Server) SetKeyDeletedCallback(cb database.KeyEventCallback) {
 	server.deleteCallback = cb
 	for i := range server.dbSet {
-		db := server.mustSelectDB(i)
+		db, err := server.selectDBSafe(i)
+		if err != nil {
+			logger.Errorf("SetKeyDeletedCallback failed for db %d: %+v", i, err)
+			continue
+		}
 		db.deleteCallback = cb
 	}
 }

@@ -17,7 +17,7 @@ func TestListenAndServe(t *testing.T) {
 		return
 	}
 	addr := listener.Addr().String()
-	db := database.NewStandaloneServer()
+	db := database.MustNewStandaloneServer()
 	server := NewGnetServer(db)
 	go server.Run(addr)
 	time.Sleep(2*time.Second)

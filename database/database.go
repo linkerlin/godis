@@ -290,17 +290,29 @@ func (db *DB) IsExpired(key string) bool {
 func (db *DB) addVersion(keys ...string) {
 	for _, key := range keys {
 		versionCode := db.GetVersion(key)
+		// Prevent overflow
+		if versionCode == ^uint64(0) {
+			versionCode = 0
+		}
 		db.versionMap.Put(key, versionCode+1)
 	}
 }
 
 // GetVersion returns version code for given key
-func (db *DB) GetVersion(key string) uint32 {
+func (db *DB) GetVersion(key string) uint64 {
 	entity, ok := db.versionMap.Get(key)
 	if !ok {
 		return 0
 	}
-	return entity.(uint32)
+	// Handle both uint32 (old data) and uint64 (new)
+	switch v := entity.(type) {
+	case uint32:
+		return uint64(v)
+	case uint64:
+		return v
+	default:
+		return 0
+	}
 }
 
 // ForEach traverses all the keys in the database

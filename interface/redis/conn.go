@@ -20,7 +20,7 @@ type Connection interface {
 	GetQueuedCmdLine() [][][]byte
 	EnqueueCmd([][]byte)
 	ClearQueuedCmds()
-	GetWatching() map[string]uint32
+	GetWatching() map[string]uint64
 	AddTxError(err error)
 	GetTxErrors() []error
 

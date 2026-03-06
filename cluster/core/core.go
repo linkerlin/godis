@@ -57,7 +57,10 @@ func NewCluster(cfg *Config) (*Cluster, error) {
 	} else {
 		connections = newDefaultClientFactory()
 	}
-	db := dbimpl.NewStandaloneServer()
+	db, err := dbimpl.NewStandaloneServer()
+	if err != nil {
+		return nil, errors.Wrap(err, "create standalone server failed")
+	}
 	raftNode, err := raft.StartNode(&cfg.RaftConfig)
 	if err != nil {
 		return nil, err
@@ -117,7 +120,7 @@ func NewCluster(cfg *Config) (*Cluster, error) {
 		if masterAddr != "" {
 			err := cluster.SlaveOf(masterAddr)
 			if err != nil {
-				panic(err)
+				return nil, errors.Wrap(err, "slave of master failed")
 			}
 		}
 	}
@@ -134,13 +137,14 @@ func (cluster *Cluster) AfterClientClose(c redis.Connection) {
 	cluster.db.AfterClientClose(c)
 }
 
-func (cluster *Cluster) Close() {
+func (cluster *Cluster) Close() error {
 	close(cluster.closeChan)
 	cluster.db.Close()
 	err := cluster.raftNode.Close()
 	if err != nil {
-		panic(err)
+		return errors.Wrap(err, "close raft node failed")
 	}
+	return nil
 }
 
 // LoadRDB real implementation of loading rdb file

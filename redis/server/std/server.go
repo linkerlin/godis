@@ -11,6 +11,8 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/cockroachdb/errors"
+
 	"github.com/hdt3213/godis/cluster"
 	"github.com/hdt3213/godis/config"
 	"github.com/hdt3213/godis/database"
@@ -35,16 +37,23 @@ type Handler struct {
 }
 
 // MakeHandler creates a Handler instance
-func MakeHandler() *Handler {
+func MakeHandler() (*Handler, error) {
 	var db idatabase.DB
+	var err error
 	if config.Properties.ClusterEnable {
-		db = cluster.MakeCluster()
+		db, err = cluster.MakeCluster()
+		if err != nil {
+			return nil, errors.Wrap(err, "create cluster failed")
+		}
 	} else {
-		db = database.NewStandaloneServer()
+		db, err = database.NewStandaloneServer()
+		if err != nil {
+			return nil, errors.Wrap(err, "create standalone server failed")
+		}
 	}
 	return &Handler{
 		db: db,
-	}
+	}, nil
 }
 
 func Serve(addr string, handler *Handler) error {

@@ -26,14 +26,14 @@ type DBEngine interface {
 	DB
 	LoadRDB(dec *core.Decoder) error
 	ExecWithLock(conn redis.Connection, cmdLine [][]byte) redis.Reply
-	ExecMulti(conn redis.Connection, watching map[string]uint32, cmdLines []CmdLine) redis.Reply
-	GetUndoLogs(dbIndex int, cmdLine [][]byte) []CmdLine
-	ForEach(dbIndex int, cb func(key string, data *DataEntity, expiration *time.Time) bool)
-	RWLocks(dbIndex int, writeKeys []string, readKeys []string)
-	RWUnLocks(dbIndex int, writeKeys []string, readKeys []string)
-	GetDBSize(dbIndex int) (int, int)
-	GetEntity(dbIndex int, key string) (*DataEntity, bool)
-	GetExpiration(dbIndex int, key string) *time.Time
+	ExecMulti(conn redis.Connection, watching map[string]uint64, cmdLines []CmdLine) redis.Reply
+	GetUndoLogs(dbIndex int, cmdLine [][]byte) ([]CmdLine, error)
+	ForEach(dbIndex int, cb func(key string, data *DataEntity, expiration *time.Time) bool) error
+	RWLocks(dbIndex int, writeKeys []string, readKeys []string) error
+	RWUnLocks(dbIndex int, writeKeys []string, readKeys []string) error
+	GetDBSize(dbIndex int) (int, int, error)
+	GetEntity(dbIndex int, key string) (*DataEntity, bool, error)
+	GetExpiration(dbIndex int, key string) (*time.Time, error)
 	SetKeyInsertedCallback(cb KeyEventCallback)
 	SetKeyDeletedCallback(cb KeyEventCallback)
 }

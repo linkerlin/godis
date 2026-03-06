@@ -24,7 +24,7 @@ func TestLoadRDB(t *testing.T) {
 		RDBFilename: "test.rdb", // set working directory to project root
 	}
 	conn := connection.NewFakeConn()
-	rdbDB := NewStandaloneServer()
+	rdbDB := MustNewStandaloneServer()
 	result := rdbDB.Exec(conn, utils.ToCmdLine("Get", "str"))
 	asserts.AssertBulkReply(t, result, "str")
 	result = rdbDB.Exec(conn, utils.ToCmdLine("LRange", "list", "0", "-1"))
@@ -41,7 +41,7 @@ func TestLoadRDB(t *testing.T) {
 		AppendOnly:  false,
 		RDBFilename:  "noexists.rdb", 
 	}
-	rdbDB = NewStandaloneServer()
+	rdbDB = MustNewStandaloneServer()
 	result = rdbDB.Exec(conn, utils.ToCmdLine("Get", "str"))
 	asserts.AssertNullBulk(t, result)
 }
@@ -55,12 +55,12 @@ func TestServerFsyncAlways(t *testing.T) {
 	config.Properties.AppendOnly = true
 	config.Properties.AppendFilename = aofFile.Name()
 	config.Properties.AppendFsync = aof.FsyncAlways
-	server := NewStandaloneServer()
+	server := MustNewStandaloneServer()
 	conn := connection.NewFakeConn()
 	server.Exec(conn, utils.ToCmdLine("del", "1"))
 	ret := server.Exec(conn, utils.ToCmdLine("incr", "1"))
 	asserts.AssertNotError(t, ret)
-	reader := NewStandaloneServer()
+	reader := MustNewStandaloneServer()
 	ret = reader.Exec(conn, utils.ToCmdLine("get", "1"))
 	asserts.AssertBulkReply(t, ret, "1")
 }
@@ -74,13 +74,13 @@ func TestServerFsyncEverySec(t *testing.T) {
 	config.Properties.AppendOnly = true
 	config.Properties.AppendFilename = aofFile.Name()
 	config.Properties.AppendFsync = aof.FsyncEverySec
-	server := NewStandaloneServer()
+	server := MustNewStandaloneServer()
 	conn := connection.NewFakeConn()
 	server.Exec(conn, utils.ToCmdLine("del", "1"))
 	ret := server.Exec(conn, utils.ToCmdLine("incr", "1"))
 	asserts.AssertNotError(t, ret)
 	time.Sleep(1500 * time.Millisecond)
-	reader := NewStandaloneServer()
+	reader := MustNewStandaloneServer()
 	ret = reader.Exec(conn, utils.ToCmdLine("get", "1"))
 	asserts.AssertBulkReply(t, ret, "1")
 }

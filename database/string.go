@@ -11,6 +11,7 @@ import (
 	"github.com/hdt3213/godis/interface/database"
 	"github.com/hdt3213/godis/interface/redis"
 	"github.com/hdt3213/godis/lib/utils"
+	"github.com/hdt3213/godis/lib/validate"
 	"github.com/hdt3213/godis/redis/protocol"
 )
 
@@ -28,6 +29,9 @@ func (db *DB) getAsString(key string) ([]byte, protocol.ErrorReply) {
 
 // execGet returns string value bound to the given key
 func execGet(db *DB, args [][]byte) redis.Reply {
+	if err := validate.ValidateKey(args[0]); err != nil {
+		return protocol.MakeErrReply("ERR key too large")
+	}
 	key := string(args[0])
 	bytes, err := db.getAsString(key)
 	if err != nil {
@@ -121,6 +125,13 @@ func execGetEX(db *DB, args [][]byte) redis.Reply {
 
 // execSet sets string value and time to live to the given key
 func execSet(db *DB, args [][]byte) redis.Reply {
+	// Validate key and value
+	if err := validate.ValidateKey(args[0]); err != nil {
+		return protocol.MakeErrReply("ERR key too large")
+	}
+	if err := validate.ValidateValue(args[1]); err != nil {
+		return protocol.MakeErrReply("ERR value too large")
+	}
 	key := string(args[0])
 	value := args[1]
 	policy := upsertPolicy

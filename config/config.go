@@ -10,9 +10,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hdt3213/godis/lib/utils"
+	"github.com/cockroachdb/errors"
 
-	"github.com/hdt3213/godis/lib/logger"
+	"github.com/hdt3213/godis/lib/utils"
 )
 
 var (
@@ -98,7 +98,7 @@ func init() {
 	}
 }
 
-func parse(src io.Reader) *ServerProperties {
+func parse(src io.Reader) (*ServerProperties, error) {
 	config := &ServerProperties{}
 
 	// read config file
@@ -117,7 +117,7 @@ func parse(src io.Reader) *ServerProperties {
 		}
 	}
 	if err := scanner.Err(); err != nil {
-		logger.Fatal(err)
+		return nil, errors.Wrap(err, "scan config file failed")
 	}
 
 	// parse format
@@ -158,25 +158,32 @@ func parse(src io.Reader) *ServerProperties {
 			}
 		}
 	}
-	return config
+	return config, nil
 }
 
 // SetupConfig read config file and store properties into Properties
-func SetupConfig(configFilename string) {
+func SetupConfig(configFilename string) error {
 	file, err := os.Open(configFilename)
 	if err != nil {
-		panic(err)
+		return errors.Wrap(err, "open config file failed")
 	}
 	defer file.Close()
-	Properties = parse(file)
+	
+	config, err := parse(file)
+	if err != nil {
+		return errors.Wrap(err, "parse config file failed")
+	}
+	
+	Properties = config
 	Properties.RunID = utils.RandString(40)
 	configFilePath, err = filepath.Abs(configFilename)
 	if err != nil {
-		return
+		return errors.Wrap(err, "get config file absolute path failed")
 	}
 	if Properties.Dir == "" {
 		Properties.Dir = "."
 	}
+	return nil
 }
 
 func GetTmpDir() string {

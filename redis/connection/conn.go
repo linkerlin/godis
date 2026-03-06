@@ -37,7 +37,7 @@ type Connection struct {
 
 	// queued commands for `multi`
 	queue    [][][]byte
-	watching map[string]uint32
+	watching map[string]uint64
 	txErrors []error
 
 	// selected db
@@ -198,9 +198,9 @@ func (c *Connection) ClearQueuedCmds() {
 }
 
 // GetWatching returns watching keys and their version code when started watching
-func (c *Connection) GetWatching() map[string]uint32 {
+func (c *Connection) GetWatching() map[string]uint64 {
 	if c.watching == nil {
-		c.watching = make(map[string]uint32)
+		c.watching = make(map[string]uint64)
 	}
 	return c.watching
 }

@@ -5,6 +5,8 @@ import (
 	"os"
 	"strconv"
 
+	"github.com/cockroachdb/errors"
+
 	"github.com/hdt3213/godis/config"
 	"github.com/hdt3213/godis/lib/logger"
 	"github.com/hdt3213/godis/lib/utils"
@@ -36,8 +38,7 @@ func (persister *Persister) Rewrite() error {
 		return err
 	}
 
-	persister.FinishRewrite(ctx)
-	return nil
+	return persister.FinishRewrite(ctx)
 }
 
 // DoRewrite actually rewrite aof file
@@ -84,17 +85,19 @@ func (persister *Persister) StartRewrite() (*RewriteCtx, error) {
 }
 
 // FinishRewrite finish rewrite procedure
-func (persister *Persister) FinishRewrite(ctx *RewriteCtx) {
+func (persister *Persister) FinishRewrite(ctx *RewriteCtx) error {
 	persister.pausingAof.Lock() // pausing aof
 	defer persister.pausingAof.Unlock()
 	tmpFile := ctx.tmpFile
 
 	// copy commands executed during rewriting to tmpFile
+	var copyErr error
 	errOccurs := func() bool {
 		/* read write commands executed during rewriting */
 		src, err := os.Open(persister.aofFilename)
 		if err != nil {
 			logger.Error("open aofFilename failed: " + err.Error())
+			copyErr = err
 			return true
 		}
 		defer func() {
@@ -105,6 +108,7 @@ func (persister *Persister) FinishRewrite(ctx *RewriteCtx) {
 		_, err = src.Seek(ctx.fileSize, 0)
 		if err != nil {
 			logger.Error("seek failed: " + err.Error())
+			copyErr = err
 			return true
 		}
 		// sync tmpFile's db index with online aofFile
@@ -112,18 +116,20 @@ func (persister *Persister) FinishRewrite(ctx *RewriteCtx) {
 		_, err = tmpFile.Write(data)
 		if err != nil {
 			logger.Error("tmp file rewrite failed: " + err.Error())
+			copyErr = err
 			return true
 		}
 		// copy data
 		_, err = io.Copy(tmpFile, src)
 		if err != nil {
 			logger.Error("copy aof filed failed: " + err.Error())
+			copyErr = err
 			return true
 		}
 		return false
 	}()
 	if errOccurs {
-		return
+		return copyErr
 	}
 
 	// replace current aof file by tmp file
@@ -134,7 +140,7 @@ func (persister *Persister) FinishRewrite(ctx *RewriteCtx) {
 	// reopen aof file for further write
 	aofFile, err := os.OpenFile(persister.aofFilename, os.O_APPEND|os.O_CREATE|os.O_RDWR, 0600)
 	if err != nil {
-		panic(err)
+		return errors.Wrap(err, "reopen aof file failed")
 	}
 	persister.aofFile = aofFile
 
@@ -143,6 +149,7 @@ func (persister *Persister) FinishRewrite(ctx *RewriteCtx) {
 	data := protocol.MakeMultiBulkReply(utils.ToCmdLine("SELECT", strconv.Itoa(persister.currentDB))).ToBytes()
 	_, err = persister.aofFile.Write(data)
 	if err != nil {
-		panic(err)
+		return errors.Wrap(err, "write select command failed")
 	}
+	return nil
 }

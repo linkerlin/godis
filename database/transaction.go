@@ -27,7 +27,7 @@ func init() {
 }
 
 // invoker should lock watching keys
-func isWatchingChanged(db *DB, watching map[string]uint32) bool {
+func isWatchingChanged(db *DB, watching map[string]uint64) bool {
 	for key, ver := range watching {
 		currentVersion := db.GetVersion(key)
 		if ver != currentVersion {

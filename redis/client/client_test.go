@@ -12,7 +12,7 @@ import (
 )
 
 func TestClient(t *testing.T) {
-	logger.Setup(&logger.Settings{
+	_ = logger.Setup(&logger.Settings{
 		Path:       "logs",
 		Name:       "godis",
 		Ext:        ".log",
@@ -112,7 +112,7 @@ func TestClient(t *testing.T) {
 }
 
 func TestReconnect(t *testing.T) {
-	logger.Setup(&logger.Settings{
+	_ = logger.Setup(&logger.Settings{
 		Path:       "logs",
 		Name:       "godis",
 		Ext:        ".log",
