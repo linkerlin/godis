@@ -44,7 +44,7 @@ func MakeCluster() (*Cluster, error) {
 func MustMakeCluster() *Cluster {
 	cluster, err := MakeCluster()
 	if err != nil {
-		logger.Fatalf("make cluster failed: %+v", err)
+		logger.Fatal("make cluster failed:", err)
 	}
 	return cluster
 }

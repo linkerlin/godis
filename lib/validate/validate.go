@@ -2,7 +2,6 @@
 package validate
 
 import (
-	"github.com/cockroachdb/errors"
 	"github.com/hdt3213/godis/lib/consts"
 	"github.com/hdt3213/godis/lib/errs"
 )

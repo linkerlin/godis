@@ -50,7 +50,7 @@ func main() {
 	}
 	
 	if err := setupConfig(); err != nil {
-		logger.Fatalf("setup config failed: %+v", err)
+		logger.Fatal(fmt.Sprintf("setup config failed: %+v", err))
 	}
 	
 	listenAddr := fmt.Sprintf("%s:%d", config.Properties.Bind, config.Properties.Port)
@@ -62,7 +62,7 @@ func main() {
 		err = runStdServer(listenAddr)
 	}
 	if err != nil {
-		logger.Fatalf("start server failed: %+v", err)
+		logger.Fatal(fmt.Sprintf("start server failed: %+v", err))
 	}
 }
 

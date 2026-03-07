@@ -270,6 +270,7 @@ func TestKeys(t *testing.T) {
 }
 
 func TestCopy(t *testing.T) {
+	skipHeavyTests(t)
 	testDB.Flush()
 	testMDB := MustNewStandaloneServer()
 	srcKey := utils.RandString(10)

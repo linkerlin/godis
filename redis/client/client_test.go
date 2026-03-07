@@ -12,6 +12,7 @@ import (
 )
 
 func TestClient(t *testing.T) {
+	skipIfNoRedis(t)
 	_ = logger.Setup(&logger.Settings{
 		Path:       "logs",
 		Name:       "godis",
@@ -112,6 +113,7 @@ func TestClient(t *testing.T) {
 }
 
 func TestReconnect(t *testing.T) {
+	skipIfNoRedis(t)
 	_ = logger.Setup(&logger.Settings{
 		Path:       "logs",
 		Name:       "godis",

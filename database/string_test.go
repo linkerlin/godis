@@ -10,8 +10,9 @@ import (
 	"testing"
 )
 
-var testDB = makeTestDB()
-var testServer = MustNewStandaloneServer()
+// Use shared instances to reduce memory consumption
+var testDB = getTestDB()
+var testServer = getTestServer()
 
 func TestSet2(t *testing.T) {
 	key := utils.RandString(10)

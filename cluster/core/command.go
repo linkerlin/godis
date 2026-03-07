@@ -46,7 +46,7 @@ func (cluster *Cluster) Exec(c redis.Connection, cmdLine [][]byte) (result redis
 		return database.Ping(c, cmdLine[1:])
 	}
 	if cmdName == "dbsize" {
-		dbsize, _ := cluster.db.GetDBSize(0)
+		dbsize, _, _ := cluster.db.GetDBSize(0)
 		return protocol.MakeIntReply(int64(dbsize))
 	}
 

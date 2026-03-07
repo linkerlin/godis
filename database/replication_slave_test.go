@@ -20,6 +20,7 @@ import (
 )
 
 func TestReplicationSlaveSide(t *testing.T) {
+	skipReplicationTests(t)
 	tmpDir, err := ioutil.TempDir("", "godis")
 	if err != nil {
 		t.Error(err)
@@ -172,6 +173,7 @@ func TestReplicationSlaveSide(t *testing.T) {
 }
 
 func TestReplicationFailover(t *testing.T) {
+	skipReplicationTests(t)
 	tmpDir, err := os.MkdirTemp("", "godis")
 	if err != nil {
 		t.Error(err)

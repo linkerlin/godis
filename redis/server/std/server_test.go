@@ -17,7 +17,12 @@ func TestListenAndServe(t *testing.T) {
 		return
 	}
 	addr := listener.Addr().String()
-	go tcp.ListenAndServe(listener, MakeHandler(), closeChan)
+	handler, err := MakeHandler()
+	if err != nil {
+		t.Error(err)
+		return
+	}
+	go tcp.ListenAndServe(listener, handler, closeChan)
 
 	conn, err := net.Dial("tcp", addr)
 	if err != nil {

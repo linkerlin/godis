@@ -16,6 +16,7 @@ import (
 )
 
 func TestLoadRDB(t *testing.T) {
+	skipHeavyTests(t)
 	_, b, _, _ := runtime.Caller(0)
 	projectRoot := filepath.Dir(filepath.Dir(b))
 	os.Chdir(projectRoot)
@@ -47,6 +48,7 @@ func TestLoadRDB(t *testing.T) {
 }
 
 func TestServerFsyncAlways(t *testing.T) {
+	skipHeavyTests(t)
 	aofFile, err := ioutil.TempFile("", "*.aof")
 	if err != nil {
 		t.Error(err)
@@ -66,6 +68,7 @@ func TestServerFsyncAlways(t *testing.T) {
 }
 
 func TestServerFsyncEverySec(t *testing.T) {
+	skipHeavyTests(t)
 	aofFile, err := ioutil.TempFile("", "*.aof")
 	if err != nil {
 		t.Error(err)

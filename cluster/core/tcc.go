@@ -64,7 +64,7 @@ func execPrepare(cluster *Cluster, c redis.Connection, cmdLine CmdLine) redis.Re
 	// prepare lock and undo locks
 	tx.writeKeys, tx.readKeys = database.GetRelatedKeys(realCmdLine)
 	cluster.db.RWLocks(0, tx.writeKeys, tx.readKeys)
-	tx.undoLogs = cluster.db.GetUndoLogs(0, realCmdLine)
+	tx.undoLogs, _ = cluster.db.GetUndoLogs(0, realCmdLine)
 	tx.realCmdLine = realCmdLine
 	tx.hasLock = true
 

@@ -1,6 +1,8 @@
 package core
 
 import (
+	"github.com/cockroachdb/errors"
+
 	"github.com/hdt3213/godis/cluster/raft"
 	"github.com/hdt3213/godis/config"
 	dbimpl "github.com/hdt3213/godis/database"
@@ -137,14 +139,13 @@ func (cluster *Cluster) AfterClientClose(c redis.Connection) {
 	cluster.db.AfterClientClose(c)
 }
 
-func (cluster *Cluster) Close() error {
+func (cluster *Cluster) Close() {
 	close(cluster.closeChan)
 	cluster.db.Close()
 	err := cluster.raftNode.Close()
 	if err != nil {
-		return errors.Wrap(err, "close raft node failed")
+		logger.Errorf("close raft node failed: %+v", err)
 	}
-	return nil
 }
 
 // LoadRDB real implementation of loading rdb file

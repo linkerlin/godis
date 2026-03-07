@@ -10,7 +10,11 @@ func TestParse(t *testing.T) {
 		"port 6399\n" +
 		"appendonly yes\n" +
 		"peers a,b"
-	p := parse(strings.NewReader(src))
+	p, err := parse(strings.NewReader(src))
+	if err != nil {
+		t.Error("parse failed:", err)
+		return
+	}
 	if p == nil {
 		t.Error("cannot get result")
 		return

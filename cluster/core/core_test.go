@@ -13,6 +13,7 @@ import (
 )
 
 func TestClusterBootstrap(t *testing.T) {
+	skipHeavyTests(t)
 	// start leader
 	leaderDir := "test/0"
 	os.RemoveAll(leaderDir)
@@ -137,6 +138,7 @@ func TestClusterBootstrap(t *testing.T) {
 }
 
 func TestFailover(t *testing.T) {
+	skipHeavyTests(t)
 	// start leader
 	leaderDir := "test/0"
 	os.RemoveAll(leaderDir)

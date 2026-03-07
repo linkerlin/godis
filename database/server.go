@@ -110,7 +110,7 @@ func NewStandaloneServer() (*Server, error) {
 func MustNewStandaloneServer() *Server {
 	server, err := NewStandaloneServer()
 	if err != nil {
-		logger.Fatalf("failed to create server: %+v", err)
+		logger.Fatal(fmt.Sprintf("failed to create server: %+v", err))
 	}
 	return server
 }
@@ -313,6 +313,14 @@ func (server *Server) flushAll() redis.Reply {
 	return &protocol.OkReply{}
 }
 
+// mustSelectDB returns the database with the given index, panics if out of range
+func (server *Server) mustSelectDB(dbIndex int) *DB {
+	if dbIndex >= len(server.dbSet) || dbIndex < 0 {
+		panic(fmt.Sprintf("DB index %d is out of range", dbIndex))
+	}
+	return server.dbSet[dbIndex].Load().(*DB)
+}
+
 // selectDB returns the database with the given index, or an error if the index is out of range.
 func (server *Server) selectDB(dbIndex int) (*DB, *protocol.StandardErrReply) {
 	if dbIndex >= len(server.dbSet) || dbIndex < 0 {
@@ -345,7 +353,8 @@ func (server *Server) GetEntity(dbIndex int, key string) (*database.DataEntity, 
 	if err != nil {
 		return nil, false, err
 	}
-	return db.GetEntity(key), true
+	entity, ok := db.GetEntity(key)
+	return entity, ok, nil
 }
 
 func (server *Server) GetExpiration(dbIndex int, key string) (*time.Time, error) {
@@ -362,7 +371,7 @@ func (server *Server) GetExpiration(dbIndex int, key string) (*time.Time, error)
 }
 
 // ExecMulti executes multi commands transaction Atomically and Isolated
-func (server *Server) ExecMulti(conn redis.Connection, watching map[string]uint32, cmdLines []CmdLine) redis.Reply {
+func (server *Server) ExecMulti(conn redis.Connection, watching map[string]uint64, cmdLines []CmdLine) redis.Reply {
 	selectedDB, errReply := server.selectDB(conn.GetDBIndex())
 	if errReply != nil {
 		return errReply

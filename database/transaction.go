@@ -82,7 +82,7 @@ func execMulti(db *DB, conn redis.Connection) redis.Reply {
 }
 
 // ExecMulti executes multi commands transaction Atomically and Isolated
-func (db *DB) ExecMulti(conn redis.Connection, watching map[string]uint32, cmdLines []CmdLine) redis.Reply {
+func (db *DB) ExecMulti(conn redis.Connection, watching map[string]uint64, cmdLines []CmdLine) redis.Reply {
 	// prepare
 	writeKeys := make([]string, 0) // may contains duplicate
 	readKeys := make([]string, 0)

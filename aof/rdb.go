@@ -125,7 +125,7 @@ func (persister *Persister) generateRDB(ctx *RewriteCtx) error {
 	}
 
 	for i := 0; i < config.Properties.Databases; i++ {
-		keyCount, ttlCount := tmpHandler.db.GetDBSize(i)
+		keyCount, ttlCount, _ := tmpHandler.db.GetDBSize(i)
 		if keyCount == 0 {
 			continue
 		}

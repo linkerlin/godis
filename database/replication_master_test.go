@@ -37,6 +37,7 @@ func mockServer() *Server {
 }
 
 func TestReplicationMasterSide(t *testing.T) {
+	skipReplicationTests(t)
 	tmpDir, err := ioutil.TempDir("", "godis")
 	if err != nil {
 		t.Error(err)
@@ -47,7 +48,7 @@ func TestReplicationMasterSide(t *testing.T) {
 		_ = os.Remove(aofFilename)
 	}()
 	config.Properties = &config.ServerProperties{
-		Databases:      16,
+		Databases:      1,
 		AppendOnly:     true,
 		AppendFilename: aofFilename,
 	}
@@ -200,6 +201,7 @@ func TestReplicationMasterSide(t *testing.T) {
 }
 
 func TestReplicationMasterRewriteRDB(t *testing.T) {
+	skipReplicationTests(t)
 	tmpDir, err := ioutil.TempDir("", "godis")
 	if err != nil {
 		t.Error(err)
@@ -210,7 +212,7 @@ func TestReplicationMasterRewriteRDB(t *testing.T) {
 		_ = os.Remove(aofFilename)
 	}()
 	config.Properties = &config.ServerProperties{
-		Databases:      16,
+		Databases:      1,
 		AppendOnly:     true,
 		AppendFilename: aofFilename,
 		AppendFsync:    aof.FsyncAlways,

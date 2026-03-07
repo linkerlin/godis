@@ -106,7 +106,7 @@ func execRaftCommittedIndex(cluster *Cluster, c redis.Connection, cmdLine CmdLin
 func (cluster *Cluster) LocalExists(keys []string) []string {
 	var exists []string
 	for _, key := range keys {
-		_, ok := cluster.db.GetEntity(0, key)
+		_, ok, _ := cluster.db.GetEntity(0, key)
 		if ok {
 			exists = append(exists, key)
 		}

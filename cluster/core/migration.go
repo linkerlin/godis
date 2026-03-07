@@ -146,12 +146,12 @@ func (cluster *Cluster) injectDeleteCallback() {
 
 func (cluster *Cluster) dumpDataThroughConnection(c redis.Connection, keyset *set.Set) {
 	keyset.ForEach(func(key string) bool {
-		entity, ok := cluster.db.GetEntity(0, key)
+		entity, ok, _ := cluster.db.GetEntity(0, key)
 		if ok {
 			ret := aof.EntityToCmd(key, entity)
 			// todo: handle error and close connection
 			_, _ = c.Write(ret.ToBytes())
-			expire := cluster.db.GetExpiration(0, key)
+			expire, _ := cluster.db.GetExpiration(0, key)
 			if expire != nil {
 				ret = aof.MakeExpireCmd(key, *expire)
 				_, _ = c.Write(ret.ToBytes())

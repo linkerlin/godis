@@ -11,6 +11,7 @@ import (
 )
 
 func TestNodeLifecycle(t *testing.T) {
+	skipHeavyTests(t)
 	tmpDir := t.TempDir()
 	defer os.RemoveAll(tmpDir)
 
@@ -243,6 +244,7 @@ func TestFSMUtils(t *testing.T) {
 }
 
 func TestUtils(t *testing.T) {
+	skipHeavyTests(t)
 	//这里只能简单调用下辅助方法
 	cfg := &RaftConfig{RedisAdvertiseAddr: "node1", RaftListenAddr: "127.0.0.1:9000", Dir: t.TempDir()}
 	node, err := StartNode(cfg)

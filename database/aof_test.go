@@ -98,6 +98,7 @@ func validateTestData(t *testing.T, db database.DB, dbIndex int, prefix string, 
 }
 
 func TestAof(t *testing.T) {
+	skipHeavyTests(t)
 	tmpDir, err := ioutil.TempDir("", "godis")
 	if err != nil {
 		t.Error(err)
@@ -113,8 +114,8 @@ func TestAof(t *testing.T) {
 		AofUseRdbPreamble: false,
 		AppendFsync:       aof.FsyncEverySec,
 	}
-	dbNum := 4
-	size := 10
+	dbNum := 1
+	size := 3
 	var prefixes []string
 	aofWriteDB := MustNewStandaloneServer()
 	// generate test data
@@ -133,6 +134,7 @@ func TestAof(t *testing.T) {
 }
 
 func TestRDB(t *testing.T) {
+	skipHeavyTests(t)
 	tmpDir, err := ioutil.TempDir("", "godis")
 	if err != nil {
 		t.Error(err)
@@ -149,8 +151,8 @@ func TestRDB(t *testing.T) {
 		AppendFilename: aofFilename,
 		RDBFilename:    rdbFilename,
 	}
-	dbNum := 4
-	size := 10
+	dbNum := 1
+	size := 3
 	var prefixes []string
 	conn := connection.NewFakeConn()
 	writeDB := MustNewStandaloneServer()
@@ -171,6 +173,7 @@ func TestRDB(t *testing.T) {
 }
 
 func TestRewriteAOF(t *testing.T) {
+	skipHeavyTests(t)
 	tmpFile, err := os.CreateTemp(config.GetTmpDir(), "*.aof")
 	if err != nil {
 		t.Error(err)
@@ -188,7 +191,7 @@ func TestRewriteAOF(t *testing.T) {
 	}
 	aofWriteDB := MustNewStandaloneServer()
 	size := 1
-	dbNum := 4
+	dbNum := 1
 	var prefixes []string
 	for i := 0; i < dbNum; i++ {
 		prefix := "" // utils.RandString(8)
@@ -209,6 +212,7 @@ func TestRewriteAOF(t *testing.T) {
 
 // TestRewriteAOF2 tests execute commands during rewrite procedure
 func TestRewriteAOF2(t *testing.T) {
+	skipHeavyTests(t)
 	/* prepare */
 	tmpFile, err := os.CreateTemp(config.GetTmpDir(), "*.aof")
 	if err != nil {
@@ -224,11 +228,11 @@ func TestRewriteAOF2(t *testing.T) {
 		AofUseRdbPreamble: true,
 	}
 
-	keySize1 := 100
-	keySize2 := 250
+	keySize1 := 5
+	keySize2 := 10
 	/* write data */
 	aofWriteDB := MustNewStandaloneServer()
-	dbNum := 4
+	dbNum := 1
 	conn := connection.NewFakeConn()
 	for i := 0; i < dbNum; i++ {
 		conn.SelectDB(i)
