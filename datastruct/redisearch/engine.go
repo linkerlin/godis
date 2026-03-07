@@ -650,3 +650,20 @@ func (e *RediSearchEngine) AddGeoPoint(docID string, field string, lat, lon floa
 	e.geoIndices[field].Add(docID, GeoPoint{Lat: lat, Lon: lon})
 }
 
+
+
+// TermExists checks if a term exists in the index
+func (e *RediSearchEngine) TermExists(term string) bool {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	
+	term = strings.ToLower(term)
+	
+	// Check in index terms
+	if _, ok := e.index.terms[term]; ok {
+		return true
+	}
+	
+	return false
+}
+
