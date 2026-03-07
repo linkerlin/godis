@@ -1,7 +1,10 @@
 package database
 
 import (
+	"strconv"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/hdt3213/godis/acl"
 	"github.com/hdt3213/godis/interface/redis"
@@ -9,6 +12,102 @@ import (
 )
 
 var aclEngine *acl.Engine
+
+// ACLLogEntry 表示ACL日志条目
+type ACLLogEntry struct {
+	Count      int64
+	Reason     string
+	Context    string
+	Object     string
+	Username   string
+	AgeSeconds float64
+	Timestamp  time.Time
+}
+
+// ACL日志存储
+var (
+	aclLogEntries []*ACLLogEntry
+	aclLogMu      sync.RWMutex
+	aclLogMaxLen  = 128
+)
+
+// addACLLogEntry 添加ACL日志条目
+func addACLLogEntry(reason, context, object, username string) {
+	aclLogMu.Lock()
+	defer aclLogMu.Unlock()
+	
+	// 检查是否存在相同条目（去重）
+	for _, entry := range aclLogEntries {
+		if entry.Reason == reason && entry.Object == object && entry.Username == username {
+			entry.Count++
+			entry.Timestamp = time.Now()
+			return
+		}
+	}
+	
+	// 添加新条目
+	entry := &ACLLogEntry{
+		Count:      1,
+		Reason:     reason,
+		Context:    context,
+		Object:     object,
+		Username:   username,
+		Timestamp:  time.Now(),
+	}
+	
+	aclLogEntries = append(aclLogEntries, entry)
+	
+	// 限制日志数量
+	if len(aclLogEntries) > aclLogMaxLen {
+		aclLogEntries = aclLogEntries[len(aclLogEntries)-aclLogMaxLen:]
+	}
+}
+
+// getACLLogEntries 获取ACL日志条目
+func getACLLogEntries(count int) redis.Reply {
+	aclLogMu.RLock()
+	defer aclLogMu.RUnlock()
+	
+	entries := aclLogEntries
+	if count > 0 && count < len(entries) {
+		entries = entries[len(entries)-count:]
+	}
+	
+	var result [][]byte
+	now := time.Now()
+	
+	for _, entry := range entries {
+		age := now.Sub(entry.Timestamp).Seconds()
+		
+		var fields [][]byte
+		fields = append(fields, []byte("count"))
+		fields = append(fields, []byte(strconv.FormatInt(entry.Count, 10)))
+		fields = append(fields, []byte("reason"))
+		fields = append(fields, []byte(entry.Reason))
+		fields = append(fields, []byte("context"))
+		fields = append(fields, []byte(entry.Context))
+		fields = append(fields, []byte("object"))
+		fields = append(fields, []byte(entry.Object))
+		fields = append(fields, []byte("username"))
+		fields = append(fields, []byte(entry.Username))
+		fields = append(fields, []byte("age-seconds"))
+		fields = append(fields, []byte(strconv.FormatFloat(age, 'f', 6, 64)))
+		fields = append(fields, []byte("timestamp"))
+		fields = append(fields, []byte(strconv.FormatInt(entry.Timestamp.Unix(), 10)))
+		
+		result = append(result, protocol.MakeMultiBulkReply(fields).ToBytes())
+	}
+	
+	return protocol.MakeMultiBulkReply(result)
+}
+
+// resetACLLog 重置ACL日志
+func resetACLLog() {
+	aclLogMu.Lock()
+	defer aclLogMu.Unlock()
+	
+	aclLogEntries = make([]*ACLLogEntry, 0)
+}
 
 // InitACLEngine initializes the ACL engine
 func (server *Server) InitACLEngine() {
@@ -208,16 +307,27 @@ func execACLCat(args [][]byte) redis.Reply {
 
 // execACLLog manages the ACL log
 func execACLLog(args [][]byte) redis.Reply {
-	// Simplified implementation - ACL log not fully implemented
 	if len(args) == 0 {
-		return protocol.MakeEmptyMultiBulkReply()
+		// 返回所有日志条目
+		return getACLLogEntries(-1)
 	}
 	
+	// 检查RESET
 	if len(args) == 1 && strings.ToUpper(string(args[0])) == "RESET" {
+		resetACLLog()
 		return protocol.MakeOkReply()
 	}
 	
-	return protocol.MakeEmptyMultiBulkReply()
+	// 解析数量限制
+	count := -1
+	if len(args) >= 1 {
+		c, err := strconv.Atoi(string(args[0]))
+		if err == nil && c > 0 {
+			count = c
+		}
+	}
+	
+	return getACLLogEntries(count)
 }
 
 // execACLHelp returns help information
