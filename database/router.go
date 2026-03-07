@@ -34,6 +34,9 @@ const flagWrite = 0
 const (
 	flagReadOnly = 1 << iota
 	flagSpecial  // command invoked in Exec
+	flagAdmin    // admin command
+	flagFast     // fast command
+	flagLoading  // command allowed during loading
 )
 
 // registerCommand registers a normal command, which only read or modify a limited number of keys

@@ -44,6 +44,11 @@ type Server struct {
 	// slow log record
 	slogLogger *SlowLogger
 	
+	// client pause state
+	clientPaused     bool
+	clientPauseEnd   time.Time
+	clientPauseMode  string // "WRITE" or "ALL"
+	
 	// initialization error if any
 	initErr error
 }
@@ -226,8 +231,40 @@ func (server *Server) Exec(c redis.Connection, cmdLine [][]byte) (result redis.R
 		if len(cmdLine) != 2 {
 			return protocol.MakeArgNumErrReply("select")
 		}
-		return execSelect(c, server, cmdLine[1:])
-	} else if cmdName == "copy" {
+		dbIndex, err := strconv.Atoi(string(cmdLine[1]))
+			if err != nil {
+				return protocol.MakeErrReply("ERR invalid DB index")
+			}
+			if dbIndex >= len(server.dbSet) || dbIndex < 0 {
+				return protocol.MakeErrReply("ERR DB index is out of range")
+			}
+			c.SelectDB(dbIndex)
+			return protocol.MakeOkReply()
+	} else if cmdName == "swapdb" {
+			if len(cmdLine) != 3 {
+				return protocol.MakeArgNumErrReply("swapdb")
+			}
+			index1, err := strconv.Atoi(string(cmdLine[1]))
+			if err != nil {
+				return protocol.MakeErrReply("ERR value is not an integer or out of range")
+			}
+			index2, err := strconv.Atoi(string(cmdLine[2]))
+			if err != nil {
+				return protocol.MakeErrReply("ERR value is not an integer or out of range")
+			}
+			if index1 < 0 || index1 >= len(server.dbSet) || index2 < 0 || index2 >= len(server.dbSet) {
+				return protocol.MakeErrReply("ERR DB index is out of range")
+			}
+			server.dbSet[index1], server.dbSet[index2] = server.dbSet[index2], server.dbSet[index1]
+			currentDB := c.GetDBIndex()
+			if currentDB == index1 {
+				c.SelectDB(index2)
+			} else if currentDB == index2 {
+				c.SelectDB(index1)
+			}
+			server.AddAof(c.GetDBIndex(), utils.ToCmdLine3("swapdb", cmdLine[1:]...))
+			return protocol.MakeOkReply()
+		} else if cmdName == "copy" {
 		if len(cmdLine) < 3 {
 			return protocol.MakeArgNumErrReply("copy")
 		}
@@ -269,16 +306,19 @@ func (server *Server) Close() {
 	server.stopMaster()
 }
 
-func execSelect(c redis.Connection, mdb *Server, args [][]byte) redis.Reply {
-	dbIndex, err := strconv.Atoi(string(args[0]))
-	if err != nil {
-		return protocol.MakeErrReply("ERR invalid DB index")
+// CheckClientPause checks if client processing should be paused
+func (server *Server) CheckClientPause(isWrite bool) bool {
+	if !server.clientPaused {
+		return false
 	}
-	if dbIndex >= len(mdb.dbSet) || dbIndex < 0 {
-		return protocol.MakeErrReply("ERR DB index is out of range")
+	if time.Now().After(server.clientPauseEnd) {
+		server.clientPaused = false
+		return false
 	}
-	c.SelectDB(dbIndex)
-	return protocol.MakeOkReply()
+	if server.clientPauseMode == "ALL" {
+		return true
+	}
+	return isWrite
 }
 
 func (server *Server) execFlushDB(dbIndex int) redis.Reply {
@@ -549,3 +589,6 @@ func (server *Server) SetKeyDeletedCallback(cb database.KeyEventCallback) {
 		db.deleteCallback = cb
 	}
 }
+
+
+
