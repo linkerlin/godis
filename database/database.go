@@ -18,6 +18,9 @@ const (
 	ttlDictSize  = 1 << 10
 )
 
+// testDictSize is used for testing to reduce memory consumption
+const testDictSize = 16
+
 // DB stores data and execute user's commands
 type DB struct {
 	index int
@@ -57,6 +60,17 @@ func makeDB() *DB {
 		data:       dict.MakeConcurrent(dataDictSize),
 		ttlMap:     dict.MakeConcurrent(ttlDictSize),
 		versionMap: dict.MakeConcurrent(dataDictSize),
+		addAof:     func(line CmdLine) {},
+	}
+	return db
+}
+
+// makeDBWithSize creates DB instance with custom dict sizes
+func makeDBWithSize(dictSize int) *DB {
+	db := &DB{
+		data:       dict.MakeConcurrent(dictSize),
+		ttlMap:     dict.MakeConcurrent(dictSize),
+		versionMap: dict.MakeConcurrent(dictSize),
 		addAof:     func(line CmdLine) {},
 	}
 	return db

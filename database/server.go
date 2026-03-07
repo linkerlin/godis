@@ -55,6 +55,16 @@ func fileExists(filename string) bool {
 
 // NewStandaloneServer creates a standalone redis server, with multi database and all other functions
 func NewStandaloneServer() (*Server, error) {
+	return newServerWithSize(dataDictSize)
+}
+
+// NewTestServer creates a server with smaller dict sizes for testing
+func NewTestServer() (*Server, error) {
+	return newServerWithSize(testDictSize)
+}
+
+// newServerWithSize creates a server with custom dict size
+func newServerWithSize(dictSize int) (*Server, error) {
 	server := &Server{}
 	if config.Properties.Databases == 0 {
 		config.Properties.Databases = 16
@@ -69,7 +79,7 @@ func NewStandaloneServer() (*Server, error) {
 	// make db set
 	server.dbSet = make([]*atomic.Value, config.Properties.Databases)
 	for i := range server.dbSet {
-		singleDB := makeDB()
+		singleDB := makeDBWithSize(dictSize)
 		singleDB.index = i
 		holder := &atomic.Value{}
 		holder.Store(singleDB)

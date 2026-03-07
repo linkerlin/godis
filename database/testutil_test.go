@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"github.com/hdt3213/godis/config"
-	"github.com/hdt3213/godis/datastruct/dict"
 	"github.com/hdt3213/godis/lib/logger"
 )
 
@@ -45,7 +44,7 @@ func getTestServer() *Server {
 			AppendOnly: false,
 		}
 		var err error
-		testServerInst, err = NewStandaloneServer()
+		testServerInst, err = NewTestServer()
 		if err != nil {
 			logger.Fatal("failed to create test server: " + err.Error())
 		}
@@ -56,12 +55,7 @@ func getTestServer() *Server {
 // getTestDB returns a shared test DB instance (lazy initialization)
 func getTestDB() *DB {
 	testDBOnce.Do(func() {
-		testDBInst = &DB{
-			data:       dict.MakeConcurrent(dataDictSize),
-			versionMap: dict.MakeConcurrent(dataDictSize),
-			ttlMap:     dict.MakeConcurrent(ttlDictSize),
-			addAof:     func(line CmdLine) {},
-		}
+		testDBInst = makeDBWithSize(testDictSize)
 	})
 	return testDBInst
 }
