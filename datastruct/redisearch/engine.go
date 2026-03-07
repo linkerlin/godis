@@ -14,6 +14,9 @@ type RediSearchEngine struct {
 	index  *InvertedIndex
 	schema map[string]*Field
 	
+	// Geo indices for each geo field
+	geoIndices map[string]*GeoIndex // field name -> geo index
+	
 	// Options
 	defaultLanguage string
 	scoreField      string
@@ -36,6 +39,7 @@ func NewRediSearchEngine(config *EngineConfig) *RediSearchEngine {
 		name:            config.Name,
 		index:           NewInvertedIndex(),
 		schema:          make(map[string]*Field),
+		geoIndices:      make(map[string]*GeoIndex),
 		defaultLanguage: config.DefaultLanguage,
 		scoreField:      config.ScoreField,
 		payloadField:    config.PayloadField,
@@ -131,6 +135,11 @@ func (e *RediSearchEngine) Search(query string, opts *SearchOptions) (*SearchRes
 	// Execute query
 	docIDs := node.Evaluate(e.index)
 	
+	// Apply geo filter if specified
+	if opts != nil && opts.GeoFilter != nil {
+		docIDs = e.applyGeoFilter(docIDs, opts.GeoFilter)
+	}
+	
 	// Fetch documents and calculate scores
 	results := make([]*SearchResult, 0, len(docIDs))
 	for _, docID := range docIDs {
@@ -175,14 +184,24 @@ func (e *RediSearchEngine) Search(query string, opts *SearchOptions) (*SearchRes
 	}, nil
 }
 
+// GeoFilterOptions holds geo filter options
+type GeoFilterOptions struct {
+	Field  string
+	Lat    float64
+	Lon    float64
+	Radius float64
+	Unit   string // m, km, mi, ft
+}
+
 // SearchOptions holds search options
 type SearchOptions struct {
-	Offset    int
-	Limit     int
-	SortBy    string
-	SortDesc  bool
+	Offset     int
+	Limit      int
+	SortBy     string
+	SortDesc   bool
 	WithScores bool
 	WithPayloads bool
+	GeoFilter  *GeoFilterOptions
 	Filters   []FieldFilter
 }
 
@@ -586,3 +605,48 @@ func min(a, b int) int {
 	}
 	return b
 }
+
+
+// applyGeoFilter filters documents by geo location
+func (e *RediSearchEngine) applyGeoFilter(docIDs []string, opts *GeoFilterOptions) []string {
+	e.mu.RLock()
+	geoIndex, ok := e.geoIndices[opts.Field]
+	e.mu.RUnlock()
+	
+	if !ok {
+		// No geo index for this field, return empty
+		return nil
+	}
+	
+	center := GeoPoint{Lat: opts.Lat, Lon: opts.Lon}
+	
+	var results []string
+	for _, docID := range docIDs {
+		// Check if doc is in geo index
+		if point, ok := geoIndex.points[docID]; ok {
+			filter := &GeoFilter{
+				Center: center,
+				Radius: opts.Radius,
+				Unit:   opts.Unit,
+			}
+			if filter.Matches(point) {
+				results = append(results, docID)
+			}
+		}
+	}
+	
+	return results
+}
+
+// AddGeoPoint adds a geo point for a document
+func (e *RediSearchEngine) AddGeoPoint(docID string, field string, lat, lon float64) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	
+	if e.geoIndices[field] == nil {
+		e.geoIndices[field] = NewGeoIndex()
+	}
+	
+	e.geoIndices[field].Add(docID, GeoPoint{Lat: lat, Lon: lon})
+}
+
