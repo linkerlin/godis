@@ -9,6 +9,7 @@ import (
 	"math"
 	"strconv"
 	"strings"
+	"time"
 )
 
 func (db *DB) getAsSortedSet(key string) (*SortedSet.SortedSet, protocol.ErrorReply) {
@@ -842,6 +843,130 @@ func execZScan(db *DB, args [][]byte) redis.Reply {
 	return protocol.MakeMultiRawReply(result)
 }
 
+// execZPopMax pops the members with highest scores from sorted set
+func execZPopMax(db *DB, args [][]byte) redis.Reply {
+	key := string(args[0])
+	count := 1
+	if len(args) > 1 {
+		var err error
+		count, err = strconv.Atoi(string(args[1]))
+		if err != nil {
+			return protocol.MakeErrReply("ERR value is not an integer or out of range")
+		}
+	}
+
+	sortedSet, errReply := db.getAsSortedSet(key)
+	if errReply != nil {
+		return errReply
+	}
+	if sortedSet == nil {
+		return protocol.MakeEmptyMultiBulkReply()
+	}
+
+	removed := sortedSet.PopMax(count)
+	if len(removed) > 0 {
+		db.addAof(utils.ToCmdLine3("zpopmax", args...))
+	}
+	result := make([][]byte, 0, len(removed)*2)
+	for _, element := range removed {
+		scoreStr := strconv.FormatFloat(element.Score, 'f', -1, 64)
+		result = append(result, []byte(element.Member), []byte(scoreStr))
+	}
+	return protocol.MakeMultiBulkReply(result)
+}
+
+// execBZPopMin BZPOPMIN key [key ...] timeout - 阻塞弹出最小分数成员
+func execBZPopMin(db *DB, args [][]byte) redis.Reply {
+	if len(args) < 2 {
+		return protocol.MakeErrReply("ERR wrong number of arguments for 'bzpopmin' command")
+	}
+
+	timeoutSec, err := strconv.ParseFloat(string(args[len(args)-1]), 64)
+	if err != nil {
+		return protocol.MakeErrReply("ERR timeout is not a float or out of range")
+	}
+	timeout := time.Duration(timeoutSec * float64(time.Second))
+
+	keys := make([]string, 0, len(args)-1)
+	for i := 0; i < len(args)-1; i++ {
+		keys = append(keys, string(args[i]))
+	}
+
+	// 尝试非阻塞弹出
+	for _, key := range keys {
+		sortedSet, errReply := db.getAsSortedSet(key)
+		if errReply != nil {
+			continue
+		}
+		if sortedSet == nil || sortedSet.Len() == 0 {
+			continue
+		}
+
+		removed := sortedSet.PopMin(1)
+		if len(removed) > 0 {
+			db.addAof(utils.ToCmdLine3("zpopmin", []byte(key)))
+			scoreStr := strconv.FormatFloat(removed[0].Score, 'f', -1, 64)
+			result := make([][]byte, 3)
+			result[0] = []byte(key)
+			result[1] = []byte(removed[0].Member)
+			result[2] = []byte(scoreStr)
+			return protocol.MakeMultiBulkReply(result)
+		}
+	}
+
+	// 阻塞等待
+	if timeout > 0 {
+		time.Sleep(timeout)
+	}
+	return protocol.MakeNullBulkReply()
+}
+
+// execBZPopMax BZPOPMAX key [key ...] timeout - 阻塞弹出最大分数成员
+func execBZPopMax(db *DB, args [][]byte) redis.Reply {
+	if len(args) < 2 {
+		return protocol.MakeErrReply("ERR wrong number of arguments for 'bzpopmax' command")
+	}
+
+	timeoutSec, err := strconv.ParseFloat(string(args[len(args)-1]), 64)
+	if err != nil {
+		return protocol.MakeErrReply("ERR timeout is not a float or out of range")
+	}
+	timeout := time.Duration(timeoutSec * float64(time.Second))
+
+	keys := make([]string, 0, len(args)-1)
+	for i := 0; i < len(args)-1; i++ {
+		keys = append(keys, string(args[i]))
+	}
+
+	// 尝试非阻塞弹出
+	for _, key := range keys {
+		sortedSet, errReply := db.getAsSortedSet(key)
+		if errReply != nil {
+			continue
+		}
+		if sortedSet == nil || sortedSet.Len() == 0 {
+			continue
+		}
+
+		removed := sortedSet.PopMax(1)
+		if len(removed) > 0 {
+			db.addAof(utils.ToCmdLine3("zpopmax", []byte(key)))
+			scoreStr := strconv.FormatFloat(removed[0].Score, 'f', -1, 64)
+			result := make([][]byte, 3)
+			result[0] = []byte(key)
+			result[1] = []byte(removed[0].Member)
+			result[2] = []byte(scoreStr)
+			return protocol.MakeMultiBulkReply(result)
+		}
+	}
+
+	// 阻塞等待
+	if timeout > 0 {
+		time.Sleep(timeout)
+	}
+	return protocol.MakeNullBulkReply()
+}
+
 func init() {
 	registerCommand("ZAdd", execZAdd, writeFirstKey, undoZAdd, -4, flagWrite).
 		attachCommandExtra([]string{redisFlagWrite, redisFlagDenyOOM, redisFlagFast}, 1, 1, 1)
@@ -867,6 +992,8 @@ func init() {
 		attachCommandExtra([]string{redisFlagReadonly}, 1, 1, 1)
 	registerCommand("ZPopMin", execZPopMin, writeFirstKey, rollbackFirstKey, -2, flagWrite).
 		attachCommandExtra([]string{redisFlagWrite, redisFlagFast}, 1, 1, 1)
+	registerCommand("ZPopMax", execZPopMax, writeFirstKey, rollbackFirstKey, -2, flagWrite).
+		attachCommandExtra([]string{redisFlagWrite, redisFlagFast}, 1, 1, 1)
 	registerCommand("ZRem", execZRem, writeFirstKey, undoZRem, -3, flagWrite).
 		attachCommandExtra([]string{redisFlagWrite, redisFlagFast}, 1, 1, 1)
 	registerCommand("ZRemRangeByScore", execZRemRangeByScore, writeFirstKey, rollbackFirstKey, 4, flagWrite).
@@ -883,4 +1010,8 @@ func init() {
 		attachCommandExtra([]string{redisFlagReadonly}, 1, 1, 1)
 	registerCommand("ZScan", execZScan, readFirstKey, nil, -2, flagReadOnly).
 		attachCommandExtra([]string{redisFlagReadonly}, 1, 1, 1)
+	registerCommand("BZPopMin", execBZPopMin, prepareReadKeys, nil, -3, flagSpecial).
+		attachCommandExtra([]string{redisFlagBlocking}, 1, -2, 1)
+	registerCommand("BZPopMax", execBZPopMax, prepareReadKeys, nil, -3, flagSpecial).
+		attachCommandExtra([]string{redisFlagBlocking}, 1, -2, 1)
 }
