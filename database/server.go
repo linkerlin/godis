@@ -178,6 +178,16 @@ func (server *Server) Exec(c redis.Connection, cmdLine [][]byte) (result redis.R
 		return server.execSlaveOf(c, cmdLine[1:])
 	} else if cmdName == "command" {
 		return execCommand(cmdLine[1:])
+	} else if cmdName == "config" {
+		return execConfig(cmdLine[1:])
+	} else if cmdName == "memory" {
+		return execMemory(cmdLine[1:])
+	} else if cmdName == "latency" {
+		return execLatency(cmdLine[1:])
+	} else if cmdName == "module" {
+		return execModule(cmdLine[1:])
+	} else if cmdName == "time" {
+		return execTime(cmdLine[1:])
 	}
 
 	// read only slave
