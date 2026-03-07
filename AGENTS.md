@@ -4,14 +4,21 @@
 
 ## 项目概述
 
-**Godis** 是一个用 Go 语言编写的 Redis 兼容服务器，支持：
-- String（字符串）、List（列表）、Hash（哈希）、Set（集合）、Sorted Set（有序集合）、Bitmap（位图）、GEO（地理位置）数据类型
-- TTL（生存时间）
-- 发布/订阅
-- AOF 持久化和 RDB 读写
+**Godis** 是一个用 Go 语言编写的 Redis 8.x 兼容服务器，支持：
+- String（字符串）、List（列表）、Hash（哈希）、Set（集合）、Sorted Set（有序集合）、Bitmap（位图）、Stream、**JSON**、**Vector Set** 数据类型
+- TTL（生存时间）和 **Hash Field 过期**（Redis 8.x）
+- 发布/订阅和 **Sharded Pub/Sub**（集群）
+- AOF 持久化、RDB 持久化、混合持久化
 - 事务（原子性，支持回滚）
 - 主从复制
 - 基于 Raft 的集群
+- **RESP3 协议**支持
+- **客户端缓存**（失效推送）
+- **RediSearch** 全文搜索
+- **Time Series** 时序数据
+- **概率数据结构**：Bloom Filter、Cuckoo Filter、Count-Min Sketch、Top-K、T-Digest
+- **Redis Functions** Lua 函数持久化
+- **ACL** 访问控制列表
 
 ## 常用命令
 
@@ -42,6 +49,7 @@ go test -v -coverprofile=profile.cov ./...
 # 运行特定包的测试
 go test -v ./database/...
 go test -v ./datastruct/...
+go test -v ./scripting/...
 ```
 
 ### 交叉编译
@@ -82,7 +90,13 @@ godis/
 │   ├── set/                # 哈希集合
 │   ├── sortedset/          # 基于跳表的有序集合
 │   ├── bitmap/             # 位图操作
+│   ├── json/               # JSON 数据类型
+│   ├── vector/             # Vector Set 向量集
+│   ├── timeseries/         # 时序数据
 │   └── lock/               # 键级锁
+├── scripting/              # Lua 脚本和 Functions
+│   ├── lua_engine.go       # 内置 Lua 解释器
+│   └── functions.go        # Redis Functions 实现
 ├── database/               # 存储引擎核心
 │   ├── database.go         # DB 结构体和基本操作
 │   ├── server.go           # 多数据库服务器
@@ -93,10 +107,21 @@ godis/
 │   ├── hash.go             # 哈希命令
 │   ├── set.go              # 集合命令
 │   ├── sortedset.go        # 有序集合命令
+│   ├── stream.go           # Stream 命令
+│   ├── json.go             # JSON 命令
+│   ├── vector.go           # Vector Set 命令
+│   ├── timeseries.go       # 时序命令
+│   ├── rediSearch.go       # 全文搜索命令
+│   ├── rediSearch_synonym.go # 同义词支持
+│   ├── bloom.go            # Bloom Filter
+│   ├── cuckoo.go           # Cuckoo Filter
+│   ├── probal.go           # 概率数据结构
 │   ├── keys.go             # 键命令（DEL、EXPIRE 等）
 │   ├── transaction.go      # 事务支持
 │   ├── persistence.go      # AOF 集成
 │   ├── replication_*.go    # 主从复制
+│   ├── acl.go              # ACL 访问控制
+│   ├── caching.go          # 客户端缓存
 │   └── geo.go              # 地理位置命令
 ├── cluster/                # 集群模式
 │   ├── cluster.go          # 集群初始化
@@ -105,12 +130,15 @@ godis/
 │   │   ├── node_manager.go # 节点管理
 │   │   └── tcc.go          # 分布式事务
 │   ├── commands/           # 集群感知命令
+│   ├── sharded_pubsub.go   # 分片发布订阅
 │   └── raft/               # Raft 共识
 ├── aof/                    # AOF 持久化
 │   ├── aof.go              # AOF 写入
 │   ├── rewrite.go          # AOF 重写
 │   └── rdb.go              # RDB 格式支持
 └── pubsub/                 # 发布/订阅实现
+    ├── pubsub.go           # 经典 Pub/Sub
+    └── sharded.go          # Sharded Pub/Sub
 ```
 
 ## 代码模式
@@ -175,26 +203,29 @@ func prepareMSet(args [][]byte) ([]string, []string) {
 }
 ```
 
-### 回复类型（redis/protocol/reply.go）
+### RESP3 回复类型（redis/protocol/reply.go）
 
 ```go
-// 字符串/二进制数据
+// RESP2 兼容
 protocol.MakeBulkReply([]byte("value"))     // $5\r\nvalue\r\n
 protocol.MakeNullBulkReply()                // $-1\r\n
-
-// 整数
 protocol.MakeIntReply(42)                   // :42\r\n
-
-// 状态/OK
 protocol.MakeStatusReply("OK")              // +OK\r\n
-protocol.MakeOkReply()                      // +OK\r\n
-
-// 错误
 protocol.MakeErrReply("ERR message")        // -ERR message\r\n
-protocol.MakeSyntaxErrReply()               // -ERR syntax error\r\n
 
-// 数组
-protocol.MakeMultiBulkReply([][]byte{...})  // *n\r\n...
+// RESP3 新增
+protocol.MakeNullReply()                    // _\r\n
+protocol.MakeDoubleReply(3.14)              // ,3.14\r\n
+protocol.MakeBoolReply(true)                // #t\r\n
+protocol.MakeBigNumberReply("123456789")    // (123456789\r\n
+protocol.MakeVerbatimReply("txt", "text")   // =15\r\ntxt:text\r\n
+protocol.MakeMapReply(map[RedisMessage]RedisMessage)  // %n\r\n...
+protocol.MakeSetReply([]RedisMessage)       // ~n\r\n...
+protocol.MakeAttributeReply(attrs, content) // |n\r\n...\r\n...
+protocol.MakePushReply([]RedisMessage)      // >n\r\n...
+
+// 客户端缓存失效推送
+protocol.MakeInvalidatePush(keys)           // >2\r\n+invalidate\r\n*1\r\n$3\r\nkey\r\n
 ```
 
 ### 测试模式
@@ -250,6 +281,25 @@ type DB struct {
     ttlMap      *dict.ConcurrentDict  // key -> expireTime
     versionMap  *dict.ConcurrentDict  // key -> version（用于 WATCH）
     addAof      func(CmdLine)         // AOF 回调
+    
+    // JSON 类型支持
+    jsonCache   *dict.ConcurrentDict  // key -> json.Value
+    
+    // Vector Set 支持
+    vectorSets  *dict.ConcurrentDict  // index -> *vector.Set
+    
+    // RediSearch 索引
+    searchIndexes *dict.ConcurrentDict // index -> *redisearch.Index
+    
+    // 时序数据
+    tsSeries    *dict.ConcurrentDict  // key -> *timeseries.Series
+    
+    // 概率数据结构
+    bloomFilters map[string]*bloom.BloomFilter
+    cuckooFilters map[string]*cuckoo.Filter
+    cmsketches  map[string]*cms.CountMinSketch
+    topk        map[string]*topk.TopK
+    tdigest     map[string]*tdigest.TDigest
 }
 ```
 
@@ -264,8 +314,22 @@ type DB struct {
 
 - 使用 Hashicorp Raft 进行共识
 - 键通过一致性哈希分布（槽位）
-- 跨节点操作使用 TCC（Try-Commit-Cancel）模式
 - `MSET`、`DEL`、`RENAME` 可以跨节点原子执行
+- **Sharded Pub/Sub**: 频道按槽位分片
+
+### 客户端缓存（database/caching.go）
+
+- `CLIENT TRACKING ON/OFF` 启用/禁用缓存跟踪
+- 键读取时通过 `TrackKey()` 记录
+- 键修改时通过 `sendInvalidation()` 发送 RESP3 Push 消息
+- 使用 `RESP3_MAP_AGGREGATE_MAX_ALLOC` 控制 Map 大小
+
+### Lua 脚本和 Functions（scripting/）
+
+- 内置 Lua 解释器，无需外部依赖
+- `EVAL`/`EVALSHA` 执行脚本
+- `FUNCTION LOAD`/`FCALL` 支持持久化函数
+- `redis.call()`/`redis.pcall()` 调用 Redis 命令
 
 ## 配置
 
@@ -278,6 +342,9 @@ databases 16
 appendonly no
 appendfilename appendonly.aof
 requirepass yourpassword
+
+# ACL 配置
+aclfile acl.conf
 
 # 集群模式
 cluster-enable yes
@@ -312,6 +379,10 @@ cluster-seed 127.0.0.1:6399
 
 8. **错误处理**：使用 `github.com/cockroachdb/errors` 进行错误包装。
 
+9. **RESP3 协议**：连接通过 `HELLO 3` 切换到 RESP3 模式，支持更多数据类型和客户端缓存。
+
+10. **JSON 类型**：JSON 值存储在单独的 `jsonCache` 中，与常规字符串分开。
+
 ## 依赖
 
 - `github.com/hashicorp/raft` - Raft 共识
@@ -319,15 +390,76 @@ cluster-seed 127.0.0.1:6399
 - `github.com/hdt3213/rdb` - RDB 格式支持
 - `github.com/panjf2000/gnet/v2` - 高性能网络（可选）
 - `github.com/cockroachdb/errors` - 错误处理
+- `github.com/tidwall/gjson` - JSON 路径查询
+- `github.com/tidwall/sjson` - JSON 修改
+- `github.com/bits-and-blooms/bloom` - Bloom Filter
+- `github.com/seiflotfy/cuckoofilter` - Cuckoo Filter
 
 ## 支持的命令
 
 完整列表请参见 `commands.md`。主要类别：
-- 键：DEL、EXPIRE、TTL、EXISTS、TYPE、RENAME
-- 字符串：SET、GET、INCR、APPEND、MSET、MGET
+
+### 基础数据类型
+- 键：DEL、EXPIRE、TTL、EXISTS、TYPE、RENAME、SCAN
+- 字符串：SET、GET、INCR、APPEND、MSET、MGET、SETEX
 - 列表：LPUSH、RPUSH、LPOP、RPOP、LRANGE、LLEN
-- 哈希：HSET、HGET、HGETALL、HINCRBY
-- 集合：SADD、SREM、SINTER、SUNION、SPOP
-- 有序集合：ZADD、ZRANGE、ZREM、ZSCORE
-- 发布/订阅：PUBLISH、SUBSCRIBE、UNSUBSCRIBE
-- 地理位置：GEOADD、GEOPOS、GEODIST、GEORADIUS
+- 哈希：HSET、HGET、HGETALL、HINCRBY、HDEL、HEXPIRE（Redis 8.x）
+- 集合：SADD、SREM、SINTER、SUNION、SPOP、SRANDMEMBER
+- 有序集合：ZADD、ZRANGE、ZREM、ZSCORE、ZREVRANK
+- Stream：XADD、XREAD、XGROUP、XACK、XPENDING
+
+### JSON 类型
+- JSON.SET、JSON.GET、JSON.DEL、JSON.TYPE
+- JSON.ARRAPPEND、JSON.ARRINSERT、JSON.ARRPOP、JSON.ARRTRIM、JSON.ARRINDEX
+- JSON.OBJKEYS、JSON.OBJLEN、JSON.NUMINCRBY
+
+### Vector Set
+- VS.ADD、VS.SEARCH、VS.REM、VS.DROPINDEX
+
+### RediSearch
+- FT.CREATE、FT.SEARCH、FT.AGGREGATE、FT.DROPINDEX
+- FT.SYNADD、FT.SYNDUMP、FT.SYNUPDATE（同义词）
+
+### Time Series
+- TS.CREATE、TS.ADD、TS.GET、TS.MGET、TS.MRANGE、TS.INFO
+
+### 概率数据结构
+- Bloom：BF.ADD、BF.EXISTS、BF.MADD、BF.RESERVE
+- Cuckoo：CF.ADD、CF.EXISTS、CF.DEL、CF.RESERVE
+- Count-Min Sketch：CMS.INCRBY、CMS.QUERY、CMS.INITBYDIM
+- Top-K：TOPK.ADD、TOPK.QUERY、TOPK.COUNT
+- T-Digest：TD.ADD、TD.QUANTILE、TD.CDF
+
+### 集群
+- CLUSTER NODES、CLUSTER MEET、CLUSTER REPLICATE
+- CLUSTER ADDSLOTS、CLUSTER DELSLOTS、CLUSTER INFO
+
+### 发布订阅
+- PUBLISH、SUBSCRIBE、UNSUBSCRIBE、PSUBSCRIBE
+- SPUBLISH、SSUBSCRIBE、SUNSUBSCRIBE（Sharded）
+
+### 客户端与连接
+- AUTH、HELLO、PING、SELECT、SWAPDB
+- CLIENT LIST、CLIENT SETNAME、CLIENT TRACKING
+- ACL LIST、ACL USERS、ACL SETUSER、ACL DELUSER、ACL LOG
+
+### 脚本和函数
+- EVAL、EVALSHA、SCRIPT LOAD、SCRIPT EXISTS、SCRIPT FLUSH、SCRIPT DEBUG
+- FUNCTION LOAD、FUNCTION DELETE、FCALL、FCALL_RO
+
+## 新增 Redis 8.x 功能实现状态
+
+| 功能 | 状态 | 文件 |
+|------|------|------|
+| RESP3 协议 | ✅ | redis/protocol/reply.go |
+| JSON 类型 | ✅ | database/json.go, datastruct/json/ |
+| Vector Set | ✅ | database/vector.go, datastruct/vector/ |
+| RediSearch | ✅ | database/rediSearch*.go |
+| Time Series | ✅ | database/timeseries.go |
+| Bloom/Cuckoo Filter | ✅ | database/bloom.go, cuckoo.go |
+| CMS/Top-K/T-Digest | ✅ | database/probal.go |
+| Redis Functions | ✅ | scripting/functions.go |
+| 客户端缓存 | ✅ | database/caching.go |
+| Sharded Pub/Sub | ✅ | pubsub/sharded.go, cluster/sharded_pubsub.go |
+| ACL LOG | ✅ | database/acl.go |
+| Hash Field TTL | ✅ | database/hash.go |
