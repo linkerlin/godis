@@ -227,10 +227,7 @@ func sendInvalidation(conn redis.Connection, keys []string) {
 	push := protocol.MakeInvalidatePush(keys)
 	
 	// Write to connection
-	// Note: This requires connection to implement Write method
-	if writer, ok := conn.(interface{ Write([]byte) error }); ok {
-		writer.Write(push.ToBytes())
-	}
+	conn.Write(push.ToBytes())
 }
 
 // IsTrackingEnabled checks if tracking is enabled for a client
