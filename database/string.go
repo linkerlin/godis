@@ -885,6 +885,8 @@ func init() {
 		attachCommandExtra([]string{redisFlagWrite, redisFlagDenyOOM}, 1, 1, 1)
 	registerCommand("GetRange", execGetRange, readFirstKey, nil, 4, flagReadOnly).
 		attachCommandExtra([]string{redisFlagReadonly}, 1, 1, 1)
+	registerCommand("Substr", execGetRange, readFirstKey, nil, 4, flagReadOnly).
+		attachCommandExtra([]string{redisFlagReadonly}, 1, 1, 1)
 	registerCommand("SetBit", execSetBit, writeFirstKey, rollbackFirstKey, 4, flagWrite).
 		attachCommandExtra([]string{redisFlagWrite, redisFlagDenyOOM}, 1, 1, 1)
 	registerCommand("GetBit", execGetBit, readFirstKey, nil, 3, flagReadOnly).
