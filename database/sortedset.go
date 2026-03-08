@@ -1,6 +1,7 @@
 package database
 
 import (
+	"sort"
 	SortedSet "github.com/hdt3213/godis/datastruct/sortedset"
 	"github.com/hdt3213/godis/interface/database"
 	"github.com/hdt3213/godis/interface/redis"
@@ -1099,18 +1100,25 @@ func execZDiffStore(db *DB, args [][]byte) redis.Reply {
 
 // execZSetOperation performs set operations on sorted sets
 func execZSetOperation(db *DB, args [][]byte, op string, store bool) redis.Reply {
-	numKeys, err := strconv.Atoi(string(args[0]))
+	var numKeysIdx int
+	if store {
+		numKeysIdx = 1 // For ZUNIONSTORE/ZINTERSTORE/ZDIFFSTORE, first arg is dest key
+	} else {
+		numKeysIdx = 0 // For ZUNION/ZINTER/ZDIFF, first arg is numkeys
+	}
+	
+	numKeys, err := strconv.Atoi(string(args[numKeysIdx]))
 	if err != nil {
 		return protocol.MakeErrReply("ERR value is not an integer or out of range")
 	}
 	
-	if len(args) < numKeys+1 {
+	if len(args) < numKeysIdx+1+numKeys {
 		return protocol.MakeErrReply("ERR syntax error")
 	}
 	
 	keys := make([]string, numKeys)
 	for i := 0; i < numKeys; i++ {
-		keys[i] = string(args[1+i])
+		keys[i] = string(args[numKeysIdx+1+i])
 	}
 	
 	// Parse options
@@ -1119,8 +1127,9 @@ func execZSetOperation(db *DB, args [][]byte, op string, store bool) redis.Reply
 		weights[i] = 1.0
 	}
 	aggregate := "SUM"
+	withScores := false
 	
-	idx := 1 + numKeys
+	idx := numKeysIdx + 1 + numKeys
 	for idx < len(args) {
 		arg := strings.ToUpper(string(args[idx]))
 		switch arg {
@@ -1145,6 +1154,9 @@ func execZSetOperation(db *DB, args [][]byte, op string, store bool) redis.Reply
 				return protocol.MakeErrReply("ERR syntax error")
 			}
 			idx += 2
+		case "WITHSCORES":
+			withScores = true
+			idx++
 		default:
 			return protocol.MakeErrReply("ERR syntax error")
 		}
@@ -1239,7 +1251,7 @@ func execZSetOperation(db *DB, args [][]byte, op string, store bool) redis.Reply
 	}
 	
 	if store {
-		destKey := string(args[0])
+		destKey := string(args[0]) // For store commands, first arg is dest key
 		newSet := SortedSet.Make()
 		for member, score := range result {
 			newSet.Add(member, score)
@@ -1249,13 +1261,41 @@ func execZSetOperation(db *DB, args [][]byte, op string, store bool) redis.Reply
 		return protocol.MakeIntReply(int64(newSet.Len()))
 	}
 	
-	// Return results
-	reply := make([]redis.Reply, 0, len(result)*2)
-	for member, score := range result {
-		reply = append(reply, protocol.MakeBulkReply([]byte(member)))
-		reply = append(reply, protocol.MakeBulkReply([]byte(strconv.FormatFloat(score, 'f', -1, 64))))
+	// Return results sorted by score
+	type memberScore struct {
+		member string
+		score  float64
 	}
-	return protocol.MakeMultiRawReply(reply)
+	
+	sortedResult := make([]memberScore, 0, len(result))
+	for member, score := range result {
+		sortedResult = append(sortedResult, memberScore{member, score})
+	}
+	
+	// Sort by score ascending
+	sort.Slice(sortedResult, func(i, j int) bool {
+		if sortedResult[i].score != sortedResult[j].score {
+			return sortedResult[i].score < sortedResult[j].score
+		}
+		return sortedResult[i].member < sortedResult[j].member
+	})
+	
+	if withScores {
+		// Return members with scores
+		reply := make([][]byte, 0, len(result)*2)
+		for _, ms := range sortedResult {
+			reply = append(reply, []byte(ms.member))
+			reply = append(reply, []byte(strconv.FormatFloat(ms.score, 'f', -1, 64)))
+		}
+		return protocol.MakeMultiBulkReply(reply)
+	}
+	
+	// Return only members (no scores)
+	reply := make([][]byte, 0, len(result))
+	for _, ms := range sortedResult {
+		reply = append(reply, []byte(ms.member))
+	}
+	return protocol.MakeMultiBulkReply(reply)
 }
 
 // execZMPop removes and returns elements from multiple sorted sets
@@ -1326,20 +1366,21 @@ func execZMPop(db *DB, args [][]byte) redis.Reply {
 			continue
 		}
 		
-		// Build reply
-		result := make([]redis.Reply, 0)
-		result = append(result, protocol.MakeBulkReply([]byte(key)))
+		// Build reply: [key, [[member, score], ...]]
+		var result [][]byte
+		result = append(result, []byte(key))
 		
-		elementsReply := make([]redis.Reply, 0)
+		var elementsReply [][]byte
 		for _, elem := range removed {
-			elemReply := make([]redis.Reply, 2)
-			elemReply[0] = protocol.MakeBulkReply([]byte(elem.Member))
-			elemReply[1] = protocol.MakeBulkReply([]byte(strconv.FormatFloat(elem.Score, 'f', -1, 64)))
-			elementsReply = append(elementsReply, protocol.MakeMultiRawReply(elemReply))
+			elemPair := [][]byte{
+				[]byte(elem.Member),
+				[]byte(strconv.FormatFloat(elem.Score, 'f', -1, 64)),
+			}
+			elementsReply = append(elementsReply, protocol.MakeMultiBulkReply(elemPair).ToBytes())
 		}
-		result = append(result, protocol.MakeMultiRawReply(elementsReply))
+		result = append(result, protocol.MakeMultiBulkReply(elementsReply).ToBytes())
 		
-		return protocol.MakeMultiRawReply(result)
+		return protocol.MakeMultiBulkReply(result)
 	}
 	
 	return protocol.MakeNullBulkReply()
