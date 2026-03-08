@@ -501,4 +501,159 @@ func init() {
 		attachCommandExtra([]string{redisFlagWrite, redisFlagDenyOOM}, 0, 0, 0)
 	registerCommand("TS.DecrBy", execTSDecrBy, nil, nil, -3, flagWrite).
 		attachCommandExtra([]string{redisFlagWrite, redisFlagDenyOOM}, 0, 0, 0)
+	registerCommand("TS.Alter", execTSAlter, nil, nil, -2, flagWrite).
+		attachCommandExtra([]string{redisFlagWrite}, 0, 0, 0)
+	registerCommand("TS.CreateRule", execTSCreateRule, nil, nil, 6, flagWrite).
+		attachCommandExtra([]string{redisFlagWrite}, 0, 0, 0)
+	registerCommand("TS.DeleteRule", execTSDeleteRule, nil, nil, 3, flagWrite).
+		attachCommandExtra([]string{redisFlagWrite}, 0, 0, 0)
+}
+
+// execTSAlter modifies the labels or retention of an existing time series
+// TS.ALTER key [RETENTION retention] [LABELS label value ...]
+func execTSAlter(db *DB, args [][]byte) redis.Reply {
+	if len(args) < 1 {
+		return protocol.MakeErrReply("ERR wrong number of arguments for 'ts.alter' command")
+	}
+	
+	key := string(args[0])
+	
+	entity, exists := db.GetEntity(key)
+	if !exists {
+		return protocol.MakeErrReply("ERR key does not exist")
+	}
+	
+	ts, ok := entity.Data.(*timeseries.TimeSeries)
+	if !ok {
+		return &protocol.WrongTypeErrReply{}
+	}
+	
+	// Parse options
+	for i := 1; i < len(args); {
+		arg := strings.ToUpper(string(args[i]))
+		
+		switch arg {
+		case "RETENTION":
+			if i+1 >= len(args) {
+				return protocol.MakeSyntaxErrReply()
+			}
+			retentionMs, err := strconv.ParseInt(string(args[i+1]), 10, 64)
+			if err != nil {
+				return protocol.MakeErrReply("ERR Retention must be an integer")
+			}
+			ts.SetRetention(time.Duration(retentionMs) * time.Millisecond)
+			i += 2
+			
+		case "LABELS":
+			i++
+			newLabels := make(map[string]string)
+			for i+1 < len(args) {
+				nextArg := strings.ToUpper(string(args[i]))
+				if nextArg == "RETENTION" {
+					break
+				}
+				label := string(args[i])
+				value := string(args[i+1])
+				newLabels[label] = value
+				i += 2
+			}
+			ts.SetLabels(newLabels)
+			
+		default:
+			i++
+		}
+	}
+	
+	db.addAof(prependCmd("ts.alter", args))
+	return protocol.MakeOkReply()
+}
+
+// execTSCreateRule creates a compaction rule
+// TS.CREATERULE sourceKey destKey AGGREGATION aggregationType timeBucket
+func execTSCreateRule(db *DB, args [][]byte) redis.Reply {
+	if len(args) != 5 {
+		return protocol.MakeErrReply("ERR wrong number of arguments for 'ts.createrule' command")
+	}
+	
+	sourceKey := string(args[0])
+	destKey := string(args[1])
+	
+	if strings.ToUpper(string(args[2])) != "AGGREGATION" {
+		return protocol.MakeSyntaxErrReply()
+	}
+	
+	aggType, err := timeseries.ParseAggregationType(string(args[3]))
+	if err != nil {
+		return protocol.MakeErrReply("ERR Invalid aggregation type")
+	}
+	
+	timeBucketMs, err := strconv.ParseInt(string(args[4]), 10, 64)
+	if err != nil {
+		return protocol.MakeErrReply("ERR Time bucket must be an integer")
+	}
+	
+	// Get source time series
+	entity, exists := db.GetEntity(sourceKey)
+	if !exists {
+		return protocol.MakeErrReply("ERR source key does not exist")
+	}
+	
+	sourceTS, ok := entity.Data.(*timeseries.TimeSeries)
+	if !ok {
+		return &protocol.WrongTypeErrReply{}
+	}
+	
+	// Create or get destination time series
+	destEntity, destExists := db.GetEntity(destKey)
+	var destTS *timeseries.TimeSeries
+	
+	if !destExists {
+		// Create destination time series with same retention as source
+		destTS = timeseries.NewTimeSeries(destKey, sourceTS.GetRetention())
+		db.PutEntity(destKey, &database.DataEntity{Data: destTS})
+	} else {
+		var ok bool
+		destTS, ok = destEntity.Data.(*timeseries.TimeSeries)
+		if !ok {
+			return &protocol.WrongTypeErrReply{}
+		}
+	}
+	
+	// Create downsample rule
+	rule := timeseries.DownsampleRule{
+		TimeBucket:  time.Duration(timeBucketMs) * time.Millisecond,
+		Aggregation: aggType,
+		Destination: destKey,
+	}
+	
+	sourceTS.AddDownsampleRule(rule)
+	
+	db.addAof(prependCmd("ts.createrule", args))
+	return protocol.MakeOkReply()
+}
+
+// execTSDeleteRule deletes a compaction rule
+// TS.DELETERULE sourceKey destKey
+func execTSDeleteRule(db *DB, args [][]byte) redis.Reply {
+	if len(args) != 2 {
+		return protocol.MakeErrReply("ERR wrong number of arguments for 'ts.deleterule' command")
+	}
+	
+	sourceKey := string(args[0])
+	destKey := string(args[1])
+	
+	entity, exists := db.GetEntity(sourceKey)
+	if !exists {
+		return protocol.MakeErrReply("ERR source key does not exist")
+	}
+	
+	ts, ok := entity.Data.(*timeseries.TimeSeries)
+	if !ok {
+		return &protocol.WrongTypeErrReply{}
+	}
+	
+	ts.RemoveDownsampleRule(destKey)
+	
+	db.addAof(prependCmd("ts.deleterule", args))
+	return protocol.MakeOkReply()
 }

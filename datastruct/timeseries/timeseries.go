@@ -484,3 +484,70 @@ var (
 	ErrTimestampTooOld   = fmt.Errorf("timestamp is older than retention")
 	ErrUnknownAggregation = fmt.Errorf("unknown aggregation type")
 )
+
+
+// SetRetention sets the retention period
+func (ts *TimeSeries) SetRetention(retention time.Duration) {
+	ts.mu.Lock()
+	defer ts.mu.Unlock()
+	
+	ts.Retention = retention
+	ts.applyRetention()
+}
+
+// GetRetention returns the retention period
+func (ts *TimeSeries) GetRetention() time.Duration {
+	ts.mu.RLock()
+	defer ts.mu.RUnlock()
+	
+	return ts.Retention
+}
+
+// SetLabels sets all labels (replaces existing labels)
+func (ts *TimeSeries) SetLabels(labels map[string]string) {
+	ts.mu.Lock()
+	defer ts.mu.Unlock()
+	
+	ts.Labels = labels
+}
+
+// AddDownsampleRule adds a downsample rule
+func (ts *TimeSeries) AddDownsampleRule(rule DownsampleRule) {
+	ts.mu.Lock()
+	defer ts.mu.Unlock()
+	
+	// Check if rule for this destination already exists
+	for i, r := range ts.DownsampleRules {
+		if r.Destination == rule.Destination {
+			ts.DownsampleRules[i] = rule
+			return
+		}
+	}
+	
+	ts.DownsampleRules = append(ts.DownsampleRules, rule)
+}
+
+// RemoveDownsampleRule removes a downsample rule by destination key
+func (ts *TimeSeries) RemoveDownsampleRule(destKey string) bool {
+	ts.mu.Lock()
+	defer ts.mu.Unlock()
+	
+	for i, r := range ts.DownsampleRules {
+		if r.Destination == destKey {
+			ts.DownsampleRules = append(ts.DownsampleRules[:i], ts.DownsampleRules[i+1:]...)
+			return true
+		}
+	}
+	
+	return false
+}
+
+// GetDownsampleRules returns all downsample rules
+func (ts *TimeSeries) GetDownsampleRules() []DownsampleRule {
+	ts.mu.RLock()
+	defer ts.mu.RUnlock()
+	
+	result := make([]DownsampleRule, len(ts.DownsampleRules))
+	copy(result, ts.DownsampleRules)
+	return result
+}
