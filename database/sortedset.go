@@ -1014,4 +1014,121 @@ func init() {
 		attachCommandExtra([]string{redisFlagBlocking}, 1, -2, 1)
 	registerCommand("BZPopMax", execBZPopMax, prepareReadKeys, nil, -3, flagSpecial).
 		attachCommandExtra([]string{redisFlagBlocking}, 1, -2, 1)
+	registerCommand("ZMPop", execZMPop, prepareReadKeys, nil, -3, flagWrite).
+		attachCommandExtra([]string{redisFlagWrite}, 1, -2, 1)
+	registerCommand("BZMPop", execBZMPop, prepareReadKeys, nil, -3, flagSpecial).
+		attachCommandExtra([]string{redisFlagBlocking}, 1, -2, 1)
+}
+
+// execZMPop removes and returns elements from multiple sorted sets
+// ZMPOP numkeys key [key ...] MIN|MAX [COUNT count]
+func execZMPop(db *DB, args [][]byte) redis.Reply {
+	if len(args) < 3 {
+		return protocol.MakeErrReply("ERR wrong number of arguments for 'zmpop' command")
+	}
+	
+	numKeys, err := strconv.Atoi(string(args[0]))
+	if err != nil {
+		return protocol.MakeErrReply("ERR value is not an integer or out of range")
+	}
+	
+	if len(args) < 1+numKeys {
+		return protocol.MakeErrReply("ERR wrong number of arguments for 'zmpop' command")
+	}
+	
+	keys := make([]string, numKeys)
+	for i := 0; i < numKeys; i++ {
+		keys[i] = string(args[1+i])
+	}
+	
+	// Parse options
+	minMax := "MIN"
+	count := 1
+	
+	idx := 1 + numKeys
+	for idx < len(args) {
+		arg := strings.ToUpper(string(args[idx]))
+		switch arg {
+		case "MIN", "MAX":
+			minMax = arg
+			idx++
+		case "COUNT":
+			if idx+1 >= len(args) {
+				return protocol.MakeErrReply("ERR syntax error")
+			}
+			count, err = strconv.Atoi(string(args[idx+1]))
+			if err != nil {
+				return protocol.MakeErrReply("ERR value is not an integer or out of range")
+			}
+			idx += 2
+		default:
+			return protocol.MakeErrReply("ERR syntax error")
+		}
+	}
+	
+	// Try each key
+	for _, key := range keys {
+		sortedSet, errReply := db.getAsSortedSet(key)
+		if errReply != nil {
+			return errReply
+		}
+		if sortedSet == nil || sortedSet.Len() == 0 {
+			continue
+		}
+		
+		// Pop elements
+		var removed []*SortedSet.Element
+		if minMax == "MIN" {
+			removed = sortedSet.PopMin(count)
+		} else {
+			removed = sortedSet.PopMax(count)
+		}
+		
+		if len(removed) == 0 {
+			continue
+		}
+		
+		// Build reply
+		result := make([]redis.Reply, 0)
+		result = append(result, protocol.MakeBulkReply([]byte(key)))
+		
+		elementsReply := make([]redis.Reply, 0)
+		for _, elem := range removed {
+			elemReply := make([]redis.Reply, 2)
+			elemReply[0] = protocol.MakeBulkReply([]byte(elem.Member))
+			elemReply[1] = protocol.MakeBulkReply([]byte(strconv.FormatFloat(elem.Score, 'f', -1, 64)))
+			elementsReply = append(elementsReply, protocol.MakeMultiRawReply(elemReply))
+		}
+		result = append(result, protocol.MakeMultiRawReply(elementsReply))
+		
+		return protocol.MakeMultiRawReply(result)
+	}
+	
+	return protocol.MakeNullBulkReply()
+}
+
+// execBZMPop is the blocking version of ZMPop
+// BZMPOP timeout numkeys key [key ...] MIN|MAX [COUNT count]
+func execBZMPop(db *DB, args [][]byte) redis.Reply {
+	if len(args) < 4 {
+		return protocol.MakeErrReply("ERR wrong number of arguments for 'bzmpop' command")
+	}
+	
+	timeout, err := strconv.ParseFloat(string(args[0]), 64)
+	if err != nil {
+		return protocol.MakeErrReply("ERR value is not a valid float")
+	}
+	
+	// Call ZMPop with remaining args
+	result := execZMPop(db, args[1:])
+	if _, ok := result.(*protocol.NullBulkReply); !ok {
+		return result
+	}
+	
+	// Block if needed
+	if timeout > 0 {
+		time.Sleep(time.Duration(timeout * float64(time.Second)))
+	}
+	
+	return protocol.MakeNullBulkReply()
 }

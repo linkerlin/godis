@@ -267,6 +267,116 @@ func execLMove(db *DB, args [][]byte) redis.Reply {
 	return protocol.MakeBulkReply(val.([]byte))
 }
 
+// execLMPop removes and returns elements from multiple lists
+// LMPOP numkeys key [key ...] LEFT|RIGHT [COUNT count]
+func execLMPop(db *DB, args [][]byte) redis.Reply {
+	if len(args) < 3 {
+		return protocol.MakeErrReply("ERR wrong number of arguments for 'lmpop' command")
+	}
+	
+	numKeys, err := strconv.Atoi(string(args[0]))
+	if err != nil {
+		return protocol.MakeErrReply("ERR value is not an integer or out of range")
+	}
+	
+	if len(args) < 1+numKeys+1 {
+		return protocol.MakeErrReply("ERR wrong number of arguments for 'lmpop' command")
+	}
+	
+	keys := make([]string, numKeys)
+	for i := 0; i < numKeys; i++ {
+		keys[i] = string(args[1+i])
+	}
+	
+	// Parse direction
+	direction := strings.ToUpper(string(args[1+numKeys]))
+	if direction != "LEFT" && direction != "RIGHT" {
+		return protocol.MakeErrReply("ERR syntax error")
+	}
+	
+	// Parse count
+	count := 1
+	idx := 2 + numKeys
+	if idx < len(args) && strings.ToUpper(string(args[idx])) == "COUNT" {
+		if idx+1 >= len(args) {
+			return protocol.MakeErrReply("ERR syntax error")
+		}
+		count, err = strconv.Atoi(string(args[idx+1]))
+		if err != nil {
+			return protocol.MakeErrReply("ERR value is not an integer or out of range")
+		}
+		idx += 2
+	}
+	
+	// Try each key
+	for _, key := range keys {
+		list, errReply := db.getAsList(key)
+		if errReply != nil {
+			return errReply
+		}
+		if list == nil || list.Len() == 0 {
+			continue
+		}
+		
+		// Pop elements
+		var values [][]byte
+		popCount := count
+		if popCount > list.Len() {
+			popCount = list.Len()
+		}
+		
+		for i := 0; i < popCount; i++ {
+			var val interface{}
+			if direction == "LEFT" {
+				val = list.Remove(0)
+			} else {
+				val = list.Remove(list.Len() - 1)
+			}
+			values = append(values, val.([]byte))
+		}
+		
+		if list.Len() == 0 {
+			db.Remove(key)
+		}
+		
+		db.addAof(utils.ToCmdLine3("lmpop", args...))
+		
+		// Build reply
+		result := make([]redis.Reply, 0)
+		result = append(result, protocol.MakeBulkReply([]byte(key)))
+		result = append(result, protocol.MakeMultiBulkReply(values))
+		return protocol.MakeMultiRawReply(result)
+	}
+	
+	return protocol.MakeNullBulkReply()
+}
+
+// execBLMPop is the blocking version of LMPop
+// BLMPOP timeout numkeys key [key ...] LEFT|RIGHT [COUNT count]
+func execBLMPop(db *DB, args [][]byte) redis.Reply {
+	if len(args) < 5 {
+		return protocol.MakeErrReply("ERR wrong number of arguments for 'blmpop' command")
+	}
+	
+	timeout, err := strconv.ParseFloat(string(args[0]), 64)
+	if err != nil {
+		return protocol.MakeErrReply("ERR value is not a valid float")
+	}
+	
+	// Call LMPop with remaining args
+	result := execLMPop(db, args[1:])
+	if _, ok := result.(*protocol.NullBulkReply); !ok {
+		return result
+	}
+	
+	// Block if needed
+	if timeout > 0 {
+		time.Sleep(time.Duration(timeout * float64(time.Second)))
+	}
+	
+	return protocol.MakeNullBulkReply()
+}
+
 func init() {
 	// 注意：flagBlocking 在 router.go 中定义，这里使用 flagSpecial 代替
 	registerCommand("BLPop", execBLPop, prepareReadKeys, nil, -3, flagSpecial).
@@ -277,6 +387,10 @@ func init() {
 		attachCommandExtra([]string{redisFlagWrite}, 1, 2, 1)
 	registerCommand("BLMove", execBLMove, prepareRPopLPush, nil, 6, flagSpecial).
 		attachCommandExtra([]string{redisFlagBlocking}, 1, 2, 1)
+	registerCommand("LMPop", execLMPop, prepareReadKeys, nil, -3, flagWrite).
+		attachCommandExtra([]string{redisFlagWrite}, 1, -2, 1)
+	registerCommand("BLMPop", execBLMPop, prepareReadKeys, nil, -3, flagSpecial).
+		attachCommandExtra([]string{redisFlagBlocking}, 1, -2, 1)
 }
 
 // prepareReadKeys 准备读取多个键
