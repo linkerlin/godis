@@ -1018,6 +1018,209 @@ func init() {
 		attachCommandExtra([]string{redisFlagWrite}, 1, -2, 1)
 	registerCommand("BZMPop", execBZMPop, prepareReadKeys, nil, -3, flagSpecial).
 		attachCommandExtra([]string{redisFlagBlocking}, 1, -2, 1)
+	registerCommand("ZUnion", execZUnion, prepareSetCalculate, nil, -2, flagReadOnly).
+		attachCommandExtra([]string{redisFlagReadonly, redisFlagSortForScript}, 1, -1, 1)
+	registerCommand("ZUnionStore", execZUnionStore, prepareSetCalculateStore, rollbackFirstKey, -3, flagWrite).
+		attachCommandExtra([]string{redisFlagWrite, redisFlagDenyOOM}, 1, -1, 1)
+	registerCommand("ZInter", execZInter, prepareSetCalculate, nil, -2, flagReadOnly).
+		attachCommandExtra([]string{redisFlagReadonly, redisFlagSortForScript}, 1, -1, 1)
+	registerCommand("ZInterStore", execZInterStore, prepareSetCalculateStore, rollbackFirstKey, -3, flagWrite).
+		attachCommandExtra([]string{redisFlagWrite, redisFlagDenyOOM}, 1, -1, 1)
+	registerCommand("ZDiff", execZDiff, prepareSetCalculate, nil, -2, flagReadOnly).
+		attachCommandExtra([]string{redisFlagReadonly, redisFlagSortForScript}, 1, -1, 1)
+	registerCommand("ZDiffStore", execZDiffStore, prepareSetCalculateStore, rollbackFirstKey, -3, flagWrite).
+		attachCommandExtra([]string{redisFlagWrite, redisFlagDenyOOM}, 1, -1, 1)
+}
+
+// execZUnion computes the union of multiple sorted sets
+func execZUnion(db *DB, args [][]byte) redis.Reply {
+	return execZSetOperation(db, args, "UNION", false)
+}
+
+// execZUnionStore stores the union of multiple sorted sets
+func execZUnionStore(db *DB, args [][]byte) redis.Reply {
+	return execZSetOperation(db, args, "UNION", true)
+}
+
+// execZInter computes the intersection of multiple sorted sets
+func execZInter(db *DB, args [][]byte) redis.Reply {
+	return execZSetOperation(db, args, "INTER", false)
+}
+
+// execZInterStore stores the intersection of multiple sorted sets
+func execZInterStore(db *DB, args [][]byte) redis.Reply {
+	return execZSetOperation(db, args, "INTER", true)
+}
+
+// execZDiff computes the difference of multiple sorted sets
+func execZDiff(db *DB, args [][]byte) redis.Reply {
+	return execZSetOperation(db, args, "DIFF", false)
+}
+
+// execZDiffStore stores the difference of multiple sorted sets
+func execZDiffStore(db *DB, args [][]byte) redis.Reply {
+	return execZSetOperation(db, args, "DIFF", true)
+}
+
+// execZSetOperation performs set operations on sorted sets
+func execZSetOperation(db *DB, args [][]byte, op string, store bool) redis.Reply {
+	numKeys, err := strconv.Atoi(string(args[0]))
+	if err != nil {
+		return protocol.MakeErrReply("ERR value is not an integer or out of range")
+	}
+	
+	if len(args) < numKeys+1 {
+		return protocol.MakeErrReply("ERR syntax error")
+	}
+	
+	keys := make([]string, numKeys)
+	for i := 0; i < numKeys; i++ {
+		keys[i] = string(args[1+i])
+	}
+	
+	// Parse options
+	weights := make([]float64, numKeys)
+	for i := range weights {
+		weights[i] = 1.0
+	}
+	aggregate := "SUM"
+	
+	idx := 1 + numKeys
+	for idx < len(args) {
+		arg := strings.ToUpper(string(args[idx]))
+		switch arg {
+		case "WEIGHTS":
+			if idx+numKeys >= len(args) {
+				return protocol.MakeErrReply("ERR syntax error")
+			}
+			for i := 0; i < numKeys; i++ {
+				w, err := strconv.ParseFloat(string(args[idx+1+i]), 64)
+				if err != nil {
+					return protocol.MakeErrReply("ERR value is not a valid float")
+				}
+				weights[i] = w
+			}
+			idx += 1 + numKeys
+		case "AGGREGATE":
+			if idx+1 >= len(args) {
+				return protocol.MakeErrReply("ERR syntax error")
+			}
+			aggregate = strings.ToUpper(string(args[idx+1]))
+			if aggregate != "SUM" && aggregate != "MIN" && aggregate != "MAX" {
+				return protocol.MakeErrReply("ERR syntax error")
+			}
+			idx += 2
+		default:
+			return protocol.MakeErrReply("ERR syntax error")
+		}
+	}
+	
+	// Get all sorted sets
+	sets := make([]*SortedSet.SortedSet, 0, numKeys)
+	for _, key := range keys {
+		sortedSet, errReply := db.getAsSortedSet(key)
+		if errReply != nil {
+			return errReply
+		}
+		sets = append(sets, sortedSet)
+	}
+	
+	// Perform operation
+	result := make(map[string]float64)
+	
+	switch op {
+	case "UNION":
+		for i, set := range sets {
+			if set == nil {
+				continue
+			}
+			members := set.RangeByRank(0, -1, false)
+			for _, m := range members {
+				score := m.Score * weights[i]
+				if existing, ok := result[m.Member]; ok {
+					switch aggregate {
+					case "SUM":
+						result[m.Member] = existing + score
+					case "MIN":
+						if score < existing {
+							result[m.Member] = score
+						}
+					case "MAX":
+						if score > existing {
+							result[m.Member] = score
+						}
+					}
+				} else {
+					result[m.Member] = score
+				}
+			}
+		}
+		
+	case "INTER":
+		// Find intersection
+		if len(sets) > 0 && sets[0] != nil {
+			members := sets[0].RangeByRank(0, -1, false)
+			for _, m := range members {
+				score := m.Score * weights[0]
+				inAll := true
+				for i := 1; i < len(sets); i++ {
+					if sets[i] == nil {
+						inAll = false
+						break
+					}
+					if elem, ok := sets[i].Get(m.Member); !ok {
+						inAll = false
+						break
+					} else {
+						score += elem.Score * weights[i]
+					}
+				}
+				if inAll {
+					result[m.Member] = score
+				}
+			}
+		}
+		
+	case "DIFF":
+		// Find difference (first set minus others)
+		if len(sets) > 0 && sets[0] != nil {
+			members := sets[0].RangeByRank(0, -1, false)
+			for _, m := range members {
+				score := m.Score * weights[0]
+				inOthers := false
+				for i := 1; i < len(sets); i++ {
+					if sets[i] != nil {
+						if _, ok := sets[i].Get(m.Member); ok {
+							inOthers = true
+							break
+						}
+					}
+				}
+				if !inOthers {
+					result[m.Member] = score
+				}
+			}
+		}
+	}
+	
+	if store {
+		destKey := string(args[0])
+		newSet := SortedSet.Make()
+		for member, score := range result {
+			newSet.Add(member, score)
+		}
+		db.PutEntity(destKey, &database.DataEntity{Data: newSet})
+		db.addAof(utils.ToCmdLine3(strings.ToLower(op)+"store", args...))
+		return protocol.MakeIntReply(int64(newSet.Len()))
+	}
+	
+	// Return results
+	reply := make([]redis.Reply, 0, len(result)*2)
+	for member, score := range result {
+		reply = append(reply, protocol.MakeBulkReply([]byte(member)))
+		reply = append(reply, protocol.MakeBulkReply([]byte(strconv.FormatFloat(score, 'f', -1, 64))))
+	}
+	return protocol.MakeMultiRawReply(reply)
 }
 
 // execZMPop removes and returns elements from multiple sorted sets
