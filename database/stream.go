@@ -688,6 +688,100 @@ func execXTrim(db *DB, args [][]byte) redis.Reply {
 	return protocol.MakeIntReply(int64(trimmed))
 }
 
+// execXGroup handles XGROUP subcommands
+// XGROUP [CREATE key groupname id|$ [MKSTREAM] [ENTRIESREAD entries-read]] 
+//        [DESTROY key groupname] [SETID key groupname id|$]
+func execXGroup(db *DB, args [][]byte) redis.Reply {
+	if len(args) < 1 {
+		return protocol.MakeErrReply("ERR wrong number of arguments for 'xgroup' command")
+	}
+	
+	subCmd := strings.ToUpper(string(args[0]))
+	
+	switch subCmd {
+	case "CREATE":
+		if len(args) < 4 {
+			return protocol.MakeErrReply("ERR wrong number of arguments for 'xgroup|create' command")
+		}
+		return execXGroupCreate(db, args[1:])
+	case "DESTROY":
+		if len(args) != 3 {
+			return protocol.MakeErrReply("ERR wrong number of arguments for 'xgroup|destroy' command")
+		}
+		return execXGroupDestroy(db, args[1:])
+	case "SETID":
+		if len(args) != 4 {
+			return protocol.MakeErrReply("ERR wrong number of arguments for 'xgroup|setid' command")
+		}
+		return execXGroupSetID(db, args[1:])
+	case "HELP":
+		return execXGroupHelp()
+	default:
+		return protocol.MakeErrReply("ERR Unknown XGROUP subcommand '" + subCmd + "'")
+	}
+}
+
+// execXGroupSetID sets the ID of a consumer group
+// XGROUP SETID key groupname id|$
+func execXGroupSetID(db *DB, args [][]byte) redis.Reply {
+	key := string(args[0])
+	groupName := string(args[1])
+	newID := string(args[2])
+	
+	s, errReply := db.getAsStream(key)
+	if errReply != nil {
+		return errReply
+	}
+	if s == nil {
+		return protocol.MakeErrReply("ERR no such key")
+	}
+	
+	// Get the group
+	group, err := s.GetGroup(groupName)
+	if err != nil {
+		return protocol.MakeErrReply("ERR No such consumer group '" + groupName + "' for key name '" + key + "'")
+	}
+	
+	// Parse new ID
+	var newStreamID stream.StreamID
+	if newID == "$" {
+		// Use last entry ID
+		newStreamID = s.GetLastID()
+	} else {
+		newStreamID, err = stream.ParseStreamID(newID, stream.StreamID{})
+		if err != nil {
+			return protocol.MakeErrReply("ERR Invalid stream ID")
+		}
+	}
+	
+	// Set new ID
+	group.LastID = newStreamID
+	
+	db.addAof(utils.ToCmdLine3("xgroup", append([][]byte{[]byte("setid")}, args...)...))
+	return protocol.MakeOkReply()
+}
+
+// execXGroupHelp returns help information
+func execXGroupHelp() redis.Reply {
+	help := []string{
+		"XGROUP <subcommand> [<arg> [value] [opt] ...]. Subcommands are:",
+		"CREATE key groupname id|$ [MKSTREAM] [ENTRIESREAD entries-read]",
+		"    Create a new consumer group.",
+		"DESTROY key groupname",
+		"    Remove a consumer group.",
+		"SETID key groupname id|$",
+		"    Set the current group ID.",
+		"HELP",
+		"    Print this help.",
+	}
+	
+	result := make([]redis.Reply, len(help))
+	for i, h := range help {
+		result[i] = protocol.MakeBulkReply([]byte(h))
+	}
+	return protocol.MakeMultiRawReply(result)
+}
+
 func init() {
 	registerCommand("XAdd", execXAdd, writeFirstKey, rollbackFirstKey, -5, flagWrite).
 		attachCommandExtra([]string{redisFlagWrite, redisFlagDenyOOM, redisFlagFast}, 1, 1, 1)
@@ -701,4 +795,6 @@ func init() {
 		attachCommandExtra([]string{redisFlagWrite, redisFlagFast}, 1, 1, 1)
 	registerCommand("XTrim", execXTrim, writeFirstKey, nil, -4, flagWrite).
 		attachCommandExtra([]string{redisFlagWrite}, 1, 1, 1)
+	registerCommand("XGroup", execXGroup, noPrepare, nil, -2, flagWrite).
+		attachCommandExtra([]string{redisFlagWrite}, 2, 2, 1)
 }
