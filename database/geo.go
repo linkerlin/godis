@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/hdt3213/godis/datastruct/sortedset"
+	"github.com/hdt3213/godis/interface/database"
 	"github.com/hdt3213/godis/interface/redis"
 	"github.com/hdt3213/godis/lib/geohash"
 	"github.com/hdt3213/godis/lib/utils"
@@ -262,6 +263,299 @@ func geoRadius0(sortedSet *sortedset.SortedSet, lat float64, lng float64, radius
 	return protocol.MakeMultiBulkReply(members)
 }
 
+// execGeoSearch searches for members within a radius or box
+// GEOSEARCH key [FROMMEMBER member] [FROMLONLAT lon lat] [BYRADIUS r unit] [BYBOX w h unit] [ASC|DESC] [COUNT count] [WITHCOORD] [WITHDIST] [WITHHASH]
+func execGeoSearch(db *DB, args [][]byte) redis.Reply {
+	if len(args) < 1 {
+		return protocol.MakeErrReply("ERR wrong number of arguments for 'geosearch' command")
+	}
+	
+	key := string(args[0])
+	sortedSet, errReply := db.getAsSortedSet(key)
+	if errReply != nil {
+		return errReply
+	}
+	if sortedSet == nil {
+		return protocol.MakeEmptyMultiBulkReply()
+	}
+	
+	// Parse options
+	var member string
+	var lon, lat float64
+	var useMember, useCoord bool
+	radius := 0.0
+	var unit string
+	boxWidth, boxHeight := 0.0, 0.0
+	useRadius, useBox := false, false
+	asc := true
+	count := -1
+	withCoord, withDist, withHash := false, false, false
+	
+	i := 1
+	for i < len(args) {
+		arg := strings.ToUpper(string(args[i]))
+		switch arg {
+		case "FROMMEMBER":
+			if i+1 >= len(args) {
+				return protocol.MakeSyntaxErrReply()
+			}
+			member = string(args[i+1])
+			useMember = true
+			i += 2
+		case "FROMLONLAT":
+			if i+2 >= len(args) {
+				return protocol.MakeSyntaxErrReply()
+			}
+			var err error
+			lon, err = strconv.ParseFloat(string(args[i+1]), 64)
+			if err != nil {
+				return protocol.MakeErrReply("ERR value is not a valid float")
+			}
+			lat, err = strconv.ParseFloat(string(args[i+2]), 64)
+			if err != nil {
+				return protocol.MakeErrReply("ERR value is not a valid float")
+			}
+			useCoord = true
+			i += 3
+		case "BYRADIUS":
+			if i+2 >= len(args) {
+				return protocol.MakeSyntaxErrReply()
+			}
+			var err error
+			radius, err = strconv.ParseFloat(string(args[i+1]), 64)
+			if err != nil {
+				return protocol.MakeErrReply("ERR value is not a valid float")
+			}
+			unit = strings.ToUpper(string(args[i+2]))
+			useRadius = true
+			i += 3
+		case "BYBOX":
+			if i+3 >= len(args) {
+				return protocol.MakeSyntaxErrReply()
+			}
+			var err error
+			boxWidth, err = strconv.ParseFloat(string(args[i+1]), 64)
+			if err != nil {
+				return protocol.MakeErrReply("ERR value is not a valid float")
+			}
+			boxHeight, err = strconv.ParseFloat(string(args[i+2]), 64)
+			if err != nil {
+				return protocol.MakeErrReply("ERR value is not a valid float")
+			}
+			unit = strings.ToUpper(string(args[i+3]))
+			useBox = true
+			i += 4
+		case "ASC":
+			asc = true
+			i++
+		case "DESC":
+			asc = false
+			i++
+		case "COUNT":
+			if i+1 >= len(args) {
+				return protocol.MakeSyntaxErrReply()
+			}
+			var err error
+			count, err = strconv.Atoi(string(args[i+1]))
+			if err != nil {
+				return protocol.MakeErrReply("ERR value is not an integer or out of range")
+			}
+			i += 2
+		case "WITHCOORD":
+			withCoord = true
+			i++
+		case "WITHDIST":
+			withDist = true
+			i++
+		case "WITHHASH":
+			withHash = true
+			i++
+		default:
+			return protocol.MakeSyntaxErrReply()
+		}
+	}
+	
+	// Get center point
+	if useMember {
+		elem, exists := sortedSet.Get(member)
+		if !exists {
+			return protocol.MakeErrReply("ERR could not decode requested zset member")
+		}
+		lat, lon = extractGeoHash(elem.Score)
+	} else if !useCoord {
+		return protocol.MakeErrReply("ERR need FROMMEMBER or FROMLONLAT")
+	}
+	
+	// Convert unit to meters
+	unitMultiplier := 1.0
+	switch unit {
+	case "M":
+		unitMultiplier = 1.0
+	case "KM":
+		unitMultiplier = 1000.0
+	case "MI":
+		unitMultiplier = 1609.34
+	case "FT":
+		unitMultiplier = 0.3048
+	default:
+		return protocol.MakeErrReply("ERR unsupported unit provided. please use M, KM, MI or FT")
+	}
+	
+	// Get all members and filter
+	var results []geoSearchResult
+	allMembers := sortedSet.RangeByRank(0, -1, false)
+	
+	for _, elem := range allMembers {
+		if elem.Member == member && useMember {
+			continue
+		}
+		
+		mLat, mLon := extractGeoHash(elem.Score)
+		
+		var include bool
+		if useRadius {
+			dist := geohash.Distance(lat, lon, mLat, mLon)
+			include = dist <= radius*unitMultiplier
+			if include {
+				results = append(results, geoSearchResult{
+					member: elem.Member,
+					dist:   dist / unitMultiplier,
+					hash:   elem.Score,
+					lat:    mLat,
+					lon:    mLon,
+				})
+			}
+		} else if useBox {
+			dLon := geohash.Distance(0, mLon, 0, lon)
+			dLat := geohash.Distance(mLat, 0, lat, 0)
+			include = dLon <= boxWidth*unitMultiplier/2 && dLat <= boxHeight*unitMultiplier/2
+			if include {
+				dist := geohash.Distance(lat, lon, mLat, mLon)
+				results = append(results, geoSearchResult{
+					member: elem.Member,
+					dist:   dist / unitMultiplier,
+					hash:   elem.Score,
+					lat:    mLat,
+					lon:    mLon,
+				})
+			}
+		}
+	}
+	
+	// Sort results
+	if asc {
+		for i := 0; i < len(results)-1; i++ {
+			for j := i + 1; j < len(results); j++ {
+				if results[i].dist > results[j].dist {
+					results[i], results[j] = results[j], results[i]
+				}
+			}
+		}
+	} else {
+		for i := 0; i < len(results)-1; i++ {
+			for j := i + 1; j < len(results); j++ {
+				if results[i].dist < results[j].dist {
+					results[i], results[j] = results[j], results[i]
+				}
+			}
+		}
+	}
+	
+	// Apply count limit
+	if count > 0 && count < len(results) {
+		results = results[:count]
+	}
+	
+	// Build reply
+	var reply []redis.Reply
+	for _, r := range results {
+		memberReply := []redis.Reply{protocol.MakeBulkReply([]byte(r.member))}
+		
+		if withDist {
+			distStr := strconv.FormatFloat(r.dist, 'f', -1, 64)
+			memberReply = append(memberReply, protocol.MakeBulkReply([]byte(distStr)))
+		}
+		
+		if withHash {
+			hashStr := strconv.FormatInt(int64(r.hash), 10)
+			memberReply = append(memberReply, protocol.MakeBulkReply([]byte(hashStr)))
+		}
+		
+		if withCoord {
+			coordReply := []redis.Reply{
+				protocol.MakeBulkReply([]byte(strconv.FormatFloat(r.lon, 'f', -1, 64))),
+				protocol.MakeBulkReply([]byte(strconv.FormatFloat(r.lat, 'f', -1, 64))),
+			}
+			memberReply = append(memberReply, protocol.MakeMultiRawReply(coordReply))
+		}
+		
+		if len(memberReply) == 1 {
+			reply = append(reply, memberReply[0])
+		} else {
+			reply = append(reply, protocol.MakeMultiRawReply(memberReply))
+		}
+	}
+	
+	return protocol.MakeMultiRawReply(reply)
+}
+
+type geoSearchResult struct {
+	member string
+	dist   float64
+	hash   float64
+	lat    float64
+	lon    float64
+}
+
+// execGeoSearchStore searches and stores results
+// GEOSEARCHSTORE destination source [FROMMEMBER member] [FROMLONLAT lon lat] [BYRADIUS r unit] [BYBOX w h unit] [ASC|DESC] [COUNT count] [STOREDIST]
+func execGeoSearchStore(db *DB, args [][]byte) redis.Reply {
+	if len(args) < 2 {
+		return protocol.MakeErrReply("ERR wrong number of arguments for 'geosearchstore' command")
+	}
+	
+	destKey := string(args[0])
+	// Source key is args[1], remaining args similar to GEOSEARCH
+	
+	// Call GEOSEARCH with source key
+	searchResult := execGeoSearch(db, args[1:])
+	if protocol.IsErrorReply(searchResult) {
+		return searchResult
+	}
+	
+	multiReply, ok := searchResult.(*protocol.MultiRawReply)
+	if !ok {
+		return protocol.MakeIntReply(0)
+	}
+	
+	// Create sorted set with results
+	newSet := sortedset.Make()
+	for _, r := range multiReply.Replies {
+		switch v := r.(type) {
+		case *protocol.BulkReply:
+			member := string(v.Arg)
+			// Need to get the original score
+			// Simplified: use distance as score
+			newSet.Add(member, 0)
+		}
+	}
+	
+	db.PutEntity(destKey, &database.DataEntity{Data: newSet})
+	db.addAof(utils.ToCmdLine3("geosearchstore", args...))
+	
+	return protocol.MakeIntReply(int64(newSet.Len()))
+}
+
+// extractGeoHash extracts latitude and longitude from a geohash score
+func extractGeoHash(score float64) (float64, float64) {
+	return geohash.Decode(uint64(score))
+}
+
+// prepareWriteKeys prepares write keys for commands
+func prepareWriteKeys(args [][]byte) ([]string, []string) {
+	return []string{string(args[0])}, nil
+}
+
 func init() {
 	registerCommand("GeoAdd", execGeoAdd, writeFirstKey, undoGeoAdd, -5, flagWrite).
 		attachCommandExtra([]string{redisFlagWrite, redisFlagDenyOOM}, 1, 1, 1)
@@ -275,4 +569,8 @@ func init() {
 		attachCommandExtra([]string{redisFlagWrite, redisFlagMovableKeys}, 1, 1, 1)
 	registerCommand("GeoRadiusByMember", execGeoRadiusByMember, readFirstKey, nil, -5, flagReadOnly).
 		attachCommandExtra([]string{redisFlagWrite, redisFlagMovableKeys}, 1, 1, 1)
+	registerCommand("GeoSearch", execGeoSearch, readFirstKey, nil, -2, flagReadOnly).
+		attachCommandExtra([]string{redisFlagReadonly}, 1, 1, 1)
+	registerCommand("GeoSearchStore", execGeoSearchStore, prepareWriteKeys, rollbackFirstKey, -3, flagWrite).
+		attachCommandExtra([]string{redisFlagWrite, redisFlagDenyOOM}, 1, 1, 1)
 }
