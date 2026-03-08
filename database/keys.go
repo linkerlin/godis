@@ -557,4 +557,29 @@ func init() {
 		attachCommandExtra([]string{redisFlagReadonly, redisFlagSortForScript}, 1, 1, 1)
 	registerCommand("Scan", execScan, noPrepare, nil, -2, flagReadOnly).
 		attachCommandExtra([]string{redisFlagReadonly, redisFlagSortForScript}, 1, 1, 1)
+	registerCommand("Touch", execTouch, readAllKeys, nil, -2, flagReadOnly).
+		attachCommandExtra([]string{redisFlagReadonly, redisFlagFast}, 1, -1, 1)
+	registerCommand("Unlink", execUnlink, writeAllKeys, undoDel, -2, flagWrite).
+		attachCommandExtra([]string{redisFlagWrite, redisFlagFast}, 1, -1, 1)
+}
+
+// execTouch updates the last access time of the specified keys
+// TOUCH key [key ...]
+func execTouch(db *DB, args [][]byte) redis.Reply {
+	count := 0
+	for _, arg := range args {
+		key := string(arg)
+		_, exists := db.GetEntity(key)
+		if exists {
+			count++
+		}
+	}
+	return protocol.MakeIntReply(int64(count))
+}
+
+// execUnlink deletes keys asynchronously (simplified: same as DEL)
+// UNLINK key [key ...]
+func execUnlink(db *DB, args [][]byte) redis.Reply {
+	// In this implementation, UNLINK behaves the same as DEL
+	return execDel(db, args)
 }
