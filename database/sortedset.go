@@ -111,6 +111,39 @@ func execZScore(db *DB, args [][]byte) redis.Reply {
 	return protocol.MakeBulkReply([]byte(value))
 }
 
+// execZMScore gets scores of multiple members in sortedset
+// ZMSCORE key member [member ...]
+func execZMScore(db *DB, args [][]byte) redis.Reply {
+	if len(args) < 2 {
+		return protocol.MakeErrReply("ERR wrong number of arguments for 'zmscore' command")
+	}
+
+	key := string(args[0])
+	members := args[1:]
+
+	sortedSet, errReply := db.getAsSortedSet(key)
+	if errReply != nil {
+		return errReply
+	}
+
+	results := make([][]byte, len(members))
+	for i, member := range members {
+		if sortedSet == nil {
+			results[i] = nil
+		} else {
+			element, exists := sortedSet.Get(string(member))
+			if !exists {
+				results[i] = nil
+			} else {
+				value := strconv.FormatFloat(element.Score, 'f', -1, 64)
+				results[i] = []byte(value)
+			}
+		}
+	}
+
+	return protocol.MakeMultiBulkReply(results)
+}
+
 // execZRank gets index of a member in sortedset, ascending order, start from 0
 func execZRank(db *DB, args [][]byte) redis.Reply {
 	// parse args
@@ -972,6 +1005,8 @@ func init() {
 		attachCommandExtra([]string{redisFlagWrite, redisFlagDenyOOM, redisFlagFast}, 1, 1, 1)
 	registerCommand("ZScore", execZScore, readFirstKey, nil, 3, flagReadOnly).
 		attachCommandExtra([]string{redisFlagReadonly, redisFlagFast}, 1, 1, 1)
+	registerCommand("ZMScore", execZMScore, readFirstKey, nil, -3, flagReadOnly).
+		attachCommandExtra([]string{redisFlagReadonly, redisFlagFast}, 1, 1, 1)
 	registerCommand("ZIncrBy", execZIncrBy, writeFirstKey, undoZIncr, 4, flagWrite).
 		attachCommandExtra([]string{redisFlagWrite, redisFlagDenyOOM, redisFlagFast}, 1, 1, 1)
 	registerCommand("ZRank", execZRank, readFirstKey, nil, 3, flagReadOnly).
@@ -1134,7 +1169,7 @@ func execZSetOperation(db *DB, args [][]byte, op string, store bool) redis.Reply
 			if set == nil {
 				continue
 			}
-			members := set.RangeByRank(0, -1, false)
+			members := set.RangeByRank(0, set.Len(), false)
 			for _, m := range members {
 				score := m.Score * weights[i]
 				if existing, ok := result[m.Member]; ok {
@@ -1159,7 +1194,7 @@ func execZSetOperation(db *DB, args [][]byte, op string, store bool) redis.Reply
 	case "INTER":
 		// Find intersection
 		if len(sets) > 0 && sets[0] != nil {
-			members := sets[0].RangeByRank(0, -1, false)
+			members := sets[0].RangeByRank(0, sets[0].Len(), false)
 			for _, m := range members {
 				score := m.Score * weights[0]
 				inAll := true
@@ -1184,7 +1219,7 @@ func execZSetOperation(db *DB, args [][]byte, op string, store bool) redis.Reply
 	case "DIFF":
 		// Find difference (first set minus others)
 		if len(sets) > 0 && sets[0] != nil {
-			members := sets[0].RangeByRank(0, -1, false)
+			members := sets[0].RangeByRank(0, sets[0].Len(), false)
 			for _, m := range members {
 				score := m.Score * weights[0]
 				inOthers := false

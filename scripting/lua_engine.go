@@ -1,6 +1,8 @@
 package scripting
 
 import (
+	"crypto/sha1"
+	"encoding/hex"
 	"fmt"
 	"regexp"
 	"strconv"
@@ -8,7 +10,7 @@ import (
 	"sync"
 )
 
-// LuaEngine is a simplified Lua interpreter for Redis
+// LuaEngine is an enhanced simplified Lua interpreter for Redis
 type LuaEngine struct {
 	mu sync.Mutex
 }
@@ -29,7 +31,11 @@ func (e *LuaEngine) Execute(code string, keys []string, args []string, callFunc 
 		args:     args,
 		callFunc: callFunc,
 		vars:     make(map[string]interface{}),
+		globals:  make(map[string]interface{}),
 	}
+	
+	// Set up global tables
+	ctx.setupGlobals()
 	
 	// Execute the Lua code
 	result, err := ctx.execute(code)
@@ -46,6 +52,16 @@ type luaContext struct {
 	args     []string
 	callFunc func(cmd string, args ...string) (interface{}, error)
 	vars     map[string]interface{}
+	globals  map[string]interface{}
+}
+
+// setupGlobals initializes global variables and functions
+func (ctx *luaContext) setupGlobals() {
+	// Create KEYS table
+	ctx.globals["KEYS"] = ctx.keys
+	
+	// Create ARGV table
+	ctx.globals["ARGV"] = ctx.args
 }
 
 // execute runs the Lua code
@@ -87,9 +103,20 @@ func (ctx *luaContext) runStatements(code string) (interface{}, error) {
 			if _, err := ctx.handleRedisPCall(line); err != nil {
 				return nil, err
 			}
-		} else if strings.Contains(line, "=") && !strings.Contains(line, "==") {
-			// Variable assignment
+		} else if strings.Contains(line, "redis.sha1hex") {
+			if _, err := ctx.handleRedisSha1Hex(line); err != nil {
+				return nil, err
+			}
+		} else if strings.Contains(line, "redis.log") {
+			ctx.handleRedisLog(line)
+		} else if strings.Contains(line, "=") && !strings.Contains(line, "==") && !strings.Contains(line, "~=") {
+			// Variable assignment (but not comparison)
 			if err := ctx.handleAssignment(line); err != nil {
+				return nil, err
+			}
+		} else if strings.HasPrefix(line, "local ") {
+			// Local variable declaration
+			if err := ctx.handleLocalAssignment(line); err != nil {
 				return nil, err
 			}
 		}
@@ -100,7 +127,6 @@ func (ctx *luaContext) runStatements(code string) (interface{}, error) {
 
 // handleRedisCall handles redis.call('cmd', ...)
 func (ctx *luaContext) handleRedisCall(line string) (interface{}, error) {
-	// Parse: redis.call('CMD', key1, key2, arg1, arg2)
 	cmd, args, err := ctx.parseRedisCall(line, "redis.call")
 	if err != nil {
 		return nil, err
@@ -123,6 +149,42 @@ func (ctx *luaContext) handleRedisPCall(line string) (interface{}, error) {
 	}
 	
 	return result, nil
+}
+
+// handleRedisSha1Hex handles redis.sha1hex
+func (ctx *luaContext) handleRedisSha1Hex(line string) (interface{}, error) {
+	// Extract argument
+	startIdx := strings.Index(line, "(")
+	endIdx := strings.LastIndex(line, ")")
+	if startIdx == -1 || endIdx == -1 {
+		return nil, fmt.Errorf("invalid sha1hex syntax")
+	}
+	
+	content := line[startIdx+1 : endIdx]
+	arg := ctx.evalArg(strings.TrimSpace(content))
+	
+	hash := sha1.Sum([]byte(arg))
+	return hex.EncodeToString(hash[:]), nil
+}
+
+// handleRedisLog handles redis.log
+func (ctx *luaContext) handleRedisLog(line string) {
+	// Parse: redis.log(level, message)
+	// Simplified - just print to stdout
+	startIdx := strings.Index(line, "(")
+	endIdx := strings.LastIndex(line, ")")
+	if startIdx == -1 || endIdx == -1 {
+		return
+	}
+	
+	content := line[startIdx+1 : endIdx]
+	args := ctx.parseArguments(content)
+	
+	if len(args) >= 2 {
+		level := ctx.evalArg(args[0])
+		msg := ctx.evalArg(args[1])
+		fmt.Printf("[REDIS LOG %s] %s\n", level, msg)
+	}
 }
 
 // parseRedisCall parses a redis.call/pcall line
@@ -165,6 +227,7 @@ func (ctx *luaContext) parseArguments(content string) []string {
 	var current strings.Builder
 	inString := false
 	stringChar := byte(0)
+	depth := 0
 	
 	for i := 0; i < len(content); i++ {
 		ch := content[i]
@@ -180,7 +243,13 @@ func (ctx *luaContext) parseArguments(content string) []string {
 			inString = false
 			args = append(args, current.String())
 			current.Reset()
-		} else if !inString && ch == ',' {
+		} else if !inString && (ch == '(' || ch == '{' || ch == '[') {
+			depth++
+			current.WriteByte(ch)
+		} else if !inString && (ch == ')' || ch == '}' || ch == ']') {
+			depth--
+			current.WriteByte(ch)
+		} else if !inString && ch == ',' && depth == 0 {
 			if current.Len() > 0 {
 				args = append(args, strings.TrimSpace(current.String()))
 				current.Reset()
@@ -206,6 +275,10 @@ func (ctx *luaContext) evalArg(arg string) string {
 	
 	// Handle string literals (already extracted)
 	if !strings.Contains(arg, "[") && !strings.Contains(arg, "]") {
+		// Check for global variable
+		if val, ok := ctx.vars[arg]; ok {
+			return fmt.Sprintf("%v", val)
+		}
 		return arg
 	}
 	
@@ -227,6 +300,20 @@ func (ctx *luaContext) evalArg(arg string) string {
 			return ctx.args[idx-1]
 		}
 		return ""
+	}
+	
+	// Handle variables with array access
+	if idx := strings.Index(arg, "["); idx > 0 {
+		varName := arg[:idx]
+		if val, ok := ctx.vars[varName]; ok {
+			if arr, ok := val.([]interface{}); ok {
+				idxStr := arg[idx+1 : len(arg)-1]
+				idx, err := strconv.Atoi(idxStr)
+				if err == nil && idx >= 1 && idx <= len(arr) {
+					return fmt.Sprintf("%v", arr[idx-1])
+				}
+			}
+		}
 	}
 	
 	// Handle variables
@@ -257,6 +344,13 @@ func (ctx *luaContext) handleAssignment(line string) error {
 	return nil
 }
 
+// handleLocalAssignment handles local variable declaration
+func (ctx *luaContext) handleLocalAssignment(line string) error {
+	// Remove "local " prefix
+	line = strings.TrimPrefix(line, "local ")
+	return ctx.handleAssignment(line)
+}
+
 // evaluateExpression evaluates a Lua expression
 func (ctx *luaContext) evaluateExpression(expr string) (interface{}, error) {
 	expr = strings.TrimSpace(expr)
@@ -268,10 +362,18 @@ func (ctx *luaContext) evaluateExpression(expr string) (interface{}, error) {
 	if strings.Contains(expr, "redis.pcall") {
 		return ctx.handleRedisPCall(expr)
 	}
+	if strings.Contains(expr, "redis.sha1hex") {
+		return ctx.handleRedisSha1Hex(expr)
+	}
 	
 	// Handle table/array literals
 	if strings.HasPrefix(expr, "{") && strings.HasSuffix(expr, "}") {
 		return ctx.parseTable(expr)
+	}
+	
+	// Handle string concatenation (..)
+	if strings.Contains(expr, "..") {
+		return ctx.evalConcatenation(expr)
 	}
 	
 	// Handle string
@@ -283,6 +385,17 @@ func (ctx *luaContext) evaluateExpression(expr string) (interface{}, error) {
 	// Handle number
 	if num, err := strconv.ParseFloat(expr, 64); err == nil {
 		return num, nil
+	}
+	
+	// Handle boolean
+	if expr == "true" {
+		return true, nil
+	}
+	if expr == "false" {
+		return false, nil
+	}
+	if expr == "nil" {
+		return nil, nil
 	}
 	
 	// Handle variable
@@ -305,10 +418,10 @@ func (ctx *luaContext) parseTable(expr string) (interface{}, error) {
 	content = strings.TrimSpace(content)
 	
 	// Check if it's an array or map
-	if strings.Contains(content, "=") {
+	if strings.Contains(content, "=") && !strings.Contains(content, "==") {
 		// Map
 		result := make(map[string]interface{})
-		pairs := strings.Split(content, ",")
+		pairs := splitTopLevel(content, ',')
 		
 		for _, pair := range pairs {
 			pair = strings.TrimSpace(pair)
@@ -324,7 +437,7 @@ func (ctx *luaContext) parseTable(expr string) (interface{}, error) {
 	
 	// Array
 	var result []interface{}
-	items := strings.Split(content, ",")
+	items := splitTopLevel(content, ',')
 	
 	for _, item := range items {
 		item = strings.TrimSpace(item)
@@ -337,34 +450,101 @@ func (ctx *luaContext) parseTable(expr string) (interface{}, error) {
 	return result, nil
 }
 
+// splitTopLevel splits a string by delimiter, respecting nested structures
+func splitTopLevel(s string, delim byte) []string {
+	var result []string
+	var current strings.Builder
+	inString := false
+	stringChar := byte(0)
+	depth := 0
+	
+	for i := 0; i < len(s); i++ {
+		ch := s[i]
+		
+		if !inString && (ch == '"' || ch == '\'') {
+			inString = true
+			stringChar = ch
+		} else if inString && ch == stringChar {
+			inString = false
+		} else if !inString && (ch == '(' || ch == '{' || ch == '[') {
+			depth++
+		} else if !inString && (ch == ')' || ch == '}' || ch == ']') {
+			depth--
+		}
+		
+		if !inString && depth == 0 && ch == delim {
+			if current.Len() > 0 {
+				result = append(result, current.String())
+				current.Reset()
+			}
+		} else {
+			current.WriteByte(ch)
+		}
+	}
+	
+	if current.Len() > 0 {
+		result = append(result, current.String())
+	}
+	
+	return result
+}
+
+// evalConcatenation handles string concatenation (..)
+func (ctx *luaContext) evalConcatenation(expr string) (interface{}, error) {
+	parts := strings.Split(expr, "..")
+	var result strings.Builder
+	
+	for _, part := range parts {
+		val, err := ctx.evaluateExpression(strings.TrimSpace(part))
+		if err != nil {
+			return nil, err
+		}
+		result.WriteString(fmt.Sprintf("%v", val))
+	}
+	
+	return result.String(), nil
+}
+
 // evalArithmetic evaluates simple arithmetic expressions
 func (ctx *luaContext) evalArithmetic(expr string) (interface{}, error) {
-	// Simple arithmetic: a + b, a - b, a * b, a / b
+	// Handle parentheses first
+	expr = strings.TrimSpace(expr)
+	if strings.HasPrefix(expr, "(") && strings.HasSuffix(expr, ")") {
+		return ctx.evaluateExpression(expr[1 : len(expr)-1])
+	}
 	
+	// Simple arithmetic: a + b, a - b, a * b, a / b
 	for _, op := range []string{"+", "-", "*", "/"} {
-		if strings.Contains(expr, op) {
-			parts := strings.Split(expr, op)
-			if len(parts) == 2 {
-				left, _ := ctx.evaluateExpression(strings.TrimSpace(parts[0]))
-				right, _ := ctx.evaluateExpression(strings.TrimSpace(parts[1]))
-				
-				lNum, lok := toFloat(left)
-				rNum, rok := toFloat(right)
-				
-				if lok && rok {
-					switch op {
-					case "+":
-						return lNum + rNum, nil
-					case "-":
-						return lNum - rNum, nil
-					case "*":
-						return lNum * rNum, nil
-					case "/":
-						if rNum != 0 {
-							return lNum / rNum, nil
-						}
-						return nil, fmt.Errorf("division by zero")
+		if idx := strings.Index(expr, op); idx > 0 {
+			leftStr := strings.TrimSpace(expr[:idx])
+			rightStr := strings.TrimSpace(expr[idx+1:])
+			
+			left, err := ctx.evaluateExpression(leftStr)
+			if err != nil {
+				return expr, nil // Not arithmetic, return as is
+			}
+			
+			right, err := ctx.evaluateExpression(rightStr)
+			if err != nil {
+				return expr, nil
+			}
+			
+			lNum, lok := toFloat(left)
+			rNum, rok := toFloat(right)
+			
+			if lok && rok {
+				switch op {
+				case "+":
+					return lNum + rNum, nil
+				case "-":
+					return lNum - rNum, nil
+				case "*":
+					return lNum * rNum, nil
+				case "/":
+					if rNum != 0 {
+						return lNum / rNum, nil
 					}
+					return nil, fmt.Errorf("division by zero")
 				}
 			}
 		}
@@ -427,5 +607,3 @@ func removeComments(code string) string {
 	
 	return strings.Join(result, "\n")
 }
-
-
