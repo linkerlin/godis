@@ -423,6 +423,56 @@ func execCopy(mdb *Server, conn redis.Connection, args [][]byte) redis.Reply {
 	return protocol.MakeIntReply(1)
 }
 
+// execMove moves a key to another database
+// MOVE key db
+func (mdb *Server) execMove(conn redis.Connection, args [][]byte) redis.Reply {
+	if len(args) != 2 {
+		return protocol.MakeArgNumErrReply("move")
+	}
+	
+	srcKey := string(args[0])
+	dbIndex, err := strconv.Atoi(string(args[1]))
+	if err != nil {
+		return protocol.MakeErrReply("ERR value is not an integer or out of range")
+	}
+	
+	if dbIndex >= len(mdb.dbSet) || dbIndex < 0 {
+		return protocol.MakeErrReply("ERR DB index is out of range")
+	}
+	
+	srcDBIndex := conn.GetDBIndex()
+	if srcDBIndex == dbIndex {
+		return protocol.MakeErrReply("ERR source and destination objects are the same")
+	}
+	
+	srcDB := mdb.mustSelectDB(srcDBIndex)
+	destDB := mdb.mustSelectDB(dbIndex)
+	
+	// Check if key exists in source
+	entity, exists := srcDB.GetEntity(srcKey)
+	if !exists {
+		return protocol.MakeIntReply(0)
+	}
+	
+	// Check if key exists in destination
+	if _, exists = destDB.GetEntity(srcKey); exists {
+		return protocol.MakeIntReply(0)
+	}
+	
+	// Move the key
+	destDB.PutEntity(srcKey, entity)
+	raw, hasTTL := srcDB.ttlMap.Get(srcKey)
+	if hasTTL {
+		expire := raw.(time.Time)
+		destDB.Expire(srcKey, expire)
+		srcDB.Persist(srcKey) // Remove TTL from source before removing key
+	}
+	srcDB.Remove(srcKey)
+	
+	mdb.AddAof(srcDBIndex, utils.ToCmdLine3("move", args...))
+	return protocol.MakeIntReply(1)
+}
+
 // execScan return the result of the scan
 func execScan(db *DB, args [][]byte) redis.Reply {
 	var count int = 10
