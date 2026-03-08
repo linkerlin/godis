@@ -396,7 +396,7 @@ func execFTSearch(db *DB, args [][]byte) redis.Reply {
 			i += 2
 			for j := 0; j < count && i < len(args); j++ {
 				nextArg := strings.ToUpper(string(args[i]))
-				if nextArg == "LIMIT" || nextArg == "SORTBY" {
+				if nextArg == "LIMIT" || nextArg == "SORTBY" || nextArg == "GEOFILTER" {
 					i--
 					break
 				}
@@ -404,6 +404,36 @@ func execFTSearch(db *DB, args [][]byte) redis.Reply {
 				i++
 			}
 			i--
+		case "GEOFILTER":
+			// GEOFILTER geo_field lon lat radius m|km|mi|ft
+			if i+5 >= len(args) {
+				return protocol.MakeSyntaxErrReply()
+			}
+			geoField := string(args[i+1])
+			lon, err := strconv.ParseFloat(string(args[i+2]), 64)
+			if err != nil {
+				return protocol.MakeErrReply("ERR Invalid longitude")
+			}
+			lat, err := strconv.ParseFloat(string(args[i+3]), 64)
+			if err != nil {
+				return protocol.MakeErrReply("ERR Invalid latitude")
+			}
+			radius, err := strconv.ParseFloat(string(args[i+4]), 64)
+			if err != nil {
+				return protocol.MakeErrReply("ERR Invalid radius")
+			}
+			unit := strings.ToLower(string(args[i+5]))
+			if unit != "m" && unit != "km" && unit != "mi" && unit != "ft" {
+				return protocol.MakeErrReply("ERR Invalid unit")
+			}
+			opts.GeoFilter = &redisearch.GeoFilterOptions{
+				Field:  geoField,
+				Lon:    lon,
+				Lat:    lat,
+				Radius: radius,
+				Unit:   unit,
+			}
+			i += 5
 		}
 	}
 	

@@ -13,8 +13,27 @@ import (
 var funcEngine *functions.Engine
 
 // InitFunctionsEngine initializes the functions engine
-func InitFunctionsEngine() {
+func InitFunctionsEngine(db *DB) {
 	funcEngine = functions.NewEngine(10)
+	
+	// Set up database execution function for Lua scripts
+	if db != nil {
+		dbExec := func(cmd string, args ...string) (interface{}, error) {
+			cmdLine := make([][]byte, 0, len(args)+1)
+			cmdLine = append(cmdLine, []byte(cmd))
+			for _, arg := range args {
+				cmdLine = append(cmdLine, []byte(arg))
+			}
+			
+			result := db.Exec(nil, cmdLine)
+			if errReply, ok := result.(*protocol.StandardErrReply); ok {
+				return nil, fmt.Errorf(errReply.Status)
+			}
+			return redisReplyToGo(result), nil
+		}
+		
+		funcEngine.SetDBExec(dbExec)
+	}
 }
 
 // execFunctionLoad loads a library
@@ -25,7 +44,7 @@ func execFunctionLoad(db *DB, args [][]byte) redis.Reply {
 	}
 	
 	if funcEngine == nil {
-		InitFunctionsEngine()
+		InitFunctionsEngine(db)
 	}
 	
 	replace := false
@@ -231,7 +250,7 @@ func execFunctionRestore(db *DB, args [][]byte) redis.Reply {
 	}
 	
 	if funcEngine == nil {
-		InitFunctionsEngine()
+		InitFunctionsEngine(db)
 	}
 	
 	// Parse policy
@@ -490,8 +509,8 @@ func atoi(s string) (int, error) {
 }
 
 func init() {
-	// Initialize functions engine
-	InitFunctionsEngine()
+	// Initialize functions engine (without DB - will be set on first use)
+	InitFunctionsEngine(nil)
 	
 	registerCommand("Function|Load", execFunctionLoad, noPrepare, nil, -2, flagWrite).
 		attachCommandExtra([]string{redisFlagWrite}, 0, 0, 0)

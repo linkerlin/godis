@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"github.com/hdt3213/godis/scripting"
 )
 
 // Function represents a Redis Function
@@ -43,6 +44,8 @@ type Library struct {
 type Engine struct {
 	libraries map[string]*Library
 	functions map[string]*Function // Global function name -> Function
+	luaEngine *scripting.LuaEngine
+	dbExec    func(cmd string, args ...string) (interface{}, error)
 	
 	mu        sync.RWMutex
 }
@@ -52,7 +55,15 @@ func NewEngine(poolSize int) *Engine {
 	return &Engine{
 		libraries: make(map[string]*Library),
 		functions: make(map[string]*Function),
+		luaEngine: scripting.NewLuaEngine(),
 	}
+}
+
+// SetDBExec sets the database execution function for Lua scripts
+func (e *Engine) SetDBExec(dbExec func(cmd string, args ...string) (interface{}, error)) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.dbExec = dbExec
 }
 
 // LoadLibrary loads a library from code
@@ -247,23 +258,80 @@ func (e *Engine) FlushAll() error {
 	return nil
 }
 
-// Call executes a function (simplified - returns function info)
-// Note: Full Lua execution requires github.com/yuin/gopher-lua
+// Call executes a function using Lua engine
 func (e *Engine) Call(functionName string, keys []string, args []string) (interface{}, error) {
 	fn, exists := e.GetFunction(functionName)
 	if !exists {
 		return nil, fmt.Errorf("function '%s' not found", functionName)
 	}
 	
-	// Simplified: return function metadata
-	// In full implementation, this would execute the Lua code
-	return map[string]interface{}{
-		"function": fn.Name,
-		"library":  fn.Library,
-		"keys":     keys,
-		"args":     args,
-		"result":   "Lua execution requires gopher-lua module",
-	}, nil
+	// Get library code
+	lib, _ := e.GetLibrary(fn.Library)
+	if lib == nil {
+		return nil, fmt.Errorf("library '%s' not found", fn.Library)
+	}
+	
+	// Build Lua script to execute
+	// Wrap the library code and call the registered function
+	script := e.buildExecutionScript(lib.Code, functionName, keys, args)
+	
+	// Execute using Lua engine
+	result, err := e.luaEngine.Execute(script, keys, args, e.dbExec)
+	if err != nil {
+		return nil, fmt.Errorf("function execution failed: %v", err)
+	}
+	
+	return result, nil
+}
+
+// buildExecutionScript builds a Lua script that sets up the environment and calls the function
+func (e *Engine) buildExecutionScript(libCode, funcName string, keys, args []string) string {
+	// Create a script that:
+	// 1. Loads the library code
+	// 2. Calls the registered function
+	// 3. Returns the result
+	
+	script := `
+-- Redis Functions execution wrapper
+local redis = {
+	call = function(...)
+		local cmd = {...}
+		local cmdStr = table.remove(cmd, 1)
+		return redis_call(cmdStr, table.unpack(cmd))
+	end,
+	pcall = function(...)
+		local ok, result = pcall(redis.call, ...)
+		if not ok then
+			return {err = result}
+		end
+		return result
+	end,
+	register_function = function(name, callback, flags)
+		-- Store function for later call
+		if type(name) == "table" then
+			-- Table-style registration
+			_G[name.name] = name.callback
+		else
+			-- Direct registration
+			_G[name] = callback
+		end
+	end,
+	log = function(level, message)
+		print("[REDIS LOG " .. level .. "] " .. message)
+	end
+}
+
+-- Load library code
+` + libCode + `
+
+-- Call the function
+if _G["` + funcName + `"] then
+	return _G["` + funcName + `"](KEYS, ARGV)
+else
+	return {err = "Function not found"}
+end
+`
+	return script
 }
 
 // Stats returns engine statistics
