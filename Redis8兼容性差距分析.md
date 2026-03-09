@@ -169,7 +169,7 @@
 | ACL | ~90% | 核心功能、LOG审计完整 |
 | Connection/Protocol | ~95% | RESP3、客户端缓存完整 |
 | Client Caching | ~90% | TRACKING、失效推送完整 |
-| 管理命令 | ~99% | INFO (全部部分，含网络I/O速率、Lua内存、rejected_connections)、MONITOR、COMMAND DOCS完整 |
+| 管理命令 | ~99% | INFO (全部部分，含网络I/O速率、Lua内存、过期统计、rejected_connections)、MONITOR、COMMAND DOCS完整 |
 | 锁管理 | ~95% | 框架完成，数据库深度集成 |
 | 内存管理 | ~95% | 框架完成，键淘汰集成 |
 | RediSearch | ~98% | 搜索、聚合(含FILTER)、高亮、地理、拼写检查、建议补全、模糊匹配、可选匹配 |

@@ -362,6 +362,8 @@ func (db *DB) IsExpired(key string) bool {
 	expireTime, _ := rawExpireTime.(time.Time)
 	expired := time.Now().After(expireTime)
 	if expired {
+		// Track stale expiration (key was accessed but already expired)
+		serverStats.ExpiredStale++
 		db.Remove(key)
 	}
 	return expired

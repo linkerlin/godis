@@ -22,6 +22,7 @@ type ServerStats struct {
 	EvictedKeys uint64
 	KeyspaceHits uint64
 	KeyspaceMisses uint64
+	ExpiredStale int64  // Number of expired keys that were accessed but already expired
 }
 
 var serverStats = &ServerStats{}
@@ -219,7 +220,7 @@ func GenGodisInfoString(section string, db *Server) []byte {
 			uint64(0), // sync_partial_ok - TODO
 			uint64(0), // sync_partial_err - TODO
 			serverStats.ExpiredKeys,
-			0.0, // expired_stale_perc - TODO
+			getExpiredStalePerc(),
 			uint64(0), // expired_time_cap_reached_count - TODO
 			serverStats.EvictedKeys,
 			serverStats.KeyspaceHits,
@@ -467,6 +468,13 @@ func getInstantaneousInputKbps() float64 {
 func getInstantaneousOutputKbps() float64 {
 	_, outputKBps := stats.GetRates()
 	return outputKBps
+}
+
+func getExpiredStalePerc() float64 {
+	if serverStats.ExpiredKeys == 0 {
+		return 0.0
+	}
+	return float64(serverStats.ExpiredStale) / float64(serverStats.ExpiredKeys) * 100
 }
 
 // getGodisRunningMode return godis running mode
