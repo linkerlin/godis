@@ -31,6 +31,10 @@ type ClientCache struct {
 	// Connection mapping for sending pushes
 	connections map[string]redis.Connection
 	
+	// Stats
+	trackingClientsCount int
+	invalidationMsgsSent uint64
+	
 	mu sync.RWMutex
 }
 
@@ -43,6 +47,8 @@ var clientCache = &ClientCache{
 	prefixes:           make(map[string][]string),
 	invalidationQueues: make(map[string]chan []string),
 	connections:        make(map[string]redis.Connection),
+	trackingClientsCount: 0,
+	invalidationMsgsSent: 0,
 }
 
 // EnableTracking enables client tracking for a connection
@@ -66,6 +72,9 @@ func EnableTracking(conn redis.Connection, mode string, prefixes []string) strin
 	if clientCache.invalidationQueues[clientID] == nil {
 		clientCache.invalidationQueues[clientID] = make(chan []string, 100)
 	}
+	
+	// Update stats
+	clientCache.trackingClientsCount++
 	
 	// Start background sender for this client
 	go clientCache.invalidationSender(clientID)
@@ -93,6 +102,9 @@ func DisableTracking(clientID string) {
 	delete(clientCache.prefixes, clientID)
 	delete(clientCache.trackedKeys, clientID)
 	delete(clientCache.connections, clientID)
+	
+	// Update stats
+	clientCache.trackingClientsCount--
 	
 	// Close and delete queue
 	if queue, ok := clientCache.invalidationQueues[clientID]; ok {
@@ -265,6 +277,25 @@ func GetTrackingInfo(clientID string) map[string]interface{} {
 		"prefixes": clientCache.prefixes[clientID],
 		"keys":    len(clientCache.trackedKeys[clientID]),
 	}
+}
+
+// GetTrackingStats returns global tracking statistics
+func GetTrackingStats() map[string]interface{} {
+	clientCache.mu.RLock()
+	defer clientCache.mu.RUnlock()
+	
+	return map[string]interface{}{
+		"tracking_clients": clientCache.trackingClientsCount,
+		"total_tracked_keys": len(clientCache.keyClients),
+		"invalidation_msgs_sent": clientCache.invalidationMsgsSent,
+	}
+}
+
+// GetTrackingClientsCount returns the number of clients with tracking enabled
+func GetTrackingClientsCount() int {
+	clientCache.mu.RLock()
+	defer clientCache.mu.RUnlock()
+	return clientCache.trackingClientsCount
 }
 
 // Hook into database write operations

@@ -121,6 +121,18 @@ func (n *PrefixNode) Evaluate(idx *InvertedIndex) []string {
 	return idx.PrefixSearch(n.Prefix, n.Field)
 }
 
+// FuzzyNode represents a fuzzy (approximate) search
+type FuzzyNode struct {
+	Term     string
+	Field    string
+	MaxDist  int // Maximum Levenshtein distance
+}
+
+// Evaluate evaluates a fuzzy node
+func (n *FuzzyNode) Evaluate(idx *InvertedIndex) []string {
+	return idx.FuzzySearch(n.Term, n.Field, n.MaxDist)
+}
+
 // TagNode represents a tag search
 type TagNode struct {
 	Field string
@@ -213,9 +225,21 @@ func (p *QueryParser) Parse(query string) (QueryNode, error) {
 		}
 		
 		// Check for prefix search
-		if strings.HasSuffix(term, "*") {
+		if strings.HasSuffix(term, "*") && !strings.HasPrefix(term, "%") {
 			prefix := term[:len(term)-1]
 			var node QueryNode = &PrefixNode{Prefix: prefix, Field: field}
+			if negateNext {
+				node = &NotNode{Child: node}
+				negateNext = false
+			}
+			nodes = append(nodes, node)
+			continue
+		}
+		
+		// Check for fuzzy search %term% or %term
+		if strings.HasPrefix(term, "%") && strings.HasSuffix(term, "%") && len(term) > 2 {
+			fuzzyTerm := term[1 : len(term)-1]
+			var node QueryNode = &FuzzyNode{Term: fuzzyTerm, Field: field, MaxDist: 1}
 			if negateNext {
 				node = &NotNode{Child: node}
 				negateNext = false

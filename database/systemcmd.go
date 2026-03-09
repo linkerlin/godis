@@ -151,7 +151,7 @@ func GenGodisInfoString(section string, db *Server) []byte {
 			0, // cluster_connections
 			config.Properties.MaxClients,
 			blockedClients,
-			0, // tracking_clients - TODO
+			GetTrackingClientsCount(),
 			0, // clients_in_timeout_table
 		)
 		return []byte(s)

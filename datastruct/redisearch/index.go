@@ -348,6 +348,53 @@ func (idx *InvertedIndex) Clear() {
 	idx.documents = make(map[string]*Document)
 }
 
+// FuzzySearch performs fuzzy search with Levenshtein distance
+func (idx *InvertedIndex) FuzzySearch(term string, field string, maxDist int) []string {
+	idx.mu.RLock()
+	defer idx.mu.RUnlock()
+	
+	results := make(map[string]bool)
+	
+	// Search through all terms
+	for dictTerm := range idx.terms {
+		// Skip field-prefixed terms if no field specified
+		if field == "" && strings.Contains(dictTerm, ":") {
+			continue
+		}
+		
+		// Check field match
+		if field != "" {
+			if !strings.HasPrefix(dictTerm, field+":") {
+				continue
+			}
+			// Remove field prefix for comparison
+			dictTerm = strings.TrimPrefix(dictTerm, field+":")
+		}
+		
+		// Calculate Levenshtein distance
+		dist := levenshteinDistance(term, dictTerm)
+		if dist <= maxDist {
+			// Add all documents for this term
+			if field != "" {
+				dictTerm = field + ":" + dictTerm
+			}
+			if docs, ok := idx.terms[dictTerm]; ok {
+				for docID := range docs {
+					results[docID] = true
+				}
+			}
+		}
+	}
+	
+	// Convert to slice
+	var result []string
+	for docID := range results {
+		result = append(result, docID)
+	}
+	
+	return result
+}
+
 // PrefixSearch searches for terms with given prefix
 func (idx *InvertedIndex) PrefixSearch(prefix string, field string) []string {
 	idx.mu.RLock()
