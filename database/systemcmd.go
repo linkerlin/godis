@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"github.com/hdt3213/godis/config"
 	"github.com/hdt3213/godis/interface/redis"
+	"github.com/hdt3213/godis/lib/stats"
 	"github.com/hdt3213/godis/redis/protocol"
 	"github.com/hdt3213/godis/tcp"
 	"os"
@@ -208,8 +209,8 @@ func GenGodisInfoString(section string, db *Server) []byte {
 			serverStats.TotalConnectionsReceived,
 			serverStats.TotalCommandsProcessed,
 			getInstantaneousOpsPerSec(),
-			uint64(0), // total_net_input_bytes - TODO
-			uint64(0), // total_net_output_bytes - TODO
+			getNetInputBytes(),
+			getNetOutputBytes(),
 			0.0, // instantaneous_input_kbps - TODO
 			0.0, // instantaneous_output_kbps - TODO
 			uint64(0), // rejected_connections - TODO
@@ -445,6 +446,16 @@ func getPubsubChannelsCount() int64 {
 func getPubsubPatternsCount() int64 {
 	// TODO: implement pubsub tracking
 	return 0
+}
+
+func getNetInputBytes() uint64 {
+	input, _ := stats.GetStats()
+	return input
+}
+
+func getNetOutputBytes() uint64 {
+	_, output := stats.GetStats()
+	return output
 }
 
 // getGodisRunningMode return godis running mode

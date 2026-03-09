@@ -18,6 +18,7 @@ import (
 	"github.com/hdt3213/godis/database"
 	idatabase "github.com/hdt3213/godis/interface/database"
 	"github.com/hdt3213/godis/lib/logger"
+	"github.com/hdt3213/godis/lib/stats"
 	"github.com/hdt3213/godis/lib/sync/atomic"
 	"github.com/hdt3213/godis/redis/connection"
 	"github.com/hdt3213/godis/redis/parser"
@@ -112,9 +113,12 @@ func (h *Handler) Handle(ctx context.Context, conn net.Conn) {
 		}
 		result := h.db.Exec(client, r.Args)
 		if result != nil {
-			_, _ = client.Write(result.ToBytes())
+			bytes := result.ToBytes()
+			_, _ = client.Write(bytes)
+			stats.RecordOutput(len(bytes))
 		} else {
 			_, _ = client.Write(unknownErrReplyBytes)
+			stats.RecordOutput(len(unknownErrReplyBytes))
 		}
 	}
 }
