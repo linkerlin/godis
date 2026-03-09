@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"time"
 	"github.com/hdt3213/godis/scripting"
 )
 
@@ -40,12 +41,25 @@ type Library struct {
 	SHA         string
 }
 
+// RunningFunction tracks an executing function
+type RunningFunction struct {
+	Name      string
+	Library   string
+	StartTime time.Time
+	Cancel    chan struct{}
+	Done      chan struct{}
+}
+
 // Engine manages Redis Functions
 type Engine struct {
 	libraries map[string]*Library
 	functions map[string]*Function // Global function name -> Function
 	luaEngine *scripting.LuaEngine
 	dbExec    func(cmd string, args ...string) (interface{}, error)
+	
+	// Execution tracking for KILL
+	running     *RunningFunction
+	runningMu   sync.RWMutex
 	
 	mu        sync.RWMutex
 }
@@ -56,6 +70,7 @@ func NewEngine(poolSize int) *Engine {
 		libraries: make(map[string]*Library),
 		functions: make(map[string]*Function),
 		luaEngine: scripting.NewLuaEngine(),
+		running:   nil,
 	}
 }
 
@@ -275,13 +290,71 @@ func (e *Engine) Call(functionName string, keys []string, args []string) (interf
 	// Wrap the library code and call the registered function
 	script := e.buildExecutionScript(lib.Code, functionName, keys, args)
 	
-	// Execute using Lua engine
-	result, err := e.luaEngine.Execute(script, keys, args, e.dbExec)
+	// Create execution context with cancel
+	cancel := make(chan struct{})
+	done := make(chan struct{})
+	
+	running := &RunningFunction{
+		Name:      functionName,
+		Library:   fn.Library,
+		StartTime: time.Now(),
+		Cancel:    cancel,
+		Done:      done,
+	}
+	
+	// Register as running
+	e.runningMu.Lock()
+	if e.running != nil {
+		e.runningMu.Unlock()
+		return nil, fmt.Errorf("another function is currently running")
+	}
+	e.running = running
+	e.runningMu.Unlock()
+	
+	// Clean up when done
+	defer func() {
+		close(done)
+		e.runningMu.Lock()
+		e.running = nil
+		e.runningMu.Unlock()
+	}()
+	
+	// Execute using Lua engine with cancel support
+	result, err := e.luaEngine.ExecuteWithCancel(script, keys, args, e.dbExec, cancel)
 	if err != nil {
 		return nil, fmt.Errorf("function execution failed: %v", err)
 	}
 	
 	return result, nil
+}
+
+// GetRunningFunction returns currently running function info
+func (e *Engine) GetRunningFunction() *RunningFunction {
+	e.runningMu.RLock()
+	defer e.runningMu.RUnlock()
+	return e.running
+}
+
+// KillRunningFunction kills the currently running function
+func (e *Engine) KillRunningFunction() error {
+	e.runningMu.RLock()
+	running := e.running
+	e.runningMu.RUnlock()
+	
+	if running == nil {
+		return fmt.Errorf("no running function to kill")
+	}
+	
+	// Send cancel signal
+	close(running.Cancel)
+	
+	// Wait for function to stop (with timeout)
+	select {
+	case <-running.Done:
+		return nil
+	case <-time.After(5 * time.Second):
+		return fmt.Errorf("timeout waiting for function to stop")
+	}
 }
 
 // buildExecutionScript builds a Lua script that sets up the environment and calls the function

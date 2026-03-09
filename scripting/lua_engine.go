@@ -22,6 +22,11 @@ func NewLuaEngine() *LuaEngine {
 
 // Execute executes Lua code with Redis API
 func (e *LuaEngine) Execute(code string, keys []string, args []string, callFunc func(cmd string, args ...string) (interface{}, error)) (interface{}, error) {
+	return e.ExecuteWithCancel(code, keys, args, callFunc, nil)
+}
+
+// ExecuteWithCancel executes Lua code with support for cancellation
+func (e *LuaEngine) ExecuteWithCancel(code string, keys []string, args []string, callFunc func(cmd string, args ...string) (interface{}, error), cancel <-chan struct{}) (interface{}, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	
@@ -32,6 +37,7 @@ func (e *LuaEngine) Execute(code string, keys []string, args []string, callFunc 
 		callFunc: callFunc,
 		vars:     make(map[string]interface{}),
 		globals:  make(map[string]interface{}),
+		cancel:   cancel,
 	}
 	
 	// Set up global tables
@@ -53,6 +59,19 @@ type luaContext struct {
 	callFunc func(cmd string, args ...string) (interface{}, error)
 	vars     map[string]interface{}
 	globals  map[string]interface{}
+	cancel   <-chan struct{}
+}
+
+// checkCancel checks if execution should be cancelled
+func (ctx *luaContext) checkCancel() error {
+	if ctx.cancel != nil {
+		select {
+		case <-ctx.cancel:
+			return fmt.Errorf("script killed by user")
+		default:
+		}
+	}
+	return nil
 }
 
 // setupGlobals initializes global variables and functions
@@ -89,6 +108,11 @@ func (ctx *luaContext) runStatements(code string) (interface{}, error) {
 	lines := strings.Split(code, "\n")
 	
 	for _, line := range lines {
+		// Check for cancellation
+		if err := ctx.checkCancel(); err != nil {
+			return nil, err
+		}
+		
 		line = strings.TrimSpace(line)
 		if line == "" {
 			continue

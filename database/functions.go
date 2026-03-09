@@ -170,15 +170,22 @@ func execFunctionFlush(db *DB, args [][]byte) redis.Reply {
 	return protocol.MakeOkReply()
 }
 
-// execFunctionKill kills a running function (not implemented)
+// execFunctionKill kills a running function
 // FUNCTION KILL
 func execFunctionKill(db *DB, args [][]byte) redis.Reply {
 	if len(args) != 0 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'function kill' command")
 	}
 	
-	// Not implemented - would need execution tracking
-	return protocol.MakeErrReply("ERR not implemented")
+	if funcEngine == nil {
+		return protocol.MakeErrReply("ERR no functions engine")
+	}
+	
+	if err := funcEngine.KillRunningFunction(); err != nil {
+		return protocol.MakeErrReply(fmt.Sprintf("ERR %s", err))
+	}
+	
+	return protocol.MakeOkReply()
 }
 
 // execFunctionStats returns function statistics
@@ -208,9 +215,20 @@ func execFunctionStats(db *DB, args [][]byte) redis.Reply {
 		[]byte(fmt.Sprintf("%d", stats["functions"])),
 	}).ToBytes())
 	
+	// Check for running function
+	var runningScriptReply redis.Reply = protocol.MakeEmptyMultiBulkReply()
+	if running := funcEngine.GetRunningFunction(); running != nil {
+		runningScriptReply = protocol.MakeMultiBulkReply([][]byte{
+			[]byte("name"),
+			[]byte(running.Name),
+			[]byte("command"),
+			[]byte(fmt.Sprintf("FCALL %s", running.Name)),
+		})
+	}
+	
 	reply := [][]byte{
 		[]byte("running_script"),
-		protocol.MakeEmptyMultiBulkReply().ToBytes(),
+		runningScriptReply.ToBytes(),
 		[]byte("engines"),
 		protocol.MakeMultiBulkReply(engines).ToBytes(),
 	}

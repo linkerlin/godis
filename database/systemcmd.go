@@ -12,6 +12,18 @@ import (
 	"time"
 )
 
+// Server stats for INFO command
+type ServerStats struct {
+	TotalCommandsProcessed uint64
+	TotalConnectionsReceived uint64
+	ExpiredKeys uint64
+	EvictedKeys uint64
+	KeyspaceHits uint64
+	KeyspaceMisses uint64
+}
+
+var serverStats = &ServerStats{}
+
 // Ping the server
 func Ping(c redis.Connection, args [][]byte) redis.Reply {
 	if len(args) == 0 {
@@ -26,7 +38,7 @@ func Ping(c redis.Connection, args [][]byte) redis.Reply {
 // Info the information of the godis server returned by the INFO command
 func Info(db *Server, args [][]byte) redis.Reply {
 	if len(args) == 0 {
-		infoCommandList := [...]string{"server", "client", "cluster", "keyspace"}
+		infoCommandList := [...]string{"server", "client", "memory", "stats", "cluster", "keyspace"}
 		var allSection []byte
 		for _, s := range infoCommandList {
 			allSection = append(allSection, GenGodisInfoString(s, db)...)
@@ -40,6 +52,10 @@ func Info(db *Server, args [][]byte) redis.Reply {
 			return protocol.MakeBulkReply(reply)
 		case "client":
 			return protocol.MakeBulkReply(GenGodisInfoString("client", db))
+		case "memory":
+			return protocol.MakeBulkReply(GenGodisInfoString("memory", db))
+		case "stats":
+			return protocol.MakeBulkReply(GenGodisInfoString("stats", db))
 		case "cluster":
 			return protocol.MakeBulkReply(GenGodisInfoString("cluster", db))
 		case "keyspace":
@@ -85,50 +101,128 @@ func GenGodisInfoString(section string, db *Server) []byte {
 	case "server":
 		s := fmt.Sprintf("# Server\r\n"+
 			"godis_version:%s\r\n"+
-			//"godis_git_sha1:%s\r\n"+
-			//"godis_git_dirty:%d\r\n"+
-			//"godis_build_id:%s\r\n"+
 			"godis_mode:%s\r\n"+
 			"os:%s %s\r\n"+
 			"arch_bits:%d\r\n"+
-			//"multiplexing_api:%s\r\n"+
 			"go_version:%s\r\n"+
 			"process_id:%d\r\n"+
 			"run_id:%s\r\n"+
 			"tcp_port:%d\r\n"+
+			"server_time_usec:%d\r\n"+
 			"uptime_in_seconds:%d\r\n"+
 			"uptime_in_days:%d\r\n"+
-			//"hz:%d\r\n"+
-			//"lru_clock:%d\r\n"+
+			"hz:%d\r\n"+
+			"lru_clock:%d\r\n"+
 			"config_file:%s\r\n",
 			godisVersion,
-			//TODO,
-			//TODO,
-			//TODO,
 			getGodisRunningMode(),
 			runtime.GOOS, runtime.GOARCH,
 			32<<(^uint(0)>>63),
-			//TODO,
 			runtime.Version(),
 			os.Getpid(),
 			config.Properties.RunID,
 			config.Properties.Port,
-			startUpTimeFromNow,
-			startUpTimeFromNow/time.Duration(3600*24),
-			//TODO,
-			//TODO,
+			time.Now().UnixMicro(),
+			int64(startUpTimeFromNow.Seconds()),
+			int64(startUpTimeFromNow.Hours()/24),
+			10, // hz - default event loop frequency
+			getLRUClock(),
 			config.GetConfigFilePath())
 		return []byte(s)
 	case "client":
+		// Get blocked clients count (simplified)
+		blockedClients := getBlockedClientsCount()
 		s := fmt.Sprintf("# Clients\r\n"+
-			"connected_clients:%d\r\n",
-			//"client_recent_max_input_buffer:%d\r\n"+
-			//"client_recent_max_output_buffer:%d\r\n"+
-			//"blocked_clients:%d\n",
+			"connected_clients:%d\r\n"+
+			"cluster_connections:%d\r\n"+
+			"maxclients:%d\r\n"+
+			"blocked_clients:%d\r\n"+
+			"tracking_clients:%d\r\n"+
+			"clients_in_timeout_table:%d\r\n",
 			tcp.ClientCounter,
-			//TODO,
-			//TODO,
-			//TODO,
+			0, // cluster_connections
+			config.Properties.MaxClients,
+			blockedClients,
+			0, // tracking_clients - TODO
+			0, // clients_in_timeout_table
+		)
+		return []byte(s)
+	case "memory":
+		var m runtime.MemStats
+		runtime.ReadMemStats(&m)
+		s := fmt.Sprintf("# Memory\r\n"+
+			"used_memory:%d\r\n"+
+			"used_memory_human:%s\r\n"+
+			"used_memory_rss:%d\r\n"+
+			"used_memory_peak:%d\r\n"+
+			"used_memory_peak_human:%s\r\n"+
+			"used_memory_lua:%d\r\n"+
+			"mem_fragmentation_ratio:%.2f\r\n"+
+			"mem_allocator:%s\r\n",
+			m.TotalAlloc,
+			humanReadableSize(m.TotalAlloc),
+			m.Sys,
+			m.TotalAlloc, // Simplified peak
+			humanReadableSize(m.TotalAlloc),
+			uint64(0), // Lua memory - TODO
+			float64(m.Sys)/float64(m.TotalAlloc),
+			"go",
+		)
+		return []byte(s)
+	case "stats":
+		s := fmt.Sprintf("# Stats\r\n"+
+			"total_connections_received:%d\r\n"+
+			"total_commands_processed:%d\r\n"+
+			"instantaneous_ops_per_sec:%d\r\n"+
+			"total_net_input_bytes:%d\r\n"+
+			"total_net_output_bytes:%d\r\n"+
+			"instantaneous_input_kbps:%.2f\r\n"+
+			"instantaneous_output_kbps:%.2f\r\n"+
+			"rejected_connections:%d\r\n"+
+			"sync_full:%d\r\n"+
+			"sync_partial_ok:%d\r\n"+
+			"sync_partial_err:%d\r\n"+
+			"expired_keys:%d\r\n"+
+			"expired_stale_perc:%.2f\r\n"+
+			"expired_time_cap_reached_count:%d\r\n"+
+			"evict_keys:%d\r\n"+
+			"keyspace_hits:%d\r\n"+
+			"keyspace_misses:%d\r\n"+
+			"pubsub_channels:%d\r\n"+
+			"pubsub_patterns:%d\r\n"+
+			"latest_fork_usec:%d\r\n"+
+			"migrate_cached_sockets:%d\r\n"+
+			"slave_expires_tracked_keys:%d\r\n"+
+			"active_defrag_hits:%d\r\n"+
+			"active_defrag_misses:%d\r\n"+
+			"active_defrag_key_hits:%d\r\n"+
+			"active_defrag_key_misses:%d\r\n",
+			serverStats.TotalConnectionsReceived,
+			serverStats.TotalCommandsProcessed,
+			getInstantaneousOpsPerSec(),
+			uint64(0), // total_net_input_bytes - TODO
+			uint64(0), // total_net_output_bytes - TODO
+			0.0, // instantaneous_input_kbps - TODO
+			0.0, // instantaneous_output_kbps - TODO
+			uint64(0), // rejected_connections - TODO
+			uint64(0), // sync_full - TODO
+			uint64(0), // sync_partial_ok - TODO
+			uint64(0), // sync_partial_err - TODO
+			serverStats.ExpiredKeys,
+			0.0, // expired_stale_perc - TODO
+			uint64(0), // expired_time_cap_reached_count - TODO
+			serverStats.EvictedKeys,
+			serverStats.KeyspaceHits,
+			serverStats.KeyspaceMisses,
+			getPubsubChannelsCount(),
+			getPubsubPatternsCount(),
+			0, // latest_fork_usec - N/A in Go
+			0, // migrate_cached_sockets - TODO
+			0, // slave_expires_tracked_keys - TODO
+			0, // active_defrag_hits - N/A
+			0, // active_defrag_misses - N/A
+			0, // active_defrag_key_hits - N/A
+			0, // active_defrag_key_misses - N/A
 		)
 		return []byte(s)
 	case "cluster":
@@ -160,6 +254,45 @@ func GenGodisInfoString(section string, db *Server) []byte {
 		return keyspaceInfo
 	}
 	return []byte("")
+}
+
+// Helper functions for INFO command
+func humanReadableSize(bytes uint64) string {
+	const unit = 1024
+	if bytes < unit {
+		return fmt.Sprintf("%dB", bytes)
+	}
+	div, exp := uint64(unit), 0
+	for n := bytes / unit; n >= unit; n /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f%cB", float64(bytes)/float64(div), "KMGTPE"[exp])
+}
+
+func getLRUClock() uint32 {
+	// Simplified LRU clock - 24 bits, increments every 10 seconds
+	return uint32(time.Now().Unix() / 10)
+}
+
+func getBlockedClientsCount() int64 {
+	// TODO: implement blocked clients tracking
+	return 0
+}
+
+func getInstantaneousOpsPerSec() int64 {
+	// TODO: implement ops tracking
+	return 0
+}
+
+func getPubsubChannelsCount() int64 {
+	// TODO: implement pubsub tracking
+	return 0
+}
+
+func getPubsubPatternsCount() int64 {
+	// TODO: implement pubsub tracking
+	return 0
 }
 
 // getGodisRunningMode return godis running mode

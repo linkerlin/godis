@@ -203,9 +203,9 @@ func (p *QueryParser) Parse(query string) (QueryNode, error) {
 		// Check for tag syntax @field:{tag}
 		if strings.HasPrefix(term, "{") && strings.HasSuffix(term, "}") {
 			tag := term[1 : len(term)-1]
-			node := &TagNode{Field: field, Tag: tag}
+			var node QueryNode = &TagNode{Field: field, Tag: tag}
 			if negateNext {
-				node = &TagNode{Field: field, Tag: tag} // TODO: proper NOT handling
+				node = &NotNode{Child: node}
 				negateNext = false
 			}
 			nodes = append(nodes, node)
@@ -215,9 +215,9 @@ func (p *QueryParser) Parse(query string) (QueryNode, error) {
 		// Check for prefix search
 		if strings.HasSuffix(term, "*") {
 			prefix := term[:len(term)-1]
-			node := &PrefixNode{Prefix: prefix, Field: field}
+			var node QueryNode = &PrefixNode{Prefix: prefix, Field: field}
 			if negateNext {
-				node = &PrefixNode{Prefix: prefix, Field: field}
+				node = &NotNode{Child: node}
 				negateNext = false
 			}
 			nodes = append(nodes, node)
