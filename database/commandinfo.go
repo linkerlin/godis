@@ -31,6 +31,8 @@ func execCommand(args [][]byte) redis.Reply {
 	subCommand := strings.ToLower(string(args[0]))
 	if subCommand == "info" {
 		return getCommands(args[1:])
+	} else if subCommand == "docs" {
+		return getCommandDocs(args[1:])
 	} else if subCommand == "count" {
 		return protocol.MakeIntReply(int64(len(cmdTable)))
 	} else if subCommand == "getkeys" {
@@ -41,6 +43,32 @@ func execCommand(args [][]byte) redis.Reply {
 	} else {
 		return protocol.MakeErrReply("Unknown subcommand '" + subCommand + "'")
 	}
+}
+
+// getCommandDocs returns command documentation
+func getCommandDocs(args [][]byte) redis.Reply {
+	if len(args) == 0 {
+		// Return docs for all commands
+		result := make([][]byte, 0, len(cmdTable)*2)
+		for name, cmd := range cmdTable {
+			result = append(result, []byte(name))
+			result = append(result, cmd.toDocsReply().ToBytes())
+		}
+		return protocol.MakeMultiBulkReply(result)
+	}
+	
+	// Return docs for specified commands
+	result := make([][]byte, 0, len(args)*2)
+	for _, v := range args {
+		cmdName := string(v)
+		result = append(result, []byte(cmdName))
+		if cmd, ok := cmdTable[cmdName]; ok {
+			result = append(result, cmd.toDocsReply().ToBytes())
+		} else {
+			result = append(result, protocol.MakeEmptyMultiBulkReply().ToBytes())
+		}
+	}
+		return protocol.MakeMultiBulkReply(result)
 }
 
 func getKeys(args [][]byte) redis.Reply {

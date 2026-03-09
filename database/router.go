@@ -96,6 +96,26 @@ func (cmd *command) toDescReply() redis.Reply {
 	return protocol.MakeMultiRawReply(args)
 }
 
+func (cmd *command) toDocsReply() redis.Reply {
+	// COMMAND DOCS reply format:
+	// 1) "summary" - short description
+	// 2) "since" - Redis version
+	// 3) "group" - command group
+	// 4) "complexity" - time complexity
+	var result [][]byte
+	
+	result = append(result, []byte("summary"))
+	result = append(result, []byte("Command "+cmd.name))
+	result = append(result, []byte("since"))
+	result = append(result, []byte("6.0.0"))
+	result = append(result, []byte("group"))
+	result = append(result, []byte("generic"))
+	result = append(result, []byte("complexity"))
+	result = append(result, []byte("O(1)"))
+	
+	return protocol.MakeMultiBulkReply(result)
+}
+
 func (cmd *command) attachCommandExtra(signs []string, firstKey int, lastKey int, keyStep int) {
 	cmd.extra = &commandExtra{
 		signs:    signs,
