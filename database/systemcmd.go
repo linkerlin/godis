@@ -6,6 +6,7 @@ import (
 	"github.com/hdt3213/godis/interface/redis"
 	"github.com/hdt3213/godis/lib/stats"
 	"github.com/hdt3213/godis/redis/protocol"
+	"github.com/hdt3213/godis/scripting"
 	"github.com/hdt3213/godis/tcp"
 	"os"
 	"runtime"
@@ -173,7 +174,7 @@ func GenGodisInfoString(section string, db *Server) []byte {
 			m.Sys,
 			m.TotalAlloc, // Simplified peak
 			humanReadableSize(m.TotalAlloc),
-			uint64(0), // Lua memory - TODO
+			scripting.GetGlobalLuaMemory(),
 			float64(m.Sys)/float64(m.TotalAlloc),
 			"go",
 		)
@@ -211,8 +212,8 @@ func GenGodisInfoString(section string, db *Server) []byte {
 			getInstantaneousOpsPerSec(),
 			getNetInputBytes(),
 			getNetOutputBytes(),
-			0.0, // instantaneous_input_kbps - TODO
-			0.0, // instantaneous_output_kbps - TODO
+			getInstantaneousInputKbps(),
+			getInstantaneousOutputKbps(),
 			tcp.GetRejectedConnections(),
 			uint64(0), // sync_full - TODO
 			uint64(0), // sync_partial_ok - TODO
@@ -456,6 +457,16 @@ func getNetInputBytes() uint64 {
 func getNetOutputBytes() uint64 {
 	_, output := stats.GetStats()
 	return output
+}
+
+func getInstantaneousInputKbps() float64 {
+	inputKBps, _ := stats.GetRates()
+	return inputKBps
+}
+
+func getInstantaneousOutputKbps() float64 {
+	_, outputKBps := stats.GetRates()
+	return outputKBps
 }
 
 // getGodisRunningMode return godis running mode

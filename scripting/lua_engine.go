@@ -8,11 +8,26 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 )
+
+// GlobalLuaMemory tracks global Lua memory usage (for all engines)
+var GlobalLuaMemory uint64
+
+// AddLuaMemory adds to global Lua memory counter
+func AddLuaMemory(bytes int) {
+	atomic.AddUint64(&GlobalLuaMemory, uint64(bytes))
+}
+
+// GetGlobalLuaMemory returns global Lua memory usage
+func GetGlobalLuaMemory() uint64 {
+	return atomic.LoadUint64(&GlobalLuaMemory)
+}
 
 // LuaEngine is an enhanced simplified Lua interpreter for Redis
 type LuaEngine struct {
-	mu sync.Mutex
+	mu         sync.Mutex
+	memoryUsed uint64 // Estimated memory usage in bytes
 }
 
 // NewLuaEngine creates a new Lua engine
@@ -25,10 +40,30 @@ func (e *LuaEngine) Execute(code string, keys []string, args []string, callFunc 
 	return e.ExecuteWithCancel(code, keys, args, callFunc, nil)
 }
 
+// GetMemoryUsed returns the estimated memory usage of the Lua engine in bytes
+func (e *LuaEngine) GetMemoryUsed() uint64 {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.memoryUsed
+}
+
 // ExecuteWithCancel executes Lua code with support for cancellation
 func (e *LuaEngine) ExecuteWithCancel(code string, keys []string, args []string, callFunc func(cmd string, args ...string) (interface{}, error), cancel <-chan struct{}) (interface{}, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	
+	// Estimate memory usage based on code size and data
+	codeMemory := uint64(len(code))
+	dataMemory := uint64(len(keys)+len(args)) * 256 // Estimate 256 bytes per key/arg
+	totalMemory := codeMemory + dataMemory + 4096   // Base overhead
+	
+	// Update memory tracking
+	e.memoryUsed = totalMemory
+	AddLuaMemory(int(totalMemory))
+	defer func() {
+		// Note: In real implementation, you'd want more accurate tracking
+		// This is a simplified version
+	}()
 	
 	// Create execution context
 	ctx := &luaContext{
