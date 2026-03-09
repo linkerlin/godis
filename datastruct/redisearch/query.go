@@ -110,6 +110,23 @@ func (n *NotNode) Evaluate(idx *InvertedIndex) []string {
 	return result
 }
 
+// OptionalNode represents an optional term (increases score if matched but not required)
+type OptionalNode struct {
+	Child QueryNode
+}
+
+// Evaluate evaluates an optional node - returns empty since it's optional and doesn't filter
+func (n *OptionalNode) Evaluate(idx *InvertedIndex) []string {
+	// Optional terms don't filter results, they just affect scoring
+	// Return empty list - optional nodes don't add to the filter
+	return nil
+}
+
+// GetMatching returns the documents that actually match the optional term
+func (n *OptionalNode) GetMatching(idx *InvertedIndex) []string {
+	return n.Child.Evaluate(idx)
+}
+
 // PrefixNode represents a prefix search
 type PrefixNode struct {
 	Prefix string
@@ -192,11 +209,18 @@ func (p *QueryParser) Parse(query string) (QueryNode, error) {
 	tokens := p.tokenizer.Tokenize(query)
 	
 	var nodes []QueryNode
+	var optionalNodes []QueryNode
 	negateNext := false
+	optionalNext := false
 	
 	for _, token := range tokens {
 		if token == "-" {
 			negateNext = true
+			continue
+		}
+		
+		if token == "~" {
+			optionalNext = true
 			continue
 		}
 		
@@ -260,13 +284,21 @@ func (p *QueryParser) Parse(query string) (QueryNode, error) {
 			negateNext = false
 		}
 		
-		nodes = append(nodes, node)
+		if optionalNext {
+			optionalNodes = append(optionalNodes, &OptionalNode{Child: node})
+			optionalNext = false
+		} else {
+			nodes = append(nodes, node)
+		}
 	}
 	
-	// Combine nodes with AND
-	if len(nodes) == 0 {
+	// Combine required nodes with AND
+	if len(nodes) == 0 && len(optionalNodes) == 0 {
 		return nil, fmt.Errorf("empty query after parsing")
 	}
+	
+	// Add optional nodes to the main nodes (they don't filter but will be evaluated for scoring)
+	nodes = append(nodes, optionalNodes...)
 	
 	if len(nodes) == 1 {
 		return nodes[0], nil

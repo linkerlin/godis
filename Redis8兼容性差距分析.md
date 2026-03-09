@@ -85,8 +85,8 @@
 已实现: 基础搜索、聚合、高亮、地理、拼写检查
 已实现: 建议补全 (FT.SUGADD, FT.SUGGET, FT.SUGDEL, FT.SUGLEN)
 已实现: 模糊匹配查询 (%term%)
+已实现: 可选匹配 (~term)
 缺失:
-- 可选匹配 (~)
 - 聚合的 FILTER 子句
 - 聚合的 GROUPBY/HAVING 完整支持
 ```
