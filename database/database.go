@@ -2,6 +2,7 @@
 package database
 
 import (
+	"context"
 	"strings"
 	"time"
 
@@ -37,6 +38,9 @@ type DB struct {
 	// callbacks
 	insertCallback database.KeyEventCallback
 	deleteCallback database.KeyEventCallback
+	
+	// lockManager for advanced lock control (optional)
+	lockManager *dict.LockManager
 }
 
 // ExecFunc is interface for command executor
@@ -259,6 +263,36 @@ func (db *DB) RWLocks(writeKeys []string, readKeys []string) {
 // RWUnLocks unlock keys for writing and reading
 func (db *DB) RWUnLocks(writeKeys []string, readKeys []string) {
 	db.data.RWUnLocks(writeKeys, readKeys)
+}
+
+// SetLockManager sets the lock manager for advanced lock control
+func (db *DB) SetLockManager(lm *dict.LockManager) {
+	db.lockManager = lm
+}
+
+// RWLocksWithTimeout locks keys with timeout support
+// Returns error if lock cannot be acquired within timeout
+func (db *DB) RWLocksWithTimeout(writeKeys, readKeys []string, holderID string) error {
+	if db.lockManager == nil {
+		// Fall back to regular locks if no lock manager configured
+		db.RWLocks(writeKeys, readKeys)
+		return nil
+	}
+	
+	ctx, cancel := context.WithTimeout(context.Background(), db.lockManager.GetTimeout())
+	defer cancel()
+	
+	return db.lockManager.RWLocksWithTimeout(ctx, writeKeys, readKeys, holderID)
+}
+
+// RWUnLocksWithTimeout unlocks keys (companion to RWLocksWithTimeout)
+func (db *DB) RWUnLocksWithTimeout(writeKeys, readKeys []string, holderID string) {
+	if db.lockManager == nil {
+		db.RWUnLocks(writeKeys, readKeys)
+		return
+	}
+	
+	db.lockManager.RWUnLocks(writeKeys, readKeys, holderID)
 }
 
 /* ---- TTL Functions ---- */

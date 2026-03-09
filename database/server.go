@@ -132,6 +132,12 @@ func newServerWithSize(dictSize int) (*Server, error) {
 	// initialize memory limiter
 	server.memLimiter = memory.NewLimiter(nil)
 	server.memLimiter.Start()
+	
+	// propagate lock manager to all DBs
+	for _, holder := range server.dbSet {
+		db := holder.Load().(*DB)
+		db.SetLockManager(server.lockManager)
+	}
 
 	return server, nil
 }

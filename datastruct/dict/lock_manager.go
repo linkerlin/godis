@@ -263,6 +263,13 @@ func (lm *LockManager) LockStats() map[string]interface{} {
 	}
 }
 
+// GetTimeout returns the configured lock timeout
+func (lm *LockManager) GetTimeout() time.Duration {
+	lm.mu.RLock()
+	defer lm.mu.RUnlock()
+	return lm.timeout
+}
+
 // OrderedLockManager provides ordered lock acquisition to prevent deadlocks
 type OrderedLockManager struct {
 	dict    *ConcurrentDict
