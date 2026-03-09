@@ -38,7 +38,7 @@ func Ping(c redis.Connection, args [][]byte) redis.Reply {
 // Info the information of the godis server returned by the INFO command
 func Info(db *Server, args [][]byte) redis.Reply {
 	if len(args) == 0 {
-		infoCommandList := [...]string{"server", "client", "memory", "persistence", "stats", "replication", "cpu", "cluster", "keyspace"}
+		infoCommandList := [...]string{"server", "client", "memory", "persistence", "stats", "replication", "cpu", "commandstats", "cluster", "keyspace"}
 		var allSection []byte
 		for _, s := range infoCommandList {
 			allSection = append(allSection, GenGodisInfoString(s, db)...)
@@ -62,6 +62,8 @@ func Info(db *Server, args [][]byte) redis.Reply {
 			return protocol.MakeBulkReply(GenGodisInfoString("replication", db))
 		case "cpu":
 			return protocol.MakeBulkReply(GenGodisInfoString("cpu", db))
+		case "commandstats":
+			return protocol.MakeBulkReply(GenGodisInfoString("commandstats", db))
 		case "cluster":
 			return protocol.MakeBulkReply(GenGodisInfoString("cluster", db))
 		case "keyspace":
@@ -254,6 +256,9 @@ func GenGodisInfoString(section string, db *Server) []byte {
 	case "cpu":
 		s := genCPUInfo()
 		return []byte(s)
+	case "commandstats":
+		s := genCommandStatsInfo()
+		return []byte(s)
 	case "keyspace":
 		dbCount := config.Properties.Databases
 		var serv []byte
@@ -372,6 +377,27 @@ func genCPUInfo() string {
 		0.0, // used_cpu_sys_children - TODO
 		0.0, // used_cpu_user_children - TODO
 	)
+}
+
+// genCommandStatsInfo generates commandstats section for INFO
+func genCommandStatsInfo() string {
+	var sb strings.Builder
+	sb.WriteString("# Commandstats\r\n")
+	
+	stats := GetAllCommandStats()
+	for cmdName, stat := range stats {
+		if stat.calls > 0 {
+			sb.WriteString(fmt.Sprintf(
+				"cmdstat_%s:calls=%d,usec=%d,usec_per_call=%.2f\r\n",
+				cmdName,
+				stat.calls,
+				stat.usec,
+				stat.usecPerCall,
+			))
+		}
+	}
+	
+	return sb.String()
 }
 
 // boolToInt converts bool to int (1/0)

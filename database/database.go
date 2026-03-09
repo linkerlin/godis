@@ -129,13 +129,24 @@ func (db *DB) execNormalCommand(cmdLine [][]byte) redis.Reply {
 		return protocol.MakeArgNumErrReply(cmdName)
 	}
 
+	start := time.Now()
 	prepare := cmd.prepare
 	write, read := prepare(cmdLine[1:])
 	db.addVersion(write...)
 	db.RWLocks(write, read)
 	defer db.RWUnLocks(write, read)
 	fun := cmd.executor
-	return fun(db, cmdLine[1:])
+	result := fun(db, cmdLine[1:])
+	
+	// Record command stats
+	usec := uint64(time.Since(start).Microseconds())
+	failed := false
+	if errReply, ok := result.(*protocol.StandardErrReply); ok && errReply != nil {
+		failed = true
+	}
+	RecordCommand(cmdName, usec, failed)
+	
+	return result
 }
 
 // execWithLock executes normal commands, invoker should provide locks

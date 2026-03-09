@@ -17,6 +17,9 @@ type RediSearchEngine struct {
 	// Geo indices for each geo field
 	geoIndices map[string]*GeoIndex // field name -> geo index
 	
+	// Autocomplete for suggestions
+	autocomplete *Autocomplete
+	
 	// Options
 	defaultLanguage string
 	scoreField      string
@@ -40,6 +43,7 @@ func NewRediSearchEngine(config *EngineConfig) *RediSearchEngine {
 		index:           NewInvertedIndex(),
 		schema:          make(map[string]*Field),
 		geoIndices:      make(map[string]*GeoIndex),
+		autocomplete:    NewAutocomplete(),
 		defaultLanguage: config.DefaultLanguage,
 		scoreField:      config.ScoreField,
 		payloadField:    config.PayloadField,
@@ -535,29 +539,28 @@ func fieldTypeToString(t FieldType) string {
 	}
 }
 
-// Suggest provides autocomplete suggestions
-func (e *RediSearchEngine) Suggest(prefix string, max int) []string {
-	e.mu.RLock()
-	defer e.mu.RUnlock()
+// Suggest provides autocomplete suggestions using the autocomplete trie
+func (e *RediSearchEngine) Suggest(prefix string, max int, fuzzy bool) []*Suggestion {
+	if e.autocomplete == nil {
+		return nil
+	}
+	return e.autocomplete.Get(prefix, max, fuzzy)
+}
+
+// AddSuggestion adds a suggestion to autocomplete
+func (e *RediSearchEngine) AddSuggestion(term string, score float64, payload string, incr bool) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
 	
-	// Get terms starting with prefix
-	var suggestions []string
-	seen := make(map[string]bool)
-	
-	for term := range e.index.terms {
-		if strings.HasPrefix(term, prefix) && !strings.Contains(term, ":") {
-			if !seen[term] {
-				suggestions = append(suggestions, term)
-				seen[term] = true
-			}
-		}
-		if len(suggestions) >= max {
-			break
-		}
+	if e.autocomplete == nil {
+		return
 	}
 	
-	sort.Strings(suggestions)
-	return suggestions
+	if incr {
+		e.autocomplete.AddIncr(term, score, payload)
+	} else {
+		e.autocomplete.Add(term, score, payload)
+	}
 }
 
 // SpellCheck provides spelling corrections

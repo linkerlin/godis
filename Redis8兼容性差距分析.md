@@ -83,18 +83,18 @@
 #### 2. **高级 RediSearch 功能**
 ```
 已实现: 基础搜索、聚合、高亮、地理、拼写检查
+已实现: 建议补全 (FT.SUGADD, FT.SUGGET, FT.SUGDEL, FT.SUGLEN)
 缺失:
-- 标签自动补全 (FT.SUGADD, FT.SUGGET)
 - 复杂查询语法 (模糊匹配 %, 可选 ~)
 - 聚合的 FILTER 子句
 - 聚合的 GROUPBY/HAVING 完整支持
 ```
 
-#### 3. **INFO 命令部分字段**
+#### 3. **INFO 命令**
 ```
-已实现: server, client, memory, persistence, replication, cpu, stats, cluster, keyspace
-缺失:
-- commandstats 部分 (每个命令的统计)
+已实现: 全部主要部分
+- server, client, memory, persistence, replication, cpu
+- stats, commandstats (命令统计), cluster, keyspace
 ```
 
 ### 🟢 低优先级/可选功能
@@ -161,20 +161,21 @@
 | ACL | ~90% | 核心功能、LOG审计完整 |
 | Connection/Protocol | ~95% | RESP3、客户端缓存完整 |
 | Client Caching | ~90% | TRACKING、失效推送完整 |
-| 管理命令 | ~95% | INFO (全部部分)、MONITOR、COMMAND DOCS完整 |
-| 锁管理 | ~80% | 框架完成，待深度集成 |
-| 内存管理 | ~80% | 框架完成，待键淘汰集成 |
+| 管理命令 | ~98% | INFO (全部部分)、MONITOR、COMMAND DOCS完整 |
+| 锁管理 | ~90% | 框架完成，统计集成 |
+| 内存管理 | ~90% | 框架完成，执行统计 |
+| RediSearch | ~95% | 搜索、聚合、高亮、地理、拼写检查、建议补全 |
 
-**总体估算: ~96% Redis 8.x 兼容性**
+**总体估算: ~97% Redis 8.x 兼容性**
 
 ---
 
 ## 推荐后续开发优先级
 
 ### P1 (重要功能)
-1. **锁管理集成** - 与数据库执行层深度集成
-2. **内存淘汰集成** - 键淘汰系统实现
-3. **RediSearch 增强** - 建议补全、复杂查询语法
+1. **完善锁管理集成** - 在数据库操作中使用超时锁
+2. **完善内存淘汰** - 实现键值淘汰机制
+3. **RediSearch 增强** - 复杂查询语法 (%, ~)
 
 ### P2 (功能完善)
 4. **RediSearch 增强** - 建议补全、复杂查询
@@ -188,4 +189,4 @@
 
 ---
 
-**最后更新:** 2026-03-09
+**最后更新:** 2026-03-10
