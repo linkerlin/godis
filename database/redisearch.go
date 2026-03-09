@@ -650,6 +650,15 @@ func execFTAggregate(db *DB, args [][]byte) redis.Reply {
 			req.Limit = limit
 			i += 3
 			continue
+			
+		case "FILTER":
+			if i+1 >= len(args) {
+				return protocol.MakeSyntaxErrReply()
+			}
+			// FILTER expression (e.g., "@field > 10")
+			req.Filter = string(args[i+1])
+			i += 2
+			continue
 		}
 		
 		i++

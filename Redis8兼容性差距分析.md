@@ -86,9 +86,9 @@
 已实现: 建议补全 (FT.SUGADD, FT.SUGGET, FT.SUGDEL, FT.SUGLEN)
 已实现: 模糊匹配查询 (%term%)
 已实现: 可选匹配 (~term)
+已实现: 聚合 FILTER 子句
 缺失:
-- 聚合的 FILTER 子句
-- 聚合的 GROUPBY/HAVING 完整支持
+- 聚合的 GROUPBY/HAVING 完整支持 (高级分组/过滤)
 ```
 
 #### 3. **INFO 命令**

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 )
@@ -303,6 +304,11 @@ func (e *RediSearchEngine) Aggregate(req *AggregationRequest) (*AggregationResul
 	// Apply GROUPBY
 	groups := e.groupBy(docs, req.GroupBy, req.Reduce)
 	
+	// Apply FILTER
+	if req.Filter != "" {
+		groups = e.filterGroups(groups, req.Filter)
+	}
+	
 	// Apply SORTBY
 	if req.SortBy != "" {
 		groups = e.sortGroups(groups, req.SortBy, req.SortDesc)
@@ -338,6 +344,7 @@ type AggregationRequest struct {
 	SortDesc bool
 	Offset  int
 	Limit   int
+	Filter  string // FILTER expression
 }
 
 // Reducer represents a reduction operation
@@ -477,6 +484,100 @@ func (e *RediSearchEngine) sortGroups(groups []*Group, field string, desc bool) 
 	})
 	
 	return groups
+}
+
+// filterGroups filters groups based on a filter expression
+// Simple filter format: "field > 10", "field = value", "field < 100"
+func (e *RediSearchEngine) filterGroups(groups []*Group, filter string) []*Group {
+	// Parse simple filter expression
+	// Support: field > value, field < value, field = value, field >= value, field <= value
+	
+	filter = strings.TrimSpace(filter)
+	
+	// Find operator
+	operators := []string{">=", "<=", "=", ">", "<"}
+	var op string
+	var parts []string
+	
+	for _, candidate := range operators {
+		if strings.Contains(filter, candidate) {
+			parts = strings.SplitN(filter, candidate, 2)
+			if len(parts) == 2 {
+				op = candidate
+				break
+			}
+		}
+	}
+	
+	if op == "" {
+		// No valid operator found, return all groups
+		return groups
+	}
+	
+	field := strings.TrimSpace(parts[0])
+	valueStr := strings.TrimSpace(parts[1])
+	
+	// Try to parse as number
+	var numValue float64
+	var isNum bool
+	if n, err := strconv.ParseFloat(valueStr, 64); err == nil {
+		numValue = n
+		isNum = true
+	}
+	
+	var result []*Group
+	for _, group := range groups {
+		fieldValue, ok := group.Fields[field]
+		if !ok {
+			// Field not found, try group.By for grouping field
+			if fmt.Sprintf("%v", group.By) == field {
+				fieldValue = group.By
+			} else {
+				continue
+			}
+		}
+		
+		if e.matchesFilter(fieldValue, op, numValue, valueStr, isNum) {
+			result = append(result, group)
+		}
+	}
+	
+	return result
+}
+
+func (e *RediSearchEngine) matchesFilter(fieldValue interface{}, op string, numValue float64, strValue string, isNum bool) bool {
+	// Try numeric comparison first
+	if fv, ok := fieldValue.(float64); ok && isNum {
+		switch op {
+		case ">":
+			return fv > numValue
+		case "<":
+			return fv < numValue
+		case "=", "==":
+			return fv == numValue
+		case ">=":
+			return fv >= numValue
+		case "<=":
+			return fv <= numValue
+		}
+	}
+	
+	// String comparison
+	fv := fmt.Sprintf("%v", fieldValue)
+	switch op {
+	case "=", "==":
+		return fv == strValue
+	case ">":
+		return fv > strValue
+	case "<":
+		return fv < strValue
+	case ">=":
+		return fv >= strValue
+	case "<=":
+		return fv <= strValue
+	}
+	
+	return false
 }
 
 // Info returns index information
