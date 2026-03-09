@@ -138,6 +138,25 @@ func newServerWithSize(dictSize int) (*Server, error) {
 		db := holder.Load().(*DB)
 		db.SetLockManager(server.lockManager)
 	}
+	
+	// initialize and propagate eviction manager
+	defaultPolicy := memory.ParseEvictionPolicy(config.Properties.MaxmemoryPolicy)
+	for _, holder := range server.dbSet {
+		db := holder.Load().(*DB)
+		em := NewEvictionManager(db, defaultPolicy)
+		db.SetEvictionManager(em)
+	}
+	
+	// set up memory limiter eviction callback
+	if server.memLimiter.IsEvictionAllowed() {
+		server.memLimiter.SetEvictCallback(func(key string) {
+			// Try to evict from all DBs
+			for _, holder := range server.dbSet {
+				db := holder.Load().(*DB)
+				db.Remove(key)
+			}
+		})
+	}
 
 	return server, nil
 }

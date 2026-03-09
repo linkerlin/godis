@@ -304,6 +304,14 @@ func (l *Limiter) SetPolicy(policy string) {
 	l.policy = ParseEvictionPolicy(policy)
 }
 
+// SetEvictCallback sets the callback function for key eviction
+func (l *Limiter) SetEvictCallback(cb func(key string)) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	
+	l.evictCallback = cb
+}
+
 // IsEvictionAllowed returns true if keys can be evicted
 func (l *Limiter) IsEvictionAllowed() bool {
 	l.mu.RLock()

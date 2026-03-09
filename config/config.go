@@ -44,6 +44,9 @@ type ServerProperties struct {
 
 	SlowLogSlowerThan int64 `cfg:"slowlog-log-slower-than"`
 	SlowLogMaxLen     int   `cfg:"slowlog-max-len"`
+	
+	Maxmemory         int64  `cfg:"maxmemory"`
+	MaxmemoryPolicy   string `cfg:"maxmemory-policy"`
 
 	ClusterEnable     bool   `cfg:"cluster-enable"`
 	ClusterAsSeed     bool   `cfg:"cluster-as-seed"`

@@ -41,6 +41,9 @@ type DB struct {
 	
 	// lockManager for advanced lock control (optional)
 	lockManager *dict.LockManager
+	
+	// evictionManager for memory limit eviction (optional)
+	evictionManager *EvictionManager
 }
 
 // ExecFunc is interface for command executor
@@ -293,6 +296,26 @@ func (db *DB) RWUnLocksWithTimeout(writeKeys, readKeys []string, holderID string
 	}
 	
 	db.lockManager.RWUnLocks(writeKeys, readKeys, holderID)
+}
+
+// SetEvictionManager sets the eviction manager for memory limit control
+func (db *DB) SetEvictionManager(em *EvictionManager) {
+	db.evictionManager = em
+}
+
+// EvictIfNeeded triggers eviction if memory limit is exceeded
+func (db *DB) EvictIfNeeded(maxMemory, currentUsage int64) int {
+	if db.evictionManager == nil {
+		return 0
+	}
+	
+	if !db.evictionManager.ShouldEvict(maxMemory, currentUsage) {
+		return 0
+	}
+	
+	// Try to free 10% of maxmemory
+	target := maxMemory / 10
+	return db.evictionManager.EvictKeys(target)
 }
 
 /* ---- TTL Functions ---- */
