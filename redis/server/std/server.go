@@ -10,6 +10,7 @@ import (
 	"net"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"github.com/cockroachdb/errors"
 
@@ -19,7 +20,7 @@ import (
 	idatabase "github.com/hdt3213/godis/interface/database"
 	"github.com/hdt3213/godis/lib/logger"
 	"github.com/hdt3213/godis/lib/stats"
-	"github.com/hdt3213/godis/lib/sync/atomic"
+	gatomic "github.com/hdt3213/godis/lib/sync/atomic"
 	"github.com/hdt3213/godis/redis/connection"
 	"github.com/hdt3213/godis/redis/parser"
 	"github.com/hdt3213/godis/redis/protocol"
@@ -34,7 +35,7 @@ var (
 type Handler struct {
 	activeConn sync.Map // *client -> placeholder
 	db         idatabase.DB
-	closing    atomic.Boolean // refusing new client and new request
+	closing    gatomic.Boolean // refusing new client and new request
 }
 
 // MakeHandler creates a Handler instance
@@ -76,6 +77,17 @@ func (h *Handler) Handle(ctx context.Context, conn net.Conn) {
 		// closing handler refuse new connection
 		_ = conn.Close()
 		return
+	}
+	
+	// Check max clients limit
+	if config.Properties.MaxClients > 0 {
+		currentClients := atomic.LoadInt32(&tcp.ClientCounter)
+		if int(currentClients) >= config.Properties.MaxClients {
+			// Reject connection
+			atomic.AddUint64(&tcp.RejectedConnections, 1)
+			_ = conn.Close()
+			return
+		}
 	}
 
 	client := connection.NewConn(conn)

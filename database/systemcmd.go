@@ -213,7 +213,7 @@ func GenGodisInfoString(section string, db *Server) []byte {
 			getNetOutputBytes(),
 			0.0, // instantaneous_input_kbps - TODO
 			0.0, // instantaneous_output_kbps - TODO
-			uint64(0), // rejected_connections - TODO
+			tcp.GetRejectedConnections(),
 			uint64(0), // sync_full - TODO
 			uint64(0), // sync_partial_ok - TODO
 			uint64(0), // sync_partial_err - TODO

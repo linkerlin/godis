@@ -19,6 +19,11 @@ import (
 	"github.com/hdt3213/godis/lib/logger"
 )
 
+// GetRejectedConnections returns the number of rejected connections
+func GetRejectedConnections() uint64 {
+	return atomic.LoadUint64(&RejectedConnections)
+}
+
 // Config stores tcp server properties
 type Config struct {
 	Address    string        `yaml:"address"`
@@ -28,6 +33,9 @@ type Config struct {
 
 // ClientCounter Record the number of clients in the current Godis server
 var ClientCounter int32
+
+// RejectedConnections Record the number of rejected connections
+var RejectedConnections uint64
 
 // ListenAndServeWithSignal binds port and handle requests, blocking until receive stop signal
 func ListenAndServeWithSignal(cfg *Config, handler tcp.Handler) error {
