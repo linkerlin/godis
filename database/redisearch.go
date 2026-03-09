@@ -478,6 +478,19 @@ func execFTSearch(db *DB, args [][]byte) redis.Reply {
 			}
 			
 			reply = append(reply, protocol.MakeMultiBulkReply(fields).ToBytes())
+			
+			// Add highlights if requested
+			if opts.Highlight && len(result.Highlights) > 0 {
+				var highlights [][]byte
+				for field, value := range result.Highlights {
+					highlights = append(highlights, []byte(field))
+					highlights = append(highlights, []byte(value))
+				}
+				if len(highlights) > 0 {
+					reply = append(reply, []byte("highlight"))
+					reply = append(reply, protocol.MakeMultiBulkReply(highlights).ToBytes())
+				}
+			}
 		}
 	}
 	

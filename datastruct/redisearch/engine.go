@@ -110,9 +110,10 @@ func (e *RediSearchEngine) GetDocument(docID string) (*Document, bool) {
 
 // SearchResult represents a search result
 type SearchResult struct {
-	Document *Document
-	Score    float64
-	Fields   map[string]interface{}
+	Document   *Document
+	Score      float64
+	Fields     map[string]interface{}
+	Highlights map[string]string // field -> highlighted value
 }
 
 // Search performs a search query
@@ -150,11 +151,18 @@ func (e *RediSearchEngine) Search(query string, opts *SearchOptions) (*SearchRes
 		
 		score := e.calculateScore(doc, query)
 		
-		results = append(results, &SearchResult{
+		result := &SearchResult{
 			Document: doc,
 			Score:    score,
 			Fields:   doc.Fields,
-		})
+		}
+		
+		// Apply highlighting if requested
+		if opts != nil && opts.Highlight {
+			result.Highlights = e.highlightFields(doc, query, opts)
+		}
+		
+		results = append(results, result)
 	}
 	
 	// Sort by score
@@ -203,6 +211,11 @@ type SearchOptions struct {
 	WithPayloads bool
 	GeoFilter  *GeoFilterOptions
 	Filters   []FieldFilter
+	// Highlight options
+	Highlight         bool
+	HighlightFields   []string
+	HighlightOpenTag  string
+	HighlightCloseTag string
 }
 
 // FieldFilter represents a filter on a field
@@ -667,3 +680,99 @@ func (e *RediSearchEngine) TermExists(term string) bool {
 	return false
 }
 
+
+
+// highlightFields generates highlighted versions of field values
+func (e *RediSearchEngine) highlightFields(doc *Document, query string, opts *SearchOptions) map[string]string {
+	highlights := make(map[string]string)
+	
+	// Default tags
+	openTag := opts.HighlightOpenTag
+	closeTag := opts.HighlightCloseTag
+	if openTag == "" {
+		openTag = "<b>"
+	}
+	if closeTag == "" {
+		closeTag = "</b>"
+	}
+	
+	// Determine which fields to highlight
+	fieldsToHighlight := opts.HighlightFields
+	if len(fieldsToHighlight) == 0 {
+		// Highlight all text fields
+		for fieldName := range doc.Fields {
+			fieldsToHighlight = append(fieldsToHighlight, fieldName)
+		}
+	}
+	
+	// Extract query terms (simplified)
+	queryTerms := extractQueryTerms(query)
+	
+	// Highlight each field
+	for _, fieldName := range fieldsToHighlight {
+		if value, ok := doc.Fields[fieldName]; ok {
+			valueStr := fmt.Sprintf("%v", value)
+			highlighted := highlightText(valueStr, queryTerms, openTag, closeTag)
+			highlights[fieldName] = highlighted
+		}
+	}
+	
+	return highlights
+}
+
+// extractQueryTerms extracts search terms from query string
+func extractQueryTerms(query string) []string {
+	// Simplified: split by space and remove special characters
+	terms := strings.Fields(query)
+	var result []string
+	for _, term := range terms {
+		// Remove common punctuation
+		term = strings.Trim(term, ".,!?;:\"'()[]{}*@")
+		if term != "" && !strings.HasPrefix(term, "@") {
+			result = append(result, strings.ToLower(term))
+		}
+	}
+	return result
+}
+
+// highlightText wraps matching terms with highlight tags
+func highlightText(text string, terms []string, openTag, closeTag string) string {
+	if len(terms) == 0 {
+		return text
+	}
+	
+	// Simple case-insensitive replacement
+	result := text
+	lowerText := strings.ToLower(text)
+	
+	for _, term := range terms {
+		if term == "" {
+			continue
+		}
+		
+		// Find all occurrences
+		idx := strings.Index(lowerText, term)
+		for idx != -1 {
+			// Check if already highlighted
+			before := result[:idx]
+			after := result[idx+len(term):]
+			
+			// Wrap the match
+			match := result[idx : idx+len(term)]
+			result = before + openTag + match + closeTag + after
+			
+			// Update lowerText for next search
+			lowerText = strings.ToLower(result)
+			
+			// Find next occurrence after this highlight
+			nextIdx := strings.Index(lowerText[idx+len(openTag)+len(term)+len(closeTag):], term)
+			if nextIdx != -1 {
+				idx = idx + len(openTag) + len(term) + len(closeTag) + nextIdx
+			} else {
+				break
+			}
+		}
+	}
+	
+	return result
+}
