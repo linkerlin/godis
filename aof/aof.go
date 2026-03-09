@@ -273,6 +273,28 @@ func (persister *Persister) Close() {
 	persister.cancel()
 }
 
+// Stats returns AOF statistics
+func (persister *Persister) Stats() map[string]interface{} {
+	if persister == nil || persister.aofFile == nil {
+		return map[string]interface{}{
+			"enabled": false,
+		}
+	}
+	
+	stats := map[string]interface{}{
+		"enabled":     true,
+		"filename":    persister.aofFilename,
+		"fsync":       persister.aofFsync,
+	}
+	
+	// Get file info
+	if info, err := persister.aofFile.Stat(); err == nil {
+		stats["size"] = info.Size()
+	}
+	
+	return stats
+}
+
 // fsyncEverySecond fsync aof file every second
 func (persister *Persister) fsyncEverySecond() {
 	ticker := time.NewTicker(time.Second)

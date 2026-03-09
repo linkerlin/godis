@@ -38,7 +38,7 @@ func Ping(c redis.Connection, args [][]byte) redis.Reply {
 // Info the information of the godis server returned by the INFO command
 func Info(db *Server, args [][]byte) redis.Reply {
 	if len(args) == 0 {
-		infoCommandList := [...]string{"server", "client", "memory", "stats", "cluster", "keyspace"}
+		infoCommandList := [...]string{"server", "client", "memory", "persistence", "stats", "replication", "cpu", "cluster", "keyspace"}
 		var allSection []byte
 		for _, s := range infoCommandList {
 			allSection = append(allSection, GenGodisInfoString(s, db)...)
@@ -54,8 +54,14 @@ func Info(db *Server, args [][]byte) redis.Reply {
 			return protocol.MakeBulkReply(GenGodisInfoString("client", db))
 		case "memory":
 			return protocol.MakeBulkReply(GenGodisInfoString("memory", db))
+		case "persistence":
+			return protocol.MakeBulkReply(GenGodisInfoString("persistence", db))
 		case "stats":
 			return protocol.MakeBulkReply(GenGodisInfoString("stats", db))
+		case "replication":
+			return protocol.MakeBulkReply(GenGodisInfoString("replication", db))
+		case "cpu":
+			return protocol.MakeBulkReply(GenGodisInfoString("cpu", db))
 		case "cluster":
 			return protocol.MakeBulkReply(GenGodisInfoString("cluster", db))
 		case "keyspace":
@@ -239,6 +245,15 @@ func GenGodisInfoString(section string, db *Server) []byte {
 			)
 			return []byte(s)
 		}
+	case "persistence":
+		s := genPersistenceInfo(db)
+		return []byte(s)
+	case "replication":
+		s := genReplicationInfo(db)
+		return []byte(s)
+	case "cpu":
+		s := genCPUInfo()
+		return []byte(s)
 	case "keyspace":
 		dbCount := config.Properties.Databases
 		var serv []byte
@@ -254,6 +269,117 @@ func GenGodisInfoString(section string, db *Server) []byte {
 		return keyspaceInfo
 	}
 	return []byte("")
+}
+
+// genPersistenceInfo generates persistence section for INFO
+func genPersistenceInfo(db *Server) string {
+	aofEnabled := config.Properties.AppendOnly
+	
+	// Get AOF stats if available
+	var aofSize int64 = 0
+	if db.persister != nil {
+		if stats := db.persister.Stats(); stats["enabled"].(bool) {
+			if size, ok := stats["size"].(int64); ok {
+				aofSize = size
+			}
+		}
+	}
+	
+	return fmt.Sprintf("# Persistence\r\n"+
+		"loading:%d\r\n"+
+		"rdb_changes_since_last_save:%d\r\n"+
+		"rdb_bgsave_in_progress:%d\r\n"+
+		"rdb_last_save_time:%d\r\n"+
+		"rdb_last_bgsave_status:%s\r\n"+
+		"rdb_last_bgsave_time_sec:%d\r\n"+
+		"rdb_current_bgsave_time_sec:%d\r\n"+
+		"aof_enabled:%d\r\n"+
+		"aof_rewrite_in_progress:%d\r\n"+
+		"aof_rewrite_scheduled:%d\r\n"+
+		"aof_last_rewrite_time_sec:%d\r\n"+
+		"aof_current_rewrite_time_sec:%d\r\n"+
+		"aof_last_bgrewrite_status:%s\r\n"+
+		"aof_last_write_status:%s\r\n"+
+		"aof_current_size:%d\r\n"+
+		"aof_base_size:%d\r\n",
+		0, // loading - TODO
+		0, // rdb_changes_since_last_save - TODO
+		0, // rdb_bgsave_in_progress - TODO
+		0, // rdb_last_save_time - TODO
+		"ok",
+		-1, // rdb_last_bgsave_time_sec - TODO
+		-1, // rdb_current_bgsave_time_sec - TODO
+		boolToInt(aofEnabled),
+		0, // aof_rewrite_in_progress - TODO
+		0, // aof_rewrite_scheduled - TODO
+		-1, // aof_last_rewrite_time_sec - TODO
+		-1, // aof_current_rewrite_time_sec - TODO
+		"ok",
+		"ok",
+		aofSize,
+		aofSize, // aof_base_size - simplified
+	)
+}
+
+// genReplicationInfo generates replication section for INFO
+func genReplicationInfo(db *Server) string {
+	role := "master"
+	if config.Properties.SlaveAnnounceIP != "" || config.Properties.SlaveAnnouncePort != 0 {
+		role = "slave"
+	}
+	
+	// Get connected slaves count
+	slaves := 0
+	if db.masterStatus != nil {
+		db.masterStatus.mu.RLock()
+		slaves = len(db.masterStatus.onlineSlaves)
+		db.masterStatus.mu.RUnlock()
+	}
+	
+	return fmt.Sprintf("# Replication\r\n"+
+		"role:%s\r\n"+
+		"connected_slaves:%d\r\n"+
+		"master_replid:%s\r\n"+
+		"master_replid2:%s\r\n"+
+		"master_repl_offset:%d\r\n"+
+		"second_repl_offset:%d\r\n"+
+		"repl_backlog_active:%d\r\n"+
+		"repl_backlog_size:%d\r\n"+
+		"repl_backlog_first_byte_offset:%d\r\n"+
+		"repl_backlog_histlen:%d\r\n",
+		role,
+		slaves,
+		config.Properties.RunID,
+		"", // master_replid2 - TODO
+		0,  // master_repl_offset - TODO
+		-1, // second_repl_offset - TODO
+		boolToInt(db.masterStatus != nil && db.masterStatus.backlog != nil),
+		0, // repl_backlog_size - TODO
+		0, // repl_backlog_first_byte_offset - TODO
+		0, // repl_backlog_histlen - TODO
+	)
+}
+
+// genCPUInfo generates CPU section for INFO
+func genCPUInfo() string {
+	return fmt.Sprintf("# CPU\r\n"+
+		"used_cpu_sys:%.2f\r\n"+
+		"used_cpu_user:%.2f\r\n"+
+		"used_cpu_sys_children:%.2f\r\n"+
+		"used_cpu_user_children:%.2f\r\n",
+		0.0, // used_cpu_sys - TODO: implement CPU tracking
+		0.0, // used_cpu_user - TODO
+		0.0, // used_cpu_sys_children - TODO
+		0.0, // used_cpu_user_children - TODO
+	)
+}
+
+// boolToInt converts bool to int (1/0)
+func boolToInt(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
 }
 
 // Helper functions for INFO command

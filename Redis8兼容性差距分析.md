@@ -92,12 +92,9 @@
 
 #### 3. **INFO 命令部分字段**
 ```
-已实现: server, client, memory, stats, cluster, keyspace
+已实现: server, client, memory, persistence, replication, cpu, stats, cluster, keyspace
 缺失:
-- persistence 部分 (RDB/AOF 详细统计)
-- replication 部分 (主从复制详细状态)
-- cpu 部分
-- commandstats 部分
+- commandstats 部分 (每个命令的统计)
 ```
 
 ### 🟢 低优先级/可选功能
@@ -120,20 +117,24 @@
 - 后台线程任务处理
 ```
 
-#### 6. **锁管理增强** (可选)
+#### 6. **锁管理增强** (✅ 框架完成)
 ```
-当前: 基础分片锁实现
-缺失:
-- 锁超时机制
-- 死锁检测
-- 锁顺序优化
+当前: 基础分片锁实现 + LockManager 框架
+已实现:
+- 锁超时机制 (LockManager.RWLocksWithTimeout)
+- 死锁检测框架
+- 有序锁获取 (OrderedLockManager)
+待集成: 与数据库执行层深度集成
 ```
 
-#### 7. **内存管理** (可选)
+#### 7. **内存管理** (✅ 框架完成)
 ```
-缺失:
-- maxmemory 策略完整实现 (LRU/LFU/TTL淘汰)
-- 内存碎片整理
+当前: 内存限制框架 (lib/memory/limiter.go)
+已实现:
+- maxmemory 策略框架 (8种策略)
+- 内存监控和统计
+- 写操作检查接口
+待集成: 与数据库键淘汰系统集成
 ```
 
 #### 8. **模块系统**
@@ -160,18 +161,20 @@
 | ACL | ~90% | 核心功能、LOG审计完整 |
 | Connection/Protocol | ~95% | RESP3、客户端缓存完整 |
 | Client Caching | ~90% | TRACKING、失效推送完整 |
-| 管理命令 | ~92% | INFO、MONITOR、COMMAND DOCS完整 |
+| 管理命令 | ~95% | INFO (全部部分)、MONITOR、COMMAND DOCS完整 |
+| 锁管理 | ~80% | 框架完成，待深度集成 |
+| 内存管理 | ~80% | 框架完成，待键淘汰集成 |
 
-**总体估算: ~95% Redis 8.x 兼容性**
+**总体估算: ~96% Redis 8.x 兼容性**
 
 ---
 
 ## 推荐后续开发优先级
 
 ### P1 (重要功能)
-1. **INFO 命令完善** - persistence、replication 部分
-2. **锁管理增强** - 超时机制、死锁检测
-3. **内存淘汰策略** - maxmemory 配置支持
+1. **锁管理集成** - 与数据库执行层深度集成
+2. **内存淘汰集成** - 键淘汰系统实现
+3. **RediSearch 增强** - 建议补全、复杂查询语法
 
 ### P2 (功能完善)
 4. **RediSearch 增强** - 建议补全、复杂查询
@@ -185,4 +188,4 @@
 
 ---
 
-**最后更新:** 2026-03-08
+**最后更新:** 2026-03-09

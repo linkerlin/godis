@@ -13,9 +13,11 @@ import (
 
 	"github.com/hdt3213/godis/aof"
 	"github.com/hdt3213/godis/config"
+	"github.com/hdt3213/godis/datastruct/dict"
 	"github.com/hdt3213/godis/interface/database"
 	"github.com/hdt3213/godis/interface/redis"
 	"github.com/hdt3213/godis/lib/logger"
+	"github.com/hdt3213/godis/lib/memory"
 	"github.com/hdt3213/godis/lib/utils"
 	"github.com/hdt3213/godis/pubsub"
 	"github.com/hdt3213/godis/redis/protocol"
@@ -51,6 +53,12 @@ type Server struct {
 	
 	// initialization error if any
 	initErr error
+	
+	// lock manager for advanced lock control
+	lockManager *dict.LockManager
+	
+	// memory limiter for maxmemory management
+	memLimiter *memory.Limiter
 }
 
 func fileExists(filename string) bool {
@@ -117,6 +125,13 @@ func newServerWithSize(dictSize int) (*Server, error) {
 
 	// record slow log
 	server.slogLogger = NewSlowLogger(config.Properties.SlowLogMaxLen, config.Properties.SlowLogSlowerThan)
+	
+	// initialize lock manager
+	server.lockManager = dict.NewLockManager(nil, nil)
+	
+	// initialize memory limiter
+	server.memLimiter = memory.NewLimiter(nil)
+	server.memLimiter.Start()
 
 	return server, nil
 }
@@ -321,6 +336,21 @@ func (server *Server) Close() {
 		server.persister.Close()
 	}
 	server.stopMaster()
+	
+	// stop memory limiter
+	if server.memLimiter != nil {
+		server.memLimiter.Stop()
+	}
+}
+
+// GetLockManager returns the lock manager
+func (server *Server) GetLockManager() *dict.LockManager {
+	return server.lockManager
+}
+
+// GetMemLimiter returns the memory limiter
+func (server *Server) GetMemLimiter() *memory.Limiter {
+	return server.memLimiter
 }
 
 // CheckClientPause checks if client processing should be paused
