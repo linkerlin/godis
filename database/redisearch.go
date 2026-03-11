@@ -558,14 +558,44 @@ func execFTAggregate(db *DB, args [][]byte) redis.Reply {
 			}
 			i += 2
 			
-			// Get properties
+			// Get properties (support multiple fields)
 			for j := 0; j < nargs && i < len(args); j++ {
 				nextArg := strings.ToUpper(string(args[i]))
-				if nextArg == "REDUCE" {
+				if nextArg == "REDUCE" || nextArg == "HAVING" {
 					break
 				}
-				req.GroupBy = string(args[i])
+				req.GroupBy = append(req.GroupBy, string(args[i]))
 				i++
+			}
+			
+			// Parse HAVING clause if present
+			if i < len(args) && strings.ToUpper(string(args[i])) == "HAVING" {
+				if i+3 >= len(args) {
+					return protocol.MakeSyntaxErrReply()
+				}
+				i++ // Skip HAVING
+				
+				havingLeft := string(args[i])
+				i++
+				
+				havingOp := string(args[i])
+				i++
+				
+				// Parse the right side value
+				havingRight := string(args[i])
+				i++
+				
+				// Try to parse as number
+				var havingValue interface{} = havingRight
+				if num, err := strconv.ParseFloat(havingRight, 64); err == nil {
+					havingValue = num
+				}
+				
+				req.Having = &redisearch.HavingClause{
+					Left:     havingLeft,
+					Operator: havingOp,
+					Right:    havingValue,
+				}
 			}
 			
 			// Get REDUCE clauses
@@ -658,6 +688,16 @@ func execFTAggregate(db *DB, args [][]byte) redis.Reply {
 			// FILTER expression (e.g., "@field > 10")
 			req.Filter = string(args[i+1])
 			i += 2
+			continue
+			
+		case "HAVING":
+			// HAVING is parsed within GROUPBY block
+			// If we see it here, skip it as it's already handled
+			i++
+			// Skip the condition (3 args: field op value)
+			if i+2 < len(args) {
+				i += 3
+			}
 			continue
 		}
 		

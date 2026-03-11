@@ -278,21 +278,29 @@ func (e *RediSearchEngine) Aggregate(req *AggregationRequest) (*AggregationResul
 	e.mu.RLock()
 	defer e.mu.RUnlock()
 	
-	// First, get matching documents
-	parser := NewExpressionParser(req.Query)
-	node, err := parser.Parse()
-	if err != nil {
-		return nil, err
-	}
+	var docs []*Document
 	
-	docIDs := node.Evaluate(e.index)
-	
-	// Fetch documents
-	docs := make([]*Document, 0, len(docIDs))
-	for _, docID := range docIDs {
-		doc, ok := e.index.GetDocument(docID)
-		if ok {
-			docs = append(docs, doc)
+	// Handle wildcard query
+	if req.Query == "*" {
+		// Get all documents
+		docs = e.index.GetAllDocuments()
+	} else {
+		// First, get matching documents
+		parser := NewExpressionParser(req.Query)
+		node, err := parser.Parse()
+		if err != nil {
+			return nil, err
+		}
+		
+		docIDs := node.Evaluate(e.index)
+		
+		// Fetch documents
+		docs = make([]*Document, 0, len(docIDs))
+		for _, docID := range docIDs {
+			doc, ok := e.index.GetDocument(docID)
+			if ok {
+				docs = append(docs, doc)
+			}
 		}
 	}
 	
@@ -303,6 +311,11 @@ func (e *RediSearchEngine) Aggregate(req *AggregationRequest) (*AggregationResul
 	
 	// Apply GROUPBY
 	groups := e.groupBy(docs, req.GroupBy, req.Reduce)
+	
+	// Apply HAVING clause
+	if req.Having != nil {
+		groups = e.applyHaving(groups, req.Having)
+	}
 	
 	// Apply FILTER
 	if req.Filter != "" {
@@ -338,13 +351,21 @@ func (e *RediSearchEngine) Aggregate(req *AggregationRequest) (*AggregationResul
 type AggregationRequest struct {
 	Query   string
 	Load    []string
-	GroupBy string
+	GroupBy []string          // Support multiple group by fields
+	Having  *HavingClause     // HAVING clause for group filtering
 	Reduce  []Reducer
 	SortBy  string
 	SortDesc bool
 	Offset  int
 	Limit   int
 	Filter  string // FILTER expression
+}
+
+// HavingClause represents a HAVING clause for group filtering
+type HavingClause struct {
+	Left     string      // Field name
+	Operator string      // >, <, =, >=, <=
+	Right    interface{} // Value to compare
 }
 
 // Reducer represents a reduction operation
@@ -366,11 +387,16 @@ type Group struct {
 	Fields map[string]interface{}
 }
 
-func (e *RediSearchEngine) groupBy(docs []*Document, field string, reducers []Reducer) []*Group {
+func (e *RediSearchEngine) groupBy(docs []*Document, groupByFields []string, reducers []Reducer) []*Group {
 	groupMap := make(map[string][]*Document)
 	
 	for _, doc := range docs {
-		key := fmt.Sprintf("%v", doc.Fields[field])
+		// Build composite key from multiple group by fields
+		var keyParts []string
+		for _, field := range groupByFields {
+			keyParts = append(keyParts, fmt.Sprintf("%v", doc.Fields[field]))
+		}
+		key := strings.Join(keyParts, "|$")
 		groupMap[key] = append(groupMap[key], doc)
 	}
 	
@@ -379,6 +405,14 @@ func (e *RediSearchEngine) groupBy(docs []*Document, field string, reducers []Re
 		group := &Group{
 			By:     key,
 			Fields: make(map[string]interface{}),
+		}
+		
+		// Store individual group by field values
+		keyParts := strings.Split(key, "|$")
+		for i, field := range groupByFields {
+			if i < len(keyParts) {
+				group.Fields[field] = keyParts[i]
+			}
 		}
 		
 		// Apply reducers
@@ -395,6 +429,91 @@ func (e *RediSearchEngine) groupBy(docs []*Document, field string, reducers []Re
 	}
 	
 	return groups
+}
+
+// applyHaving filters groups based on HAVING clause
+func (e *RediSearchEngine) applyHaving(groups []*Group, having *HavingClause) []*Group {
+	var result []*Group
+	
+	for _, group := range groups {
+		leftValue, exists := group.Fields[having.Left]
+		if !exists {
+			continue
+		}
+		
+		// Compare values
+		if e.compareHaving(leftValue, having.Operator, having.Right) {
+			result = append(result, group)
+		}
+	}
+	
+	return result
+}
+
+// compareHaving compares two values with an operator
+func (e *RediSearchEngine) compareHaving(left interface{}, op string, right interface{}) bool {
+	// Convert to float64 for numeric comparison
+	leftFloat, leftOk := toFloat64(left)
+	rightFloat, rightOk := toFloat64(right)
+	
+	if leftOk && rightOk {
+		switch op {
+		case "=":
+			return leftFloat == rightFloat
+		case "!=":
+			return leftFloat != rightFloat
+		case ">":
+			return leftFloat > rightFloat
+		case ">=":
+			return leftFloat >= rightFloat
+		case "<":
+			return leftFloat < rightFloat
+		case "<=":
+			return leftFloat <= rightFloat
+		}
+	}
+	
+	// String comparison
+	leftStr := fmt.Sprintf("%v", left)
+	rightStr := fmt.Sprintf("%v", right)
+	
+	switch op {
+	case "=":
+		return leftStr == rightStr
+	case "!=":
+		return leftStr != rightStr
+	case ">":
+		return leftStr > rightStr
+	case ">=":
+		return leftStr >= rightStr
+	case "<":
+		return leftStr < rightStr
+	case "<=":
+		return leftStr <= rightStr
+	}
+	
+	return false
+}
+
+// toFloat64 converts an interface to float64
+func toFloat64(v interface{}) (float64, bool) {
+	switch val := v.(type) {
+	case float64:
+		return val, true
+	case float32:
+		return float64(val), true
+	case int:
+		return float64(val), true
+	case int32:
+		return float64(val), true
+	case int64:
+		return float64(val), true
+	case string:
+		if f, err := strconv.ParseFloat(val, 64); err == nil {
+			return f, true
+		}
+	}
+	return 0, false
 }
 
 func (e *RediSearchEngine) applyReducer(docs []*Document, r Reducer) interface{} {

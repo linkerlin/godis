@@ -211,11 +211,16 @@ func execScriptDebug(db *DB, args [][]byte) redis.Reply {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'script|debug' command")
 	}
 	
-	// Debug mode not implemented
 	mode := strings.ToUpper(string(args[0]))
 	switch mode {
-	case "YES", "SYNC", "NO":
-		// Simplified: just return OK
+	case "YES":
+		scripting.SetDebugMode(scripting.DebugModeYes)
+		return protocol.MakeOkReply()
+	case "SYNC":
+		scripting.SetDebugMode(scripting.DebugModeSync)
+		return protocol.MakeOkReply()
+	case "NO":
+		scripting.SetDebugMode(scripting.DebugModeNo)
 		return protocol.MakeOkReply()
 	default:
 		return protocol.MakeErrReply("ERR Unknown DEBUG subcommand or wrong number of arguments for 'debug'")
@@ -255,6 +260,54 @@ func redisReplyToGo(reply redis.Reply) interface{} {
 	}
 }
 
+// execScriptStep steps to next line in debug mode
+// SCRIPT STEP
+func execScriptStep(db *DB, args [][]byte) redis.Reply {
+	if len(args) != 0 {
+		return protocol.MakeErrReply("ERR wrong number of arguments for 'script|step' command")
+	}
+	
+	debugger := scripting.GetDebugger()
+	if !debugger.IsDebugging() {
+		return protocol.MakeErrReply("ERR Lua debugger is not enabled")
+	}
+	
+	debugger.Step()
+	return protocol.MakeOkReply()
+}
+
+// execScriptContinue continues execution in debug mode
+// SCRIPT CONTINUE
+func execScriptContinue(db *DB, args [][]byte) redis.Reply {
+	if len(args) != 0 {
+		return protocol.MakeErrReply("ERR wrong number of arguments for 'script|continue' command")
+	}
+	
+	debugger := scripting.GetDebugger()
+	if !debugger.IsDebugging() {
+		return protocol.MakeErrReply("ERR Lua debugger is not enabled")
+	}
+	
+	debugger.Continue()
+	return protocol.MakeOkReply()
+}
+
+// execScriptNext steps over to next line in debug mode
+// SCRIPT NEXT
+func execScriptNext(db *DB, args [][]byte) redis.Reply {
+	if len(args) != 0 {
+		return protocol.MakeErrReply("ERR wrong number of arguments for 'script|next' command")
+	}
+	
+	debugger := scripting.GetDebugger()
+	if !debugger.IsDebugging() {
+		return protocol.MakeErrReply("ERR Lua debugger is not enabled")
+	}
+	
+	debugger.Next()
+	return protocol.MakeOkReply()
+}
+
 func init() {
 	registerCommand("Eval", execEval, nil, nil, -3, flagSpecial).
 		attachCommandExtra([]string{redisFlagNoScript}, 0, 0, 0)
@@ -269,5 +322,11 @@ func init() {
 	registerCommand("Script|Kill", execScriptKill, nil, nil, 1, flagAdmin).
 		attachCommandExtra([]string{redisFlagAdmin}, 0, 0, 0)
 	registerCommand("Script|Debug", execScriptDebug, nil, nil, 2, flagAdmin).
+		attachCommandExtra([]string{redisFlagAdmin}, 0, 0, 0)
+	registerCommand("Script|Step", execScriptStep, nil, nil, 1, flagAdmin).
+		attachCommandExtra([]string{redisFlagAdmin}, 0, 0, 0)
+	registerCommand("Script|Continue", execScriptContinue, nil, nil, 1, flagAdmin).
+		attachCommandExtra([]string{redisFlagAdmin}, 0, 0, 0)
+	registerCommand("Script|Next", execScriptNext, nil, nil, 1, flagAdmin).
 		attachCommandExtra([]string{redisFlagAdmin}, 0, 0, 0)
 }
