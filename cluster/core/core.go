@@ -21,7 +21,7 @@ type Cluster struct {
 	config      *Config
 
 	slotsManager    *slotsManager
-	rebalanceManger *rebalanceManager
+	rebalanceManager *RebalanceManager
 	transactions    *TransactionManager
 	replicaManager  *replicaManager
 
@@ -69,16 +69,18 @@ func NewCluster(cfg *Config) (*Cluster, error) {
 	}
 
 	cluster := &Cluster{
-		raftNode:        raftNode,
-		db:              db,
-		connections:     connections,
-		config:          cfg,
-		rebalanceManger: newRebalanceManager(),
-		slotsManager:    newSlotsManager(),
-		transactions:    newTransactionManager(),
-		replicaManager:  newReplicaManager(),
-		closeChan:       make(chan struct{}),
+		raftNode:       raftNode,
+		db:             db,
+		connections:    connections,
+		config:         cfg,
+		slotsManager:   newSlotsManager(),
+		transactions:   newTransactionManager(),
+		replicaManager: newReplicaManager(),
+		closeChan:      make(chan struct{}),
 	}
+	
+	// Initialize rebalance manager after cluster is created
+	cluster.rebalanceManager = NewRebalanceManager(cluster)
 	cluster.pickNodeImpl = func(slotID uint32) string {
 		return defaultPickNodeImpl(cluster, slotID)
 	}

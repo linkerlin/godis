@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"sync"
 	"time"
 
 	"github.com/hdt3213/godis/cluster/raft"
@@ -88,19 +87,9 @@ func execJoin(cluster *Cluster, c redis.Connection, cmdLine CmdLine) redis.Reply
 	return protocol.MakeOkReply()
 }
 
-type rebalanceManager struct {
-	mu *sync.Mutex
-}
-
-func newRebalanceManager() *rebalanceManager {
-	return &rebalanceManager{
-		mu: &sync.Mutex{},
-	}
-}
-
 func (cluster *Cluster) doRebalance() {
-	cluster.rebalanceManger.mu.Lock()
-	defer cluster.rebalanceManger.mu.Unlock()
+	cluster.rebalanceManager.mu.Lock()
+	defer cluster.rebalanceManager.mu.Unlock()
 	pendingTasks, err := cluster.makeRebalancePlan()
 	if err != nil {
 		logger.Errorf("makeRebalancePlan err: %v", err)

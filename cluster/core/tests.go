@@ -17,11 +17,11 @@ func MakeTestCluster(ids []string) map[string]*Cluster {
 			db:              db,
 			config:          &Config{},
 			connections:     connections,
-			rebalanceManger: newRebalanceManager(),
 			slotsManager:    newSlotsManager(),
 			transactions:    newTransactionManager(),
 			id_:             id,
 		}
+		cluster.rebalanceManager = NewRebalanceManager(cluster)
 		cluster.pickNodeImpl = func(slotID uint32) string {
 			// skip raft for test
 			index := int(slotID) % len(ids)

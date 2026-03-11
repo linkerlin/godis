@@ -212,15 +212,20 @@ func execScriptDebug(db *DB, args [][]byte) redis.Reply {
 	}
 	
 	mode := strings.ToUpper(string(args[0]))
+	debugger := scripting.GetFullDebugger()
+	
 	switch mode {
 	case "YES":
-		scripting.SetDebugMode(scripting.DebugModeYes)
+		debugger.SetMode(scripting.DebugModeYes)
+		scripting.SetDebugMode(scripting.DebugModeYes) // For backward compatibility
 		return protocol.MakeOkReply()
 	case "SYNC":
-		scripting.SetDebugMode(scripting.DebugModeSync)
+		debugger.SetMode(scripting.DebugModeSync)
+		scripting.SetDebugMode(scripting.DebugModeSync) // For backward compatibility
 		return protocol.MakeOkReply()
 	case "NO":
-		scripting.SetDebugMode(scripting.DebugModeNo)
+		debugger.SetMode(scripting.DebugModeNo)
+		scripting.SetDebugMode(scripting.DebugModeNo) // For backward compatibility
 		return protocol.MakeOkReply()
 	default:
 		return protocol.MakeErrReply("ERR Unknown DEBUG subcommand or wrong number of arguments for 'debug'")
@@ -267,7 +272,7 @@ func execScriptStep(db *DB, args [][]byte) redis.Reply {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'script|step' command")
 	}
 	
-	debugger := scripting.GetDebugger()
+	debugger := scripting.GetFullDebugger()
 	if !debugger.IsDebugging() {
 		return protocol.MakeErrReply("ERR Lua debugger is not enabled")
 	}
@@ -283,7 +288,7 @@ func execScriptContinue(db *DB, args [][]byte) redis.Reply {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'script|continue' command")
 	}
 	
-	debugger := scripting.GetDebugger()
+	debugger := scripting.GetFullDebugger()
 	if !debugger.IsDebugging() {
 		return protocol.MakeErrReply("ERR Lua debugger is not enabled")
 	}
@@ -299,13 +304,71 @@ func execScriptNext(db *DB, args [][]byte) redis.Reply {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'script|next' command")
 	}
 	
-	debugger := scripting.GetDebugger()
+	debugger := scripting.GetFullDebugger()
 	if !debugger.IsDebugging() {
 		return protocol.MakeErrReply("ERR Lua debugger is not enabled")
 	}
 	
 	debugger.Next()
 	return protocol.MakeOkReply()
+}
+
+// execScriptBreakpoint adds/removes a breakpoint
+// SCRIPT BREAKPOINT line [condition]
+func execScriptBreakpoint(db *DB, args [][]byte) redis.Reply {
+	if len(args) < 1 {
+		return protocol.MakeErrReply("ERR wrong number of arguments for 'script|breakpoint' command")
+	}
+	
+	line, err := strconv.Atoi(string(args[0]))
+	if err != nil {
+		return protocol.MakeErrReply("ERR line number must be an integer")
+	}
+	
+	debugger := scripting.GetFullDebugger()
+	
+	var condition string
+	if len(args) > 1 {
+		condition = string(args[1])
+	}
+	
+	debugger.AddBreakpoint(line, condition)
+	return protocol.MakeOkReply()
+}
+
+// execScriptFinish steps out of current function
+// SCRIPT FINISH
+func execScriptFinish(db *DB, args [][]byte) redis.Reply {
+	if len(args) != 0 {
+		return protocol.MakeErrReply("ERR wrong number of arguments for 'script|finish' command")
+	}
+	
+	debugger := scripting.GetFullDebugger()
+	if !debugger.IsDebugging() {
+		return protocol.MakeErrReply("ERR Lua debugger is not enabled")
+	}
+	
+	debugger.Finish()
+	return protocol.MakeOkReply()
+}
+
+// execScriptInfo shows current debug info
+// SCRIPT INFO
+func execScriptInfo(db *DB, args [][]byte) redis.Reply {
+	if len(args) != 0 {
+		return protocol.MakeErrReply("ERR wrong number of arguments for 'script|info' command")
+	}
+	
+	debugger := scripting.GetFullDebugger()
+	info := debugger.GetDebugInfo()
+	
+	result := make([][]byte, 0)
+	result = append(result, []byte(fmt.Sprintf("Debug mode: %v", info["mode"])))
+	result = append(result, []byte(fmt.Sprintf("Trace enabled: %v", info["trace"])))
+	result = append(result, []byte(fmt.Sprintf("Breakpoints: %v", info["breakpoints"])))
+	result = append(result, []byte(fmt.Sprintf("Script: %v", info["script"])))
+	
+	return protocol.MakeMultiBulkReply(result)
 }
 
 func init() {
@@ -328,5 +391,11 @@ func init() {
 	registerCommand("Script|Continue", execScriptContinue, nil, nil, 1, flagAdmin).
 		attachCommandExtra([]string{redisFlagAdmin}, 0, 0, 0)
 	registerCommand("Script|Next", execScriptNext, nil, nil, 1, flagAdmin).
+		attachCommandExtra([]string{redisFlagAdmin}, 0, 0, 0)
+	registerCommand("Script|Breakpoint", execScriptBreakpoint, nil, nil, -2, flagAdmin).
+		attachCommandExtra([]string{redisFlagAdmin}, 0, 0, 0)
+	registerCommand("Script|Finish", execScriptFinish, nil, nil, 1, flagAdmin).
+		attachCommandExtra([]string{redisFlagAdmin}, 0, 0, 0)
+	registerCommand("Script|Info", execScriptInfo, nil, nil, 1, flagAdmin).
 		attachCommandExtra([]string{redisFlagAdmin}, 0, 0, 0)
 }
