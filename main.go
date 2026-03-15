@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"os"
 
@@ -33,12 +34,30 @@ var defaultProperties = &config.ServerProperties{
 	RunID:          utils.RandString(40),
 }
 
+// Command line flags
+var (
+	flagBind   string
+	flagPort   int
+	flagConfig string
+)
+
 func fileExists(filename string) bool {
 	info, err := os.Stat(filename)
 	return err == nil && !info.IsDir()
 }
 
+func init() {
+	flag.StringVar(&flagBind, "bind", "", "Server bind address (overrides config file)")
+	flag.StringVar(&flagBind, "b", "", "Server bind address shorthand")
+	flag.IntVar(&flagPort, "port", 0, "Server port (overrides config file)")
+	flag.IntVar(&flagPort, "p", 0, "Server port shorthand")
+	flag.StringVar(&flagConfig, "config", "", "Config file path")
+	flag.StringVar(&flagConfig, "c", "", "Config file path shorthand")
+}
+
 func main() {
+	flag.Parse()
+
 	print(banner)
 	if err := logger.Setup(&logger.Settings{
 		Path:       "logs",
@@ -48,13 +67,13 @@ func main() {
 	}); err != nil {
 		fmt.Fprintf(os.Stderr, "setup logger failed: %v\n", err)
 	}
-	
+
 	if err := setupConfig(); err != nil {
 		logger.Fatal(fmt.Sprintf("setup config failed: %+v", err))
 	}
-	
+
 	listenAddr := fmt.Sprintf("%s:%d", config.Properties.Bind, config.Properties.Port)
-	
+
 	var err error
 	if config.Properties.UseGnet {
 		err = runGnetServer(listenAddr)
@@ -67,7 +86,12 @@ func main() {
 }
 
 func setupConfig() error {
-	configFilename := os.Getenv("CONFIG")
+	// Priority: command line flag > environment variable > default
+	configFilename := flagConfig
+	if configFilename == "" {
+		configFilename = os.Getenv("CONFIG")
+	}
+
 	if configFilename == "" {
 		if fileExists("redis.conf") {
 			if err := config.SetupConfig("redis.conf"); err != nil {
@@ -81,6 +105,15 @@ func setupConfig() error {
 			return errors.Wrapf(err, "setup config from %s failed", configFilename)
 		}
 	}
+
+	// Apply command line overrides for bind and port
+	if flagBind != "" {
+		config.Properties.Bind = flagBind
+	}
+	if flagPort != 0 {
+		config.Properties.Port = flagPort
+	}
+
 	return nil
 }
 
