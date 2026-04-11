@@ -138,6 +138,9 @@ func execXAdd(db *DB, args [][]byte) redis.Reply {
 	}
 	
 	idStr = string(args[i])
+	if reply := validateBulkBytes(args[i]); reply != nil {
+		return reply
+	}
 	i++
 	
 	// 检查field-value对
@@ -145,6 +148,9 @@ func execXAdd(db *DB, args [][]byte) redis.Reply {
 		return protocol.MakeErrReply("ERR wrong number of arguments for XADD")
 	}
 	fieldArgs = args[i:]
+	if reply := validateBulkBytesSlice(fieldArgs); reply != nil {
+		return reply
+	}
 	
 	// 构建fields map
 	fields := make(map[string]string)
@@ -396,7 +402,9 @@ func execXGroupCreate(db *DB, args [][]byte) redis.Reply {
 	if len(args) < 3 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'xgroup' command")
 	}
-	
+	if reply := validateKeyBytes(args[0]); reply != nil {
+		return reply
+	}
 	key := string(args[0])
 	groupName := string(args[1])
 	startID := string(args[2])
@@ -463,7 +471,9 @@ func execXGroupDestroy(db *DB, args [][]byte) redis.Reply {
 	if len(args) != 2 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'xgroup' command")
 	}
-	
+	if reply := validateKeyBytes(args[0]); reply != nil {
+		return reply
+	}
 	key := string(args[0])
 	groupName := string(args[1])
 	
@@ -724,6 +734,9 @@ func execXGroup(db *DB, args [][]byte) redis.Reply {
 // execXGroupSetID sets the ID of a consumer group
 // XGROUP SETID key groupname id|$
 func execXGroupSetID(db *DB, args [][]byte) redis.Reply {
+	if reply := validateKeyBytes(args[0]); reply != nil {
+		return reply
+	}
 	key := string(args[0])
 	groupName := string(args[1])
 	newID := string(args[2])

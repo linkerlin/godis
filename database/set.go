@@ -42,6 +42,9 @@ func (db *DB) getOrInitSet(key string) (set *HashSet.Set, inited bool, errReply 
 func execSAdd(db *DB, args [][]byte) redis.Reply {
 	key := string(args[0])
 	members := args[1:]
+	if reply := validateBulkBytesSlice(members); reply != nil {
+		return reply
+	}
 
 	// get or init entity
 	set, _, errReply := db.getOrInitSet(key)
@@ -59,6 +62,9 @@ func execSAdd(db *DB, args [][]byte) redis.Reply {
 // execSIsMember checks if the given value is member of set
 func execSIsMember(db *DB, args [][]byte) redis.Reply {
 	key := string(args[0])
+	if reply := validateBulkBytes(args[1]); reply != nil {
+		return reply
+	}
 	member := string(args[1])
 
 	// get set
@@ -81,6 +87,9 @@ func execSIsMember(db *DB, args [][]byte) redis.Reply {
 func execSRem(db *DB, args [][]byte) redis.Reply {
 	key := string(args[0])
 	members := args[1:]
+	if reply := validateBulkBytesSlice(members); reply != nil {
+		return reply
+	}
 
 	set, errReply := db.getAsSet(key)
 	if errReply != nil {
@@ -406,6 +415,9 @@ func execSScan(db *DB, args [][]byte) redis.Reply {
 // SMISMEMBER key member [member ...]
 func execSMIsMember(db *DB, args [][]byte) redis.Reply {
 	key := string(args[0])
+	if reply := validateBulkBytesSlice(args[1:]); reply != nil {
+		return reply
+	}
 	set, errReply := db.getAsSet(key)
 	if errReply != nil {
 		return errReply

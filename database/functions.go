@@ -59,6 +59,9 @@ func execFunctionLoad(db *DB, args [][]byte) redis.Reply {
 	}
 	
 	code := string(args[codeIdx])
+	if reply := validateBulkBytes(args[codeIdx]); reply != nil {
+		return reply
+	}
 	
 	// Extract library name from code
 	// Format: #!lua name=mylib
@@ -278,6 +281,9 @@ func execFunctionRestore(db *DB, args [][]byte) redis.Reply {
 	}
 	
 	payload := string(args[0])
+	if reply := validateBulkBytes(args[0]); reply != nil {
+		return reply
+	}
 	
 	// Parse payload (libraries separated by shebang)
 	// Split by "#!lua name="

@@ -180,6 +180,13 @@ func (server *Server) Exec(c redis.Connection, cmdLine [][]byte) (result redis.R
 		}
 	}()
 	
+	if len(cmdLine) == 0 {
+		return protocol.MakeErrReply("ERR unknown command")
+	}
+	if reply := validateCmdArgCount(cmdLine); reply != nil {
+		return reply
+	}
+
 	// Record the start time of command execution
 	GodisExecCommandStartUnixTime := time.Now()
 
@@ -433,14 +440,6 @@ func (server *Server) flushAll() redis.Reply {
 		server.persister.SaveCmdLine(0, utils.ToCmdLine("FlushAll"))
 	}
 	return &protocol.OkReply{}
-}
-
-// mustSelectDB returns the database with the given index, panics if out of range
-func (server *Server) mustSelectDB(dbIndex int) *DB {
-	if dbIndex >= len(server.dbSet) || dbIndex < 0 {
-		panic(fmt.Sprintf("DB index %d is out of range", dbIndex))
-	}
-	return server.dbSet[dbIndex].Load().(*DB)
 }
 
 // selectDB returns the database with the given index, or an error if the index is out of range.

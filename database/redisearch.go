@@ -25,6 +25,9 @@ func execFTCreate(db *DB, args [][]byte) redis.Reply {
 	}
 	
 	indexName := string(args[0])
+	if reply := validateBulkBytes(args[0]); reply != nil {
+		return reply
+	}
 	
 	// Parse options
 	var prefix []string
@@ -47,6 +50,9 @@ func execFTCreate(db *DB, args [][]byte) redis.Reply {
 			}
 			i += 2
 			for j := 0; j < count && i < len(args); j++ {
+				if reply := validateBulkBytes(args[i]); reply != nil {
+					return reply
+				}
 				prefix = append(prefix, string(args[i]))
 				i++
 			}
@@ -66,6 +72,9 @@ func execFTCreate(db *DB, args [][]byte) redis.Reply {
 	i := schemaStart
 	for i < len(args) {
 		fieldName := string(args[i])
+		if reply := validateBulkBytes(args[i]); reply != nil {
+			return reply
+		}
 		i++
 		
 		if i >= len(args) {
@@ -112,6 +121,9 @@ func execFTCreate(db *DB, args [][]byte) redis.Reply {
 			case "WEIGHT":
 				if i+1 >= len(args) {
 					return protocol.MakeSyntaxErrReply()
+				}
+				if reply := validateBulkBytes(args[i+1]); reply != nil {
+					return reply
 				}
 				weight, err := strconv.ParseFloat(string(args[i+1]), 64)
 				if err != nil {
@@ -206,6 +218,12 @@ func execFTAdd(db *DB, args [][]byte) redis.Reply {
 	
 	indexName := string(args[0])
 	docID := string(args[1])
+	if reply := validateBulkBytes(args[0]); reply != nil {
+		return reply
+	}
+	if reply := validateBulkBytes(args[1]); reply != nil {
+		return reply
+	}
 	
 	searchEnginesMu.RLock()
 	engine, ok := searchEngines[indexName]
@@ -242,11 +260,17 @@ func execFTAdd(db *DB, args [][]byte) redis.Reply {
 			if i+1 >= len(args) {
 				return protocol.MakeSyntaxErrReply()
 			}
+			if reply := validateBulkBytes(args[i+1]); reply != nil {
+				return reply
+			}
 			payload = args[i+1]
 			i++
 		case "LANGUAGE":
 			if i+1 >= len(args) {
 				return protocol.MakeSyntaxErrReply()
+			}
+			if reply := validateBulkBytes(args[i+1]); reply != nil {
+				return reply
 			}
 			language = string(args[i+1])
 			i++
@@ -267,6 +291,12 @@ func execFTAdd(db *DB, args [][]byte) redis.Reply {
 	
 	fields := make(map[string]interface{})
 	for i := fieldsStart; i < len(args); i += 2 {
+		if reply := validateBulkBytes(args[i]); reply != nil {
+			return reply
+		}
+		if reply := validateBulkBytes(args[i+1]); reply != nil {
+			return reply
+		}
 		fieldName := string(args[i])
 		fieldValue := string(args[i+1])
 		fields[fieldName] = fieldValue

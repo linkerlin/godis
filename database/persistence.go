@@ -8,6 +8,7 @@ import (
 	"github.com/hdt3213/godis/aof"
 	"github.com/hdt3213/godis/config"
 	"github.com/hdt3213/godis/datastruct/dict"
+	"github.com/hdt3213/godis/lib/logger"
 	List "github.com/hdt3213/godis/datastruct/list"
 	HashSet "github.com/hdt3213/godis/datastruct/set"
 	SortedSet "github.com/hdt3213/godis/datastruct/sortedset"
@@ -36,7 +37,11 @@ func (server *Server) loadRdbFile() error {
 // LoadRDB real implementation of loading rdb file
 func (server *Server) LoadRDB(dec *core.Decoder) error {
 	return dec.Parse(func(o rdb.RedisObject) bool {
-		db := server.mustSelectDB(o.GetDBIndex())
+		db, err := server.selectDBSafe(o.GetDBIndex())
+		if err != nil {
+			logger.Warn(fmt.Sprintf("rdb: skip object key=%q db=%d: %v", o.GetKey(), o.GetDBIndex(), err))
+			return true
+		}
 		var entity *database.DataEntity
 		switch o.GetType() {
 		case rdb.StringType:

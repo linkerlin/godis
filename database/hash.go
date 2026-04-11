@@ -44,6 +44,12 @@ func execHSet(db *DB, args [][]byte) redis.Reply {
 	key := string(args[0])
 	field := string(args[1])
 	value := args[2]
+	if reply := validateBulkBytes(args[1]); reply != nil {
+		return reply
+	}
+	if reply := validateBulkBytes(value); reply != nil {
+		return reply
+	}
 
 	// get or init entity
 	dict, _, errReply := db.getOrInitDict(key)
@@ -68,6 +74,12 @@ func execHSetNX(db *DB, args [][]byte) redis.Reply {
 	key := string(args[0])
 	field := string(args[1])
 	value := args[2]
+	if reply := validateBulkBytes(args[1]); reply != nil {
+		return reply
+	}
+	if reply := validateBulkBytes(value); reply != nil {
+		return reply
+	}
 
 	dict, _, errReply := db.getOrInitDict(key)
 	if errReply != nil {
@@ -86,6 +98,9 @@ func execHSetNX(db *DB, args [][]byte) redis.Reply {
 func execHGet(db *DB, args [][]byte) redis.Reply {
 	// parse args
 	key := string(args[0])
+	if reply := validateBulkBytes(args[1]); reply != nil {
+		return reply
+	}
 	field := string(args[1])
 
 	// get entity
@@ -109,6 +124,9 @@ func execHGet(db *DB, args [][]byte) redis.Reply {
 func execHExists(db *DB, args [][]byte) redis.Reply {
 	// parse args
 	key := string(args[0])
+	if reply := validateBulkBytes(args[1]); reply != nil {
+		return reply
+	}
 	field := string(args[1])
 
 	// get entity
@@ -135,6 +153,9 @@ func execHDel(db *DB, args [][]byte) redis.Reply {
 	fieldArgs := args[1:]
 	for i, v := range fieldArgs {
 		fields[i] = string(v)
+	}
+	if reply := validateBulkBytesSlice(fieldArgs); reply != nil {
+		return reply
 	}
 
 	// get entity
@@ -190,6 +211,9 @@ func execHLen(db *DB, args [][]byte) redis.Reply {
 // If the key or the field do not exist, 0 is returned.
 func execHStrlen(db *DB, args [][]byte) redis.Reply {
 	key := string(args[0])
+	if reply := validateBulkBytes(args[1]); reply != nil {
+		return reply
+	}
 	field := string(args[1])
 
 	dict, errReply := db.getAsDict(key)
@@ -222,6 +246,14 @@ func execHMSet(db *DB, args [][]byte) redis.Reply {
 		fields[i] = string(args[2*i+1])
 		values[i] = args[2*i+2]
 	}
+	for i := 0; i < size; i++ {
+		if reply := validateBulkBytes(args[2*i+1]); reply != nil {
+			return reply
+		}
+		if reply := validateBulkBytes(args[2*i+2]); reply != nil {
+			return reply
+		}
+	}
 
 	// get or init entity
 	dict, _, errReply := db.getOrInitDict(key)
@@ -251,6 +283,9 @@ func undoHMSet(db *DB, args [][]byte) []CmdLine {
 // execHMGet gets multi fields in hash table
 func execHMGet(db *DB, args [][]byte) redis.Reply {
 	key := string(args[0])
+	if reply := validateBulkBytesSlice(args[1:]); reply != nil {
+		return reply
+	}
 	size := len(args) - 1
 	fields := make([]string, size)
 	for i := 0; i < size; i++ {

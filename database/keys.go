@@ -326,6 +326,9 @@ func execPersist(db *DB, args [][]byte) redis.Reply {
 
 // execKeys returns all keys matching the given pattern
 func execKeys(db *DB, args [][]byte) redis.Reply {
+	if reply := validateKeyBytes(args[0]); reply != nil {
+		return reply
+	}
 	pattern, err := wildcard.CompilePattern(string(args[0]))
 	if err != nil {
 		return protocol.MakeErrReply("ERR illegal wildcard")
@@ -364,8 +367,17 @@ func undoExpire(db *DB, args [][]byte) []CmdLine {
 // execCopy usage: COPY source destination [DB destination-db] [REPLACE]
 // This command copies the value stored at the source key to the destination key.
 func execCopy(mdb *Server, conn redis.Connection, args [][]byte) redis.Reply {
+	if reply := validateKeyBytes(args[0]); reply != nil {
+		return reply
+	}
+	if reply := validateKeyBytes(args[1]); reply != nil {
+		return reply
+	}
 	dbIndex := conn.GetDBIndex()
-	db := mdb.mustSelectDB(dbIndex) // Current DB
+	db, err := mdb.selectDBSafe(conn.GetDBIndex())
+	if err != nil {
+		return protocol.MakeErrReply("ERR DB index is out of range")
+	}
 	replaceFlag := false
 	srcKey := string(args[0])
 	destKey := string(args[1])
@@ -405,7 +417,10 @@ func execCopy(mdb *Server, conn redis.Connection, args [][]byte) redis.Reply {
 		return protocol.MakeIntReply(0)
 	}
 
-	destDB := mdb.mustSelectDB(dbIndex)
+	destDB, err := mdb.selectDBSafe(dbIndex)
+	if err != nil {
+		return protocol.MakeErrReply("ERR DB index is out of range")
+	}
 	if _, exists = destDB.GetEntity(destKey); exists != false {
 		// If destKey exists and there is no "replace" option
 		if replaceFlag == false {
@@ -429,7 +444,9 @@ func (mdb *Server) execMove(conn redis.Connection, args [][]byte) redis.Reply {
 	if len(args) != 2 {
 		return protocol.MakeArgNumErrReply("move")
 	}
-	
+	if reply := validateKeyBytes(args[0]); reply != nil {
+		return reply
+	}
 	srcKey := string(args[0])
 	dbIndex, err := strconv.Atoi(string(args[1]))
 	if err != nil {
@@ -445,8 +462,14 @@ func (mdb *Server) execMove(conn redis.Connection, args [][]byte) redis.Reply {
 		return protocol.MakeErrReply("ERR source and destination objects are the same")
 	}
 	
-	srcDB := mdb.mustSelectDB(srcDBIndex)
-	destDB := mdb.mustSelectDB(dbIndex)
+	srcDB, err := mdb.selectDBSafe(srcDBIndex)
+	if err != nil {
+		return protocol.MakeErrReply("ERR DB index is out of range")
+	}
+	destDB, err := mdb.selectDBSafe(dbIndex)
+	if err != nil {
+		return protocol.MakeErrReply("ERR DB index is out of range")
+	}
 	
 	// Check if key exists in source
 	entity, exists := srcDB.GetEntity(srcKey)
@@ -498,6 +521,9 @@ func execScan(db *DB, args [][]byte) redis.Reply {
 				return &protocol.SyntaxErrReply{}
 			}
 		}
+	}
+	if reply := validateKeyBytes([]byte(pattern)); reply != nil {
+		return reply
 	}
 	cursor, err := strconv.Atoi(string(args[0]))
 	if err != nil {

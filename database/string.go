@@ -29,9 +29,6 @@ func (db *DB) getAsString(key string) ([]byte, protocol.ErrorReply) {
 
 // execGet returns string value bound to the given key
 func execGet(db *DB, args [][]byte) redis.Reply {
-	if err := validate.ValidateKey(args[0]); err != nil {
-		return protocol.MakeErrReply("ERR key too large")
-	}
 	key := string(args[0])
 	bytes, err := db.getAsString(key)
 	if err != nil {
@@ -125,10 +122,6 @@ func execGetEX(db *DB, args [][]byte) redis.Reply {
 
 // execSet sets string value and time to live to the given key
 func execSet(db *DB, args [][]byte) redis.Reply {
-	// Validate key and value
-	if err := validate.ValidateKey(args[0]); err != nil {
-		return protocol.MakeErrReply("ERR key too large")
-	}
 	if err := validate.ValidateValue(args[1]); err != nil {
 		return protocol.MakeErrReply("ERR value too large")
 	}
@@ -317,6 +310,11 @@ func execMSet(db *DB, args [][]byte) redis.Reply {
 		keys[i] = string(args[2*i])
 		values[i] = args[2*i+1]
 	}
+	for i := 0; i < size; i++ {
+		if reply := validateBulkBytes(values[i]); reply != nil {
+			return reply
+		}
+	}
 
 	for i, key := range keys {
 		value := values[i]
@@ -372,6 +370,11 @@ func execMSetNX(db *DB, args [][]byte) redis.Reply {
 		keys[i] = string(args[2*i])
 		values[i] = args[2*i+1]
 	}
+	for i := 0; i < size; i++ {
+		if reply := validateBulkBytes(values[i]); reply != nil {
+			return reply
+		}
+	}
 
 	for _, key := range keys {
 		_, exists := db.GetEntity(key)
@@ -392,6 +395,9 @@ func execMSetNX(db *DB, args [][]byte) redis.Reply {
 func execGetSet(db *DB, args [][]byte) redis.Reply {
 	key := string(args[0])
 	value := args[1]
+	if reply := validateBulkBytes(value); reply != nil {
+		return reply
+	}
 
 	old, err := db.getAsString(key)
 	if err != nil {
@@ -594,6 +600,12 @@ func execAppend(db *DB, args [][]byte) redis.Reply {
 	if err != nil {
 		return err
 	}
+	if bytes == nil {
+		bytes = []byte{}
+	}
+	if reply := validateAppendGrowth(len(bytes), len(args[1])); reply != nil {
+		return reply
+	}
 	bytes = append(bytes, args[1]...)
 	db.PutEntity(key, &database.DataEntity{
 		Data: bytes,
@@ -611,9 +623,18 @@ func execSetRange(db *DB, args [][]byte) redis.Reply {
 		return protocol.MakeErrReply(errNative.Error())
 	}
 	value := args[2]
+	if reply := validateBulkBytes(value); reply != nil {
+		return reply
+	}
 	bytes, err := db.getAsString(key)
 	if err != nil {
 		return err
+	}
+	if bytes == nil {
+		bytes = []byte{}
+	}
+	if reply := validateSetRangeGrowth(len(bytes), offset, len(value)); reply != nil {
+		return reply
 	}
 	bytesLen := int64(len(bytes))
 	if bytesLen < offset {

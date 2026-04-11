@@ -49,6 +49,9 @@ func execEval(db *DB, args [][]byte) redis.Reply {
 	}
 	
 	script := string(args[0])
+	if reply := validateBulkBytes(args[0]); reply != nil {
+		return reply
+	}
 	
 	numKeys, err := strconv.Atoi(string(args[1]))
 	if err != nil {
@@ -92,6 +95,9 @@ func execEvalSha(db *DB, args [][]byte) redis.Reply {
 	}
 	
 	sha1 := string(args[0])
+	if reply := validateBulkBytes(args[0]); reply != nil {
+		return reply
+	}
 	
 	numKeys, err := strconv.Atoi(string(args[1]))
 	if err != nil {
@@ -164,6 +170,9 @@ func execScriptLoad(db *DB, args [][]byte) redis.Reply {
 	}
 	
 	script := string(args[0])
+	if reply := validateBulkBytes(args[0]); reply != nil {
+		return reply
+	}
 	sha1 := scriptEngine.LoadScript(script)
 	
 	return protocol.MakeBulkReply([]byte(sha1))

@@ -25,6 +25,34 @@ func ValidateValue(value []byte) error {
 	return nil
 }
 
+// ValidateBulkBytes applies the same maximum as string values to arbitrary bulk data
+// (hash fields/values, list elements, set members, stream fields, etc.).
+func ValidateBulkBytes(b []byte) error {
+	return ValidateValue(b)
+}
+
+// ValidateAppendResult checks the size after APPEND.
+func ValidateAppendResult(currentLen, appendLen int) error {
+	if int64(currentLen)+int64(appendLen) > int64(consts.MaxValueSize) {
+		return errs.Newf(errs.ErrCodeValueTooLarge, "value too large after append")
+	}
+	return nil
+}
+
+// ValidateSetRangeResult checks the resulting string size after SETRANGE.
+func ValidateSetRangeResult(currentLen int, offset int64, valueLen int) error {
+	end := offset + int64(valueLen)
+	cl := int64(currentLen)
+	newLen := cl
+	if end > newLen {
+		newLen = end
+	}
+	if newLen > int64(consts.MaxValueSize) {
+		return errs.Newf(errs.ErrCodeValueTooLarge, "value too large after setrange")
+	}
+	return nil
+}
+
 // ValidateArgsCount checks if argument count is within limit
 func ValidateArgsCount(count int) error {
 	if count > consts.MaxArgCount {

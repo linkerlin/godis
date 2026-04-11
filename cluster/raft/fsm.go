@@ -6,6 +6,8 @@ import (
 	"sync"
 
 	"github.com/hashicorp/raft"
+
+	"github.com/hdt3213/godis/lib/logger"
 )
 
 // FSM implements raft.FSM
@@ -86,21 +88,37 @@ func (fsm *FSM) Apply(log *raft.Log) interface{} {
 	defer fsm.mu.Unlock()
 
 	entry := &LogEntry{}
-	err := json.Unmarshal(log.Data, entry)
-	if err != nil {
-		panic(err)
+	if err := json.Unmarshal(log.Data, entry); err != nil {
+		logger.Errorf("raft FSM Apply: unmarshal log entry at index %d: %v", log.Index, err)
+		return nil
 	}
 
 	/// event handler
 	if entry.Event == EventStartMigrate {
 		task := entry.MigratingTask
+		if task == nil {
+			logger.Error("raft FSM Apply: EventStartMigrate with nil MigratingTask")
+			return nil
+		}
 		fsm.Migratings[task.ID] = task
 	} else if entry.Event == EventFinishMigrate {
 		task := entry.MigratingTask
+		if task == nil {
+			logger.Error("raft FSM Apply: EventFinishMigrate with nil MigratingTask")
+			return nil
+		}
 		delete(fsm.Migratings, task.ID)
 		fsm.addSlots(task.TargetNode, task.Slots)
 		fsm.removeSlots(task.SrcNode, task.Slots)
 	} else if entry.Event == EventSeedStart {
+		if entry.InitTask == nil {
+			logger.Error("raft FSM Apply: EventSeedStart with nil InitTask")
+			return nil
+		}
+		if entry.InitTask.SlotCount < 0 {
+			logger.Errorf("raft FSM Apply: EventSeedStart invalid SlotCount %d", entry.InitTask.SlotCount)
+			return nil
+		}
 		slots := make([]uint32, int(entry.InitTask.SlotCount))
 		for i := 0; i < entry.InitTask.SlotCount; i++ {
 			fsm.Slot2Node[uint32(i)] = entry.InitTask.Leader
@@ -110,6 +128,10 @@ func (fsm *FSM) Apply(log *raft.Log) interface{} {
 		fsm.addNode(entry.InitTask.Leader, "")
 	} else if entry.Event == EventFinishFailover {
 		task := entry.FailoverTask
+		if task == nil {
+			logger.Error("raft FSM Apply: EventFinishFailover with nil FailoverTask")
+			return nil
+		}
 		// change route
 		fsm.failover(task.OldMasterId, task.NewMasterId)
 		slots := fsm.Node2Slot[task.OldMasterId]
@@ -118,6 +140,10 @@ func (fsm *FSM) Apply(log *raft.Log) interface{} {
 		delete(fsm.Failovers, task.ID)
 	} else if entry.Event == EventJoin {
 		task := entry.JoinTask
+		if task == nil {
+			logger.Error("raft FSM Apply: EventJoin with nil JoinTask")
+			return nil
+		}
 		fsm.addNode(task.NodeId, task.Master)
 	}
 	if fsm.changed != nil {

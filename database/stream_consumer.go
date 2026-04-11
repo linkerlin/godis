@@ -69,6 +69,9 @@ parseStreams:
 		keys[j] = string(args[i+j])
 		ids[j] = string(args[i+numStreams+j])
 	}
+	if reply := validateStreamKeyNames(keys); reply != nil {
+		return reply
+	}
 	
 	// 执行读取
 	startTime := time.Now()
@@ -214,6 +217,9 @@ parseStreams:
 	for j := 0; j < numStreams; j++ {
 		keys[j] = string(args[i+j])
 		ids[j] = string(args[i+numStreams+j])
+	}
+	if reply := validateStreamKeyNames(keys); reply != nil {
+		return reply
 	}
 	
 	startTime := time.Now()

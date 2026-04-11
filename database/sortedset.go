@@ -48,6 +48,14 @@ func execZAdd(db *DB, args [][]byte) redis.Reply {
 	}
 	key := string(args[0])
 	size := (len(args) - 1) / 2
+	for i := 0; i < size; i++ {
+		if reply := validateBulkBytes(args[2*i+1]); reply != nil {
+			return reply
+		}
+		if reply := validateBulkBytes(args[2*i+2]); reply != nil {
+			return reply
+		}
+	}
 	elements := make([]*SortedSet.Element, size)
 	for i := 0; i < size; i++ {
 		scoreValue := args[2*i+1]
@@ -94,6 +102,9 @@ func undoZAdd(db *DB, args [][]byte) []CmdLine {
 func execZScore(db *DB, args [][]byte) redis.Reply {
 	// parse args
 	key := string(args[0])
+	if reply := validateBulkBytes(args[1]); reply != nil {
+		return reply
+	}
 	member := string(args[1])
 
 	sortedSet, errReply := db.getAsSortedSet(key)
@@ -121,6 +132,9 @@ func execZMScore(db *DB, args [][]byte) redis.Reply {
 
 	key := string(args[0])
 	members := args[1:]
+	if reply := validateBulkBytesSlice(members); reply != nil {
+		return reply
+	}
 
 	sortedSet, errReply := db.getAsSortedSet(key)
 	if errReply != nil {
@@ -590,6 +604,9 @@ func execZRem(db *DB, args [][]byte) redis.Reply {
 	for i, v := range fieldArgs {
 		fields[i] = string(v)
 	}
+	if reply := validateBulkBytesSlice(fieldArgs); reply != nil {
+		return reply
+	}
 
 	// get entity
 	sortedSet, errReply := db.getAsSortedSet(key)
@@ -625,6 +642,12 @@ func undoZRem(db *DB, args [][]byte) []CmdLine {
 // execZIncrBy increments the score of a member
 func execZIncrBy(db *DB, args [][]byte) redis.Reply {
 	key := string(args[0])
+	if reply := validateBulkBytes(args[1]); reply != nil {
+		return reply
+	}
+	if reply := validateBulkBytes(args[2]); reply != nil {
+		return reply
+	}
 	rawDelta := string(args[1])
 	field := string(args[2])
 	delta, err := strconv.ParseFloat(rawDelta, 64)

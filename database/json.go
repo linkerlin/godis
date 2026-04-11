@@ -22,6 +22,12 @@ func execJSONSet(db *DB, args [][]byte) redis.Reply {
 	
 	key := string(args[0])
 	path := string(args[1])
+	if reply := validateBulkBytes(args[1]); reply != nil {
+		return reply
+	}
+	if reply := validateBulkBytes(args[2]); reply != nil {
+		return reply
+	}
 	
 	// Parse the JSON value
 	var value interface{}
@@ -267,6 +273,14 @@ func execJSONStrAppend(db *DB, args [][]byte) redis.Reply {
 		path = string(args[1])
 		value = args[2]
 	}
+	if reply := validateBulkBytes(value); reply != nil {
+		return reply
+	}
+	if len(args) == 3 {
+		if reply := validateBulkBytes(args[1]); reply != nil {
+			return reply
+		}
+	}
 	
 	// Parse string value (remove quotes if present)
 	strVal := string(value)
@@ -304,10 +318,16 @@ func execJSONArrAppend(db *DB, args [][]byte) redis.Reply {
 	
 	key := string(args[0])
 	path := string(args[1])
+	if reply := validateBulkBytes(args[1]); reply != nil {
+		return reply
+	}
 	
 	// Parse values
 	values := make([]interface{}, len(args)-2)
 	for i := 2; i < len(args); i++ {
+		if reply := validateBulkBytes(args[i]); reply != nil {
+			return reply
+		}
 		var val interface{}
 		if err := json.Unmarshal(args[i], &val); err != nil {
 			// Try as string

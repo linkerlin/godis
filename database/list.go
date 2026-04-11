@@ -175,6 +175,9 @@ func undoLPop(db *DB, args [][]byte) []CmdLine {
 func execLPush(db *DB, args [][]byte) redis.Reply {
 	key := string(args[0])
 	values := args[1:]
+	if reply := validateBulkBytesSlice(values); reply != nil {
+		return reply
+	}
 
 	// get or init entity
 	list, _, errReply := db.getOrInitList(key)
@@ -205,6 +208,9 @@ func undoLPush(db *DB, args [][]byte) []CmdLine {
 func execLPushX(db *DB, args [][]byte) redis.Reply {
 	key := string(args[0])
 	values := args[1:]
+	if reply := validateBulkBytesSlice(values); reply != nil {
+		return reply
+	}
 
 	// get or init entity
 	list, errReply := db.getAsList(key)
@@ -289,6 +295,9 @@ func execLRem(db *DB, args [][]byte) redis.Reply {
 	}
 	count := int(count64)
 	value := args[2]
+	if reply := validateBulkBytes(value); reply != nil {
+		return reply
+	}
 
 	// get data entity
 	list, errReply := db.getAsList(key)
@@ -334,6 +343,9 @@ func execLSet(db *DB, args [][]byte) redis.Reply {
 	}
 	index := int(index64)
 	value := args[2]
+	if reply := validateBulkBytes(value); reply != nil {
+		return reply
+	}
 
 	// get data
 	list, errReply := db.getAsList(key)
@@ -540,6 +552,9 @@ func execRPush(db *DB, args [][]byte) redis.Reply {
 	// parse args
 	key := string(args[0])
 	values := args[1:]
+	if reply := validateBulkBytesSlice(values); reply != nil {
+		return reply
+	}
 
 	// get or init entity
 	list, _, errReply := db.getOrInitList(key)
@@ -572,6 +587,9 @@ func execRPushX(db *DB, args [][]byte) redis.Reply {
 	}
 	key := string(args[0])
 	values := args[1:]
+	if reply := validateBulkBytesSlice(values); reply != nil {
+		return reply
+	}
 
 	// get or init entity
 	list, errReply := db.getAsList(key)
@@ -656,6 +674,12 @@ func execLInsert(db *DB, args [][]byte) redis.Reply {
 	dir := strings.ToLower(string(args[1]))
 	if dir != "before" && dir != "after" {
 		return protocol.MakeErrReply("ERR syntax error")
+	}
+	if reply := validateBulkBytes(args[2]); reply != nil {
+		return reply
+	}
+	if reply := validateBulkBytes(args[3]); reply != nil {
+		return reply
 	}
 
 	pivot := string(args[2])

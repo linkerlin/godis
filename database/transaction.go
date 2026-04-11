@@ -1,6 +1,7 @@
 package database
 
 import (
+	"errors"
 	"github.com/hdt3213/godis/interface/redis"
 	"github.com/hdt3213/godis/redis/protocol"
 	"strings"
@@ -10,6 +11,9 @@ import (
 func Watch(db *DB, conn redis.Connection, args [][]byte) redis.Reply {
 	watching := conn.GetWatching()
 	for _, bkey := range args {
+		if reply := validateKeyBytes(bkey); reply != nil {
+			return reply
+		}
 		key := string(bkey)
 		watching[key] = db.GetVersion(key)
 	}
@@ -60,6 +64,10 @@ func EnqueueCmd(conn redis.Connection, cmdLine [][]byte) redis.Reply {
 		conn.AddTxError(err)
 		return err
 	}
+	if reply := validateCmdArgCount(cmdLine); reply != nil {
+		conn.AddTxError(errors.New(string(reply.ToBytes())))
+		return reply
+	}
 	if !validateArity(cmd.arity, cmdLine) {
 		err := protocol.MakeArgNumErrReply(cmdName)
 		conn.AddTxError(err)
@@ -87,16 +95,33 @@ func (db *DB) ExecMulti(conn redis.Connection, watching map[string]uint64, cmdLi
 	writeKeys := make([]string, 0) // may contains duplicate
 	readKeys := make([]string, 0)
 	for _, cmdLine := range cmdLines {
+		if reply := validateCmdArgCount(cmdLine); reply != nil {
+			return reply
+		}
 		cmdName := strings.ToLower(string(cmdLine[0]))
-		cmd := cmdTable[cmdName]
-		prepare := cmd.prepare
-		write, read := prepare(cmdLine[1:])
+		cmd, ok := cmdTable[cmdName]
+		if !ok {
+			return protocol.MakeErrReply("ERR unknown command '" + cmdName + "'")
+		}
+		if cmd.prepare == nil {
+			return protocol.MakeErrReply("ERR command '" + cmdName + "' cannot be used in MULTI")
+		}
+		if !validateArity(cmd.arity, cmdLine) {
+			return protocol.MakeArgNumErrReply(cmdName)
+		}
+		write, read := cmd.prepare(cmdLine[1:])
+		if reply := validatePreparedKeyStrings(write, read); reply != nil {
+			return reply
+		}
 		writeKeys = append(writeKeys, write...)
 		readKeys = append(readKeys, read...)
 	}
 	// set watch
 	watchingKeys := make([]string, 0, len(watching))
 	for key := range watching {
+		if reply := validateKeyString(key); reply != nil {
+			return reply
+		}
 		watchingKeys = append(watchingKeys, key)
 	}
 	readKeys = append(readKeys, watchingKeys...)
