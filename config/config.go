@@ -41,6 +41,12 @@ type ServerProperties struct {
 	SlaveAnnounceIP   string `cfg:"slave-announce-ip"`
 	ReplTimeout       int    `cfg:"repl-timeout"`
 	UseGnet           bool   `cfg:"use-gnet"`
+	SearchBackend     string `cfg:"search-backend"`
+	VectorBackend     string `cfg:"vector-backend"`
+	SearchSQLitePath  string `cfg:"search-sqlite-path"`
+	SqliteMmapSize    int64  `cfg:"sqlite-mmap-size"`
+	MetricsAddr       string `cfg:"metrics-addr"`
+	AclFile           string `cfg:"aclfile"`
 
 	SlowLogSlowerThan int64 `cfg:"slowlog-log-slower-than"`
 	SlowLogMaxLen     int   `cfg:"slowlog-max-len"`
@@ -97,6 +103,8 @@ func init() {
 		Bind:       "127.0.0.1",
 		Port:       6379,
 		AppendOnly: false,
+		SearchBackend: "native",
+		VectorBackend: "native",
 		RunID:      utils.RandString(40),
 	}
 }

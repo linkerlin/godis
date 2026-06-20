@@ -138,7 +138,7 @@ func (db *DB) ExecMulti(conn redis.Connection, watching map[string]uint64, cmdLi
 	undoCmdLines := make([][]CmdLine, 0, len(cmdLines))
 	for _, cmdLine := range cmdLines {
 		undoCmdLines = append(undoCmdLines, db.GetUndoLogs(cmdLine))
-		result := db.execWithLock(cmdLine)
+		result := db.execWithLock(conn, cmdLine)
 		if protocol.IsErrorReply(result) {
 			aborted = true
 			// don't rollback failed commands
@@ -159,7 +159,7 @@ func (db *DB) ExecMulti(conn redis.Connection, watching map[string]uint64, cmdLi
 			continue
 		}
 		for _, cmdLine := range curCmdLines {
-			db.execWithLock(cmdLine)
+			db.execWithLock(conn, cmdLine)
 		}
 	}
 	return protocol.MakeErrReply("EXECABORT Transaction discarded because of previous errors.")

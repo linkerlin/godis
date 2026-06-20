@@ -86,6 +86,10 @@ func GetAllCommandStats() map[string]*CommandStats {
 	return result
 }
 
+func (s *CommandStats) Calls() uint64       { return s.calls }
+func (s *CommandStats) FailedCalls() uint64 { return s.failedCalls }
+func (s *CommandStats) UsecTotal() uint64   { return s.usec }
+
 // ResetCommandStats resets all command statistics
 func ResetCommandStats() {
 	cmdStats.mu.Lock()

@@ -4,6 +4,8 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/cockroachdb/errors"
 
@@ -12,6 +14,7 @@ import (
 	"github.com/linkerlin/godis/database"
 	idatabase "github.com/linkerlin/godis/interface/database"
 	"github.com/linkerlin/godis/lib/logger"
+	"github.com/linkerlin/godis/lib/metrics"
 	"github.com/linkerlin/godis/lib/utils"
 	"github.com/linkerlin/godis/redis/server/gnet"
 	stdserver "github.com/linkerlin/godis/redis/server/std"
@@ -72,6 +75,8 @@ func main() {
 		logger.Fatal(fmt.Sprintf("setup config failed: %+v", err))
 	}
 
+	startMetricsServer()
+
 	listenAddr := fmt.Sprintf("%s:%d", config.Properties.Bind, config.Properties.Port)
 
 	var err error
@@ -117,6 +122,19 @@ func setupConfig() error {
 	return nil
 }
 
+func startMetricsServer() {
+	addr := config.Properties.MetricsAddr
+	if addr == "" {
+		return
+	}
+	go func() {
+		logger.Info(fmt.Sprintf("metrics listening on %s/metrics", addr))
+		if err := metrics.Start(addr); err != nil {
+			logger.Errorf("metrics server failed: %+v", err)
+		}
+	}()
+}
+
 func runGnetServer(listenAddr string) error {
 	var db idatabase.DB
 	var err error
@@ -132,10 +150,28 @@ func runGnetServer(listenAddr string) error {
 		}
 	}
 	server := gnet.NewGnetServer(db)
-	if err := server.Run(listenAddr); err != nil {
-		return errors.Wrap(err, "run gnet server failed")
+
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGHUP, syscall.SIGQUIT, syscall.SIGTERM, syscall.SIGINT)
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- server.Run(listenAddr)
+	}()
+
+	select {
+	case sig := <-sigCh:
+		logger.Info(fmt.Sprintf("received signal %v, shutting down gnet server...", sig))
+		if err := server.Close(); err != nil {
+			return errors.Wrap(err, "close gnet server failed")
+		}
+		return nil
+	case err := <-errCh:
+		if err != nil {
+			return errors.Wrap(err, "run gnet server failed")
+		}
+		return nil
 	}
-	return nil
 }
 
 func runStdServer(listenAddr string) error {

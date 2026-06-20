@@ -13,6 +13,7 @@ import (
 	gatomic "github.com/linkerlin/godis/lib/sync/atomic"
 	"github.com/linkerlin/godis/redis/connection"
 	"github.com/linkerlin/godis/redis/parser"
+	"github.com/linkerlin/godis/tcp"
 	"github.com/panjf2000/gnet/v2"
 )
 
@@ -20,12 +21,11 @@ const shutdownWaitTimeout = 10 * time.Second
 
 type GnetServer struct {
 	gnet.BuiltinEventEngine
-	eng       gnet.Engine
-	booted    atomic.Bool
-	connected int32
-	db        database.DB
-	closing   gatomic.Boolean
-	inFlight  sync.WaitGroup
+	eng      gnet.Engine
+	booted   atomic.Bool
+	db       database.DB
+	closing  gatomic.Boolean
+	inFlight sync.WaitGroup
 }
 
 func NewGnetServer(db database.DB) *GnetServer {
@@ -48,9 +48,11 @@ func (s *GnetServer) OnOpen(c gnet.Conn) (out []byte, action gnet.Action) {
 	if s.closing.Get() {
 		return nil, gnet.Close
 	}
+	if !tcp.TryAcceptClient() {
+		return tcp.MaxClientsErrReply, gnet.Close
+	}
 	client := connection.NewConn(c)
 	c.SetContext(client)
-	atomic.AddInt32(&s.connected, 1)
 	return
 }
 
@@ -58,8 +60,8 @@ func (s *GnetServer) OnClose(c gnet.Conn, err error) (action gnet.Action) {
 	if err != nil {
 		logger.Infof("error occurred on connection=%s, %v\n", c.RemoteAddr().String(), err)
 	}
-	atomic.AddInt32(&s.connected, -1)
 	if ctx := c.Context(); ctx != nil {
+		tcp.ReleaseClient()
 		conn := ctx.(redis.Connection)
 		s.db.AfterClientClose(conn)
 	}

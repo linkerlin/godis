@@ -9,6 +9,7 @@ import (
 	"github.com/linkerlin/godis/acl"
 	"github.com/linkerlin/godis/config"
 	"github.com/linkerlin/godis/interface/redis"
+	"github.com/linkerlin/godis/lib/logger"
 	"github.com/linkerlin/godis/redis/protocol"
 )
 
@@ -113,6 +114,16 @@ func resetACLLog() {
 // InitACLEngine initializes the ACL engine
 func (server *Server) InitACLEngine() {
 	aclEngine = acl.NewEngine()
+
+	aclPath := resolveACLFilePath()
+	if aclFileExists(aclPath) {
+		if err := aclEngine.LoadFromFile(aclPath); err != nil {
+			logger.Errorf("load aclfile %s failed: %+v, falling back to default user", aclPath, err)
+		} else {
+			return
+		}
+	}
+
 	rules := []string{"on", "+@all", "~*"}
 	if config.Properties.RequirePass != "" {
 		rules = append(rules, ">"+config.Properties.RequirePass)
@@ -153,6 +164,10 @@ func execACL(db *DB, args [][]byte) redis.Reply {
 		return execACLGenPass(args[1:])
 	case "DRYRUN":
 		return execACLDryRun(db, args[1:])
+	case "SAVE":
+		return execACLSave(args[1:])
+	case "LOAD":
+		return execACLLoad(args[1:])
 	default:
 		return protocol.MakeErrReply("ERR Unknown ACL subcommand or wrong number of arguments for '" + subCmd + "'. Try ACL HELP.")
 	}
@@ -351,6 +366,10 @@ func execACLHelp(args [][]byte) redis.Reply {
 		"    Return the latest ACL log entries or reset the log.",
 		"SETUSER <username> <rule> [<rule> ...]",
 		"    Modify or create the rules for a specific ACL user.",
+		"SAVE",
+		"    Save the current ACL rules to the configured aclfile.",
+		"LOAD",
+		"    Reload ACL rules from the configured aclfile.",
 		"USERS",
 		"    Return the currently active usernames.",
 		"WHOAMI",
@@ -393,6 +412,43 @@ func execACLDryRun(db *DB, args [][]byte) redis.Reply {
 		return protocol.MakeErrReply("ERR User '" + username + "' cannot execute command '" + command + "'")
 	}
 
+	return protocol.MakeOkReply()
+}
+
+func execACLSave(args [][]byte) redis.Reply {
+	if len(args) != 0 {
+		return protocol.MakeErrReply("ERR wrong number of arguments for 'acl|save' command")
+	}
+	if aclEngine == nil {
+		return protocol.MakeErrReply("ERR ACL engine not initialized")
+	}
+	path := resolveACLFilePath()
+	if path == "" {
+		return protocol.MakeErrReply("ERR ACL file not configured")
+	}
+	if err := aclEngine.SaveToFile(path); err != nil {
+		return protocol.MakeErrReply("ERR " + err.Error())
+	}
+	return protocol.MakeOkReply()
+}
+
+func execACLLoad(args [][]byte) redis.Reply {
+	if len(args) != 0 {
+		return protocol.MakeErrReply("ERR wrong number of arguments for 'acl|load' command")
+	}
+	if aclEngine == nil {
+		return protocol.MakeErrReply("ERR ACL engine not initialized")
+	}
+	path := resolveACLFilePath()
+	if path == "" {
+		return protocol.MakeErrReply("ERR ACL file not configured")
+	}
+	if !aclFileExists(path) {
+		return protocol.MakeErrReply("ERR ACL file not found")
+	}
+	if err := aclEngine.LoadFromFile(path); err != nil {
+		return protocol.MakeErrReply("ERR " + err.Error())
+	}
 	return protocol.MakeOkReply()
 }
 

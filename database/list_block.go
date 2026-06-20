@@ -18,6 +18,29 @@ var (
 	waiterMu     sync.Mutex
 )
 
+// GetBlockedListClientsCount counts clients blocked on BLPOP/BRPOP wait queues.
+func GetBlockedListClientsCount() int64 {
+	waiterMu.Lock()
+	defer waiterMu.Unlock()
+
+	seen := make(map[redis.Connection]struct{})
+	for _, waiters := range blPopWaiters {
+		for _, w := range waiters {
+			if w.conn != nil {
+				seen[w.conn] = struct{}{}
+			}
+		}
+	}
+	for _, waiters := range brPopWaiters {
+		for _, w := range waiters {
+			if w.conn != nil {
+				seen[w.conn] = struct{}{}
+			}
+		}
+	}
+	return int64(len(seen))
+}
+
 // listWaiter 表示一个等待列表操作的客户端
 type listWaiter struct {
 	conn       redis.Connection

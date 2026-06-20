@@ -132,10 +132,14 @@ func (db *DB) Exec(c redis.Connection, cmdLine [][]byte) redis.Reply {
 		return EnqueueCmd(c, cmdLine)
 	}
 
-	return db.execNormalCommand(cmdLine)
+	if cmdName == "client" {
+		return execClientConn(c, db, cmdLine[1:])
+	}
+
+	return db.execNormalCommand(c, cmdLine)
 }
 
-func (db *DB) execNormalCommand(cmdLine [][]byte) redis.Reply {
+func (db *DB) execNormalCommand(c redis.Connection, cmdLine [][]byte) redis.Reply {
 	cmdName := strings.ToLower(string(cmdLine[0]))
 	cmd, ok := cmdTable[cmdName]
 	if !ok {
@@ -170,12 +174,13 @@ func (db *DB) execNormalCommand(cmdLine [][]byte) redis.Reply {
 		failed = true
 	}
 	RecordCommand(cmdName, usec, failed)
+	applyCacheHooks(c, cmdName, write, read, failed)
 
 	return result
 }
 
 // execWithLock executes normal commands, invoker should provide locks
-func (db *DB) execWithLock(cmdLine [][]byte) redis.Reply {
+func (db *DB) execWithLock(c redis.Connection, cmdLine [][]byte) redis.Reply {
 	cmdName := strings.ToLower(string(cmdLine[0]))
 	cmd, ok := cmdTable[cmdName]
 	if !ok {
@@ -192,9 +197,17 @@ func (db *DB) execWithLock(cmdLine [][]byte) redis.Reply {
 		if reply := validatePreparedKeyStrings(write, read); reply != nil {
 			return reply
 		}
+		fun := cmd.executor
+		result := fun(db, cmdLine[1:])
+		failed := protocol.IsErrorReply(result)
+		applyCacheHooks(c, cmdName, write, read, failed)
+		return result
 	}
 	fun := cmd.executor
-	return fun(db, cmdLine[1:])
+	result := fun(db, cmdLine[1:])
+	failed := protocol.IsErrorReply(result)
+	applyCacheHooks(c, cmdName, nil, nil, failed)
+	return result
 }
 
 func validateArity(arity int, cmdArgs [][]byte) bool {

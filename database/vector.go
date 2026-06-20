@@ -15,6 +15,9 @@ import (
 // execVSAdd adds a vector to a vector set
 // VS.ADD key id vector [METADATA k1 v1 ...]
 func execVSAdd(db *DB, args [][]byte) redis.Reply {
+	if currentVectorBackend().Name() == backendSQLite {
+		return sqliteVSAdd(db, args)
+	}
 	if len(args) < 3 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'vs.add' command")
 	}
@@ -146,6 +149,9 @@ func execVSDel(db *DB, args [][]byte) redis.Reply {
 // execVSSearch searches for similar vectors
 // VS.SEARCH key [K k] [METRIC COSINE|EUCLIDEAN|DOT] vector
 func execVSSearch(db *DB, args [][]byte) redis.Reply {
+	if currentVectorBackend().Name() == backendSQLite {
+		return sqliteVSSearch(db, args)
+	}
 	if len(args) < 2 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'vs.search' command")
 	}

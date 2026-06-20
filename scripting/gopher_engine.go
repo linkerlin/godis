@@ -345,7 +345,7 @@ func (e *GopherEngine) luaRedisCall(L *lua.LState) int {
 	// Execute Redis command
 	result, err := e.dbExec(cmd, args...)
 	if err != nil {
-		L.RaiseError(err.Error())
+		L.RaiseError("%s", err.Error())
 		return 0
 	}
 

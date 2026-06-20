@@ -91,13 +91,16 @@ func ListenAndServe(listener net.Listener, handler tcp.Handler, closeChan <-chan
 			break
 		}
 		// handle
-		// logger.Info("accept link")
-		ClientCounter++
+		if !TryAcceptClient() {
+			_, _ = conn.Write(MaxClientsErrReply)
+			_ = conn.Close()
+			continue
+		}
 		waitDone.Add(1)
 		go func() {
 			defer func() {
 				waitDone.Done()
-				atomic.AddInt32(&ClientCounter, -1)
+				ReleaseClient()
 			}()
 			handler.Handle(ctx, conn)
 		}()

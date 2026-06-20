@@ -35,6 +35,13 @@ type Connection interface {
 
 	Name() string
 
+	// Client identity (Redis CLIENT ID / SETNAME / TRACKING)
+	GetClientID() int64
+	SetClientName(string)
+	GetClientName() string
+	SetTrackingID(string)
+	GetTrackingID() string
+
 	// ACL authentication state (Redis 6+)
 	SetACLUser(string)
 	GetACLUser() string

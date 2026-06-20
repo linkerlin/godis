@@ -20,6 +20,9 @@ var searchEnginesMu = &struct{ sync.RWMutex }{}
 // execFTCreate creates a new search index
 // FT.CREATE index [ON HASH | JSON] [PREFIX count prefix ...] SCHEMA field [TEXT [NOSTEM] | NUMERIC | TAG | GEO] [SORTABLE] [NOINDEX] ...
 func execFTCreate(db *DB, args [][]byte) redis.Reply {
+	if currentSearchBackend().Name() == backendSQLite {
+		return sqliteFTCreate(db, args)
+	}
 	if len(args) < 3 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'ft.create' command")
 	}
@@ -104,7 +107,7 @@ func execFTCreate(db *DB, args [][]byte) redis.Reply {
 		}
 		i++
 
-		// Parse field options
+		// Parse field options until the next field name (token before a type keyword).
 		for i < len(args) {
 			opt := strings.ToUpper(string(args[i]))
 
@@ -132,16 +135,8 @@ func execFTCreate(db *DB, args [][]byte) redis.Reply {
 				field.Weight = weight
 				i += 2
 			default:
-				// Check if it's a field name (next field)
-				if opt == "TEXT" || opt == "NUMERIC" || opt == "TAG" || opt == "GEO" || opt == "VECTOR" {
+				if i+1 < len(args) && isFTFieldType(string(args[i+1])) {
 					goto nextField
-				}
-				// Check if next arg is a field name
-				if i < len(args) {
-					nextArg := strings.ToUpper(string(args[i]))
-					if nextArg == "TEXT" || nextArg == "NUMERIC" || nextArg == "TAG" || nextArg == "GEO" || nextArg == "VECTOR" {
-						goto nextField
-					}
 				}
 				i++
 			}
@@ -212,6 +207,9 @@ func execFTDropIndex(db *DB, args [][]byte) redis.Reply {
 // execFTAdd adds a document to an index
 // FT.ADD index doc_id [SCORE score] [NOSAVE] [PAYLOAD payload] [LANGUAGE lang] FIELDS field value [field value ...]
 func execFTAdd(db *DB, args [][]byte) redis.Reply {
+	if currentSearchBackend().Name() == backendSQLite {
+		return sqliteFTAdd(db, args)
+	}
 	if len(args) < 4 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'ft.add' command")
 	}
@@ -351,6 +349,9 @@ func execFTDel(db *DB, args [][]byte) redis.Reply {
 //	[SORTBY field [ASC|DESC]]
 //	[LIMIT offset num]
 func execFTSearch(db *DB, args [][]byte) redis.Reply {
+	if currentSearchBackend().Name() == backendSQLite {
+		return sqliteFTSearch(db, args)
+	}
 	if len(args) < 2 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'ft.search' command")
 	}
@@ -975,6 +976,15 @@ func execFTSugLen(db *DB, args [][]byte) redis.Reply {
 	}
 
 	return protocol.MakeIntReply(int64(count))
+}
+
+func isFTFieldType(token string) bool {
+	switch strings.ToUpper(token) {
+	case "TEXT", "NUMERIC", "TAG", "GEO", "VECTOR":
+		return true
+	default:
+		return false
+	}
 }
 
 func init() {

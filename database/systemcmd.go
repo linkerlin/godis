@@ -122,7 +122,6 @@ func GenGodisInfoString(section string, db *Server) []byte {
 			config.GetConfigFilePath())
 		return []byte(s)
 	case "client":
-		// Get blocked clients count (simplified)
 		blockedClients := getBlockedClientsCount()
 		s := fmt.Sprintf("# Clients\r\n"+
 			"connected_clients:%d\r\n"+
@@ -130,12 +129,14 @@ func GenGodisInfoString(section string, db *Server) []byte {
 			"maxclients:%d\r\n"+
 			"blocked_clients:%d\r\n"+
 			"tracking_clients:%d\r\n"+
+			"tracking_total_keys:%d\r\n"+
 			"clients_in_timeout_table:%d\r\n",
-			tcp.ClientCounter,
+			atomic.LoadInt32(&tcp.ClientCounter),
 			0, // cluster_connections
 			config.Properties.MaxClients,
 			blockedClients,
 			GetTrackingClientsCount(),
+			GetTotalTrackedKeys(),
 			0, // clients_in_timeout_table
 		)
 		return []byte(s)
@@ -377,15 +378,16 @@ func genReplicationInfo(db *Server) string {
 
 // genCPUInfo generates CPU section for INFO
 func genCPUInfo() string {
+	userSec, sysSec := stats.GetProcessCPUTime()
 	return fmt.Sprintf("# CPU\r\n"+
 		"used_cpu_sys:%.2f\r\n"+
 		"used_cpu_user:%.2f\r\n"+
 		"used_cpu_sys_children:%.2f\r\n"+
 		"used_cpu_user_children:%.2f\r\n",
-		0.0, // used_cpu_sys - TODO: implement CPU tracking
-		0.0, // used_cpu_user - TODO
-		0.0, // used_cpu_sys_children - TODO
-		0.0, // used_cpu_user_children - TODO
+		sysSec,
+		userSec,
+		0.0,
+		0.0,
 	)
 }
 
@@ -438,8 +440,7 @@ func getLRUClock() uint32 {
 }
 
 func getBlockedClientsCount() int64 {
-	// TODO: implement blocked clients tracking
-	return 0
+	return GetBlockedListClientsCount()
 }
 
 func getInstantaneousOpsPerSec() int64 {

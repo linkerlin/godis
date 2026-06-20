@@ -10,7 +10,6 @@ import (
 	"net"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/cockroachdb/errors"
@@ -81,17 +80,6 @@ func (h *Handler) Handle(ctx context.Context, conn net.Conn) {
 	}
 	h.inFlight.Add(1)
 	defer h.inFlight.Done()
-
-	// Check max clients limit
-	if config.Properties.MaxClients > 0 {
-		currentClients := atomic.LoadInt32(&tcp.ClientCounter)
-		if int(currentClients) >= config.Properties.MaxClients {
-			// Reject connection
-			atomic.AddUint64(&tcp.RejectedConnections, 1)
-			_ = conn.Close()
-			return
-		}
-	}
 
 	client := connection.NewConn(conn)
 	h.activeConn.Store(client, struct{}{})

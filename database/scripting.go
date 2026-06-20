@@ -27,7 +27,7 @@ func InitScriptingEngine(db *DB) {
 		// Execute command
 		result := db.Exec(nil, cmdLine)
 		if errReply, ok := result.(*protocol.StandardErrReply); ok {
-			return nil, fmt.Errorf(errReply.Status)
+			return nil, fmt.Errorf("%s", errReply.Status)
 		}
 
 		// Convert result
@@ -268,7 +268,7 @@ func redisReplyToGo(reply redis.Reply) interface{} {
 		}
 		return result
 	case *protocol.StandardErrReply:
-		return fmt.Errorf(r.Status)
+		return fmt.Errorf("%s", r.Status)
 	default:
 		return reply.ToBytes()
 	}

@@ -3,11 +3,14 @@ package connection
 import (
 	"net"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/linkerlin/godis/lib/logger"
 	"github.com/linkerlin/godis/lib/sync/wait"
 )
+
+var globalClientID atomic.Uint64
 
 const (
 	// flagSlave means this a connection with slave
@@ -47,6 +50,10 @@ type Connection struct {
 
 	// selected db
 	selectedDB int
+
+	clientID    uint64
+	clientName  string
+	trackingID  string
 }
 
 var connPool = sync.Pool{
@@ -74,6 +81,9 @@ func (c *Connection) Close() error {
 	c.watching = nil
 	c.txErrors = nil
 	c.selectedDB = 0
+	c.clientName = ""
+	c.trackingID = ""
+	c.clientID = 0
 	connPool.Put(c)
 	return nil
 }
@@ -88,6 +98,9 @@ func NewConn(conn net.Conn) *Connection {
 		}
 	}
 	c.conn = conn
+	if c.clientID == 0 {
+		c.clientID = globalClientID.Add(1)
+	}
 	return c
 }
 
@@ -105,10 +118,36 @@ func (c *Connection) Write(b []byte) (int, error) {
 }
 
 func (c *Connection) Name() string {
+	if c.clientName != "" {
+		return c.clientName
+	}
 	if c.conn != nil {
 		return c.conn.RemoteAddr().String()
 	}
 	return ""
+}
+
+func (c *Connection) GetClientID() int64 {
+	if c.clientID == 0 {
+		c.clientID = globalClientID.Add(1)
+	}
+	return int64(c.clientID)
+}
+
+func (c *Connection) SetClientName(name string) {
+	c.clientName = name
+}
+
+func (c *Connection) GetClientName() string {
+	return c.clientName
+}
+
+func (c *Connection) SetTrackingID(id string) {
+	c.trackingID = id
+}
+
+func (c *Connection) GetTrackingID() string {
+	return c.trackingID
 }
 
 // Subscribe add current connection into subscribers of the given channel

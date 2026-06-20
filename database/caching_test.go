@@ -10,9 +10,12 @@ import (
 )
 
 type trackingTestConn struct {
-	name   string
-	writes [][]byte
-	mu     sync.Mutex
+	name       string
+	clientID   int64
+	clientName string
+	trackingID string
+	writes     [][]byte
+	mu         sync.Mutex
 }
 
 func (c *trackingTestConn) Write(b []byte) (int, error) {
@@ -43,7 +46,22 @@ func (c *trackingTestConn) SetSlave()                      {}
 func (c *trackingTestConn) IsSlave() bool                  { return false }
 func (c *trackingTestConn) SetMaster()                     {}
 func (c *trackingTestConn) IsMaster() bool                 { return false }
-func (c *trackingTestConn) Name() string                   { return c.name }
+func (c *trackingTestConn) Name() string {
+	if c.clientName != "" {
+		return c.clientName
+	}
+	return c.name
+}
+func (c *trackingTestConn) GetClientID() int64 {
+	if c.clientID == 0 {
+		c.clientID = 1
+	}
+	return c.clientID
+}
+func (c *trackingTestConn) SetClientName(name string)        { c.clientName = name }
+func (c *trackingTestConn) GetClientName() string            { return c.clientName }
+func (c *trackingTestConn) SetTrackingID(id string)          { c.trackingID = id }
+func (c *trackingTestConn) GetTrackingID() string            { return c.trackingID }
 func (c *trackingTestConn) SetACLUser(string)              {}
 func (c *trackingTestConn) GetACLUser() string             { return "" }
 func (c *trackingTestConn) SetACLAuthenticated(bool)       {}
@@ -168,9 +186,10 @@ func TestInvalidateKeysOnWrite(t *testing.T) {
 
 func TestGetTrackingStats(t *testing.T) {
 	resetClientCacheForTest(t)
-	conn := &trackingTestConn{name: "client-e"}
-	EnableTracking(conn, "", nil)
-	TrackKey(conn.Name(), "stat-key")
+	conn := &trackingTestConn{name: "client-e", clientID: 5}
+	id := EnableTracking(conn, "", nil)
+	conn.SetTrackingID(id)
+	TrackKey(id, "stat-key")
 
 	stats := GetTrackingStats()
 	if stats["tracking_clients"].(int) != 1 {

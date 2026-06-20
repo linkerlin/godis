@@ -27,7 +27,7 @@ func InitFunctionsEngine(db *DB) {
 
 			result := db.Exec(nil, cmdLine)
 			if errReply, ok := result.(*protocol.StandardErrReply); ok {
-				return nil, fmt.Errorf(errReply.Status)
+				return nil, fmt.Errorf("%s", errReply.Status)
 			}
 			return redisReplyToGo(result), nil
 		}

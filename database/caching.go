@@ -56,8 +56,8 @@ func EnableTracking(conn redis.Connection, mode string, prefixes []string) strin
 	clientCache.mu.Lock()
 	defer clientCache.mu.Unlock()
 
-	clientID := conn.Name()
-	if clientID == "" {
+	clientID := strconv.FormatInt(conn.GetClientID(), 10)
+	if clientID == "0" {
 		clientID = generateClientID()
 	}
 
@@ -240,6 +240,9 @@ func sendInvalidation(conn redis.Connection, keys []string) {
 
 	// Write to connection
 	conn.Write(push.ToBytes())
+	clientCache.mu.Lock()
+	clientCache.invalidationMsgsSent++
+	clientCache.mu.Unlock()
 }
 
 // IsTrackingEnabled checks if tracking is enabled for a client
@@ -296,6 +299,13 @@ func GetTrackingClientsCount() int {
 	clientCache.mu.RLock()
 	defer clientCache.mu.RUnlock()
 	return clientCache.trackingClientsCount
+}
+
+// GetTotalTrackedKeys returns keys with at least one tracking client.
+func GetTotalTrackedKeys() int {
+	clientCache.mu.RLock()
+	defer clientCache.mu.RUnlock()
+	return len(clientCache.keyClients)
 }
 
 // Hook into database write operations

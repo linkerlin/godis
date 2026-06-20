@@ -72,11 +72,11 @@ func execRenameTo(db *DB, args [][]byte) redis.Reply {
 	}
 	ttlCmd.Args[1] = key
 	db.Remove(string(key))
-	dumpResult := db.execWithLock(dumpCmd.Args)
+	dumpResult := db.execWithLock(nil, dumpCmd.Args)
 	if protocol.IsErrorReply(dumpResult) {
 		return dumpResult
 	}
-	ttlResult := db.execWithLock(ttlCmd.Args)
+	ttlResult := db.execWithLock(nil, ttlCmd.Args)
 	if protocol.IsErrorReply(ttlResult) {
 		return ttlResult
 	}
@@ -117,11 +117,11 @@ func execCopyTo(db *DB, args [][]byte) redis.Reply {
 	}
 	ttlCmd.Args[1] = key
 	db.Remove(string(key))
-	dumpResult := db.execWithLock(dumpCmd.Args)
+	dumpResult := db.execWithLock(nil, dumpCmd.Args)
 	if protocol.IsErrorReply(dumpResult) {
 		return dumpResult
 	}
-	ttlResult := db.execWithLock(ttlCmd.Args)
+	ttlResult := db.execWithLock(nil, ttlCmd.Args)
 	if protocol.IsErrorReply(ttlResult) {
 		return ttlResult
 	}

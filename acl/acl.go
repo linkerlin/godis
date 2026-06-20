@@ -279,62 +279,9 @@ func (e *Engine) SetUser(name string, rules []string) (*User, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
-	user, exists := e.users.Get(name)
-	if !exists {
-		user = NewUser(name)
-	}
-
-	u := user.(*User)
-
-	for _, rule := range rules {
-		rule = strings.TrimSpace(rule)
-		if rule == "" {
-			continue
-		}
-
-		switch {
-		case rule == "on":
-			u.Enabled = true
-		case rule == "off":
-			u.Enabled = false
-		case rule == "nopass":
-			u.Passwords = nil
-		case strings.HasPrefix(rule, ">"):
-			u.SetPassword(rule[1:], false)
-		case strings.HasPrefix(rule, "#"):
-			u.SetPassword(rule[1:], true)
-		case strings.HasPrefix(rule, "+"):
-			target := rule[1:]
-			if target == "@all" {
-				u.AllowAllCommands()
-			} else if strings.HasPrefix(target, "@") {
-				u.AllowCategory(target)
-			} else {
-				u.AllowCommand(target)
-			}
-		case strings.HasPrefix(rule, "-"):
-			target := rule[1:]
-			if strings.HasPrefix(target, "@") {
-				u.DenyCategory(target)
-			} else {
-				u.DenyCommand(target)
-			}
-		case strings.HasPrefix(rule, "~"):
-			u.AddKeyPattern(rule[1:], true)
-		case strings.HasPrefix(rule, "resetchannels"):
-			u.Channels = nil
-		case strings.HasPrefix(rule, "&"):
-			u.Channels = append(u.Channels, ChannelPattern{
-				Pattern: rule[1:],
-				Allowed: true,
-			})
-		case rule == "allcommands" || rule == "+@all":
-			u.AllowAllCommands()
-		case rule == "allkeys" || rule == "~*":
-			u.AddKeyPattern("*", true)
-		default:
-			return nil, fmt.Errorf("unknown ACL rule: %s", rule)
-		}
+	u := NewUser(name)
+	if err := applyRules(u, rules); err != nil {
+		return nil, err
 	}
 
 	e.users.Put(name, u)

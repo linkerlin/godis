@@ -136,6 +136,8 @@ func newServerWithSize(dictSize int) (*Server, error) {
 	server.memLimiter = memory.NewLimiter(nil)
 	server.memLimiter.Start()
 
+	SetSlowLogLenProvider(func() int { return server.SlowLogLen() })
+
 	// propagate lock manager to all DBs
 	for _, holder := range server.dbSet {
 		db := holder.Load().(*DB)
@@ -366,6 +368,10 @@ func (server *Server) Exec(c redis.Connection, cmdLine [][]byte) (result redis.R
 
 // AfterClientClose does some clean after client close connection
 func (server *Server) AfterClientClose(c redis.Connection) {
+	if id := c.GetTrackingID(); id != "" {
+		DisableTracking(id)
+		c.SetTrackingID("")
+	}
 	pubsub.UnsubscribeAll(server.hub, c)
 }
 
@@ -394,6 +400,14 @@ func (server *Server) GetLockManager() *dict.LockManager {
 // GetMemLimiter returns the memory limiter
 func (server *Server) GetMemLimiter() *memory.Limiter {
 	return server.memLimiter
+}
+
+// SlowLogLen returns the number of entries in the slowlog.
+func (server *Server) SlowLogLen() int {
+	if server.slogLogger == nil {
+		return 0
+	}
+	return server.slogLogger.Len()
 }
 
 // CheckClientPause checks if client processing should be paused
@@ -564,7 +578,7 @@ func (server *Server) ExecWithLock(conn redis.Connection, cmdLine [][]byte) redi
 	if errReply != nil {
 		return errReply
 	}
-	return db.execWithLock(cmdLine)
+	return db.execWithLock(conn, cmdLine)
 }
 
 // BGRewriteAOF asynchronously rewrites Append-Only-File
