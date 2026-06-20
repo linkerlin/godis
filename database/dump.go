@@ -5,10 +5,10 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/hdt3213/godis/interface/database"
-	"github.com/hdt3213/godis/interface/redis"
-	"github.com/hdt3213/godis/lib/utils"
-	"github.com/hdt3213/godis/redis/protocol"
+	"github.com/linkerlin/godis/interface/database"
+	"github.com/linkerlin/godis/interface/redis"
+	"github.com/linkerlin/godis/lib/utils"
+	"github.com/linkerlin/godis/redis/protocol"
 )
 
 // execDump serializes the value stored at key in a Redis-specific format
@@ -27,7 +27,7 @@ func execDump(db *DB, args [][]byte) redis.Reply {
 	// Serialize the value using a simple format
 	// Format: [1 byte type][4 bytes TTL (0 if no TTL)][value data]
 	var data []byte
-	
+
 	// Get TTL if exists
 	var ttlMs uint32 = 0
 	raw, hasTTL := db.ttlMap.Get(key)

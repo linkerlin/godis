@@ -1,19 +1,18 @@
 package core
 
 import (
-	"errors"
 	"fmt"
 	"math"
 	"time"
 
-	"github.com/hdt3213/godis/cluster/raft"
-	"github.com/hdt3213/godis/interface/redis"
-	"github.com/hdt3213/godis/lib/logger"
-	"github.com/hdt3213/godis/lib/utils"
-	"github.com/hdt3213/godis/redis/protocol"
+	"github.com/linkerlin/godis/cluster/raft"
+	"github.com/linkerlin/godis/interface/redis"
+	"github.com/linkerlin/godis/lib/logger"
+	"github.com/linkerlin/godis/lib/utils"
+	"github.com/linkerlin/godis/redis/protocol"
 )
 
-/* 
+/*
 
 **Rebalance Procedure**
 1. Invoke `triggerMigrationTask` on cluster Leader to start a migration task
@@ -134,7 +133,10 @@ func (cluster *Cluster) triggerMigrationTask(task *raft.MigratingTask) error {
 	if protocol.IsOKReply(reply) {
 		return nil
 	}
-	return protocol.MakeErrReply("")
+	if errReply, ok := reply.(protocol.ErrorReply); ok {
+		return fmt.Errorf("start migration rejected: %s", errReply.Error())
+	}
+	return fmt.Errorf("start migration unexpected reply: %s", string(reply.ToBytes()))
 }
 
 func (cluster *Cluster) makeRebalancePlan() ([]*raft.MigratingTask, error) {
@@ -212,7 +214,62 @@ func (cluster *Cluster) waitCommitted(peer string, logIndex uint64) error {
 		}
 		time.Sleep(time.Millisecond * 100)
 	}
-	return errors.New("wait committed timeout")
+	return fmt.Errorf("wait committed timeout")
+}
+
+// doMigrateSlot migrates a single slot from one node to another using the
+// existing Raft-backed migration pipeline (triggerMigrationTask → export/import → route change).
+func (cluster *Cluster) doMigrateSlot(slot uint32, from, to string) error {
+	if cluster.raftNode == nil {
+		return fmt.Errorf("raft node not initialized")
+	}
+	if cluster.raftNode.State() != raft.Leader {
+		return fmt.Errorf("not cluster leader")
+	}
+	if from == to {
+		return nil
+	}
+
+	currentOwner := cluster.PickNode(slot)
+	if currentOwner == "" {
+		return fmt.Errorf("slot %d has no owner", slot)
+	}
+	if currentOwner != from {
+		return fmt.Errorf("slot %d owned by %s, expected %s", slot, currentOwner, from)
+	}
+
+	task := &raft.MigratingTask{
+		ID:         utils.RandString(20),
+		SrcNode:    from,
+		TargetNode: to,
+		Slots:      []uint32{slot},
+	}
+
+	if err := cluster.triggerMigrationTask(task); err != nil {
+		return err
+	}
+	return cluster.waitMigrationDone(task.ID, slot, to)
+}
+
+// waitMigrationDone blocks until the migration task completes and the slot routes to targetNode.
+func (cluster *Cluster) waitMigrationDone(taskID string, slot uint32, targetNode string) error {
+	deadline := time.Now().Add(30 * time.Second)
+	for time.Now().Before(deadline) {
+		done := false
+		cluster.raftNode.FSM.WithReadLock(func(fsm *raft.FSM) {
+			if fsm.GetMigratingTask(taskID) != nil {
+				return
+			}
+			if fsm.PickNode(slot) == targetNode {
+				done = true
+			}
+		})
+		if done {
+			return nil
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	return fmt.Errorf("timeout waiting for slot %d migration to %s", slot, targetNode)
 }
 
 // execMigrationChangeRoute should be exectued at leader

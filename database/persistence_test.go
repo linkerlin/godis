@@ -8,11 +8,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hdt3213/godis/aof"
-	"github.com/hdt3213/godis/config"
-	"github.com/hdt3213/godis/lib/utils"
-	"github.com/hdt3213/godis/redis/connection"
-	"github.com/hdt3213/godis/redis/protocol/asserts"
+	"github.com/linkerlin/godis/aof"
+	"github.com/linkerlin/godis/config"
+	"github.com/linkerlin/godis/lib/utils"
+	"github.com/linkerlin/godis/redis/connection"
+	"github.com/linkerlin/godis/redis/protocol/asserts"
 )
 
 func TestLoadRDB(t *testing.T) {
@@ -40,7 +40,7 @@ func TestLoadRDB(t *testing.T) {
 	// test no rdb file
 	config.Properties = &config.ServerProperties{
 		AppendOnly:  false,
-		RDBFilename:  "noexists.rdb", 
+		RDBFilename: "noexists.rdb",
 	}
 	rdbDB = MustNewStandaloneServer()
 	result = rdbDB.Exec(conn, utils.ToCmdLine("Get", "str"))

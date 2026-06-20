@@ -6,21 +6,22 @@ import (
 	"runtime/debug"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/cockroachdb/errors"
 
-	"github.com/hdt3213/godis/aof"
-	"github.com/hdt3213/godis/config"
-	"github.com/hdt3213/godis/datastruct/dict"
-	"github.com/hdt3213/godis/interface/database"
-	"github.com/hdt3213/godis/interface/redis"
-	"github.com/hdt3213/godis/lib/logger"
-	"github.com/hdt3213/godis/lib/memory"
-	"github.com/hdt3213/godis/lib/utils"
-	"github.com/hdt3213/godis/pubsub"
-	"github.com/hdt3213/godis/redis/protocol"
+	"github.com/linkerlin/godis/aof"
+	"github.com/linkerlin/godis/config"
+	"github.com/linkerlin/godis/datastruct/dict"
+	"github.com/linkerlin/godis/interface/database"
+	"github.com/linkerlin/godis/interface/redis"
+	"github.com/linkerlin/godis/lib/logger"
+	"github.com/linkerlin/godis/lib/memory"
+	"github.com/linkerlin/godis/lib/utils"
+	"github.com/linkerlin/godis/pubsub"
+	"github.com/linkerlin/godis/redis/protocol"
 )
 
 var godisVersion = "1.2.8" // do not modify
@@ -45,18 +46,19 @@ type Server struct {
 
 	// slow log record
 	slogLogger *SlowLogger
-	
+
 	// client pause state
-	clientPaused     bool
-	clientPauseEnd   time.Time
-	clientPauseMode  string // "WRITE" or "ALL"
-	
+	clientPauseMu   sync.Mutex
+	clientPaused    bool
+	clientPauseEnd  time.Time
+	clientPauseMode string // "WRITE" or "ALL"
+
 	// initialization error if any
 	initErr error
-	
+
 	// lock manager for advanced lock control
 	lockManager *dict.LockManager
-	
+
 	// memory limiter for maxmemory management
 	memLimiter *memory.Limiter
 }
@@ -82,24 +84,25 @@ func newServerWithSize(dictSize int) (*Server, error) {
 	if config.Properties.Databases == 0 {
 		config.Properties.Databases = 16
 	}
-	
+
 	// create tmp dir
 	err := os.MkdirAll(config.GetTmpDir(), os.ModePerm)
 	if err != nil {
 		return nil, errors.Wrap(err, "create tmp dir failed")
 	}
-	
+
 	// make db set
 	server.dbSet = make([]*atomic.Value, config.Properties.Databases)
 	for i := range server.dbSet {
 		singleDB := makeDBWithSize(dictSize)
 		singleDB.index = i
+		singleDB.server = server
 		holder := &atomic.Value{}
 		holder.Store(singleDB)
 		server.dbSet[i] = holder
 	}
 	server.hub = pubsub.MakeHub()
-	
+
 	// record aof
 	validAof := false
 	if config.Properties.AppendOnly {
@@ -125,20 +128,20 @@ func newServerWithSize(dictSize int) (*Server, error) {
 
 	// record slow log
 	server.slogLogger = NewSlowLogger(config.Properties.SlowLogMaxLen, config.Properties.SlowLogSlowerThan)
-	
+
 	// initialize lock manager
 	server.lockManager = dict.NewLockManager(nil, nil)
-	
+
 	// initialize memory limiter
 	server.memLimiter = memory.NewLimiter(nil)
 	server.memLimiter.Start()
-	
+
 	// propagate lock manager to all DBs
 	for _, holder := range server.dbSet {
 		db := holder.Load().(*DB)
 		db.SetLockManager(server.lockManager)
 	}
-	
+
 	// initialize and propagate eviction manager
 	defaultPolicy := memory.ParseEvictionPolicy(config.Properties.MaxmemoryPolicy)
 	for _, holder := range server.dbSet {
@@ -146,7 +149,7 @@ func newServerWithSize(dictSize int) (*Server, error) {
 		em := NewEvictionManager(db, defaultPolicy)
 		db.SetEvictionManager(em)
 	}
-	
+
 	// set up memory limiter eviction callback
 	if server.memLimiter.IsEvictionAllowed() {
 		server.memLimiter.SetEvictCallback(func(key string) {
@@ -157,6 +160,8 @@ func newServerWithSize(dictSize int) (*Server, error) {
 			}
 		})
 	}
+
+	server.InitACLEngine()
 
 	return server, nil
 }
@@ -179,7 +184,7 @@ func (server *Server) Exec(c redis.Connection, cmdLine [][]byte) (result redis.R
 			result = &protocol.UnknownErrReply{}
 		}
 	}()
-	
+
 	if len(cmdLine) == 0 {
 		return protocol.MakeErrReply("ERR unknown command")
 	}
@@ -199,8 +204,14 @@ func (server *Server) Exec(c redis.Connection, cmdLine [][]byte) (result redis.R
 	if cmdName == "auth" {
 		return Auth(c, cmdLine[1:])
 	}
+	if cmdName == "hello" {
+		return Hello(c, cmdLine[1:])
+	}
 	if !isAuthenticated(c) {
 		return protocol.MakeErrReply("NOAUTH Authentication required")
+	}
+	if reply := checkACLPermission(c, cmdName); reply != nil {
+		return reply
 	}
 	// info
 	if cmdName == "info" {
@@ -291,39 +302,39 @@ func (server *Server) Exec(c redis.Connection, cmdLine [][]byte) (result redis.R
 			return protocol.MakeArgNumErrReply("select")
 		}
 		dbIndex, err := strconv.Atoi(string(cmdLine[1]))
-			if err != nil {
-				return protocol.MakeErrReply("ERR invalid DB index")
-			}
-			if dbIndex >= len(server.dbSet) || dbIndex < 0 {
-				return protocol.MakeErrReply("ERR DB index is out of range")
-			}
-			c.SelectDB(dbIndex)
-			return protocol.MakeOkReply()
+		if err != nil {
+			return protocol.MakeErrReply("ERR invalid DB index")
+		}
+		if dbIndex >= len(server.dbSet) || dbIndex < 0 {
+			return protocol.MakeErrReply("ERR DB index is out of range")
+		}
+		c.SelectDB(dbIndex)
+		return protocol.MakeOkReply()
 	} else if cmdName == "swapdb" {
-			if len(cmdLine) != 3 {
-				return protocol.MakeArgNumErrReply("swapdb")
-			}
-			index1, err := strconv.Atoi(string(cmdLine[1]))
-			if err != nil {
-				return protocol.MakeErrReply("ERR value is not an integer or out of range")
-			}
-			index2, err := strconv.Atoi(string(cmdLine[2]))
-			if err != nil {
-				return protocol.MakeErrReply("ERR value is not an integer or out of range")
-			}
-			if index1 < 0 || index1 >= len(server.dbSet) || index2 < 0 || index2 >= len(server.dbSet) {
-				return protocol.MakeErrReply("ERR DB index is out of range")
-			}
-			server.dbSet[index1], server.dbSet[index2] = server.dbSet[index2], server.dbSet[index1]
-			currentDB := c.GetDBIndex()
-			if currentDB == index1 {
-				c.SelectDB(index2)
-			} else if currentDB == index2 {
-				c.SelectDB(index1)
-			}
-			server.AddAof(c.GetDBIndex(), utils.ToCmdLine3("swapdb", cmdLine[1:]...))
-			return protocol.MakeOkReply()
-		} else if cmdName == "copy" {
+		if len(cmdLine) != 3 {
+			return protocol.MakeArgNumErrReply("swapdb")
+		}
+		index1, err := strconv.Atoi(string(cmdLine[1]))
+		if err != nil {
+			return protocol.MakeErrReply("ERR value is not an integer or out of range")
+		}
+		index2, err := strconv.Atoi(string(cmdLine[2]))
+		if err != nil {
+			return protocol.MakeErrReply("ERR value is not an integer or out of range")
+		}
+		if index1 < 0 || index1 >= len(server.dbSet) || index2 < 0 || index2 >= len(server.dbSet) {
+			return protocol.MakeErrReply("ERR DB index is out of range")
+		}
+		server.dbSet[index1], server.dbSet[index2] = server.dbSet[index2], server.dbSet[index1]
+		currentDB := c.GetDBIndex()
+		if currentDB == index1 {
+			c.SelectDB(index2)
+		} else if currentDB == index2 {
+			c.SelectDB(index1)
+		}
+		server.AddAof(c.GetDBIndex(), utils.ToCmdLine3("swapdb", cmdLine[1:]...))
+		return protocol.MakeOkReply()
+	} else if cmdName == "copy" {
 		if len(cmdLine) < 3 {
 			return protocol.MakeArgNumErrReply("copy")
 		}
@@ -368,7 +379,7 @@ func (server *Server) Close() {
 		server.persister.Close()
 	}
 	server.stopMaster()
-	
+
 	// stop memory limiter
 	if server.memLimiter != nil {
 		server.memLimiter.Stop()
@@ -387,6 +398,8 @@ func (server *Server) GetMemLimiter() *memory.Limiter {
 
 // CheckClientPause checks if client processing should be paused
 func (server *Server) CheckClientPause(isWrite bool) bool {
+	server.clientPauseMu.Lock()
+	defer server.clientPauseMu.Unlock()
 	if !server.clientPaused {
 		return false
 	}
@@ -398,6 +411,22 @@ func (server *Server) CheckClientPause(isWrite bool) bool {
 		return true
 	}
 	return isWrite
+}
+
+// setClientPause configures client pause (used by CLIENT PAUSE).
+func (server *Server) setClientPause(timeoutMs int, mode string) {
+	server.clientPauseMu.Lock()
+	defer server.clientPauseMu.Unlock()
+	server.clientPaused = true
+	server.clientPauseEnd = time.Now().Add(time.Duration(timeoutMs) * time.Millisecond)
+	server.clientPauseMode = mode
+}
+
+// clearClientPause clears client pause (CLIENT UNPAUSE).
+func (server *Server) clearClientPause() {
+	server.clientPauseMu.Lock()
+	defer server.clientPauseMu.Unlock()
+	server.clientPaused = false
 }
 
 func (server *Server) execFlushDB(dbIndex int) redis.Reply {
@@ -540,7 +569,9 @@ func (server *Server) ExecWithLock(conn redis.Connection, cmdLine [][]byte) redi
 
 // BGRewriteAOF asynchronously rewrites Append-Only-File
 func BGRewriteAOF(db *Server, args [][]byte) redis.Reply {
-	go db.persister.Rewrite()
+	if err := db.persister.RunRewriteAsync(); err != nil {
+		return protocol.MakeErrReply("ERR " + err.Error())
+	}
 	return protocol.MakeStatusReply("Background append only file rewriting started")
 }
 
@@ -548,7 +579,7 @@ func BGRewriteAOF(db *Server, args [][]byte) redis.Reply {
 func RewriteAOF(db *Server, args [][]byte) redis.Reply {
 	err := db.persister.Rewrite()
 	if err != nil {
-		return protocol.MakeErrReply(err.Error())
+		return protocol.MakeErrReply("ERR " + err.Error())
 	}
 	return protocol.MakeOkReply()
 }
@@ -564,7 +595,7 @@ func SaveRDB(db *Server, args [][]byte) redis.Reply {
 	}
 	err := db.persister.GenerateRDB(rdbFilename)
 	if err != nil {
-		return protocol.MakeErrReply(err.Error())
+		return protocol.MakeErrReply("ERR " + err.Error())
 	}
 	return protocol.MakeOkReply()
 }
@@ -574,21 +605,13 @@ func BGSaveRDB(db *Server, args [][]byte) redis.Reply {
 	if db.persister == nil {
 		return protocol.MakeErrReply("please enable aof before using save")
 	}
-	go func() {
-		defer func() {
-			if r := recover(); r != nil {
-				logger.Errorf("panic in BGSaveRDB: %v", r)
-			}
-		}()
-		rdbFilename := config.Properties.RDBFilename
-		if rdbFilename == "" {
-			rdbFilename = "dump.rdb"
-		}
-		err := db.persister.GenerateRDB(rdbFilename)
-		if err != nil {
-			logger.Errorf("BGSaveRDB failed: %+v", err)
-		}
-	}()
+	rdbFilename := config.Properties.RDBFilename
+	if rdbFilename == "" {
+		rdbFilename = "dump.rdb"
+	}
+	if err := db.persister.RunGenerateRDBAsync(rdbFilename); err != nil {
+		return protocol.MakeErrReply("ERR " + err.Error())
+	}
 	return protocol.MakeStatusReply("Background saving started")
 }
 
@@ -660,6 +683,3 @@ func (server *Server) SetKeyDeletedCallback(cb database.KeyEventCallback) {
 		db.deleteCallback = cb
 	}
 }
-
-
-

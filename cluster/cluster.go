@@ -7,11 +7,11 @@ import (
 
 	"github.com/cockroachdb/errors"
 
-	_ "github.com/hdt3213/godis/cluster/commands" // register commands
-	"github.com/hdt3213/godis/cluster/core"
-	"github.com/hdt3213/godis/cluster/raft"
-	"github.com/hdt3213/godis/config"
-	"github.com/hdt3213/godis/lib/logger"
+	_ "github.com/linkerlin/godis/cluster/commands" // register commands
+	"github.com/linkerlin/godis/cluster/core"
+	"github.com/linkerlin/godis/cluster/raft"
+	"github.com/linkerlin/godis/config"
+	"github.com/linkerlin/godis/lib/logger"
 )
 
 type Cluster = core.Cluster

@@ -3,8 +3,8 @@ package pubsub
 import (
 	"sync"
 
-	"github.com/hdt3213/godis/interface/redis"
-	"github.com/hdt3213/godis/redis/protocol"
+	"github.com/linkerlin/godis/interface/redis"
+	"github.com/linkerlin/godis/redis/protocol"
 )
 
 // ShardedHub manages sharded pub/sub channels
@@ -37,24 +37,24 @@ func (sh *ShardedHub) getSlot(channel string) int {
 func (sh *ShardedHub) Subscribe(conn redis.Connection, channels []string) redis.Reply {
 	sh.mu.Lock()
 	defer sh.mu.Unlock()
-	
+
 	for _, channel := range channels {
 		slot := sh.getSlot(channel)
-		
+
 		// Initialize slot
 		if sh.slots[slot] == nil {
 			sh.slots[slot] = make(map[string]map[redis.Connection]struct{})
 		}
-		
+
 		// Initialize channel
 		if sh.slots[slot][channel] == nil {
 			sh.slots[slot][channel] = make(map[redis.Connection]struct{})
 		}
-		
+
 		// Add subscriber
 		sh.slots[slot][channel][conn] = struct{}{}
 	}
-	
+
 	// Return subscribe confirmation
 	return &protocol.MultiBulkReply{
 		Args: [][]byte{[]byte("subscribe"), []byte(channels[0]), []byte("1")},
@@ -65,7 +65,7 @@ func (sh *ShardedHub) Subscribe(conn redis.Connection, channels []string) redis.
 func (sh *ShardedHub) Unsubscribe(conn redis.Connection, channels []string) redis.Reply {
 	sh.mu.Lock()
 	defer sh.mu.Unlock()
-	
+
 	if len(channels) == 0 {
 		// Unsubscribe from all
 		for slot, slotMap := range sh.slots {
@@ -83,10 +83,10 @@ func (sh *ShardedHub) Unsubscribe(conn redis.Connection, channels []string) redi
 			Args: [][]byte{[]byte("unsubscribe"), []byte{}, []byte("0")},
 		}
 	}
-	
+
 	for _, channel := range channels {
 		slot := sh.getSlot(channel)
-		
+
 		if slotMap, ok := sh.slots[slot]; ok {
 			if subs, ok := slotMap[channel]; ok {
 				delete(subs, conn)
@@ -99,7 +99,7 @@ func (sh *ShardedHub) Unsubscribe(conn redis.Connection, channels []string) redi
 			}
 		}
 	}
-	
+
 	return &protocol.MultiBulkReply{
 		Args: [][]byte{[]byte("unsubscribe"), []byte(channels[0]), []byte("1")},
 	}
@@ -109,19 +109,19 @@ func (sh *ShardedHub) Unsubscribe(conn redis.Connection, channels []string) redi
 func (sh *ShardedHub) Publish(channel string, message []byte) int {
 	sh.mu.RLock()
 	defer sh.mu.RUnlock()
-	
+
 	slot := sh.getSlot(channel)
-	
+
 	slotMap, ok := sh.slots[slot]
 	if !ok {
 		return 0
 	}
-	
+
 	subs, ok := slotMap[channel]
 	if !ok {
 		return 0
 	}
-	
+
 	// Send to all subscribers
 	for conn := range subs {
 		// Send sharded message push
@@ -129,7 +129,7 @@ func (sh *ShardedHub) Publish(channel string, message []byte) int {
 		reply := MakeSMessageReply(channel, message)
 		conn.Write(reply.ToBytes())
 	}
-	
+
 	return len(subs)
 }
 

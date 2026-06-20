@@ -1,13 +1,13 @@
 # Godis
 
-![license](https://img.shields.io/github/license/HDT3213/godis)
-[![Build Status](https://github.com/hdt3213/godis/actions/workflows/coverall.yml/badge.svg)](https://github.com/HDT3213/godis/actions?query=branch%3Amaster)
-[![Coverage Status](https://coveralls.io/repos/github/HDT3213/godis/badge.svg?branch=master)](https://coveralls.io/github/HDT3213/godis?branch=master)
-[![Go Report Card](https://goreportcard.com/badge/github.com/HDT3213/godis)](https://goreportcard.com/report/github.com/HDT3213/godis)
+![license](https://img.shields.io/github/license/linkerlin/godis)
+[![Build Status](https://github.com/linkerlin/godis/actions/workflows/coverall.yml/badge.svg)](https://github.com/linkerlin/godis/actions?query=branch%3Amaster)
+[![Coverage Status](https://coveralls.io/repos/github/linkerlin/godis/badge.svg?branch=master)](https://coveralls.io/github/linkerlin/godis?branch=master)
+[![Go Report Card](https://goreportcard.com/badge/github.com/linkerlin/godis)](https://goreportcard.com/report/github.com/linkerlin/godis)
 <br>
 [![Mentioned in Awesome Go](https://awesome.re/mentioned-badge-flat.svg)](https://github.com/avelino/awesome-go)
 
-**Godis** 是一个用 Go 语言实现的 **Redis 8.x 兼容** 服务器。本项目旨在为尝试使用 Go 语言开发高并发中间件的朋友提供参考。
+**Godis** 是一个用 Go 语言实现的 **Redis 8.x 高覆盖度兼容** 服务器（命令级差异见 [`docs/COMPATIBILITY.md`](docs/COMPATIBILITY.md)）。本项目旨在为尝试使用 Go 语言开发高并发中间件的朋友提供参考。
 
 ## 关键特性
 
@@ -264,8 +264,8 @@ godis/
 
 ## 相关项目
 
-- [ godis-client ](https://github.com/hdt3213/godis): Godis 的 Go 语言客户端
-- [ godis-dashboard ](https://github.com/hdt3213/godis-dashboard): Godis 的可视化管理界面
+- [ godis-client ](https://github.com/linkerlin/godis): Godis 的 Go 语言客户端
+- [ godis-dashboard ](https://github.com/linkerlin/godis-dashboard): Godis 的可视化管理界面
 
 ## 博客
 

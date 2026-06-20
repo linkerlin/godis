@@ -7,10 +7,10 @@ import (
 
 	"github.com/cockroachdb/errors"
 
-	"github.com/hdt3213/godis/config"
-	"github.com/hdt3213/godis/lib/logger"
-	"github.com/hdt3213/godis/lib/utils"
-	"github.com/hdt3213/godis/redis/protocol"
+	"github.com/linkerlin/godis/config"
+	"github.com/linkerlin/godis/lib/logger"
+	"github.com/linkerlin/godis/lib/utils"
+	"github.com/linkerlin/godis/redis/protocol"
 )
 
 func (persister *Persister) newRewriteHandler() *Persister {
@@ -29,15 +29,22 @@ type RewriteCtx struct {
 
 // Rewrite carries out AOF rewrite
 func (persister *Persister) Rewrite() error {
+	if err := persister.acquireRewriteSlot(); err != nil {
+		return err
+	}
+	defer persister.releaseRewriteSlot()
+	return persister.rewriteLocked()
+}
+
+// rewriteLocked performs AOF rewrite; caller must hold the rewrite slot.
+func (persister *Persister) rewriteLocked() error {
 	ctx, err := persister.StartRewrite()
 	if err != nil {
 		return err
 	}
-	err = persister.DoRewrite(ctx)
-	if err != nil {
+	if err := persister.DoRewrite(ctx); err != nil {
 		return err
 	}
-
 	return persister.FinishRewrite(ctx)
 }
 

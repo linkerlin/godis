@@ -9,14 +9,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hdt3213/godis/aof"
-	"github.com/hdt3213/godis/config"
-	"github.com/hdt3213/godis/lib/utils"
-	"github.com/hdt3213/godis/redis/client"
-	"github.com/hdt3213/godis/redis/connection"
-	"github.com/hdt3213/godis/redis/parser"
-	"github.com/hdt3213/godis/redis/protocol"
-	"github.com/hdt3213/godis/redis/protocol/asserts"
+	"github.com/linkerlin/godis/aof"
+	"github.com/linkerlin/godis/config"
+	"github.com/linkerlin/godis/lib/utils"
+	"github.com/linkerlin/godis/redis/client"
+	"github.com/linkerlin/godis/redis/connection"
+	"github.com/linkerlin/godis/redis/parser"
+	"github.com/linkerlin/godis/redis/protocol"
+	"github.com/linkerlin/godis/redis/protocol/asserts"
 )
 
 func TestReplicationSlaveSide(t *testing.T) {
@@ -196,7 +196,7 @@ func TestReplicationFailover(t *testing.T) {
 		return
 	}
 	server.bindPersister(aofHandler)
-	
+
 	masterCli, err := client.MakeClient("127.0.0.1:6379")
 	if err != nil {
 		t.Error(err)
@@ -242,10 +242,10 @@ func TestReplicationFailover(t *testing.T) {
 	serverB.loadMasterRDB(0)
 	server.masterCron()
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-    defer cancel()
-    go serverB.receiveAOF(ctx, 0)
+	defer cancel()
+	go serverB.receiveAOF(ctx, 0)
 
-    time.Sleep(3 * time.Second)
+	time.Sleep(3 * time.Second)
 	ret = serverB.Exec(conn, utils.ToCmdLine("get", "1"))
 	asserts.AssertBulkReply(t, ret, "1")
 	ret = serverB.Exec(conn, utils.ToCmdLine("get", "2"))

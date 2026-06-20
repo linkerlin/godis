@@ -1,9 +1,9 @@
 package database
 
 import (
-	"github.com/hdt3213/godis/interface/redis"
-	"github.com/hdt3213/godis/pubsub"
-	"github.com/hdt3213/godis/redis/protocol"
+	"github.com/linkerlin/godis/interface/redis"
+	"github.com/linkerlin/godis/pubsub"
+	"github.com/linkerlin/godis/redis/protocol"
 )
 
 // Global sharded pub/sub hub
@@ -15,12 +15,12 @@ func execSSubscribe(db *DB, args [][]byte) redis.Reply {
 	if len(args) < 1 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'ssubscribe' command")
 	}
-	
+
 	channels := make([]string, len(args))
 	for i, arg := range args {
 		channels[i] = string(arg)
 	}
-	
+
 	// Get current connection from context (simplified)
 	// In real implementation, connection should be passed
 	return shardedHub.Subscribe(nil, channels)
@@ -33,7 +33,7 @@ func execSUnsubscribe(db *DB, args [][]byte) redis.Reply {
 	for i, arg := range args {
 		channels[i] = string(arg)
 	}
-	
+
 	return shardedHub.Unsubscribe(nil, channels)
 }
 
@@ -43,12 +43,12 @@ func execSPublish(db *DB, args [][]byte) redis.Reply {
 	if len(args) != 2 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'spublish' command")
 	}
-	
+
 	channel := string(args[0])
 	message := args[1]
-	
+
 	receivers := shardedHub.Publish(channel, message)
-	
+
 	return protocol.MakeIntReply(int64(receivers))
 }
 
@@ -65,7 +65,7 @@ func execSUnsubscribeCmd(db *DB, args [][]byte) redis.Reply {
 	return execSUnsubscribe(db, args)
 }
 
-// execSChannelsCmd is the command handler  
+// execSChannelsCmd is the command handler
 func execSChannelsCmd(db *DB, args [][]byte) redis.Reply {
 	return execSChannels(args)
 }
@@ -82,5 +82,3 @@ func init() {
 	registerCommand("SChannels", execSChannelsCmd, nil, nil, -1, flagAdmin).
 		attachCommandExtra([]string{redisFlagAdmin}, 0, 0, 0)
 }
-
-

@@ -5,11 +5,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hdt3213/godis/cluster/raft"
-	"github.com/hdt3213/godis/interface/redis"
-	"github.com/hdt3213/godis/lib/utils"
-	"github.com/hdt3213/godis/redis/connection"
-	"github.com/hdt3213/godis/redis/protocol"
+	"github.com/linkerlin/godis/cluster/raft"
+	"github.com/linkerlin/godis/interface/redis"
+	"github.com/linkerlin/godis/lib/utils"
+	"github.com/linkerlin/godis/redis/connection"
+	"github.com/linkerlin/godis/redis/protocol"
 )
 
 func TestClusterBootstrap(t *testing.T) {
@@ -225,7 +225,7 @@ func TestFailover(t *testing.T) {
 	for i := 0; i < 1000; i++ {
 		success := false
 		leader.raftNode.FSM.WithReadLock(func(fsm *raft.FSM) {
-			ms := fsm.MasterSlaves[follower.SelfID()]	
+			ms := fsm.MasterSlaves[follower.SelfID()]
 			if ms != nil && len(ms.Slaves) > 0 {
 				success = true
 			}

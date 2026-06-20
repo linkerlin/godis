@@ -6,16 +6,16 @@ import (
 	"sync"
 	"time"
 
-	"github.com/hdt3213/godis/interface/redis"
-	"github.com/hdt3213/godis/lib/utils"
-	"github.com/hdt3213/godis/redis/protocol"
+	"github.com/linkerlin/godis/interface/redis"
+	"github.com/linkerlin/godis/lib/utils"
+	"github.com/linkerlin/godis/redis/protocol"
 )
 
 // 阻塞列表的全局等待队列
 var (
-	blPopWaiters  = make(map[string][]*listWaiter) // key -> 等待者列表
-	brPopWaiters  = make(map[string][]*listWaiter)
-	waiterMu      sync.Mutex
+	blPopWaiters = make(map[string][]*listWaiter) // key -> 等待者列表
+	brPopWaiters = make(map[string][]*listWaiter)
+	waiterMu     sync.Mutex
 )
 
 // listWaiter 表示一个等待列表操作的客户端
@@ -273,27 +273,27 @@ func execLMPop(db *DB, args [][]byte) redis.Reply {
 	if len(args) < 3 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'lmpop' command")
 	}
-	
+
 	numKeys, err := strconv.Atoi(string(args[0]))
 	if err != nil {
 		return protocol.MakeErrReply("ERR value is not an integer or out of range")
 	}
-	
+
 	if len(args) < 1+numKeys+1 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'lmpop' command")
 	}
-	
+
 	keys := make([]string, numKeys)
 	for i := 0; i < numKeys; i++ {
 		keys[i] = string(args[1+i])
 	}
-	
+
 	// Parse direction
 	direction := strings.ToUpper(string(args[1+numKeys]))
 	if direction != "LEFT" && direction != "RIGHT" {
 		return protocol.MakeErrReply("ERR syntax error")
 	}
-	
+
 	// Parse count
 	count := 1
 	idx := 2 + numKeys
@@ -307,7 +307,7 @@ func execLMPop(db *DB, args [][]byte) redis.Reply {
 		}
 		idx += 2
 	}
-	
+
 	// Try each key
 	for _, key := range keys {
 		list, errReply := db.getAsList(key)
@@ -317,14 +317,14 @@ func execLMPop(db *DB, args [][]byte) redis.Reply {
 		if list == nil || list.Len() == 0 {
 			continue
 		}
-		
+
 		// Pop elements
 		var values [][]byte
 		popCount := count
 		if popCount > list.Len() {
 			popCount = list.Len()
 		}
-		
+
 		for i := 0; i < popCount; i++ {
 			var val interface{}
 			if direction == "LEFT" {
@@ -334,20 +334,20 @@ func execLMPop(db *DB, args [][]byte) redis.Reply {
 			}
 			values = append(values, val.([]byte))
 		}
-		
+
 		if list.Len() == 0 {
 			db.Remove(key)
 		}
-		
+
 		db.addAof(utils.ToCmdLine3("lmpop", args...))
-		
+
 		// Build reply
 		result := make([]redis.Reply, 0)
 		result = append(result, protocol.MakeBulkReply([]byte(key)))
 		result = append(result, protocol.MakeMultiBulkReply(values))
 		return protocol.MakeMultiRawReply(result)
 	}
-	
+
 	return protocol.MakeNullBulkReply()
 }
 
@@ -357,23 +357,23 @@ func execBLMPop(db *DB, args [][]byte) redis.Reply {
 	if len(args) < 5 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'blmpop' command")
 	}
-	
+
 	timeout, err := strconv.ParseFloat(string(args[0]), 64)
 	if err != nil {
 		return protocol.MakeErrReply("ERR value is not a valid float")
 	}
-	
+
 	// Call LMPop with remaining args
 	result := execLMPop(db, args[1:])
 	if _, ok := result.(*protocol.NullBulkReply); !ok {
 		return result
 	}
-	
+
 	// Block if needed
 	if timeout > 0 {
 		time.Sleep(time.Duration(timeout * float64(time.Second)))
 	}
-	
+
 	return protocol.MakeNullBulkReply()
 }
 
@@ -402,5 +402,3 @@ func prepareReadKeys(args [][]byte) ([]string, []string) {
 	}
 	return nil, keys
 }
-
-

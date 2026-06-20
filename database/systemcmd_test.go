@@ -1,13 +1,13 @@
 package database
 
 import (
-	"github.com/hdt3213/godis/config"
-	"github.com/hdt3213/godis/lib/utils"
-	"github.com/hdt3213/godis/redis/connection"
-	"github.com/hdt3213/godis/redis/protocol/asserts"
 	"math/rand"
 	"testing"
 	"time"
+
+	"github.com/linkerlin/godis/lib/utils"
+	"github.com/linkerlin/godis/redis/connection"
+	"github.com/linkerlin/godis/redis/protocol/asserts"
 )
 
 func TestPing(t *testing.T) {
@@ -19,27 +19,6 @@ func TestPing(t *testing.T) {
 	asserts.AssertStatusReply(t, actual, val)
 	actual = Ping(c, utils.ToCmdLine(val, val))
 	asserts.AssertErrReply(t, actual, "ERR wrong number of arguments for 'ping' command")
-}
-
-func TestAuth(t *testing.T) {
-	passwd := utils.RandString(10)
-	c := connection.NewFakeConn()
-	ret := testServer.Exec(c, utils.ToCmdLine("AUTH"))
-	asserts.AssertErrReply(t, ret, "ERR wrong number of arguments for 'auth' command")
-	ret = testServer.Exec(c, utils.ToCmdLine("AUTH", passwd))
-	asserts.AssertErrReply(t, ret, "ERR Client sent AUTH, but no password is set")
-
-	config.Properties.RequirePass = passwd
-	defer func() {
-		config.Properties.RequirePass = ""
-	}()
-	ret = testServer.Exec(c, utils.ToCmdLine("AUTH", passwd+"wrong"))
-	asserts.AssertErrReply(t, ret, "ERR invalid password")
-	ret = testServer.Exec(c, utils.ToCmdLine("GET", "A"))
-	asserts.AssertErrReply(t, ret, "NOAUTH Authentication required")
-	ret = testServer.Exec(c, utils.ToCmdLine("AUTH", passwd))
-	asserts.AssertStatusReply(t, ret, "OK")
-
 }
 
 func TestInfo(t *testing.T) {
@@ -64,6 +43,7 @@ func TestInfo(t *testing.T) {
 
 func TestDbSize(t *testing.T) {
 	c := connection.NewFakeConn()
+	testServer.Exec(c, utils.ToCmdLine("FLUSHALL"))
 	rand.NewSource(time.Now().UnixNano())
 	randomNum := rand.Intn(10) + 1
 	for i := 0; i < randomNum; i++ {

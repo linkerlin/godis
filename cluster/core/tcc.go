@@ -5,10 +5,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/hdt3213/godis/database"
-	"github.com/hdt3213/godis/interface/redis"
-	"github.com/hdt3213/godis/lib/timewheel"
-	"github.com/hdt3213/godis/redis/protocol"
+	"github.com/linkerlin/godis/database"
+	"github.com/linkerlin/godis/interface/redis"
+	"github.com/linkerlin/godis/lib/timewheel"
+	"github.com/linkerlin/godis/redis/protocol"
 )
 
 // transaction info will be deleted after transactionTTL since commit

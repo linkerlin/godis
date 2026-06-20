@@ -8,8 +8,8 @@ import (
 	"os"
 	"sync"
 
-	"github.com/hdt3213/godis/interface/redis"
-	"github.com/hdt3213/godis/lib/logger"
+	"github.com/linkerlin/godis/interface/redis"
+	"github.com/linkerlin/godis/lib/logger"
 )
 
 // EngineType represents the type of Lua engine

@@ -3,10 +3,10 @@ package commands
 import (
 	"testing"
 
-	"github.com/hdt3213/godis/cluster/core"
-	"github.com/hdt3213/godis/lib/utils"
-	"github.com/hdt3213/godis/redis/connection"
-	"github.com/hdt3213/godis/redis/protocol/asserts"
+	"github.com/linkerlin/godis/cluster/core"
+	"github.com/linkerlin/godis/lib/utils"
+	"github.com/linkerlin/godis/redis/connection"
+	"github.com/linkerlin/godis/redis/protocol/asserts"
 )
 
 func TestMset(t *testing.T) {

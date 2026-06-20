@@ -5,12 +5,12 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/hdt3213/godis/datastruct/sortedset"
-	"github.com/hdt3213/godis/interface/database"
-	"github.com/hdt3213/godis/interface/redis"
-	"github.com/hdt3213/godis/lib/geohash"
-	"github.com/hdt3213/godis/lib/utils"
-	"github.com/hdt3213/godis/redis/protocol"
+	"github.com/linkerlin/godis/datastruct/sortedset"
+	"github.com/linkerlin/godis/interface/database"
+	"github.com/linkerlin/godis/interface/redis"
+	"github.com/linkerlin/godis/lib/geohash"
+	"github.com/linkerlin/godis/lib/utils"
+	"github.com/linkerlin/godis/redis/protocol"
 )
 
 // execGeoAdd add a location into SortedSet
@@ -269,7 +269,7 @@ func execGeoSearch(db *DB, args [][]byte) redis.Reply {
 	if len(args) < 1 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'geosearch' command")
 	}
-	
+
 	key := string(args[0])
 	sortedSet, errReply := db.getAsSortedSet(key)
 	if errReply != nil {
@@ -278,7 +278,7 @@ func execGeoSearch(db *DB, args [][]byte) redis.Reply {
 	if sortedSet == nil {
 		return protocol.MakeEmptyMultiBulkReply()
 	}
-	
+
 	// Parse options
 	var member string
 	var lon, lat float64
@@ -290,7 +290,7 @@ func execGeoSearch(db *DB, args [][]byte) redis.Reply {
 	asc := true
 	count := -1
 	withCoord, withDist, withHash := false, false, false
-	
+
 	i := 1
 	for i < len(args) {
 		arg := strings.ToUpper(string(args[i]))
@@ -374,7 +374,7 @@ func execGeoSearch(db *DB, args [][]byte) redis.Reply {
 			return protocol.MakeSyntaxErrReply()
 		}
 	}
-	
+
 	// Get center point
 	if useMember {
 		elem, exists := sortedSet.Get(member)
@@ -385,7 +385,7 @@ func execGeoSearch(db *DB, args [][]byte) redis.Reply {
 	} else if !useCoord {
 		return protocol.MakeErrReply("ERR need FROMMEMBER or FROMLONLAT")
 	}
-	
+
 	// Convert unit to meters
 	unitMultiplier := 1.0
 	switch unit {
@@ -400,18 +400,18 @@ func execGeoSearch(db *DB, args [][]byte) redis.Reply {
 	default:
 		return protocol.MakeErrReply("ERR unsupported unit provided. please use M, KM, MI or FT")
 	}
-	
+
 	// Get all members and filter
 	var results []geoSearchResult
 	allMembers := sortedSet.RangeByRank(0, -1, false)
-	
+
 	for _, elem := range allMembers {
 		if elem.Member == member && useMember {
 			continue
 		}
-		
+
 		mLat, mLon := extractGeoHash(elem.Score)
-		
+
 		var include bool
 		if useRadius {
 			dist := geohash.Distance(lat, lon, mLat, mLon)
@@ -441,7 +441,7 @@ func execGeoSearch(db *DB, args [][]byte) redis.Reply {
 			}
 		}
 	}
-	
+
 	// Sort results
 	if asc {
 		for i := 0; i < len(results)-1; i++ {
@@ -460,27 +460,27 @@ func execGeoSearch(db *DB, args [][]byte) redis.Reply {
 			}
 		}
 	}
-	
+
 	// Apply count limit
 	if count > 0 && count < len(results) {
 		results = results[:count]
 	}
-	
+
 	// Build reply
 	var reply []redis.Reply
 	for _, r := range results {
 		memberReply := []redis.Reply{protocol.MakeBulkReply([]byte(r.member))}
-		
+
 		if withDist {
 			distStr := strconv.FormatFloat(r.dist, 'f', -1, 64)
 			memberReply = append(memberReply, protocol.MakeBulkReply([]byte(distStr)))
 		}
-		
+
 		if withHash {
 			hashStr := strconv.FormatInt(int64(r.hash), 10)
 			memberReply = append(memberReply, protocol.MakeBulkReply([]byte(hashStr)))
 		}
-		
+
 		if withCoord {
 			coordReply := []redis.Reply{
 				protocol.MakeBulkReply([]byte(strconv.FormatFloat(r.lon, 'f', -1, 64))),
@@ -488,14 +488,14 @@ func execGeoSearch(db *DB, args [][]byte) redis.Reply {
 			}
 			memberReply = append(memberReply, protocol.MakeMultiRawReply(coordReply))
 		}
-		
+
 		if len(memberReply) == 1 {
 			reply = append(reply, memberReply[0])
 		} else {
 			reply = append(reply, protocol.MakeMultiRawReply(memberReply))
 		}
 	}
-	
+
 	return protocol.MakeMultiRawReply(reply)
 }
 
@@ -513,21 +513,21 @@ func execGeoSearchStore(db *DB, args [][]byte) redis.Reply {
 	if len(args) < 2 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'geosearchstore' command")
 	}
-	
+
 	destKey := string(args[0])
 	// Source key is args[1], remaining args similar to GEOSEARCH
-	
+
 	// Call GEOSEARCH with source key
 	searchResult := execGeoSearch(db, args[1:])
 	if protocol.IsErrorReply(searchResult) {
 		return searchResult
 	}
-	
+
 	multiReply, ok := searchResult.(*protocol.MultiRawReply)
 	if !ok {
 		return protocol.MakeIntReply(0)
 	}
-	
+
 	// Create sorted set with results
 	newSet := sortedset.Make()
 	for _, r := range multiReply.Replies {
@@ -539,10 +539,10 @@ func execGeoSearchStore(db *DB, args [][]byte) redis.Reply {
 			newSet.Add(member, 0)
 		}
 	}
-	
+
 	db.PutEntity(destKey, &database.DataEntity{Data: newSet})
 	db.addAof(utils.ToCmdLine3("geosearchstore", args...))
-	
+
 	return protocol.MakeIntReply(int64(newSet.Len()))
 }
 

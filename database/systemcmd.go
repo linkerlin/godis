@@ -2,27 +2,29 @@ package database
 
 import (
 	"fmt"
-	"github.com/hdt3213/godis/config"
-	"github.com/hdt3213/godis/interface/redis"
-	"github.com/hdt3213/godis/lib/stats"
-	"github.com/hdt3213/godis/redis/protocol"
-	"github.com/hdt3213/godis/scripting"
-	"github.com/hdt3213/godis/tcp"
 	"os"
 	"runtime"
 	"strings"
+	"sync/atomic"
 	"time"
+
+	"github.com/linkerlin/godis/config"
+	"github.com/linkerlin/godis/interface/redis"
+	"github.com/linkerlin/godis/lib/stats"
+	"github.com/linkerlin/godis/redis/protocol"
+	"github.com/linkerlin/godis/scripting"
+	"github.com/linkerlin/godis/tcp"
 )
 
 // Server stats for INFO command
 type ServerStats struct {
-	TotalCommandsProcessed uint64
+	TotalCommandsProcessed   uint64
 	TotalConnectionsReceived uint64
-	ExpiredKeys uint64
-	EvictedKeys uint64
-	KeyspaceHits uint64
-	KeyspaceMisses uint64
-	ExpiredStale int64  // Number of expired keys that were accessed but already expired
+	ExpiredKeys              uint64
+	EvictedKeys              uint64
+	KeyspaceHits             uint64
+	KeyspaceMisses           uint64
+	ExpiredStale             int64 // Number of expired keys that were accessed but already expired
 }
 
 var serverStats = &ServerStats{}
@@ -78,28 +80,7 @@ func Info(db *Server, args [][]byte) redis.Reply {
 	return protocol.MakeArgNumErrReply("info")
 }
 
-// Auth validate client's password
-func Auth(c redis.Connection, args [][]byte) redis.Reply {
-	if len(args) != 1 {
-		return protocol.MakeErrReply("ERR wrong number of arguments for 'auth' command")
-	}
-	if config.Properties.RequirePass == "" {
-		return protocol.MakeErrReply("ERR Client sent AUTH, but no password is set")
-	}
-	passwd := string(args[0])
-	c.SetPassword(passwd)
-	if config.Properties.RequirePass != passwd {
-		return protocol.MakeErrReply("ERR invalid password")
-	}
-	return &protocol.OkReply{}
-}
-
-func isAuthenticated(c redis.Connection) bool {
-	if config.Properties.RequirePass == "" {
-		return true
-	}
-	return c.GetPassword() == config.Properties.RequirePass
-}
+// Auth validate client's password — implemented in auth.go
 
 func DbSize(c redis.Connection, db *Server) redis.Reply {
 	keys, _, _ := db.GetDBSize(c.GetDBIndex())
@@ -282,8 +263,7 @@ func GenGodisInfoString(section string, db *Server) []byte {
 // genPersistenceInfo generates persistence section for INFO
 func genPersistenceInfo(db *Server) string {
 	aofEnabled := config.Properties.AppendOnly
-	
-	// Get AOF stats if available
+
 	var aofSize int64 = 0
 	if db.persister != nil {
 		if stats := db.persister.Stats(); stats["enabled"].(bool) {
@@ -292,7 +272,23 @@ func genPersistenceInfo(db *Server) string {
 			}
 		}
 	}
-	
+
+	rdbBgsaveInProgress := 0
+	if db.masterStatus != nil {
+		db.masterStatus.mu.RLock()
+		if db.masterStatus.bgSaveState == bgSaveRunning {
+			rdbBgsaveInProgress = 1
+		}
+		db.masterStatus.mu.RUnlock()
+	}
+
+	var rdbLastSaveTime int64
+	if config.Properties.RDBFilename != "" {
+		if info, err := os.Stat(config.GetTmpDir() + "/" + config.Properties.RDBFilename); err == nil {
+			rdbLastSaveTime = info.ModTime().Unix()
+		}
+	}
+
 	return fmt.Sprintf("# Persistence\r\n"+
 		"loading:%d\r\n"+
 		"rdb_changes_since_last_save:%d\r\n"+
@@ -310,40 +306,51 @@ func genPersistenceInfo(db *Server) string {
 		"aof_last_write_status:%s\r\n"+
 		"aof_current_size:%d\r\n"+
 		"aof_base_size:%d\r\n",
-		0, // loading - TODO
-		0, // rdb_changes_since_last_save - TODO
-		0, // rdb_bgsave_in_progress - TODO
-		0, // rdb_last_save_time - TODO
+		0,
+		0,
+		rdbBgsaveInProgress,
+		rdbLastSaveTime,
 		"ok",
-		-1, // rdb_last_bgsave_time_sec - TODO
-		-1, // rdb_current_bgsave_time_sec - TODO
+		-1,
+		-1,
 		boolToInt(aofEnabled),
-		0, // aof_rewrite_in_progress - TODO
-		0, // aof_rewrite_scheduled - TODO
-		-1, // aof_last_rewrite_time_sec - TODO
-		-1, // aof_current_rewrite_time_sec - TODO
+		0,
+		0,
+		-1,
+		-1,
 		"ok",
 		"ok",
 		aofSize,
-		aofSize, // aof_base_size - simplified
+		aofSize,
 	)
 }
 
 // genReplicationInfo generates replication section for INFO
 func genReplicationInfo(db *Server) string {
 	role := "master"
-	if config.Properties.SlaveAnnounceIP != "" || config.Properties.SlaveAnnouncePort != 0 {
+	if atomic.LoadInt32(&db.role) == slaveRole {
 		role = "slave"
 	}
-	
-	// Get connected slaves count
+
 	slaves := 0
+	var replOffset int64
+	var backlogSize, backlogFirstOffset, backlogHistLen int64
+	replBacklogActive := 0
+
 	if db.masterStatus != nil {
 		db.masterStatus.mu.RLock()
 		slaves = len(db.masterStatus.onlineSlaves)
+		if db.masterStatus.backlog != nil {
+			bl := db.masterStatus.backlog
+			replOffset = bl.currentOffset
+			backlogFirstOffset = bl.beginOffset
+			backlogHistLen = bl.currentOffset - bl.beginOffset
+			backlogSize = int64(len(bl.buf))
+			replBacklogActive = 1
+		}
 		db.masterStatus.mu.RUnlock()
 	}
-	
+
 	return fmt.Sprintf("# Replication\r\n"+
 		"role:%s\r\n"+
 		"connected_slaves:%d\r\n"+
@@ -358,13 +365,13 @@ func genReplicationInfo(db *Server) string {
 		role,
 		slaves,
 		config.Properties.RunID,
-		"", // master_replid2 - TODO
-		0,  // master_repl_offset - TODO
-		-1, // second_repl_offset - TODO
-		boolToInt(db.masterStatus != nil && db.masterStatus.backlog != nil),
-		0, // repl_backlog_size - TODO
-		0, // repl_backlog_first_byte_offset - TODO
-		0, // repl_backlog_histlen - TODO
+		"",
+		replOffset,
+		-1,
+		replBacklogActive,
+		backlogSize,
+		backlogFirstOffset,
+		backlogHistLen,
 	)
 }
 
@@ -386,7 +393,7 @@ func genCPUInfo() string {
 func genCommandStatsInfo() string {
 	var sb strings.Builder
 	sb.WriteString("# Commandstats\r\n")
-	
+
 	stats := GetAllCommandStats()
 	for cmdName, stat := range stats {
 		if stat.calls > 0 {
@@ -399,7 +406,7 @@ func genCommandStatsInfo() string {
 			))
 		}
 	}
-	
+
 	return sb.String()
 }
 

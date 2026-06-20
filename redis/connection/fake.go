@@ -2,9 +2,10 @@ package connection
 
 import (
 	"fmt"
-	"github.com/hdt3213/godis/lib/logger"
 	"io"
 	"sync"
+
+	"github.com/linkerlin/godis/lib/logger"
 )
 
 // FakeConn implements redis.Connection for test

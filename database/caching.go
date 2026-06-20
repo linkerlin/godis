@@ -5,8 +5,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/hdt3213/godis/interface/redis"
-	"github.com/hdt3213/godis/redis/protocol"
+	"github.com/linkerlin/godis/interface/redis"
+	"github.com/linkerlin/godis/redis/protocol"
 )
 
 // ClientCache manages client-side caching
@@ -14,39 +14,39 @@ type ClientCache struct {
 	// Tracked keys for each client
 	// clientID -> set of keys
 	trackedKeys map[string]map[string]bool
-	
+
 	// Key -> set of clients tracking it
 	keyClients map[string]map[string]bool
-	
+
 	// Client tracking mode
 	trackingEnabled map[string]bool
-	
+
 	// Tracking mode: broadcast, prefix, optin, optout
 	trackingMode map[string]string
 	prefixes     map[string][]string // client -> prefixes
-	
+
 	// Invalidation messages queue per client
 	invalidationQueues map[string]chan []string
-	
+
 	// Connection mapping for sending pushes
 	connections map[string]redis.Connection
-	
+
 	// Stats
 	trackingClientsCount int
 	invalidationMsgsSent uint64
-	
+
 	mu sync.RWMutex
 }
 
 // Global client cache instance
 var clientCache = &ClientCache{
-	trackedKeys:        make(map[string]map[string]bool),
-	keyClients:         make(map[string]map[string]bool),
-	trackingEnabled:    make(map[string]bool),
-	trackingMode:       make(map[string]string),
-	prefixes:           make(map[string][]string),
-	invalidationQueues: make(map[string]chan []string),
-	connections:        make(map[string]redis.Connection),
+	trackedKeys:          make(map[string]map[string]bool),
+	keyClients:           make(map[string]map[string]bool),
+	trackingEnabled:      make(map[string]bool),
+	trackingMode:         make(map[string]string),
+	prefixes:             make(map[string][]string),
+	invalidationQueues:   make(map[string]chan []string),
+	connections:          make(map[string]redis.Connection),
 	trackingClientsCount: 0,
 	invalidationMsgsSent: 0,
 }
@@ -55,30 +55,30 @@ var clientCache = &ClientCache{
 func EnableTracking(conn redis.Connection, mode string, prefixes []string) string {
 	clientCache.mu.Lock()
 	defer clientCache.mu.Unlock()
-	
+
 	clientID := conn.Name()
 	if clientID == "" {
 		clientID = generateClientID()
 	}
-	
+
 	clientCache.trackingEnabled[clientID] = true
 	clientCache.trackingMode[clientID] = mode
 	clientCache.prefixes[clientID] = prefixes
 	clientCache.connections[clientID] = conn
-	
+
 	if clientCache.trackedKeys[clientID] == nil {
 		clientCache.trackedKeys[clientID] = make(map[string]bool)
 	}
 	if clientCache.invalidationQueues[clientID] == nil {
 		clientCache.invalidationQueues[clientID] = make(chan []string, 100)
 	}
-	
+
 	// Update stats
 	clientCache.trackingClientsCount++
-	
+
 	// Start background sender for this client
 	go clientCache.invalidationSender(clientID)
-	
+
 	return clientID
 }
 
@@ -86,7 +86,7 @@ func EnableTracking(conn redis.Connection, mode string, prefixes []string) strin
 func DisableTracking(clientID string) {
 	clientCache.mu.Lock()
 	defer clientCache.mu.Unlock()
-	
+
 	// Untrack all keys
 	for key := range clientCache.trackedKeys[clientID] {
 		if clients := clientCache.keyClients[key]; clients != nil {
@@ -96,16 +96,16 @@ func DisableTracking(clientID string) {
 			}
 		}
 	}
-	
+
 	delete(clientCache.trackingEnabled, clientID)
 	delete(clientCache.trackingMode, clientID)
 	delete(clientCache.prefixes, clientID)
 	delete(clientCache.trackedKeys, clientID)
 	delete(clientCache.connections, clientID)
-	
+
 	// Update stats
 	clientCache.trackingClientsCount--
-	
+
 	// Close and delete queue
 	if queue, ok := clientCache.invalidationQueues[clientID]; ok {
 		close(queue)
@@ -117,11 +117,11 @@ func DisableTracking(clientID string) {
 func TrackKey(clientID string, key string) {
 	clientCache.mu.Lock()
 	defer clientCache.mu.Unlock()
-	
+
 	if !clientCache.trackingEnabled[clientID] {
 		return
 	}
-	
+
 	// Check prefix match for BCAST mode
 	mode := clientCache.trackingMode[clientID]
 	if mode == "bcast" {
@@ -139,10 +139,10 @@ func TrackKey(clientID string, key string) {
 			}
 		}
 	}
-	
+
 	// Add to tracked keys
 	clientCache.trackedKeys[clientID][key] = true
-	
+
 	// Add to key clients
 	if clientCache.keyClients[key] == nil {
 		clientCache.keyClients[key] = make(map[string]bool)
@@ -155,18 +155,18 @@ func InvalidateKey(key string) {
 	clientCache.mu.RLock()
 	clients := clientCache.keyClients[key]
 	clientCache.mu.RUnlock()
-	
+
 	if clients == nil {
 		return
 	}
-	
+
 	// Send invalidation to all clients
 	for clientID := range clients {
 		clientCache.mu.RLock()
 		queue, ok := clientCache.invalidationQueues[clientID]
 		mode := clientCache.trackingMode[clientID]
 		clientCache.mu.RUnlock()
-		
+
 		if ok {
 			select {
 			case queue <- []string{key}:
@@ -174,7 +174,7 @@ func InvalidateKey(key string) {
 				// Queue full, skip
 			}
 		}
-		
+
 		// For BCAST mode, don't remove tracking
 		if mode != "bcast" {
 			clientCache.mu.Lock()
@@ -182,7 +182,7 @@ func InvalidateKey(key string) {
 			clientCache.mu.Unlock()
 		}
 	}
-	
+
 	// Clean up for non-bcast
 	clientCache.mu.Lock()
 	if keyClients := clientCache.keyClients[key]; keyClients != nil {
@@ -209,17 +209,17 @@ func InvalidateKeysOnWrite(keys []string) {
 func (cc *ClientCache) invalidationSender(clientID string) {
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
-	
+
 	for {
 		cc.mu.RLock()
 		queue, ok := cc.invalidationQueues[clientID]
 		conn, hasConn := cc.connections[clientID]
 		cc.mu.RUnlock()
-		
+
 		if !ok {
 			return
 		}
-		
+
 		select {
 		case keys, ok := <-queue:
 			if !ok {
@@ -237,7 +237,7 @@ func (cc *ClientCache) invalidationSender(clientID string) {
 // sendInvalidation sends invalidation push message
 func sendInvalidation(conn redis.Connection, keys []string) {
 	push := protocol.MakeInvalidatePush(keys)
-	
+
 	// Write to connection
 	conn.Write(push.ToBytes())
 }
@@ -246,7 +246,7 @@ func sendInvalidation(conn redis.Connection, keys []string) {
 func IsTrackingEnabled(clientID string) bool {
 	clientCache.mu.RLock()
 	defer clientCache.mu.RUnlock()
-	
+
 	return clientCache.trackingEnabled[clientID]
 }
 
@@ -255,7 +255,7 @@ func TrackKeysOnRead(clientID string, keys []string) {
 	if !IsTrackingEnabled(clientID) {
 		return
 	}
-	
+
 	for _, key := range keys {
 		TrackKey(clientID, key)
 	}
@@ -270,12 +270,12 @@ func generateClientID() string {
 func GetTrackingInfo(clientID string) map[string]interface{} {
 	clientCache.mu.RLock()
 	defer clientCache.mu.RUnlock()
-	
+
 	return map[string]interface{}{
-		"enabled": clientCache.trackingEnabled[clientID],
-		"mode":    clientCache.trackingMode[clientID],
+		"enabled":  clientCache.trackingEnabled[clientID],
+		"mode":     clientCache.trackingMode[clientID],
 		"prefixes": clientCache.prefixes[clientID],
-		"keys":    len(clientCache.trackedKeys[clientID]),
+		"keys":     len(clientCache.trackedKeys[clientID]),
 	}
 }
 
@@ -283,10 +283,10 @@ func GetTrackingInfo(clientID string) map[string]interface{} {
 func GetTrackingStats() map[string]interface{} {
 	clientCache.mu.RLock()
 	defer clientCache.mu.RUnlock()
-	
+
 	return map[string]interface{}{
-		"tracking_clients": clientCache.trackingClientsCount,
-		"total_tracked_keys": len(clientCache.keyClients),
+		"tracking_clients":       clientCache.trackingClientsCount,
+		"total_tracked_keys":     len(clientCache.keyClients),
 		"invalidation_msgs_sent": clientCache.invalidationMsgsSent,
 	}
 }
@@ -302,5 +302,3 @@ func GetTrackingClientsCount() int {
 func init() {
 	// This would be called when keys are modified
 }
-
-

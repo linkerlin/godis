@@ -6,28 +6,28 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/hdt3213/godis/interface/redis"
+	"github.com/linkerlin/godis/interface/redis"
 )
 
 // RESP3 Type Characters
 const (
 	// Simple types
-	Resp3SimpleString = '+'  // +\r\n
-	Resp3SimpleError  = '-'  // -\r\n
-	Resp3Integer      = ':'  // :\r\n
-	Resp3Null         = '_'  // _\r\n
-	Resp3Double       = ','  // ,\r\n
-	Resp3Boolean      = '#'  // #t\r\n or #f\r\n
-	Resp3BigNumber    = '('  // (\r\n
+	Resp3SimpleString = '+' // +\r\n
+	Resp3SimpleError  = '-' // -\r\n
+	Resp3Integer      = ':' // :\r\n
+	Resp3Null         = '_' // _\r\n
+	Resp3Double       = ',' // ,\r\n
+	Resp3Boolean      = '#' // #t\r\n or #f\r\n
+	Resp3BigNumber    = '(' // (\r\n
 
 	// Aggregate types
-	Resp3BulkString  = '$'  // $\r\n
-	Resp3Array       = '*'  // *\r\n
-	Resp3Map         = '%'  // %\r\n
-	Resp3Set         = '~'  // ~\r\n
-	Resp3Attribute   = '|'  // |\r\n
-	Resp3Push        = '>'  // >\r\n
-	Resp3Verbatim    = '='  // =\r\n
+	Resp3BulkString = '$' // $\r\n
+	Resp3Array      = '*' // *\r\n
+	Resp3Map        = '%' // %\r\n
+	Resp3Set        = '~' // ~\r\n
+	Resp3Attribute  = '|' // |\r\n
+	Resp3Push       = '>' // >\r\n
+	Resp3Verbatim   = '=' // =\r\n
 
 	// Streamed types
 	Resp3StreamedString = '$' // with ? as length
@@ -179,8 +179,8 @@ func (r *AttributeReply) ToBytes() []byte {
 
 // PushReply represents a push message (for client-side caching, pub/sub, etc.)
 type PushReply struct {
-	Kind    string
-	Data    []redis.Reply
+	Kind string
+	Data []redis.Reply
 }
 
 // MakePushReply creates a new PushReply

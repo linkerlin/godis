@@ -15,8 +15,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/hdt3213/godis/interface/tcp"
-	"github.com/hdt3213/godis/lib/logger"
+	"github.com/linkerlin/godis/interface/tcp"
+	"github.com/linkerlin/godis/lib/logger"
 )
 
 // GetRejectedConnections returns the number of rejected connections
@@ -40,7 +40,7 @@ var RejectedConnections uint64
 // ListenAndServeWithSignal binds port and handle requests, blocking until receive stop signal
 func ListenAndServeWithSignal(cfg *Config, handler tcp.Handler) error {
 	closeChan := make(chan struct{})
-	sigCh := make(chan os.Signal)
+	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGHUP, syscall.SIGQUIT, syscall.SIGTERM, syscall.SIGINT)
 	go func() {
 		sig := <-sigCh

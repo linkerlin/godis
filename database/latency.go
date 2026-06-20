@@ -6,14 +6,14 @@ import (
 	"sync"
 	"time"
 
-	"github.com/hdt3213/godis/interface/redis"
-	"github.com/hdt3213/godis/redis/protocol"
+	"github.com/linkerlin/godis/interface/redis"
+	"github.com/linkerlin/godis/redis/protocol"
 )
 
 // LatencyMonitor 延迟监控器
 type LatencyMonitor struct {
-	mu       sync.RWMutex
-	events   map[string][]*LatencyEvent
+	mu        sync.RWMutex
+	events    map[string][]*LatencyEvent
 	maxEvents int
 }
 
@@ -63,7 +63,7 @@ func (lm *LatencyMonitor) GetEvents(eventName string) []*LatencyEvent {
 func (lm *LatencyMonitor) GetAllEvents() map[string][]*LatencyEvent {
 	lm.mu.RLock()
 	defer lm.mu.RUnlock()
-	
+
 	result := make(map[string][]*LatencyEvent)
 	for k, v := range lm.events {
 		result[k] = v
@@ -153,14 +153,14 @@ func execLatencyLatest() redis.Reply {
 		}
 		// 获取最新的事件
 		latest := events[len(events)-1]
-		
+
 		// 计算平均延迟
 		var total int64
 		for _, e := range events {
 			total += e.Duration
 		}
 		avg := total / int64(len(events))
-		
+
 		// 计算最大延迟
 		var max int64
 		for _, e := range events {
@@ -185,7 +185,7 @@ func execLatencyLatest() redis.Reply {
 // execLatencyDoctor 获取延迟诊断信息
 func execLatencyDoctor() redis.Reply {
 	allEvents := latencyMonitor.GetAllEvents()
-	
+
 	var issues []string
 	for eventName, events := range allEvents {
 		if len(events) == 0 {
@@ -194,7 +194,7 @@ func execLatencyDoctor() redis.Reply {
 		// 检查是否有高延迟事件（超过 100ms）
 		for _, e := range events {
 			if e.Duration > 100000 { // 100ms = 100000 微秒
-				issues = append(issues, fmt.Sprintf("High latency detected for %s: %d microseconds", 
+				issues = append(issues, fmt.Sprintf("High latency detected for %s: %d microseconds",
 					eventName, e.Duration))
 				break
 			}
@@ -221,7 +221,7 @@ func execLatencyGraph(eventName string) redis.Reply {
 
 	// 简化图形表示
 	graph := fmt.Sprintf("Latency graph for '%s' (last %d samples):\n", eventName, len(events))
-	
+
 	// 计算最大和最小值
 	var max, min int64 = -1, -1
 	for _, e := range events {
@@ -234,7 +234,7 @@ func execLatencyGraph(eventName string) redis.Reply {
 	}
 
 	graph += fmt.Sprintf("max: %d us, min: %d us\n", max, min)
-	
+
 	// 绘制简单直方图
 	for _, e := range events {
 		bars := int(e.Duration * 50 / max)

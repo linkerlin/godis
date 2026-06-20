@@ -6,11 +6,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hdt3213/godis/config"
-	"github.com/hdt3213/godis/database"
-	"github.com/hdt3213/godis/interface/redis"
-	"github.com/hdt3213/godis/lib/logger"
-	"github.com/hdt3213/godis/redis/protocol"
+	"github.com/linkerlin/godis/config"
+	"github.com/linkerlin/godis/database"
+	"github.com/linkerlin/godis/interface/redis"
+	"github.com/linkerlin/godis/lib/logger"
+	"github.com/linkerlin/godis/redis/protocol"
 )
 
 // CmdLine is alias for [][]byte, represents a command line

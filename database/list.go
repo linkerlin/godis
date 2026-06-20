@@ -5,11 +5,11 @@ import (
 	"strconv"
 	"strings"
 
-	List "github.com/hdt3213/godis/datastruct/list"
-	"github.com/hdt3213/godis/interface/database"
-	"github.com/hdt3213/godis/interface/redis"
-	"github.com/hdt3213/godis/lib/utils"
-	"github.com/hdt3213/godis/redis/protocol"
+	List "github.com/linkerlin/godis/datastruct/list"
+	"github.com/linkerlin/godis/interface/database"
+	"github.com/linkerlin/godis/interface/redis"
+	"github.com/linkerlin/godis/lib/utils"
+	"github.com/linkerlin/godis/redis/protocol"
 )
 
 func (db *DB) getAsList(key string) (List.List, protocol.ErrorReply) {

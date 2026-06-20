@@ -3,9 +3,9 @@ package core
 import (
 	"sync"
 
-	"github.com/hdt3213/godis/interface/redis"
-	"github.com/hdt3213/godis/redis/connection"
-	"github.com/hdt3213/godis/redis/parser"
+	"github.com/linkerlin/godis/interface/redis"
+	"github.com/linkerlin/godis/redis/connection"
+	"github.com/linkerlin/godis/redis/parser"
 )
 
 type InMemConnectionFactory struct {

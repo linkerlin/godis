@@ -1,13 +1,14 @@
 package dict
 
 import (
-	"github.com/hdt3213/godis/lib/wildcard"
 	"math"
 	"math/rand"
 	"sort"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/linkerlin/godis/lib/wildcard"
 )
 
 // ConcurrentDict is thread safe map using sharding lock

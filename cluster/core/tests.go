@@ -3,7 +3,7 @@ package core
 import (
 	"strconv"
 
-	dbimpl "github.com/hdt3213/godis/database"
+	dbimpl "github.com/linkerlin/godis/database"
 )
 
 // MakeTestCluster creates a cluster for test, which communications are done through local function calls.
@@ -14,12 +14,12 @@ func MakeTestCluster(ids []string) map[string]*Cluster {
 	for _, id := range ids {
 		db := dbimpl.MustNewStandaloneServer()
 		cluster := &Cluster{
-			db:              db,
-			config:          &Config{},
-			connections:     connections,
-			slotsManager:    newSlotsManager(),
-			transactions:    newTransactionManager(),
-			id_:             id,
+			db:           db,
+			config:       &Config{},
+			connections:  connections,
+			slotsManager: newSlotsManager(),
+			transactions: newTransactionManager(),
+			id_:          id,
 		}
 		cluster.rebalanceManager = NewRebalanceManager(cluster)
 		cluster.pickNodeImpl = func(slotID uint32) string {

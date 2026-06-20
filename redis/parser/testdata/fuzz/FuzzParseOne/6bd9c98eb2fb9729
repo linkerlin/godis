@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("*155555555\r\n\n0\r\n")

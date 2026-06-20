@@ -11,18 +11,18 @@ import (
 	"sync"
 	"time"
 
-	"github.com/hdt3213/godis/interface/redis"
-	"github.com/hdt3213/godis/lib/logger"
-	"github.com/hdt3213/godis/lib/sync/atomic"
-	"github.com/hdt3213/godis/lib/utils"
-	"github.com/hdt3213/godis/redis/protocol"
+	"github.com/linkerlin/godis/interface/redis"
+	"github.com/linkerlin/godis/lib/logger"
+	"github.com/linkerlin/godis/lib/sync/atomic"
+	"github.com/linkerlin/godis/lib/utils"
+	"github.com/linkerlin/godis/redis/protocol"
 )
 
 /*
 `execPSync` receives `slaveof` command. Depending on the status of rdb, there are two branches:
 
 Branch A: rdb is not ready
-1. Master adds the client into `server.masterStatus.waitSlaves`. 
+1. Master adds the client into `server.masterStatus.waitSlaves`.
 2. If there is no rdb generation in progress, calls `saveForReplication` to start.
 3. `persister.GenerateRDBForReplication` generates rdb file and sends following updates after rdb to parameter `listener`
 4. After the rdb generation is done, `saveForReplication` calls `masterFullReSyncWithSlave` to send rdb to `waitSlaves`

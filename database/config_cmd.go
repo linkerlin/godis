@@ -5,9 +5,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/hdt3213/godis/config"
-	"github.com/hdt3213/godis/interface/redis"
-	"github.com/hdt3213/godis/redis/protocol"
+	"github.com/linkerlin/godis/config"
+	"github.com/linkerlin/godis/interface/redis"
+	"github.com/linkerlin/godis/redis/protocol"
 )
 
 // execConfig 处理 CONFIG 命令
@@ -68,7 +68,7 @@ type configPair struct {
 // getConfigMatches 根据模式获取配置项
 func getConfigMatches(pattern string) []configPair {
 	matches := make([]configPair, 0)
-	
+
 	// 支持的配置项
 	configs := []configPair{
 		{"databases", strconv.Itoa(config.Properties.Databases)},

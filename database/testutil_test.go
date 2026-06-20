@@ -6,8 +6,8 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/hdt3213/godis/config"
-	"github.com/hdt3213/godis/lib/logger"
+	"github.com/linkerlin/godis/config"
+	"github.com/linkerlin/godis/lib/logger"
 )
 
 var (

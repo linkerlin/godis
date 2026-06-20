@@ -6,12 +6,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hdt3213/godis/datastruct/dict"
-	"github.com/hdt3213/godis/interface/database"
-	"github.com/hdt3213/godis/interface/redis"
-	"github.com/hdt3213/godis/lib/logger"
-	"github.com/hdt3213/godis/lib/timewheel"
-	"github.com/hdt3213/godis/redis/protocol"
+	"github.com/linkerlin/godis/datastruct/dict"
+	"github.com/linkerlin/godis/interface/database"
+	"github.com/linkerlin/godis/interface/redis"
+	"github.com/linkerlin/godis/lib/logger"
+	"github.com/linkerlin/godis/lib/timewheel"
+	"github.com/linkerlin/godis/redis/protocol"
 )
 
 const (
@@ -38,12 +38,15 @@ type DB struct {
 	// callbacks
 	insertCallback database.KeyEventCallback
 	deleteCallback database.KeyEventCallback
-	
+
 	// lockManager for advanced lock control (optional)
 	lockManager *dict.LockManager
-	
+
 	// evictionManager for memory limit eviction (optional)
 	evictionManager *EvictionManager
+
+	// parent server (nil in isolated DB unit tests)
+	server *Server
 }
 
 // ExecFunc is interface for command executor
@@ -159,7 +162,7 @@ func (db *DB) execNormalCommand(cmdLine [][]byte) redis.Reply {
 	defer db.RWUnLocks(write, read)
 	fun := cmd.executor
 	result := fun(db, cmdLine[1:])
-	
+
 	// Record command stats
 	usec := uint64(time.Since(start).Microseconds())
 	failed := false
@@ -167,7 +170,7 @@ func (db *DB) execNormalCommand(cmdLine [][]byte) redis.Reply {
 		failed = true
 	}
 	RecordCommand(cmdName, usec, failed)
-	
+
 	return result
 }
 
@@ -305,10 +308,10 @@ func (db *DB) RWLocksWithTimeout(writeKeys, readKeys []string, holderID string) 
 		db.RWLocks(writeKeys, readKeys)
 		return nil
 	}
-	
+
 	ctx, cancel := context.WithTimeout(context.Background(), db.lockManager.GetTimeout())
 	defer cancel()
-	
+
 	return db.lockManager.RWLocksWithTimeout(ctx, writeKeys, readKeys, holderID)
 }
 
@@ -318,7 +321,7 @@ func (db *DB) RWUnLocksWithTimeout(writeKeys, readKeys []string, holderID string
 		db.RWUnLocks(writeKeys, readKeys)
 		return
 	}
-	
+
 	db.lockManager.RWUnLocks(writeKeys, readKeys, holderID)
 }
 
@@ -332,11 +335,11 @@ func (db *DB) EvictIfNeeded(maxMemory, currentUsage int64) int {
 	if db.evictionManager == nil {
 		return 0
 	}
-	
+
 	if !db.evictionManager.ShouldEvict(maxMemory, currentUsage) {
 		return 0
 	}
-	
+
 	// Try to free 10% of maxmemory
 	target := maxMemory / 10
 	return db.evictionManager.EvictKeys(target)

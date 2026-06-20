@@ -1,19 +1,20 @@
 package database
 
 import (
-	"github.com/hdt3213/godis/aof"
-	"github.com/hdt3213/godis/datastruct/dict"
-	"github.com/hdt3213/godis/datastruct/list"
-	"github.com/hdt3213/godis/datastruct/set"
-	"github.com/hdt3213/godis/datastruct/sortedset"
-	"github.com/hdt3213/godis/interface/redis"
-	"github.com/hdt3213/godis/lib/utils"
-	"github.com/hdt3213/godis/lib/wildcard"
-	"github.com/hdt3213/godis/redis/protocol"
 	"math"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/linkerlin/godis/aof"
+	"github.com/linkerlin/godis/datastruct/dict"
+	"github.com/linkerlin/godis/datastruct/list"
+	"github.com/linkerlin/godis/datastruct/set"
+	"github.com/linkerlin/godis/datastruct/sortedset"
+	"github.com/linkerlin/godis/interface/redis"
+	"github.com/linkerlin/godis/lib/utils"
+	"github.com/linkerlin/godis/lib/wildcard"
+	"github.com/linkerlin/godis/redis/protocol"
 )
 
 // execDel removes a key from db
@@ -452,16 +453,16 @@ func (mdb *Server) execMove(conn redis.Connection, args [][]byte) redis.Reply {
 	if err != nil {
 		return protocol.MakeErrReply("ERR value is not an integer or out of range")
 	}
-	
+
 	if dbIndex >= len(mdb.dbSet) || dbIndex < 0 {
 		return protocol.MakeErrReply("ERR DB index is out of range")
 	}
-	
+
 	srcDBIndex := conn.GetDBIndex()
 	if srcDBIndex == dbIndex {
 		return protocol.MakeErrReply("ERR source and destination objects are the same")
 	}
-	
+
 	srcDB, err := mdb.selectDBSafe(srcDBIndex)
 	if err != nil {
 		return protocol.MakeErrReply("ERR DB index is out of range")
@@ -470,18 +471,18 @@ func (mdb *Server) execMove(conn redis.Connection, args [][]byte) redis.Reply {
 	if err != nil {
 		return protocol.MakeErrReply("ERR DB index is out of range")
 	}
-	
+
 	// Check if key exists in source
 	entity, exists := srcDB.GetEntity(srcKey)
 	if !exists {
 		return protocol.MakeIntReply(0)
 	}
-	
+
 	// Check if key exists in destination
 	if _, exists = destDB.GetEntity(srcKey); exists {
 		return protocol.MakeIntReply(0)
 	}
-	
+
 	// Move the key
 	destDB.PutEntity(srcKey, entity)
 	raw, hasTTL := srcDB.ttlMap.Get(srcKey)
@@ -491,7 +492,7 @@ func (mdb *Server) execMove(conn redis.Connection, args [][]byte) redis.Reply {
 		srcDB.Persist(srcKey) // Remove TTL from source before removing key
 	}
 	srcDB.Remove(srcKey)
-	
+
 	mdb.AddAof(srcDBIndex, utils.ToCmdLine3("move", args...))
 	return protocol.MakeIntReply(1)
 }

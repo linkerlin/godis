@@ -34,4 +34,10 @@ type Connection interface {
 	IsMaster() bool
 
 	Name() string
+
+	// ACL authentication state (Redis 6+)
+	SetACLUser(string)
+	GetACLUser() string
+	SetACLAuthenticated(bool)
+	IsACLAuthenticated() bool
 }

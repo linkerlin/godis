@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"sync"
 
-	"github.com/hdt3213/godis/lib/logger"
+	"github.com/linkerlin/godis/lib/logger"
 	lua "github.com/yuin/gopher-lua"
 )
 
@@ -207,9 +207,9 @@ func (d *FullDebugger) GetDebugInfo() map[string]interface{} {
 	defer d.mu.RUnlock()
 
 	return map[string]interface{}{
-		"script":   d.currentScript,
-		"mode":     d.mode,
-		"trace":    d.traceEnabled,
+		"script":      d.currentScript,
+		"mode":        d.mode,
+		"trace":       d.traceEnabled,
 		"breakpoints": len(d.breakpoints),
 	}
 }

@@ -6,10 +6,10 @@ import (
 	"net"
 	"strings"
 
-	"github.com/hdt3213/godis/interface/redis"
-	"github.com/hdt3213/godis/lib/utils"
-	"github.com/hdt3213/godis/redis/connection"
-	"github.com/hdt3213/godis/redis/protocol"
+	"github.com/linkerlin/godis/interface/redis"
+	"github.com/linkerlin/godis/lib/utils"
+	"github.com/linkerlin/godis/redis/connection"
+	"github.com/linkerlin/godis/redis/protocol"
 )
 
 const SlotCount int = 1024

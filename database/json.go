@@ -6,11 +6,11 @@ import (
 	"strconv"
 	"strings"
 
-	godisjson "github.com/hdt3213/godis/datastruct/json"
-	"github.com/hdt3213/godis/interface/database"
-	"github.com/hdt3213/godis/interface/redis"
-	"github.com/hdt3213/godis/lib/utils"
-	"github.com/hdt3213/godis/redis/protocol"
+	godisjson "github.com/linkerlin/godis/datastruct/json"
+	"github.com/linkerlin/godis/interface/database"
+	"github.com/linkerlin/godis/interface/redis"
+	"github.com/linkerlin/godis/lib/utils"
+	"github.com/linkerlin/godis/redis/protocol"
 )
 
 // execJSONSet sets a JSON value at the specified path
@@ -19,7 +19,7 @@ func execJSONSet(db *DB, args [][]byte) redis.Reply {
 	if len(args) < 3 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'json.set' command")
 	}
-	
+
 	key := string(args[0])
 	path := string(args[1])
 	if reply := validateBulkBytes(args[1]); reply != nil {
@@ -28,13 +28,13 @@ func execJSONSet(db *DB, args [][]byte) redis.Reply {
 	if reply := validateBulkBytes(args[2]); reply != nil {
 		return reply
 	}
-	
+
 	// Parse the JSON value
 	var value interface{}
 	if err := json.Unmarshal(args[2], &value); err != nil {
 		return protocol.MakeErrReply(fmt.Sprintf("ERR invalid JSON: %v", err))
 	}
-	
+
 	// Parse options
 	nx := false
 	xx := false
@@ -47,15 +47,15 @@ func execJSONSet(db *DB, args [][]byte) redis.Reply {
 			xx = true
 		}
 	}
-	
+
 	if nx && xx {
 		return protocol.MakeErrReply("ERR NX and XX are mutually exclusive")
 	}
-	
+
 	// Get or create JSON value
 	entity, exists := db.GetEntity(key)
 	var jv *godisjson.JSONValue
-	
+
 	if !exists {
 		if xx {
 			// XX: only set if exists
@@ -70,17 +70,17 @@ func execJSONSet(db *DB, args [][]byte) redis.Reply {
 			return &protocol.WrongTypeErrReply{}
 		}
 	}
-	
+
 	// Set the value
 	ok, err := jv.Set(path, value, nx, xx)
 	if err != nil {
 		return protocol.MakeErrReply(fmt.Sprintf("ERR %v", err))
 	}
-	
+
 	if !ok {
 		return &protocol.NullBulkReply{}
 	}
-	
+
 	db.addAof(utils.ToCmdLine3("json.set", args...))
 	return protocol.MakeOkReply()
 }
@@ -91,20 +91,20 @@ func execJSONGet(db *DB, args [][]byte) redis.Reply {
 	if len(args) < 1 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'json.get' command")
 	}
-	
+
 	key := string(args[0])
-	
+
 	// Get JSON value
 	entity, exists := db.GetEntity(key)
 	if !exists {
 		return &protocol.NullBulkReply{}
 	}
-	
+
 	jv, ok := entity.Data.(*godisjson.JSONValue)
 	if !ok {
 		return &protocol.WrongTypeErrReply{}
 	}
-	
+
 	// Default path is root
 	paths := []string{"$"}
 	if len(args) > 1 {
@@ -113,21 +113,21 @@ func execJSONGet(db *DB, args [][]byte) redis.Reply {
 			paths[i-1] = string(args[i])
 		}
 	}
-	
+
 	// Get values for all paths
 	if len(paths) == 1 {
 		val, err := jv.Get(paths[0])
 		if err != nil {
 			return &protocol.NullBulkReply{}
 		}
-		
+
 		result, err := json.Marshal(val)
 		if err != nil {
 			return protocol.MakeErrReply(fmt.Sprintf("ERR %v", err))
 		}
 		return protocol.MakeBulkReply(result)
 	}
-	
+
 	// Multiple paths - return as object
 	result := make(map[string]interface{})
 	for _, path := range paths {
@@ -136,7 +136,7 @@ func execJSONGet(db *DB, args [][]byte) redis.Reply {
 			result[path] = val
 		}
 	}
-	
+
 	data, err := json.Marshal(result)
 	if err != nil {
 		return protocol.MakeErrReply(fmt.Sprintf("ERR %v", err))
@@ -150,35 +150,35 @@ func execJSONDel(db *DB, args [][]byte) redis.Reply {
 	if len(args) < 1 || len(args) > 2 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'json.del' command")
 	}
-	
+
 	key := string(args[0])
 	path := "$"
 	if len(args) > 1 {
 		path = string(args[1])
 	}
-	
+
 	// Get JSON value
 	entity, exists := db.GetEntity(key)
 	if !exists {
 		return protocol.MakeIntReply(0)
 	}
-	
+
 	jv, ok := entity.Data.(*godisjson.JSONValue)
 	if !ok {
 		return &protocol.WrongTypeErrReply{}
 	}
-	
+
 	// Delete
 	ok, err := jv.Del(path)
 	if err != nil {
 		return protocol.MakeErrReply(fmt.Sprintf("ERR %v", err))
 	}
-	
+
 	// If root was deleted, remove the key
 	if path == "$" {
 		db.Remove(key)
 	}
-	
+
 	if ok {
 		db.addAof(utils.ToCmdLine3("json.del", args...))
 		return protocol.MakeIntReply(1)
@@ -192,29 +192,29 @@ func execJSONType(db *DB, args [][]byte) redis.Reply {
 	if len(args) < 1 || len(args) > 2 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'json.type' command")
 	}
-	
+
 	key := string(args[0])
 	path := "$"
 	if len(args) > 1 {
 		path = string(args[1])
 	}
-	
+
 	// Get JSON value
 	entity, exists := db.GetEntity(key)
 	if !exists {
 		return &protocol.NullBulkReply{}
 	}
-	
+
 	jv, ok := entity.Data.(*godisjson.JSONValue)
 	if !ok {
 		return &protocol.WrongTypeErrReply{}
 	}
-	
+
 	typ, err := jv.Type(path)
 	if err != nil {
 		return &protocol.NullBulkReply{}
 	}
-	
+
 	return protocol.MakeBulkReply([]byte(typ))
 }
 
@@ -224,33 +224,33 @@ func execJSONNumIncrBy(db *DB, args [][]byte) redis.Reply {
 	if len(args) != 3 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'json.numincrby' command")
 	}
-	
+
 	key := string(args[0])
 	path := string(args[1])
-	
+
 	// Parse increment
 	increment, err := strconv.ParseFloat(string(args[2]), 64)
 	if err != nil {
 		return protocol.MakeErrReply("ERR invalid number")
 	}
-	
+
 	// Get JSON value
 	entity, exists := db.GetEntity(key)
 	if !exists {
 		return protocol.MakeErrReply("ERR key does not exist")
 	}
-	
+
 	jv, ok := entity.Data.(*godisjson.JSONValue)
 	if !ok {
 		return &protocol.WrongTypeErrReply{}
 	}
-	
+
 	// Increment
 	newVal, err := jv.NumIncrBy(path, increment)
 	if err != nil {
 		return protocol.MakeErrReply(fmt.Sprintf("ERR %v", err))
 	}
-	
+
 	db.addAof(utils.ToCmdLine3("json.numincrby", args...))
 	return protocol.MakeBulkReply([]byte(fmt.Sprintf("%g", newVal)))
 }
@@ -261,11 +261,11 @@ func execJSONStrAppend(db *DB, args [][]byte) redis.Reply {
 	if len(args) < 2 || len(args) > 3 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'json.strappend' command")
 	}
-	
+
 	key := string(args[0])
 	var path string
 	var value []byte
-	
+
 	if len(args) == 2 {
 		path = "$"
 		value = args[1]
@@ -281,30 +281,30 @@ func execJSONStrAppend(db *DB, args [][]byte) redis.Reply {
 			return reply
 		}
 	}
-	
+
 	// Parse string value (remove quotes if present)
 	strVal := string(value)
 	if len(strVal) >= 2 && strVal[0] == '"' && strVal[len(strVal)-1] == '"' {
 		strVal = strVal[1 : len(strVal)-1]
 	}
-	
+
 	// Get JSON value
 	entity, exists := db.GetEntity(key)
 	if !exists {
 		return protocol.MakeErrReply("ERR key does not exist")
 	}
-	
+
 	jv, ok := entity.Data.(*godisjson.JSONValue)
 	if !ok {
 		return &protocol.WrongTypeErrReply{}
 	}
-	
+
 	// Append
 	newLen, err := jv.StrAppend(path, strVal)
 	if err != nil {
 		return protocol.MakeErrReply(fmt.Sprintf("ERR %v", err))
 	}
-	
+
 	db.addAof(utils.ToCmdLine3("json.strappend", args...))
 	return protocol.MakeIntReply(int64(newLen))
 }
@@ -315,13 +315,13 @@ func execJSONArrAppend(db *DB, args [][]byte) redis.Reply {
 	if len(args) < 3 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'json.arrappend' command")
 	}
-	
+
 	key := string(args[0])
 	path := string(args[1])
 	if reply := validateBulkBytes(args[1]); reply != nil {
 		return reply
 	}
-	
+
 	// Parse values
 	values := make([]interface{}, len(args)-2)
 	for i := 2; i < len(args); i++ {
@@ -335,24 +335,24 @@ func execJSONArrAppend(db *DB, args [][]byte) redis.Reply {
 		}
 		values[i-2] = val
 	}
-	
+
 	// Get JSON value
 	entity, exists := db.GetEntity(key)
 	if !exists {
 		return protocol.MakeErrReply("ERR key does not exist")
 	}
-	
+
 	jv, ok := entity.Data.(*godisjson.JSONValue)
 	if !ok {
 		return &protocol.WrongTypeErrReply{}
 	}
-	
+
 	// Append
 	newLen, err := jv.ArrAppend(path, values...)
 	if err != nil {
 		return protocol.MakeErrReply(fmt.Sprintf("ERR %v", err))
 	}
-	
+
 	db.addAof(utils.ToCmdLine3("json.arrappend", args...))
 	return protocol.MakeIntReply(int64(newLen))
 }
@@ -363,29 +363,29 @@ func execJSONArrLen(db *DB, args [][]byte) redis.Reply {
 	if len(args) < 1 || len(args) > 2 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'json.arrlen' command")
 	}
-	
+
 	key := string(args[0])
 	path := "$"
 	if len(args) > 1 {
 		path = string(args[1])
 	}
-	
+
 	// Get JSON value
 	entity, exists := db.GetEntity(key)
 	if !exists {
 		return &protocol.NullBulkReply{}
 	}
-	
+
 	jv, ok := entity.Data.(*godisjson.JSONValue)
 	if !ok {
 		return &protocol.WrongTypeErrReply{}
 	}
-	
+
 	length, err := jv.ArrLen(path)
 	if err != nil {
 		return protocol.MakeErrReply(fmt.Sprintf("ERR %v", err))
 	}
-	
+
 	return protocol.MakeIntReply(int64(length))
 }
 
@@ -395,29 +395,29 @@ func execJSONObjKeys(db *DB, args [][]byte) redis.Reply {
 	if len(args) < 1 || len(args) > 2 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'json.objkeys' command")
 	}
-	
+
 	key := string(args[0])
 	path := "$"
 	if len(args) > 1 {
 		path = string(args[1])
 	}
-	
+
 	// Get JSON value
 	entity, exists := db.GetEntity(key)
 	if !exists {
 		return &protocol.NullBulkReply{}
 	}
-	
+
 	jv, ok := entity.Data.(*godisjson.JSONValue)
 	if !ok {
 		return &protocol.WrongTypeErrReply{}
 	}
-	
+
 	keys, err := jv.ObjKeys(path)
 	if err != nil {
 		return protocol.MakeErrReply(fmt.Sprintf("ERR %v", err))
 	}
-	
+
 	result := make([][]byte, len(keys))
 	for i, k := range keys {
 		result[i] = []byte(k)
@@ -431,29 +431,29 @@ func execJSONObjLen(db *DB, args [][]byte) redis.Reply {
 	if len(args) < 1 || len(args) > 2 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'json.objlen' command")
 	}
-	
+
 	key := string(args[0])
 	path := "$"
 	if len(args) > 1 {
 		path = string(args[1])
 	}
-	
+
 	// Get JSON value
 	entity, exists := db.GetEntity(key)
 	if !exists {
 		return &protocol.NullBulkReply{}
 	}
-	
+
 	jv, ok := entity.Data.(*godisjson.JSONValue)
 	if !ok {
 		return &protocol.WrongTypeErrReply{}
 	}
-	
+
 	length, err := jv.ObjLen(path)
 	if err != nil {
 		return protocol.MakeErrReply(fmt.Sprintf("ERR %v", err))
 	}
-	
+
 	return protocol.MakeIntReply(int64(length))
 }
 
@@ -484,4 +484,3 @@ func init() {
 	registerCommand("JSON.ObjLen", execJSONObjLen, prepareJSONKey, nil, -2, flagReadOnly).
 		attachCommandExtra([]string{redisFlagReadonly}, 1, 1, 1)
 }
-

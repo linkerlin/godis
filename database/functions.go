@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/hdt3213/godis/functions"
-	"github.com/hdt3213/godis/interface/redis"
-	"github.com/hdt3213/godis/redis/protocol"
+	"github.com/linkerlin/godis/functions"
+	"github.com/linkerlin/godis/interface/redis"
+	"github.com/linkerlin/godis/redis/protocol"
 )
 
 // Global functions engine
@@ -15,7 +15,7 @@ var funcEngine *functions.Engine
 // InitFunctionsEngine initializes the functions engine
 func InitFunctionsEngine(db *DB) {
 	funcEngine = functions.NewEngine(10)
-	
+
 	// Set up database execution function for Lua scripts
 	if db != nil {
 		dbExec := func(cmd string, args ...string) (interface{}, error) {
@@ -24,14 +24,14 @@ func InitFunctionsEngine(db *DB) {
 			for _, arg := range args {
 				cmdLine = append(cmdLine, []byte(arg))
 			}
-			
+
 			result := db.Exec(nil, cmdLine)
 			if errReply, ok := result.(*protocol.StandardErrReply); ok {
 				return nil, fmt.Errorf(errReply.Status)
 			}
 			return redisReplyToGo(result), nil
 		}
-		
+
 		funcEngine.SetDBExec(dbExec)
 	}
 }
@@ -42,14 +42,14 @@ func execFunctionLoad(db *DB, args [][]byte) redis.Reply {
 	if len(args) < 1 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'function load' command")
 	}
-	
+
 	if funcEngine == nil {
 		InitFunctionsEngine(db)
 	}
-	
+
 	replace := false
 	codeIdx := 0
-	
+
 	if strings.ToUpper(string(args[0])) == "REPLACE" {
 		replace = true
 		if len(args) < 2 {
@@ -57,26 +57,26 @@ func execFunctionLoad(db *DB, args [][]byte) redis.Reply {
 		}
 		codeIdx = 1
 	}
-	
+
 	code := string(args[codeIdx])
 	if reply := validateBulkBytes(args[codeIdx]); reply != nil {
 		return reply
 	}
-	
+
 	// Extract library name from code
 	// Format: #!lua name=mylib
 	libName := extractLibraryName(code)
 	if libName == "" {
 		return protocol.MakeErrReply("ERR Library name not specified (use '#!lua name=libname' shebang)")
 	}
-	
+
 	// Load library
 	numFuncs, err := funcEngine.LoadLibrary(libName, code, replace)
 	if err != nil {
 		return protocol.MakeErrReply(fmt.Sprintf("ERR %v", err))
 	}
-	
-		cmdLine := append([][]byte{[]byte("function"), []byte("load")}, args...)
+
+	cmdLine := append([][]byte{[]byte("function"), []byte("load")}, args...)
 	db.addAof(cmdLine)
 	return protocol.MakeBulkReply([]byte(fmt.Sprintf("%s:%d", libName, numFuncs)))
 }
@@ -87,13 +87,13 @@ func execFunctionList(db *DB, args [][]byte) redis.Reply {
 	if funcEngine == nil {
 		return protocol.MakeEmptyMultiBulkReply()
 	}
-	
+
 	libName := ""
 	withCode := false
-	
+
 	for i := 0; i < len(args); i++ {
 		arg := strings.ToUpper(string(args[i]))
-		
+
 		switch arg {
 		case "LIBRARYNAME":
 			if i+1 >= len(args) {
@@ -105,16 +105,16 @@ func execFunctionList(db *DB, args [][]byte) redis.Reply {
 			withCode = true
 		}
 	}
-	
+
 	var reply [][]byte
-	
+
 	if libName != "" {
 		// List specific library
 		lib, exists := funcEngine.GetLibrary(libName)
 		if !exists {
 			return protocol.MakeEmptyMultiBulkReply()
 		}
-		
+
 		reply = append(reply, formatLibraryInfo(lib, withCode)...)
 	} else {
 		// List all libraries
@@ -125,7 +125,7 @@ func execFunctionList(db *DB, args [][]byte) redis.Reply {
 			}
 		}
 	}
-	
+
 	return protocol.MakeMultiBulkReply(reply)
 }
 
@@ -135,18 +135,18 @@ func execFunctionDelete(db *DB, args [][]byte) redis.Reply {
 	if len(args) != 1 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'function delete' command")
 	}
-	
+
 	if funcEngine == nil {
 		return protocol.MakeOkReply()
 	}
-	
+
 	libName := string(args[0])
-	
+
 	if err := funcEngine.DeleteLibrary(libName); err != nil {
 		return protocol.MakeErrReply(fmt.Sprintf("ERR %v", err))
 	}
-	
-		cmdLine := append([][]byte{[]byte("function"), []byte("delete")}, args...)
+
+	cmdLine := append([][]byte{[]byte("function"), []byte("delete")}, args...)
 	db.addAof(cmdLine)
 	return protocol.MakeOkReply()
 }
@@ -157,18 +157,18 @@ func execFunctionFlush(db *DB, args [][]byte) redis.Reply {
 	if len(args) > 1 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'function flush' command")
 	}
-	
+
 	if funcEngine == nil {
 		return protocol.MakeOkReply()
 	}
-	
+
 	// ASYNC/SYNC ignored for now
-	
+
 	if err := funcEngine.FlushAll(); err != nil {
 		return protocol.MakeErrReply(fmt.Sprintf("ERR %v", err))
 	}
-	
-		cmdLine := append([][]byte{[]byte("function"), []byte("flush")}, args...)
+
+	cmdLine := append([][]byte{[]byte("function"), []byte("flush")}, args...)
 	db.addAof(cmdLine)
 	return protocol.MakeOkReply()
 }
@@ -179,15 +179,15 @@ func execFunctionKill(db *DB, args [][]byte) redis.Reply {
 	if len(args) != 0 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'function kill' command")
 	}
-	
+
 	if funcEngine == nil {
 		return protocol.MakeErrReply("ERR no functions engine")
 	}
-	
+
 	if err := funcEngine.KillRunningFunction(); err != nil {
 		return protocol.MakeErrReply(fmt.Sprintf("ERR %s", err))
 	}
-	
+
 	return protocol.MakeOkReply()
 }
 
@@ -197,7 +197,7 @@ func execFunctionStats(db *DB, args [][]byte) redis.Reply {
 	if len(args) != 0 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'function stats' command")
 	}
-	
+
 	if funcEngine == nil {
 		return protocol.MakeMultiBulkReply([][]byte{
 			[]byte("running_script"),
@@ -206,9 +206,9 @@ func execFunctionStats(db *DB, args [][]byte) redis.Reply {
 			protocol.MakeEmptyMultiBulkReply().ToBytes(),
 		})
 	}
-	
+
 	stats := funcEngine.Stats()
-	
+
 	var engines [][]byte
 	engines = append(engines, []byte("lua"))
 	engines = append(engines, protocol.MakeMultiBulkReply([][]byte{
@@ -217,7 +217,7 @@ func execFunctionStats(db *DB, args [][]byte) redis.Reply {
 		[]byte("functions_count"),
 		[]byte(fmt.Sprintf("%d", stats["functions"])),
 	}).ToBytes())
-	
+
 	// Check for running function
 	var runningScriptReply redis.Reply = protocol.MakeEmptyMultiBulkReply()
 	if running := funcEngine.GetRunningFunction(); running != nil {
@@ -228,14 +228,14 @@ func execFunctionStats(db *DB, args [][]byte) redis.Reply {
 			[]byte(fmt.Sprintf("FCALL %s", running.Name)),
 		})
 	}
-	
+
 	reply := [][]byte{
 		[]byte("running_script"),
 		runningScriptReply.ToBytes(),
 		[]byte("engines"),
 		protocol.MakeMultiBulkReply(engines).ToBytes(),
 	}
-	
+
 	return protocol.MakeMultiBulkReply(reply)
 }
 
@@ -245,11 +245,11 @@ func execFunctionDump(db *DB, args [][]byte) redis.Reply {
 	if len(args) != 0 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'function dump' command")
 	}
-	
+
 	if funcEngine == nil {
 		return protocol.MakeBulkReply([]byte{})
 	}
-	
+
 	// Serialize all libraries
 	var dump []byte
 	for _, name := range funcEngine.ListLibraries() {
@@ -259,7 +259,7 @@ func execFunctionDump(db *DB, args [][]byte) redis.Reply {
 			dump = append(dump, '\n')
 		}
 	}
-	
+
 	return protocol.MakeBulkReply(dump)
 }
 
@@ -269,32 +269,32 @@ func execFunctionRestore(db *DB, args [][]byte) redis.Reply {
 	if len(args) < 1 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'function restore' command")
 	}
-	
+
 	if funcEngine == nil {
 		InitFunctionsEngine(db)
 	}
-	
+
 	// Parse policy
 	policy := "APPEND"
 	if len(args) > 1 {
 		policy = strings.ToUpper(string(args[1]))
 	}
-	
+
 	payload := string(args[0])
 	if reply := validateBulkBytes(args[0]); reply != nil {
 		return reply
 	}
-	
+
 	// Parse payload (libraries separated by shebang)
 	// Split by "#!lua name="
-	
+
 	if policy == "FLUSH" {
 		funcEngine.FlushAll()
 	}
-	
+
 	// Simple parsing - split by shebang and load each library
 	libs := parseLibraryDump(payload)
-	
+
 	for name, code := range libs {
 		replace := policy == "REPLACE" || policy == "FLUSH"
 		_, err := funcEngine.LoadLibrary(name, code, replace)
@@ -302,8 +302,8 @@ func execFunctionRestore(db *DB, args [][]byte) redis.Reply {
 			return protocol.MakeErrReply(fmt.Sprintf("ERR %v", err))
 		}
 	}
-	
-		cmdLine := append([][]byte{[]byte("function"), []byte("restore")}, args...)
+
+	cmdLine := append([][]byte{[]byte("function"), []byte("restore")}, args...)
 	db.addAof(cmdLine)
 	return protocol.MakeOkReply()
 }
@@ -324,50 +324,50 @@ func execFCallInternal(db *DB, args [][]byte, readonly bool) redis.Reply {
 	if len(args) < 2 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'fcall' command")
 	}
-	
+
 	if funcEngine == nil {
 		return protocol.MakeErrReply("ERR Redis Functions not enabled")
 	}
-	
+
 	funcName := string(args[0])
-	
+
 	numKeys, err := atoi(string(args[1]))
 	if err != nil {
 		return protocol.MakeErrReply("ERR numkeys should be integer")
 	}
-	
+
 	if len(args) < 2+numKeys {
 		return protocol.MakeErrReply("ERR wrong number of arguments")
 	}
-	
+
 	// Check function exists
 	fn, exists := funcEngine.GetFunction(funcName)
 	if !exists {
 		return protocol.MakeErrReply(fmt.Sprintf("ERR Function '%s' not found", funcName))
 	}
-	
+
 	// Check readonly constraint
 	if readonly && !fn.IsReadOnly() {
 		return protocol.MakeErrReply("ERR function is not read-only, use FCALL instead of FCALL_RO")
 	}
-	
+
 	// Extract keys and args
 	keys := make([]string, numKeys)
 	for i := 0; i < numKeys; i++ {
 		keys[i] = string(args[2+i])
 	}
-	
+
 	argsList := make([]string, len(args)-2-numKeys)
 	for i := 0; i < len(argsList); i++ {
 		argsList[i] = string(args[2+numKeys+i])
 	}
-	
+
 	// Execute function
 	result, err := funcEngine.Call(funcName, keys, argsList)
 	if err != nil {
 		return protocol.MakeErrReply(fmt.Sprintf("ERR %v", err))
 	}
-	
+
 	return goToRedisReply(result)
 }
 
@@ -378,17 +378,17 @@ func prepareFirstKey(args [][]byte) ([]string, []string) {
 	if len(args) < 2 {
 		return nil, nil
 	}
-	
+
 	numKeys, err := atoi(string(args[1]))
 	if err != nil {
 		return nil, nil
 	}
-	
+
 	var keys []string
 	for i := 0; i < numKeys && i+2 < len(args); i++ {
 		keys = append(keys, string(args[i+2]))
 	}
-	
+
 	return keys, nil
 }
 
@@ -412,15 +412,15 @@ func extractLibraryName(code string) string {
 
 func formatLibraryInfo(lib *functions.Library, withCode bool) [][]byte {
 	var result [][]byte
-	
+
 	result = append(result, []byte("library_name"))
 	result = append(result, []byte(lib.Name))
-	
+
 	result = append(result, []byte("engine"))
 	result = append(result, []byte(lib.Engine))
-	
+
 	result = append(result, []byte("functions"))
-	
+
 	var funcs [][]byte
 	for _, fn := range lib.Functions {
 		var funcInfo [][]byte
@@ -429,46 +429,46 @@ func formatLibraryInfo(lib *functions.Library, withCode bool) [][]byte {
 		funcInfo = append(funcInfo, []byte("description"))
 		funcInfo = append(funcInfo, []byte(fn.Description))
 		funcInfo = append(funcInfo, []byte("flags"))
-		
+
 		var flags [][]byte
 		for _, f := range fn.Flags {
 			flags = append(flags, []byte(f))
 		}
 		funcInfo = append(funcInfo, protocol.MakeMultiBulkReply(flags).ToBytes())
-		
+
 		funcs = append(funcs, protocol.MakeMultiBulkReply(funcInfo).ToBytes())
 	}
 	result = append(result, protocol.MakeMultiBulkReply(funcs).ToBytes())
-	
+
 	if withCode {
 		result = append(result, []byte("library_code"))
 		result = append(result, []byte(lib.Code))
 	}
-	
+
 	return result
 }
 
 func parseLibraryDump(payload string) map[string]string {
 	libs := make(map[string]string)
-	
+
 	// Split by shebang
 	parts := strings.Split(payload, "#!lua")
-	
+
 	for _, part := range parts {
 		part = strings.TrimSpace(part)
 		if part == "" {
 			continue
 		}
-		
+
 		// Find name=
 		lines := strings.Split(part, "\n")
 		if len(lines) == 0 {
 			continue
 		}
-		
+
 		firstLine := lines[0]
 		name := ""
-		
+
 		// Parse name= from first line
 		parts := strings.Fields(firstLine)
 		for _, p := range parts {
@@ -477,13 +477,13 @@ func parseLibraryDump(payload string) map[string]string {
 				break
 			}
 		}
-		
+
 		if name != "" {
 			code := "#!lua " + part
 			libs[name] = code
 		}
 	}
-	
+
 	return libs
 }
 
@@ -491,7 +491,7 @@ func goToRedisReply(v interface{}) redis.Reply {
 	if v == nil {
 		return &protocol.NullBulkReply{}
 	}
-	
+
 	switch val := v.(type) {
 	case string:
 		return protocol.MakeBulkReply([]byte(val))
@@ -535,7 +535,7 @@ func atoi(s string) (int, error) {
 func init() {
 	// Initialize functions engine (without DB - will be set on first use)
 	InitFunctionsEngine(nil)
-	
+
 	registerCommand("Function|Load", execFunctionLoad, noPrepare, nil, -2, flagWrite).
 		attachCommandExtra([]string{redisFlagWrite}, 0, 0, 0)
 	registerCommand("Function|List", execFunctionList, noPrepare, nil, -1, flagReadOnly).

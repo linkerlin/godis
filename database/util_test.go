@@ -1,7 +1,7 @@
 package database
 
 import (
-	"github.com/hdt3213/godis/datastruct/dict"
+	"github.com/linkerlin/godis/datastruct/dict"
 )
 
 func makeTestDB() *DB {

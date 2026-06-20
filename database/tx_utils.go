@@ -1,9 +1,10 @@
 package database
 
 import (
-	"github.com/hdt3213/godis/aof"
-	"github.com/hdt3213/godis/lib/utils"
 	"strconv"
+
+	"github.com/linkerlin/godis/aof"
+	"github.com/linkerlin/godis/lib/utils"
 )
 
 func readFirstKey(args [][]byte) ([]string, []string) {

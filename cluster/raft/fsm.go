@@ -7,7 +7,7 @@ import (
 
 	"github.com/hashicorp/raft"
 
-	"github.com/hdt3213/godis/lib/logger"
+	"github.com/linkerlin/godis/lib/logger"
 )
 
 // FSM implements raft.FSM

@@ -138,16 +138,16 @@
 
 ### 通过的测试包
 ```
-✅ github.com/hdt3213/godis/datastruct/bitmap
-✅ github.com/hdt3213/godis/datastruct/dict
-✅ github.com/hdt3213/godis/datastruct/list
-✅ github.com/hdt3213/godis/datastruct/set
-✅ github.com/hdt3213/godis/datastruct/sortedset
-✅ github.com/hdt3213/godis/datastruct/stream
-✅ github.com/hdt3213/godis/redis/client
-✅ github.com/hdt3213/godis/redis/parser
-✅ github.com/hdt3213/godis/redis/server/gnet
-✅ github.com/hdt3213/godis/redis/server/std
+✅ github.com/linkerlin/godis/datastruct/bitmap
+✅ github.com/linkerlin/godis/datastruct/dict
+✅ github.com/linkerlin/godis/datastruct/list
+✅ github.com/linkerlin/godis/datastruct/set
+✅ github.com/linkerlin/godis/datastruct/sortedset
+✅ github.com/linkerlin/godis/datastruct/stream
+✅ github.com/linkerlin/godis/redis/client
+✅ github.com/linkerlin/godis/redis/parser
+✅ github.com/linkerlin/godis/redis/server/gnet
+✅ github.com/linkerlin/godis/redis/server/std
 ```
 
 ### 构建状态

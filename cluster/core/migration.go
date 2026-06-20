@@ -5,15 +5,15 @@ import (
 	"sync"
 	"time"
 
-	"github.com/hdt3213/godis/aof"
-	"github.com/hdt3213/godis/cluster/raft"
-	"github.com/hdt3213/godis/datastruct/set"
-	"github.com/hdt3213/godis/interface/database"
-	"github.com/hdt3213/godis/interface/redis"
-	"github.com/hdt3213/godis/lib/logger"
-	"github.com/hdt3213/godis/lib/utils"
-	"github.com/hdt3213/godis/redis/connection"
-	"github.com/hdt3213/godis/redis/protocol"
+	"github.com/linkerlin/godis/aof"
+	"github.com/linkerlin/godis/cluster/raft"
+	"github.com/linkerlin/godis/datastruct/set"
+	"github.com/linkerlin/godis/interface/database"
+	"github.com/linkerlin/godis/interface/redis"
+	"github.com/linkerlin/godis/lib/logger"
+	"github.com/linkerlin/godis/lib/utils"
+	"github.com/linkerlin/godis/redis/connection"
+	"github.com/linkerlin/godis/redis/protocol"
 )
 
 const exportCommand = "cluster.migration.export"
@@ -101,7 +101,7 @@ func (cluster *Cluster) dropSlot(index uint32) {
 	slot := cluster.slotsManager.slots[index]
 	cluster.slotsManager.mu.RUnlock()
 	if slot == nil {
-		return 
+		return
 	}
 	slot.mu.Lock()
 	defer slot.mu.Unlock()
@@ -259,8 +259,8 @@ func execFinishExport(cluster *Cluster, c redis.Connection, cmdLine CmdLine) red
 	logger.Infof("finishing migration task %s, route changed", taskId)
 
 	// clean migrated slots
-	go func()  {
-		defer func()  {
+	go func() {
+		defer func() {
 			if e := recover(); e != nil {
 				logger.Errorf("panic %v", e)
 			}
@@ -274,7 +274,7 @@ func execFinishExport(cluster *Cluster, c redis.Connection, cmdLine CmdLine) red
 }
 
 // execStartMigration receives startMigrationCommand from leader and start migration job at background
-// command line: startMigrationCommand taskId 
+// command line: startMigrationCommand taskId
 func execStartMigration(cluster *Cluster, c redis.Connection, cmdLine CmdLine) redis.Reply {
 	if len(cmdLine) != 2 {
 		return protocol.MakeArgNumErrReply(startMigrationCommand)

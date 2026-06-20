@@ -11,20 +11,21 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/cockroachdb/errors"
 
-	"github.com/hdt3213/godis/cluster"
-	"github.com/hdt3213/godis/config"
-	"github.com/hdt3213/godis/database"
-	idatabase "github.com/hdt3213/godis/interface/database"
-	"github.com/hdt3213/godis/lib/logger"
-	"github.com/hdt3213/godis/lib/stats"
-	gatomic "github.com/hdt3213/godis/lib/sync/atomic"
-	"github.com/hdt3213/godis/redis/connection"
-	"github.com/hdt3213/godis/redis/parser"
-	"github.com/hdt3213/godis/redis/protocol"
-	"github.com/hdt3213/godis/tcp"
+	"github.com/linkerlin/godis/cluster"
+	"github.com/linkerlin/godis/config"
+	"github.com/linkerlin/godis/database"
+	idatabase "github.com/linkerlin/godis/interface/database"
+	"github.com/linkerlin/godis/lib/logger"
+	"github.com/linkerlin/godis/lib/stats"
+	gatomic "github.com/linkerlin/godis/lib/sync/atomic"
+	"github.com/linkerlin/godis/redis/connection"
+	"github.com/linkerlin/godis/redis/parser"
+	"github.com/linkerlin/godis/redis/protocol"
+	"github.com/linkerlin/godis/tcp"
 )
 
 var (
@@ -36,6 +37,7 @@ type Handler struct {
 	activeConn sync.Map // *client -> placeholder
 	db         idatabase.DB
 	closing    gatomic.Boolean // refusing new client and new request
+	inFlight   sync.WaitGroup  // tracks active Handle goroutines
 }
 
 // MakeHandler creates a Handler instance
@@ -70,7 +72,6 @@ func (h *Handler) closeClient(client *connection.Connection) {
 	h.activeConn.Delete(client)
 }
 
-
 // Handle receives and executes redis commands
 func (h *Handler) Handle(ctx context.Context, conn net.Conn) {
 	if h.closing.Get() {
@@ -78,7 +79,9 @@ func (h *Handler) Handle(ctx context.Context, conn net.Conn) {
 		_ = conn.Close()
 		return
 	}
-	
+	h.inFlight.Add(1)
+	defer h.inFlight.Done()
+
 	// Check max clients limit
 	if config.Properties.MaxClients > 0 {
 		currentClients := atomic.LoadInt32(&tcp.ClientCounter)
@@ -95,6 +98,9 @@ func (h *Handler) Handle(ctx context.Context, conn net.Conn) {
 
 	ch := parser.ParseStream(conn)
 	for payload := range ch {
+		if h.closing.Get() {
+			break
+		}
 		if payload.Err != nil {
 			if payload.Err == io.EOF ||
 				payload.Err == io.ErrUnexpectedEOF ||
@@ -135,11 +141,22 @@ func (h *Handler) Handle(ctx context.Context, conn net.Conn) {
 	}
 }
 
-// Close stops handler
+// Close stops handler and waits for in-flight connections to finish.
 func (h *Handler) Close() error {
 	logger.Info("handler shutting down...")
 	h.closing.Set(true)
-	// TODO: concurrent wait
+
+	done := make(chan struct{})
+	go func() {
+		h.inFlight.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		logger.Warn("graceful shutdown timed out, force closing connections")
+	}
+
 	h.activeConn.Range(func(key interface{}, val interface{}) bool {
 		client := key.(*connection.Connection)
 		_ = client.Close()

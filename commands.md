@@ -1,8 +1,10 @@
 # Godis 支持命令列表
 
-本文档列出 Godis 支持的所有 Redis 命令。
+本文档列出 Godis **已实现**的 Redis 命令及与 Redis 8.x 的差异说明。
 
-> **注意**: Godis 目标兼容 **Redis 8.x** 协议，支持 RESP3 和多项 Redis 8.x 新特性。
+> **注意**: Godis 目标兼容 **Redis 8.x** 协议，支持 RESP3 和多项 Redis 8.x 新特性。  
+> **命令级差异与未实现项**详见 [`docs/COMPATIBILITY.md`](docs/COMPATIBILITY.md)。  
+> 默认监听端口为 **6399**（非 Redis 惯例的 6379）。
 
 ---
 
@@ -32,6 +34,9 @@
 | CONFIG GET | 获取配置 |
 | CONFIG SET | 设置配置 |
 | TIME | 服务器时间 |
+| SLOWLOG GET | 慢查询日志 |
+| SLOWLOG LEN | 慢查询条数 |
+| SLOWLOG RESET | 清空慢查询 |
 
 ---
 
@@ -59,7 +64,8 @@
 | RANDOMKEY | 随机返回键 |
 | TOUCH | 更新键访问时间 |
 | UNLINK | 异步删除键 |
-| WAIT | 等待副本同步 |
+| COPY | 复制键（Server 路由） |
+| MOVE | 移动键到另一数据库（Server 路由） |
 
 ---
 
@@ -69,6 +75,8 @@
 |------|------|
 | SET | 设置字符串值 |
 | GET | 获取字符串值 |
+| GETEX | 获取并设置过期 |
+| GETDEL | 获取并删除键 |
 | GETSET | 获取并设置值 |
 | MSET | 设置多个键值 |
 | MGET | 获取多个值 |
@@ -89,7 +97,6 @@
 | SETBIT | 设置位值 |
 | BITCOUNT | 统计1的位数 |
 | BITPOS | 查找第一个位 |
-| BITOP | 位运算 |
 
 ---
 
@@ -116,6 +123,8 @@
 | BRPOPLPUSH | 阻塞式弹出并推入 |
 | LMOVE | 列表间移动元素 |
 | BLMOVE | 阻塞式列表移动 |
+| LMPOP | 多列表弹出 |
+| BLMPOP | 阻塞式多列表弹出 |
 
 ---
 
@@ -142,12 +151,13 @@
 
 ### Hash Field 过期 (Redis 8.x)
 
+Godis 实现为 **HGETEX / HSETEX / HGETDEL** 族（非 Redis 文档中的 HEXPIRE 命名）：
+
 | 命令 | 描述 |
 |------|------|
-| HEXPIRE | 设置字段过期时间 |
-| HPEXPIRE | 设置字段过期时间（毫秒） |
-| HEXPIREAT | 设置字段过期时间戳 |
-| HPEXPIREAT | 设置字段过期时间戳（毫秒） |
+| HGETEX | 读取字段并可设置过期 |
+| HSETEX | 写入字段并设置过期 |
+| HGETDEL | 读取并删除字段 |
 | HTTL | 获取字段剩余生存时间 |
 | HPTTL | 获取字段剩余生存时间（毫秒） |
 | HPERSIST | 移除字段过期时间 |
@@ -164,7 +174,6 @@
 | SMISMEMBER | 批量检查元素 |
 | SCARD | 获取元素数量 |
 | SMEMBERS | 获取所有元素 |
-| SMOVE | 移动元素到另一集合 |
 | SPOP | 随机移除指定数量元素 |
 | SRANDMEMBER | 随机获取指定数量元素 |
 | SINTER | 返回交集 |
@@ -212,6 +221,8 @@
 | ZRANGESTORE | 存储排名范围 |
 | ZSCAN | 迭代有序集合 |
 | ZMSCORE | 批量获取分数 |
+| ZMPOP | 多键有序集合弹出 |
+| BZMPOP | 阻塞式多键弹出 |
 
 ---
 
@@ -223,7 +234,6 @@
 | GETBIT | 获取位 |
 | BITCOUNT | 统计位数 |
 | BITPOS | 定位位 |
-| BITOP | 位运算 |
 | BITFIELD | 操作位域 |
 
 ---
@@ -237,7 +247,6 @@
 | XREADGROUP | 消费者组读取 |
 | XGROUP | 管理消费者组 |
 | XACK | 确认消息 |
-| XCLAIM | 认领待处理消息 |
 | XPENDING | 查看待处理消息 |
 | XDEL | 删除条目 |
 | XTRIM | 裁剪流 |
@@ -282,9 +291,12 @@
 | 命令 | 描述 |
 |------|------|
 | VS.ADD | 添加向量 |
+| VS.GET | 获取向量 |
 | VS.SEARCH | 向量相似度搜索 |
-| VS.REM | 移除向量 |
-| VS.DROPINDEX | 删除索引 |
+| VS.QUERY | 查询向量 |
+| VS.RANGE | 范围查询 |
+| VS.REM / VS.DEL | 移除向量 |
+| VS.LEN / VS.CARD | 向量数量 |
 
 ---
 
@@ -311,9 +323,8 @@
 ### 同义词
 | 命令 | 描述 |
 |------|------|
-| FT.SYNADD | 添加同义词组 |
-| FT.SYNDUMP | 导出同义词 |
 | FT.SYNUPDATE | 更新同义词 |
+| FT.SYNDUMP | 导出同义词 |
 
 ---
 
@@ -431,7 +442,6 @@
 | EXEC | 执行事务 |
 | DISCARD | 放弃事务 |
 | WATCH | 监视键 |
-| UNWATCH | 取消监视 |
 
 ---
 
@@ -446,6 +456,12 @@
 | SCRIPT FLUSH | 清空脚本缓存 |
 | SCRIPT KILL | 终止脚本 |
 | SCRIPT DEBUG | 调试模式 |
+| SCRIPT STEP | 单步调试 |
+| SCRIPT CONTINUE | 继续执行 |
+| SCRIPT NEXT | 下一行 |
+| SCRIPT BREAKPOINT | 断点 |
+| SCRIPT FINISH | 结束调试 |
+| SCRIPT INFO | 调试信息 |
 
 ---
 
@@ -530,28 +546,15 @@
 
 ## 集群命令
 
+> 当前仅实现以下子命令；MEET/ADDSLOTS/REPLICATE 等见 [`docs/COMPATIBILITY.md`](docs/COMPATIBILITY.md)。
+
 | 命令 | 描述 |
 |------|------|
 | CLUSTER NODES | 集群节点信息 |
-| CLUSTER MEET | 添加节点 |
-| CLUSTER FORGET | 移除节点 |
-| CLUSTER REPLICATE | 设置副本 |
 | CLUSTER SLOTS | 获取槽位信息 |
-| CLUSTER ADDSLOTS | 分配槽位 |
-| CLUSTER DELSLOTS | 删除槽位 |
-| CLUSTER FLUSHSLOTS | 清空槽位 |
 | CLUSTER KEYSLOT | 计算键槽位 |
-| CLUSTER COUNTKEYSINSLOT | 槽位键数 |
-| CLUSTER GETKEYSINSLOT | 获取槽位键 |
 | CLUSTER INFO | 集群信息 |
-| CLUSTER SAVECONFIG | 保存配置 |
-| CLUSTER FAILOVER | 故障转移 |
-| CLUSTER SET-CONFIG-EPOCH | 设置纪元 |
-| CLUSTER BUMPEPOCH | 增加纪元 |
-| CLUSTER RESET | 重置节点 |
-| CLUSTER SLAVES | 列出副本 |
-| CLUSTER REPLICAS | 列出副本 |
-| CLUSTER COUNT-FAILURE-REPORTS | 故障报告数 |
+| CLUSTER HELP | 帮助信息 |
 
 ---
 
@@ -565,6 +568,8 @@
 | GEORADIUS | 范围搜索 |
 | GEORADIUSBYMEMBER | 以成员为中心搜索 |
 | GEOHASH | 获取 GeoHash |
+| GEOSEARCH | 地理搜索 |
+| GEOSEARCHSTORE | 地理搜索并存储 |
 | GEORADIUS_RO | 只读范围搜索 |
 | GEORADIUSBYMEMBER_RO | 只读成员搜索 |
 
@@ -586,15 +591,27 @@ Godis 支持 Redis 键空间通知机制，可通过配置启用。
 
 ---
 
-## 不支持的命令
+## 暂未支持的命令（抽样）
 
-以下命令因设计原因或实现优先级暂未支持：
+以下命令在 `commands.md` 历史版本中曾列出，**当前未实现**或仅有部分替代：
 
-- **模块相关**: `MODULE LOAD/UNLOAD/LIST` (使用内置模块替代)
-- **内存管理**: `MEMORY DOCTOR/MEMORY HELP` (保留 INFO 统计)
-- **慢日志**: `SLOWLOG GET/LEN/RESET` (使用 ACL LOG 替代)
-- **副本相关**: `REPLICAOF SLAVEOF` (仅支持内部复制)
-- **迁移命令**: `MIGRATE/RESTORE-ASKING` (使用 DUMP/RESTORE)
+| 命令 | 说明 |
+|------|------|
+| BITOP | 位运算 |
+| SMOVE | 集合间移动 |
+| XCLAIM | Stream 认领 |
+| WAIT | 等待副本同步 |
+| UNWATCH | 无执行路径（ACL 分类存在） |
+| VS.DROPINDEX | 向量索引删除 |
+| FT.SYNADD | 使用 FT.SYNUPDATE 替代 |
+| CLUSTER MEET / ADDSLOTS / REPLICATE 等 | 见集群章节 |
+
+## 其它说明
+
+- **模块相关**: `MODULE LOAD/UNLOAD/LIST` 未实现（使用内置 JSON/RediSearch 等）
+- **内存管理**: `MEMORY DOCTOR/MEMORY HELP` 未实现（保留 INFO 统计）
+- **副本相关**: `REPLICAOF`/`SLAVEOF` 客户端命令未暴露（内部复制仍可用）
+- **迁移命令**: `MIGRATE`/`RESTORE-ASKING` 未实现（可用 DUMP/RESTORE）
 
 ---
 

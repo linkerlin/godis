@@ -1,9 +1,10 @@
 package database
 
 import (
-	"github.com/hdt3213/godis/interface/redis"
-	"github.com/hdt3213/godis/redis/protocol"
 	"strings"
+
+	"github.com/linkerlin/godis/interface/redis"
+	"github.com/linkerlin/godis/redis/protocol"
 )
 
 const (
@@ -56,7 +57,7 @@ func getCommandDocs(args [][]byte) redis.Reply {
 		}
 		return protocol.MakeMultiBulkReply(result)
 	}
-	
+
 	// Return docs for specified commands
 	result := make([][]byte, 0, len(args)*2)
 	for _, v := range args {
@@ -68,7 +69,7 @@ func getCommandDocs(args [][]byte) redis.Reply {
 			result = append(result, protocol.MakeEmptyMultiBulkReply().ToBytes())
 		}
 	}
-		return protocol.MakeMultiBulkReply(result)
+	return protocol.MakeMultiBulkReply(result)
 }
 
 func getKeys(args [][]byte) redis.Reply {

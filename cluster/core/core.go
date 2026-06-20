@@ -3,15 +3,15 @@ package core
 import (
 	"github.com/cockroachdb/errors"
 
-	"github.com/hdt3213/godis/cluster/raft"
-	"github.com/hdt3213/godis/config"
-	dbimpl "github.com/hdt3213/godis/database"
-	"github.com/hdt3213/godis/interface/database"
-	"github.com/hdt3213/godis/interface/redis"
-	"github.com/hdt3213/godis/lib/logger"
-	"github.com/hdt3213/godis/lib/utils"
-	"github.com/hdt3213/godis/redis/protocol"
 	rdbcore "github.com/hdt3213/rdb/core"
+	"github.com/linkerlin/godis/cluster/raft"
+	"github.com/linkerlin/godis/config"
+	dbimpl "github.com/linkerlin/godis/database"
+	"github.com/linkerlin/godis/interface/database"
+	"github.com/linkerlin/godis/interface/redis"
+	"github.com/linkerlin/godis/lib/logger"
+	"github.com/linkerlin/godis/lib/utils"
+	"github.com/linkerlin/godis/redis/protocol"
 )
 
 type Cluster struct {
@@ -20,10 +20,10 @@ type Cluster struct {
 	connections ConnectionFactory
 	config      *Config
 
-	slotsManager    *slotsManager
+	slotsManager     *slotsManager
 	rebalanceManager *RebalanceManager
-	transactions    *TransactionManager
-	replicaManager  *replicaManager
+	transactions     *TransactionManager
+	replicaManager   *replicaManager
 
 	closeChan chan struct{}
 
@@ -78,7 +78,7 @@ func NewCluster(cfg *Config) (*Cluster, error) {
 		replicaManager: newReplicaManager(),
 		closeChan:      make(chan struct{}),
 	}
-	
+
 	// Initialize rebalance manager after cluster is created
 	cluster.rebalanceManager = NewRebalanceManager(cluster)
 	cluster.pickNodeImpl = func(slotID uint32) string {

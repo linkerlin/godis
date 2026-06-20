@@ -5,114 +5,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/hdt3213/godis/interface/redis"
-	"github.com/hdt3213/godis/redis/protocol"
+	"github.com/linkerlin/godis/interface/redis"
+	"github.com/linkerlin/godis/redis/protocol"
 )
-
-// execAuth authenticates the connection
-// AUTH [username] password
-func execAuth(db *DB, args [][]byte) redis.Reply {
-	if len(args) < 1 || len(args) > 2 {
-		return protocol.MakeErrReply("ERR wrong number of arguments for 'auth' command")
-	}
-	
-	var username, password string
-	if len(args) == 1 {
-		username = "default"
-		password = string(args[0])
-	} else {
-		username = string(args[0])
-		password = string(args[1])
-	}
-	
-	// Check if ACL is enabled
-	if aclEngine != nil {
-		// Check authentication using ACL engine
-		user, err := aclEngine.Authenticate(username, password)
-		if err != nil {
-			return protocol.MakeErrReply("ERR invalid username or password")
-		}
-		// Store user in connection context (simplified)
-		_ = user
-	} else {
-		// Check against requirepass config if no ACL
-		// Simplified: always allow for now
-	}
-	
-	return protocol.MakeOkReply()
-}
-
-// execHello switches protocol and authenticates
-// HELLO [protocol-version] [AUTH username password] [SETNAME clientname]
-func execHello(db *DB, args [][]byte) redis.Reply {
-	// Default values
-	protoVersion := 2
-	var username, password, clientName string
-	
-	// Parse arguments
-	i := 0
-	for i < len(args) {
-		arg := strings.ToUpper(string(args[i]))
-		
-		switch arg {
-		case "AUTH":
-			if i+2 >= len(args) {
-				return protocol.MakeSyntaxErrReply()
-			}
-			username = string(args[i+1])
-			password = string(args[i+2])
-			i += 3
-		case "SETNAME":
-			if i+1 >= len(args) {
-				return protocol.MakeSyntaxErrReply()
-			}
-			clientName = string(args[i+1])
-			i += 2
-		default:
-			// Try to parse as protocol version
-			if v, err := strconv.Atoi(string(args[i])); err == nil {
-				if v != 2 && v != 3 {
-					return protocol.MakeErrReply("ERR Protocol version not supported")
-				}
-				protoVersion = v
-				i++
-			} else {
-				return protocol.MakeSyntaxErrReply()
-			}
-		}
-	}
-	
-	// Authenticate if credentials provided
-	if username != "" && password != "" {
-		if aclEngine != nil {
-			_, err := aclEngine.Authenticate(username, password)
-			if err != nil {
-				return protocol.MakeErrReply("WRONGPASS invalid username-password pair")
-			}
-		}
-	}
-	
-	// Set client name if provided
-	if clientName != "" {
-		// Simplified: would store in connection
-		_ = clientName
-	}
-	
-	// Build response
-	var result [][]byte
-	result = append(result, []byte("server"), []byte("godis"))
-	result = append(result, []byte("version"), []byte("8.0.0"))
-	result = append(result, []byte("proto"), []byte(strconv.Itoa(protoVersion)))
-	result = append(result, []byte("id"), []byte("1")) // Would be actual client ID
-	result = append(result, []byte("mode"), []byte("standalone"))
-	result = append(result, []byte("role"), []byte("master"))
-	
-	// Add modules info
-	result = append(result, []byte("modules"))
-	result = append(result, protocol.MakeEmptyMultiBulkReply().ToBytes())
-	
-	return protocol.MakeMultiBulkReply(result)
-}
 
 // execPing pings the server
 // PING [message]
@@ -150,9 +45,9 @@ func execClient(db *DB, args [][]byte) redis.Reply {
 	if len(args) < 1 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'client' command")
 	}
-	
+
 	subCmd := strings.ToUpper(string(args[0]))
-	
+
 	switch subCmd {
 	case "LIST":
 		return execClientList(args[1:])
@@ -165,9 +60,9 @@ func execClient(db *DB, args [][]byte) redis.Reply {
 	case "KILL":
 		return execClientKill(args[1:])
 	case "PAUSE":
-		return execClientPause(args[1:])
+		return execClientPause(db, args[1:])
 	case "UNPAUSE":
-		return execClientUnpause(args[1:])
+		return execClientUnpause(db, args[1:])
 	case "ID":
 		return execClientID(args[1:])
 	case "REPLY":
@@ -203,7 +98,7 @@ func execClientInfo(args [][]byte) redis.Reply {
 	if len(args) != 0 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'client|info' command")
 	}
-	
+
 	// Build client info string
 	info := fmt.Sprintf("id=1 addr=127.0.0.1:12345 fd=0 name= age=0 idle=0 flags=N db=0 sub=0 psub=0 multi=-1 qbuf=0 qbuf-free=0 obl=0 oll=0 omem=0 events=r cmd=client\n")
 	return protocol.MakeBulkReply([]byte(info))
@@ -215,12 +110,12 @@ func execClientSetName(args [][]byte) redis.Reply {
 	if len(args) != 1 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'client|setname' command")
 	}
-	
+
 	name := string(args[0])
 	if strings.Contains(name, " ") {
 		return protocol.MakeErrReply("ERR Client names cannot contain spaces, newlines or special characters.")
 	}
-	
+
 	// Simplified: would store in connection
 	_ = name
 	return protocol.MakeOkReply()
@@ -232,7 +127,7 @@ func execClientGetName(args [][]byte) redis.Reply {
 	if len(args) != 0 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'client|getname' command")
 	}
-	
+
 	// Simplified: return nil (no name set)
 	return &protocol.NullBulkReply{}
 }
@@ -247,16 +142,16 @@ func execClientKill(args [][]byte) redis.Reply {
 
 // execClientPause pauses clients
 // CLIENT PAUSE timeout [WRITE|ALL]
-func execClientPause(args [][]byte) redis.Reply {
+func execClientPause(db *DB, args [][]byte) redis.Reply {
 	if len(args) < 1 || len(args) > 2 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'client|pause' command")
 	}
-	
+
 	timeout, err := strconv.Atoi(string(args[0]))
 	if err != nil || timeout < 0 {
 		return protocol.MakeErrReply("ERR timeout is not an integer or out of range")
 	}
-	
+
 	mode := "ALL"
 	if len(args) == 2 {
 		mode = strings.ToUpper(string(args[1]))
@@ -264,22 +159,25 @@ func execClientPause(args [][]byte) redis.Reply {
 			return protocol.MakeErrReply("ERR mode must be WRITE or ALL")
 		}
 	}
-	
+
 	// Simplified: would actually pause processing
-	_ = timeout
-	_ = mode
-	
+	if db.server != nil {
+		db.server.setClientPause(timeout, mode)
+	}
+
 	return protocol.MakeOkReply()
 }
 
 // execClientUnpause unpauses clients
 // CLIENT UNPAUSE
-func execClientUnpause(args [][]byte) redis.Reply {
+func execClientUnpause(db *DB, args [][]byte) redis.Reply {
 	if len(args) != 0 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'client|unpause' command")
 	}
-	
-	// Simplified: would resume processing
+
+	if db.server != nil {
+		db.server.clearClientPause()
+	}
 	return protocol.MakeOkReply()
 }
 
@@ -289,7 +187,7 @@ func execClientID(args [][]byte) redis.Reply {
 	if len(args) != 0 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'client|id' command")
 	}
-	
+
 	// Simplified: return 1
 	return protocol.MakeIntReply(1)
 }
@@ -300,7 +198,7 @@ func execClientReply(args [][]byte) redis.Reply {
 	if len(args) != 1 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'client|reply' command")
 	}
-	
+
 	mode := strings.ToUpper(string(args[0]))
 	switch mode {
 	case "ON", "OFF", "SKIP":
@@ -317,12 +215,12 @@ func execClientTracking(args [][]byte) redis.Reply {
 	if len(args) < 1 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'client|tracking' command")
 	}
-	
+
 	mode := strings.ToUpper(string(args[0]))
 	if mode != "ON" && mode != "OFF" {
 		return protocol.MakeErrReply("ERR syntax error")
 	}
-	
+
 	// Parse options
 	for i := 1; i < len(args); i++ {
 		opt := strings.ToUpper(string(args[i]))
@@ -348,7 +246,7 @@ func execClientTracking(args [][]byte) redis.Reply {
 			return protocol.MakeSyntaxErrReply()
 		}
 	}
-	
+
 	return protocol.MakeStatusReply("OK")
 }
 
@@ -358,12 +256,12 @@ func execClientCaching(args [][]byte) redis.Reply {
 	if len(args) != 1 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'client|caching' command")
 	}
-	
+
 	val := strings.ToUpper(string(args[0]))
 	if val != "YES" && val != "NO" {
 		return protocol.MakeErrReply("ERR syntax error")
 	}
-	
+
 	return protocol.MakeStatusReply("OK")
 }
 
@@ -373,7 +271,7 @@ func execClientGetRedir(args [][]byte) redis.Reply {
 	if len(args) != 0 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'client|getredir' command")
 	}
-	
+
 	// Return 0 if not redirected
 	return protocol.MakeIntReply(0)
 }
@@ -384,19 +282,19 @@ func execClientUnblock(args [][]byte) redis.Reply {
 	if len(args) < 1 || len(args) > 2 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'client|unblock' command")
 	}
-	
+
 	_, err := strconv.Atoi(string(args[0]))
 	if err != nil {
 		return protocol.MakeErrReply("ERR value is not an integer or out of range")
 	}
-	
+
 	if len(args) == 2 {
 		mode := strings.ToUpper(string(args[1]))
 		if mode != "TIMEOUT" && mode != "ERROR" {
 			return protocol.MakeErrReply("ERR syntax error")
 		}
 	}
-	
+
 	// Simplified: return 0 (no clients unblocked)
 	return protocol.MakeIntReply(0)
 }
@@ -407,17 +305,17 @@ func execClientTrackingInfo(args [][]byte) redis.Reply {
 	if len(args) != 0 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'client|trackinginfo' command")
 	}
-	
+
 	// Get current connection info
 	// Simplified: return default tracking info
 	info := map[string]interface{}{
-		"enabled": false,
-		"mode":    "",
+		"enabled":  false,
+		"mode":     "",
 		"prefixes": []string{},
 	}
-	
+
 	var result [][]byte
-	
+
 	// Tracking status
 	result = append(result, []byte("flags"))
 	var flags [][]byte
@@ -431,11 +329,11 @@ func execClientTrackingInfo(args [][]byte) redis.Reply {
 		flags = append(flags, []byte("bcast"))
 	}
 	result = append(result, protocol.MakeMultiBulkReply(flags).ToBytes())
-	
+
 	// Redirect target (0 if not redirected)
 	result = append(result, []byte("redirect"))
 	result = append(result, []byte("0"))
-	
+
 	// Prefixes
 	result = append(result, []byte("prefixes"))
 	var prefixes [][]byte
@@ -445,7 +343,7 @@ func execClientTrackingInfo(args [][]byte) redis.Reply {
 		}
 	}
 	result = append(result, protocol.MakeMultiBulkReply(prefixes).ToBytes())
-	
+
 	return protocol.MakeMultiBulkReply(result)
 }
 
@@ -481,7 +379,7 @@ func execClientHelp(args [][]byte) redis.Reply {
 		"UNPAUSE",
 		"    Stop the current client pause.",
 	}
-	
+
 	result := make([][]byte, len(help))
 	for i, line := range help {
 		result[i] = []byte(line)

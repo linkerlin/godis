@@ -5,10 +5,10 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/hdt3213/godis/datastruct/probabilistic"
-	"github.com/hdt3213/godis/interface/database"
-	"github.com/hdt3213/godis/interface/redis"
-	"github.com/hdt3213/godis/redis/protocol"
+	"github.com/linkerlin/godis/datastruct/probabilistic"
+	"github.com/linkerlin/godis/interface/database"
+	"github.com/linkerlin/godis/interface/redis"
+	"github.com/linkerlin/godis/redis/protocol"
 )
 
 // === Bloom Filter Commands ===
@@ -19,28 +19,28 @@ func execBFReserve(db *DB, args [][]byte) redis.Reply {
 	if len(args) < 3 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'bf.reserve' command")
 	}
-	
+
 	key := string(args[0])
-	
+
 	errorRate, err := strconv.ParseFloat(string(args[1]), 64)
 	if err != nil {
 		return protocol.MakeErrReply("ERR Error rate must be a double")
 	}
-	
+
 	capacity, err := strconv.ParseUint(string(args[2]), 10, 64)
 	if err != nil {
 		return protocol.MakeErrReply("ERR Capacity must be an integer")
 	}
-	
+
 	// Check if key exists
 	_, exists := db.GetEntity(key)
 	if exists {
 		return protocol.MakeErrReply("ERR key already exists")
 	}
-	
+
 	bf := probabilistic.NewBloomFilter(uint(capacity), errorRate)
 	db.PutEntity(key, &database.DataEntity{Data: bf})
-	
+
 	db.addAof(prependCmd("bf.reserve", args))
 	return protocol.MakeOkReply()
 }
@@ -51,13 +51,13 @@ func execBFAdd(db *DB, args [][]byte) redis.Reply {
 	if len(args) != 2 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'bf.add' command")
 	}
-	
+
 	key := string(args[0])
 	item := args[1]
-	
+
 	entity, exists := db.GetEntity(key)
 	var bf *probabilistic.BloomFilter
-	
+
 	if !exists {
 		// Auto-create with defaults
 		bf = probabilistic.NewBloomFilter(1000, 0.001)
@@ -69,9 +69,9 @@ func execBFAdd(db *DB, args [][]byte) redis.Reply {
 			return &protocol.WrongTypeErrReply{}
 		}
 	}
-	
+
 	bf.Add(item)
-	
+
 	db.addAof(prependCmd("bf.add", args))
 	return protocol.MakeIntReply(1)
 }
@@ -82,12 +82,12 @@ func execBFMAdd(db *DB, args [][]byte) redis.Reply {
 	if len(args) < 2 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'bf.madd' command")
 	}
-	
+
 	key := string(args[0])
-	
+
 	entity, exists := db.GetEntity(key)
 	var bf *probabilistic.BloomFilter
-	
+
 	if !exists {
 		bf = probabilistic.NewBloomFilter(1000, 0.001)
 		db.PutEntity(key, &database.DataEntity{Data: bf})
@@ -98,13 +98,13 @@ func execBFMAdd(db *DB, args [][]byte) redis.Reply {
 			return &protocol.WrongTypeErrReply{}
 		}
 	}
-	
+
 	for i := 1; i < len(args); i++ {
 		bf.Add(args[i])
 	}
-	
+
 	db.addAof(prependCmd("bf.madd", args))
-	
+
 	// Return array of 1s (all added)
 	results := make([][]byte, len(args)-1)
 	for i := range results {
@@ -119,20 +119,20 @@ func execBFExists(db *DB, args [][]byte) redis.Reply {
 	if len(args) != 2 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'bf.exists' command")
 	}
-	
+
 	key := string(args[0])
 	item := args[1]
-	
+
 	entity, exists := db.GetEntity(key)
 	if !exists {
 		return protocol.MakeIntReply(0)
 	}
-	
+
 	bf, ok := entity.Data.(*probabilistic.BloomFilter)
 	if !ok {
 		return &protocol.WrongTypeErrReply{}
 	}
-	
+
 	if bf.Exists(item) {
 		return protocol.MakeIntReply(1)
 	}
@@ -145,27 +145,27 @@ func execBFInfo(db *DB, args [][]byte) redis.Reply {
 	if len(args) != 1 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'bf.info' command")
 	}
-	
+
 	key := string(args[0])
-	
+
 	entity, exists := db.GetEntity(key)
 	if !exists {
 		return protocol.MakeErrReply("ERR key does not exist")
 	}
-	
+
 	bf, ok := entity.Data.(*probabilistic.BloomFilter)
 	if !ok {
 		return &protocol.WrongTypeErrReply{}
 	}
-	
+
 	info := bf.Info()
-	
+
 	var reply [][]byte
 	for k, v := range info {
 		reply = append(reply, []byte(k))
 		reply = append(reply, []byte(fmt.Sprintf("%v", v)))
 	}
-	
+
 	return protocol.MakeMultiBulkReply(reply)
 }
 
@@ -177,22 +177,22 @@ func execCFReserve(db *DB, args [][]byte) redis.Reply {
 	if len(args) < 2 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'cf.reserve' command")
 	}
-	
+
 	key := string(args[0])
-	
+
 	capacity, err := strconv.ParseUint(string(args[1]), 10, 64)
 	if err != nil {
 		return protocol.MakeErrReply("ERR Capacity must be an integer")
 	}
-	
+
 	_, exists := db.GetEntity(key)
 	if exists {
 		return protocol.MakeErrReply("ERR key already exists")
 	}
-	
+
 	cf := probabilistic.NewCuckooFilter(uint(capacity))
 	db.PutEntity(key, &database.DataEntity{Data: cf})
-	
+
 	db.addAof(prependCmd("cf.reserve", args))
 	return protocol.MakeOkReply()
 }
@@ -203,13 +203,13 @@ func execCFAdd(db *DB, args [][]byte) redis.Reply {
 	if len(args) != 2 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'cf.add' command")
 	}
-	
+
 	key := string(args[0])
 	item := args[1]
-	
+
 	entity, exists := db.GetEntity(key)
 	var cf *probabilistic.CuckooFilter
-	
+
 	if !exists {
 		cf = probabilistic.NewCuckooFilter(1000)
 		db.PutEntity(key, &database.DataEntity{Data: cf})
@@ -220,11 +220,11 @@ func execCFAdd(db *DB, args [][]byte) redis.Reply {
 			return &protocol.WrongTypeErrReply{}
 		}
 	}
-	
+
 	if err := cf.Add(item); err != nil {
 		return protocol.MakeErrReply("ERR filter is full")
 	}
-	
+
 	db.addAof(prependCmd("cf.add", args))
 	return protocol.MakeIntReply(1)
 }
@@ -235,13 +235,13 @@ func execCFAddNX(db *DB, args [][]byte) redis.Reply {
 	if len(args) != 2 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'cf.addnx' command")
 	}
-	
+
 	key := string(args[0])
 	item := args[1]
-	
+
 	entity, exists := db.GetEntity(key)
 	var cf *probabilistic.CuckooFilter
-	
+
 	if !exists {
 		cf = probabilistic.NewCuckooFilter(1000)
 		db.PutEntity(key, &database.DataEntity{Data: cf})
@@ -252,16 +252,16 @@ func execCFAddNX(db *DB, args [][]byte) redis.Reply {
 			return &protocol.WrongTypeErrReply{}
 		}
 	}
-	
+
 	// Check if exists first
 	if cf.Exists(item) {
 		return protocol.MakeIntReply(0)
 	}
-	
+
 	if err := cf.Add(item); err != nil {
 		return protocol.MakeErrReply("ERR filter is full")
 	}
-	
+
 	db.addAof(prependCmd("cf.addnx", args))
 	return protocol.MakeIntReply(1)
 }
@@ -272,20 +272,20 @@ func execCFExists(db *DB, args [][]byte) redis.Reply {
 	if len(args) != 2 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'cf.exists' command")
 	}
-	
+
 	key := string(args[0])
 	item := args[1]
-	
+
 	entity, exists := db.GetEntity(key)
 	if !exists {
 		return protocol.MakeIntReply(0)
 	}
-	
+
 	cf, ok := entity.Data.(*probabilistic.CuckooFilter)
 	if !ok {
 		return &protocol.WrongTypeErrReply{}
 	}
-	
+
 	if cf.Exists(item) {
 		return protocol.MakeIntReply(1)
 	}
@@ -298,20 +298,20 @@ func execCFDel(db *DB, args [][]byte) redis.Reply {
 	if len(args) != 2 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'cf.del' command")
 	}
-	
+
 	key := string(args[0])
 	item := args[1]
-	
+
 	entity, exists := db.GetEntity(key)
 	if !exists {
 		return protocol.MakeIntReply(0)
 	}
-	
+
 	cf, ok := entity.Data.(*probabilistic.CuckooFilter)
 	if !ok {
 		return &protocol.WrongTypeErrReply{}
 	}
-	
+
 	if cf.Delete(item) {
 		db.addAof(prependCmd("cf.del", args))
 		return protocol.MakeIntReply(1)
@@ -325,20 +325,20 @@ func execCFCount(db *DB, args [][]byte) redis.Reply {
 	if len(args) != 2 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'cf.count' command")
 	}
-	
+
 	key := string(args[0])
 	item := args[1]
-	
+
 	entity, exists := db.GetEntity(key)
 	if !exists {
 		return protocol.MakeIntReply(0)
 	}
-	
+
 	cf, ok := entity.Data.(*probabilistic.CuckooFilter)
 	if !ok {
 		return &protocol.WrongTypeErrReply{}
 	}
-	
+
 	// Cuckoo filter can return 0 or 1
 	if cf.Exists(item) {
 		return protocol.MakeIntReply(1)
@@ -354,27 +354,27 @@ func execCMSInitByDim(db *DB, args [][]byte) redis.Reply {
 	if len(args) != 3 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'cms.initbydim' command")
 	}
-	
+
 	key := string(args[0])
-	
+
 	width, err := strconv.ParseUint(string(args[1]), 10, 64)
 	if err != nil {
 		return protocol.MakeErrReply("ERR Width must be an integer")
 	}
-	
+
 	depth, err := strconv.ParseUint(string(args[2]), 10, 64)
 	if err != nil {
 		return protocol.MakeErrReply("ERR Depth must be an integer")
 	}
-	
+
 	_, exists := db.GetEntity(key)
 	if exists {
 		return protocol.MakeErrReply("ERR key already exists")
 	}
-	
+
 	cms := probabilistic.NewCountMinSketch(uint(width), uint(depth))
 	db.PutEntity(key, &database.DataEntity{Data: cms})
-	
+
 	db.addAof(prependCmd("cms.initbydim", args))
 	return protocol.MakeOkReply()
 }
@@ -385,12 +385,12 @@ func execCMSIncrBy(db *DB, args [][]byte) redis.Reply {
 	if len(args) < 3 || (len(args)-1)%2 != 0 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'cms.incrby' command")
 	}
-	
+
 	key := string(args[0])
-	
+
 	entity, exists := db.GetEntity(key)
 	var cms *probabilistic.CountMinSketch
-	
+
 	if !exists {
 		// Auto-create with default dimensions
 		cms = probabilistic.NewCountMinSketchFromError(0.001, 0.99)
@@ -402,7 +402,7 @@ func execCMSIncrBy(db *DB, args [][]byte) redis.Reply {
 			return &protocol.WrongTypeErrReply{}
 		}
 	}
-	
+
 	for i := 1; i < len(args); i += 2 {
 		item := args[i]
 		increment, err := strconv.ParseUint(string(args[i+1]), 10, 64)
@@ -411,7 +411,7 @@ func execCMSIncrBy(db *DB, args [][]byte) redis.Reply {
 		}
 		cms.IncrBy(item, increment)
 	}
-	
+
 	db.addAof(prependCmd("cms.incrby", args))
 	return protocol.MakeOkReply()
 }
@@ -422,9 +422,9 @@ func execCMSQuery(db *DB, args [][]byte) redis.Reply {
 	if len(args) < 2 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'cms.query' command")
 	}
-	
+
 	key := string(args[0])
-	
+
 	entity, exists := db.GetEntity(key)
 	if !exists {
 		// Return 0s for all items
@@ -434,18 +434,18 @@ func execCMSQuery(db *DB, args [][]byte) redis.Reply {
 		}
 		return protocol.MakeMultiBulkReply(results)
 	}
-	
+
 	cms, ok := entity.Data.(*probabilistic.CountMinSketch)
 	if !ok {
 		return &protocol.WrongTypeErrReply{}
 	}
-	
+
 	results := make([][]byte, len(args)-1)
 	for i := 1; i < len(args); i++ {
 		count := cms.Query(args[i])
 		results[i-1] = []byte(strconv.FormatUint(count, 10))
 	}
-	
+
 	return protocol.MakeMultiBulkReply(results)
 }
 
@@ -457,22 +457,22 @@ func execTopKReserve(db *DB, args [][]byte) redis.Reply {
 	if len(args) < 2 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'topk.reserve' command")
 	}
-	
+
 	key := string(args[0])
-	
+
 	k, err := strconv.Atoi(string(args[1]))
 	if err != nil {
 		return protocol.MakeErrReply("ERR K must be an integer")
 	}
-	
+
 	_, exists := db.GetEntity(key)
 	if exists {
 		return protocol.MakeErrReply("ERR key already exists")
 	}
-	
+
 	topk := probabilistic.NewTopK(k)
 	db.PutEntity(key, &database.DataEntity{Data: topk})
-	
+
 	db.addAof(prependCmd("topk.reserve", args))
 	return protocol.MakeOkReply()
 }
@@ -483,12 +483,12 @@ func execTopKAdd(db *DB, args [][]byte) redis.Reply {
 	if len(args) < 2 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'topk.add' command")
 	}
-	
+
 	key := string(args[0])
-	
+
 	entity, exists := db.GetEntity(key)
 	var topk *probabilistic.TopK
-	
+
 	if !exists {
 		// Auto-create with k=10
 		topk = probabilistic.NewTopK(10)
@@ -500,17 +500,17 @@ func execTopKAdd(db *DB, args [][]byte) redis.Reply {
 			return &protocol.WrongTypeErrReply{}
 		}
 	}
-	
+
 	// Return items that were dropped (if any)
 	var dropped [][]byte
-	
+
 	for i := 1; i < len(args); i++ {
 		item := topk.Add(args[i])
 		// Check if this item caused another to be dropped
 		// Simplified: just add the item
 		_ = item
 	}
-	
+
 	db.addAof(prependCmd("topk.add", args))
 	return protocol.MakeMultiBulkReply(dropped)
 }
@@ -521,9 +521,9 @@ func execTopKQuery(db *DB, args [][]byte) redis.Reply {
 	if len(args) < 2 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'topk.query' command")
 	}
-	
+
 	key := string(args[0])
-	
+
 	entity, exists := db.GetEntity(key)
 	if !exists {
 		// Return 0s
@@ -533,12 +533,12 @@ func execTopKQuery(db *DB, args [][]byte) redis.Reply {
 		}
 		return protocol.MakeMultiBulkReply(results)
 	}
-	
+
 	topk, ok := entity.Data.(*probabilistic.TopK)
 	if !ok {
 		return &protocol.WrongTypeErrReply{}
 	}
-	
+
 	results := make([][]byte, len(args)-1)
 	for i := 1; i < len(args); i++ {
 		_, _, found := topk.Query(args[i])
@@ -548,7 +548,7 @@ func execTopKQuery(db *DB, args [][]byte) redis.Reply {
 			results[i-1] = []byte("0")
 		}
 	}
-	
+
 	return protocol.MakeMultiBulkReply(results)
 }
 
@@ -558,26 +558,26 @@ func execTopKList(db *DB, args [][]byte) redis.Reply {
 	if len(args) < 1 || len(args) > 2 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'topk.list' command")
 	}
-	
+
 	key := string(args[0])
 	withCount := false
-	
+
 	if len(args) == 2 && strings.ToUpper(string(args[1])) == "WITHCOUNT" {
 		withCount = true
 	}
-	
+
 	entity, exists := db.GetEntity(key)
 	if !exists {
 		return protocol.MakeEmptyMultiBulkReply()
 	}
-	
+
 	topk, ok := entity.Data.(*probabilistic.TopK)
 	if !ok {
 		return &protocol.WrongTypeErrReply{}
 	}
-	
+
 	items := topk.List()
-	
+
 	var reply [][]byte
 	for _, item := range items {
 		reply = append(reply, []byte(item.Item))
@@ -585,7 +585,7 @@ func execTopKList(db *DB, args [][]byte) redis.Reply {
 			reply = append(reply, []byte(strconv.FormatUint(item.Count, 10)))
 		}
 	}
-	
+
 	return protocol.MakeMultiBulkReply(reply)
 }
 
@@ -601,7 +601,7 @@ func init() {
 		attachCommandExtra([]string{redisFlagReadonly, redisFlagFast}, 0, 0, 0)
 	registerCommand("BF.Info", execBFInfo, nil, nil, 2, flagReadOnly).
 		attachCommandExtra([]string{redisFlagReadonly}, 0, 0, 0)
-	
+
 	// Cuckoo Filter
 	registerCommand("CF.Reserve", execCFReserve, nil, nil, -3, flagWrite).
 		attachCommandExtra([]string{redisFlagWrite, redisFlagDenyOOM}, 0, 0, 0)
@@ -615,7 +615,7 @@ func init() {
 		attachCommandExtra([]string{redisFlagWrite}, 0, 0, 0)
 	registerCommand("CF.Count", execCFCount, nil, nil, 3, flagReadOnly).
 		attachCommandExtra([]string{redisFlagReadonly, redisFlagFast}, 0, 0, 0)
-	
+
 	// Count-Min Sketch
 	registerCommand("CMS.InitByDim", execCMSInitByDim, nil, nil, 4, flagWrite).
 		attachCommandExtra([]string{redisFlagWrite, redisFlagDenyOOM}, 0, 0, 0)
@@ -623,7 +623,7 @@ func init() {
 		attachCommandExtra([]string{redisFlagWrite}, 0, 0, 0)
 	registerCommand("CMS.Query", execCMSQuery, nil, nil, -3, flagReadOnly).
 		attachCommandExtra([]string{redisFlagReadonly, redisFlagFast}, 0, 0, 0)
-	
+
 	// Top-K
 	registerCommand("TopK.Reserve", execTopKReserve, nil, nil, -3, flagWrite).
 		attachCommandExtra([]string{redisFlagWrite, redisFlagDenyOOM}, 0, 0, 0)

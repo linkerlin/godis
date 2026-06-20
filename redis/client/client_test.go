@@ -2,13 +2,14 @@ package client
 
 import (
 	"bytes"
-	"github.com/hdt3213/godis/lib/logger"
-	"github.com/hdt3213/godis/lib/utils"
-	"github.com/hdt3213/godis/redis/protocol"
-	"github.com/hdt3213/godis/redis/protocol/asserts"
 	"strconv"
 	"testing"
 	"time"
+
+	"github.com/linkerlin/godis/lib/logger"
+	"github.com/linkerlin/godis/lib/utils"
+	"github.com/linkerlin/godis/redis/protocol"
+	"github.com/linkerlin/godis/redis/protocol/asserts"
 )
 
 func TestClient(t *testing.T) {

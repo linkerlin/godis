@@ -1,10 +1,10 @@
 package database
 
 import (
-	"github.com/hdt3213/godis/interface/redis"
-	"github.com/hdt3213/godis/lib/errs"
-	"github.com/hdt3213/godis/lib/validate"
-	"github.com/hdt3213/godis/redis/protocol"
+	"github.com/linkerlin/godis/interface/redis"
+	"github.com/linkerlin/godis/lib/errs"
+	"github.com/linkerlin/godis/lib/validate"
+	"github.com/linkerlin/godis/redis/protocol"
 )
 
 func validateCmdArgCount(cmdLine [][]byte) redis.Reply {

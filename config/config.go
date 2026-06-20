@@ -12,7 +12,7 @@ import (
 
 	"github.com/cockroachdb/errors"
 
-	"github.com/hdt3213/godis/lib/utils"
+	"github.com/linkerlin/godis/lib/utils"
 )
 
 var (
@@ -44,9 +44,9 @@ type ServerProperties struct {
 
 	SlowLogSlowerThan int64 `cfg:"slowlog-log-slower-than"`
 	SlowLogMaxLen     int   `cfg:"slowlog-max-len"`
-	
-	Maxmemory         int64  `cfg:"maxmemory"`
-	MaxmemoryPolicy   string `cfg:"maxmemory-policy"`
+
+	Maxmemory       int64  `cfg:"maxmemory"`
+	MaxmemoryPolicy string `cfg:"maxmemory-policy"`
 
 	ClusterEnable     bool   `cfg:"cluster-enable"`
 	ClusterAsSeed     bool   `cfg:"cluster-as-seed"`
@@ -171,12 +171,12 @@ func SetupConfig(configFilename string) error {
 		return errors.Wrap(err, "open config file failed")
 	}
 	defer file.Close()
-	
+
 	config, err := parse(file)
 	if err != nil {
 		return errors.Wrap(err, "parse config file failed")
 	}
-	
+
 	Properties = config
 	Properties.RunID = utils.RandString(40)
 	configFilePath, err = filepath.Abs(configFilename)

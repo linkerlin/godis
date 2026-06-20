@@ -4,13 +4,13 @@ import (
 	"strconv"
 	"strings"
 
-	List "github.com/hdt3213/godis/datastruct/list"
-	Set "github.com/hdt3213/godis/datastruct/set"
-	SortedSet "github.com/hdt3213/godis/datastruct/sortedset"
-	"github.com/hdt3213/godis/interface/database"
-	"github.com/hdt3213/godis/interface/redis"
-	"github.com/hdt3213/godis/lib/utils"
-	"github.com/hdt3213/godis/redis/protocol"
+	List "github.com/linkerlin/godis/datastruct/list"
+	Set "github.com/linkerlin/godis/datastruct/set"
+	SortedSet "github.com/linkerlin/godis/datastruct/sortedset"
+	"github.com/linkerlin/godis/interface/database"
+	"github.com/linkerlin/godis/interface/redis"
+	"github.com/linkerlin/godis/lib/utils"
+	"github.com/linkerlin/godis/redis/protocol"
 )
 
 // execSort sorts the elements in a list, set or sorted set
@@ -21,7 +21,7 @@ func execSort(db *DB, args [][]byte) redis.Reply {
 	}
 
 	key := string(args[0])
-	
+
 	// Parse options
 	byPattern := ""
 	offset := 0

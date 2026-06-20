@@ -7,16 +7,16 @@ import (
 	"sync"
 	"time"
 
-	"github.com/hdt3213/godis/datastruct/dict"
+	"github.com/linkerlin/godis/datastruct/dict"
 )
 
 var (
-	ErrInvalidStreamID   = errors.New("ERR Invalid stream ID")
-	ErrStreamIDTooSmall  = errors.New("ERR The ID specified is smaller than the target stream top item")
-	ErrNoSuchConsumer    = errors.New("ERR No such consumer")
-	ErrNoSuchGroup       = errors.New("ERR No such consumer group")
-	ErrConsumerExists    = errors.New("ERR Consumer already exists")
-	ErrGroupExists       = errors.New("ERR Consumer group name already exists")
+	ErrInvalidStreamID  = errors.New("ERR Invalid stream ID")
+	ErrStreamIDTooSmall = errors.New("ERR The ID specified is smaller than the target stream top item")
+	ErrNoSuchConsumer   = errors.New("ERR No such consumer")
+	ErrNoSuchGroup      = errors.New("ERR No such consumer group")
+	ErrConsumerExists   = errors.New("ERR Consumer already exists")
+	ErrGroupExists      = errors.New("ERR Consumer group name already exists")
 )
 
 // StreamID 流条目ID (毫秒时间戳-序列号)
@@ -59,17 +59,17 @@ func ParseStreamID(s string, lastID StreamID) (StreamID, error) {
 		// 自动生成ID
 		return GenerateStreamID(lastID)
 	}
-	
+
 	parts := strings.Split(s, "-")
 	if len(parts) != 2 {
 		return StreamID{}, ErrInvalidStreamID
 	}
-	
+
 	timestamp, err := strconv.ParseInt(parts[0], 10, 64)
 	if err != nil {
 		return StreamID{}, ErrInvalidStreamID
 	}
-	
+
 	var sequence int64
 	if parts[1] == "*" {
 		// 自动生成序列号
@@ -84,22 +84,22 @@ func ParseStreamID(s string, lastID StreamID) (StreamID, error) {
 			return StreamID{}, ErrInvalidStreamID
 		}
 	}
-	
+
 	return StreamID{Timestamp: timestamp, Sequence: sequence}, nil
 }
 
 // GenerateStreamID 生成新的StreamID
 func GenerateStreamID(lastID StreamID) (StreamID, error) {
 	now := time.Now().UnixMilli()
-	
+
 	if now > lastID.Timestamp {
 		return StreamID{Timestamp: now, Sequence: 0}, nil
 	}
-	
+
 	if now == lastID.Timestamp {
 		return StreamID{Timestamp: now, Sequence: lastID.Sequence + 1}, nil
 	}
-	
+
 	// 时钟回退情况，使用lastID + 1
 	return StreamID{Timestamp: lastID.Timestamp, Sequence: lastID.Sequence + 1}, nil
 }
@@ -120,19 +120,19 @@ type PendingEntry struct {
 
 // Consumer 消费者
 type Consumer struct {
-	Name      string
-	SeenTime  time.Time
-	Pending   map[StreamID]*PendingEntry // 待处理条目
+	Name     string
+	SeenTime time.Time
+	Pending  map[StreamID]*PendingEntry // 待处理条目
 }
 
 // ConsumerGroup 消费者组
 type ConsumerGroup struct {
-	Name           string
-	LastID         StreamID                     // 最后递送ID (组创建时的ID)
-	EntriesRead    int64                        // 已读取条目数 (Redis 7.4+)
-	Consumers      *dict.ConcurrentDict         // consumer name -> *Consumer
-	Pending        map[StreamID]*PendingEntry   // 组级别的待处理条目
-	mu             sync.RWMutex
+	Name        string
+	LastID      StreamID                   // 最后递送ID (组创建时的ID)
+	EntriesRead int64                      // 已读取条目数 (Redis 7.4+)
+	Consumers   *dict.ConcurrentDict       // consumer name -> *Consumer
+	Pending     map[StreamID]*PendingEntry // 组级别的待处理条目
+	mu          sync.RWMutex
 }
 
 // NewConsumerGroup 创建消费者组
@@ -149,12 +149,12 @@ func NewConsumerGroup(name string, lastID StreamID) *ConsumerGroup {
 func (cg *ConsumerGroup) GetConsumer(name string) *Consumer {
 	cg.mu.Lock()
 	defer cg.mu.Unlock()
-	
+
 	raw, ok := cg.Consumers.Get(name)
 	if ok {
 		return raw.(*Consumer)
 	}
-	
+
 	consumer := &Consumer{
 		Name:     name,
 		SeenTime: time.Now(),
@@ -168,20 +168,20 @@ func (cg *ConsumerGroup) GetConsumer(name string) *Consumer {
 func (cg *ConsumerGroup) DeleteConsumer(name string) (int, error) {
 	cg.mu.Lock()
 	defer cg.mu.Unlock()
-	
+
 	raw, ok := cg.Consumers.Get(name)
 	if !ok {
 		return 0, ErrNoSuchConsumer
 	}
-	
+
 	consumer := raw.(*Consumer)
 	pendingCount := len(consumer.Pending)
-	
+
 	// 将消费者的pending条目转移给组
 	for id, entry := range consumer.Pending {
 		cg.Pending[id] = entry
 	}
-	
+
 	cg.Consumers.Remove(name)
 	return pendingCount, nil
 }
@@ -189,11 +189,11 @@ func (cg *ConsumerGroup) DeleteConsumer(name string) (int, error) {
 // Stream 流数据结构
 type Stream struct {
 	mu           sync.RWMutex
-	entries      *dict.ConcurrentDict  // StreamID.String() -> *StreamEntry
-	groups       *dict.ConcurrentDict  // group name -> *ConsumerGroup
+	entries      *dict.ConcurrentDict // StreamID.String() -> *StreamEntry
+	groups       *dict.ConcurrentDict // group name -> *ConsumerGroup
 	lastID       StreamID
-	maxlen       int64                 // 最大长度限制
-	entriesAdded int64                 // 总添加条目数 (用于 XINFO)
+	maxlen       int64 // 最大长度限制
+	entriesAdded int64 // 总添加条目数 (用于 XINFO)
 }
 
 // NewStream 创建新的Stream
@@ -209,50 +209,50 @@ func NewStream() *Stream {
 
 // AddOptions XADD选项
 type AddOptions struct {
-	NoMkStream   bool      // 如果stream不存在，不创建
-	MaxLen       int64     // 最大长度
-	MaxLenApprox bool      // 近似最大长度 (~)
-	MinID        StreamID  // 最小ID，小于此ID的条目会被删除
-	Limit        int64     // 删除限制
+	NoMkStream   bool     // 如果stream不存在，不创建
+	MaxLen       int64    // 最大长度
+	MaxLenApprox bool     // 近似最大长度 (~)
+	MinID        StreamID // 最小ID，小于此ID的条目会被删除
+	Limit        int64    // 删除限制
 }
 
 // Add 添加条目到Stream
 func (s *Stream) Add(idStr string, fields map[string]string, opts *AddOptions) (StreamID, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	
+
 	// 解析ID
 	id, err := ParseStreamID(idStr, s.lastID)
 	if err != nil {
 		return StreamID{}, err
 	}
-	
+
 	// 检查ID是否大于lastID
 	if id.Compare(s.lastID) <= 0 {
 		return StreamID{}, ErrStreamIDTooSmall
 	}
-	
+
 	// 创建条目
 	entry := &StreamEntry{
 		ID:     id,
 		Fields: fields,
 	}
-	
+
 	// 添加到entries
 	s.entries.Put(id.String(), entry)
 	s.lastID = id
 	s.entriesAdded++
-	
+
 	// 处理maxlen限制
 	if opts != nil && opts.MaxLen > 0 {
 		s.trimToMaxLen(opts.MaxLen, opts.MaxLenApprox)
 	}
-	
+
 	// 处理MinID限制
 	if opts != nil && !opts.MinID.IsZero() {
 		s.trimToMinID(opts.MinID, opts.Limit)
 	}
-	
+
 	return id, nil
 }
 
@@ -264,7 +264,7 @@ func (s *Stream) trimToMaxLen(maxlen int64, approx bool) {
 			return
 		}
 	}
-	
+
 	for int64(s.entries.Len()) > maxlen {
 		// 删除最老的条目
 		// 注意：这里简化处理，实际应该按ID排序删除
@@ -281,7 +281,7 @@ func (s *Stream) trimToMinID(minID StreamID, limit int64) {
 		if limit > 0 && deleted >= limit {
 			return false
 		}
-		
+
 		entry := val.(*StreamEntry)
 		if entry.ID.Compare(minID) < 0 {
 			s.entries.Remove(key)
@@ -295,7 +295,7 @@ func (s *Stream) trimToMinID(minID StreamID, limit int64) {
 func (s *Stream) Range(start, end StreamID) []*StreamEntry {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	
+
 	var result []*StreamEntry
 	s.entries.ForEach(func(key string, val interface{}) bool {
 		entry := val.(*StreamEntry)
@@ -304,7 +304,7 @@ func (s *Stream) Range(start, end StreamID) []*StreamEntry {
 		}
 		return true
 	})
-	
+
 	// 按ID排序
 	// 简化：实际应该使用有序结构
 	sortEntriesByID(result)
@@ -340,7 +340,7 @@ func (s *Stream) GetLastID() StreamID {
 func (s *Stream) Delete(ids []StreamID) int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	
+
 	deleted := 0
 	for _, id := range ids {
 		_, result := s.entries.Remove(id.String())
@@ -355,12 +355,12 @@ func (s *Stream) Delete(ids []StreamID) int {
 func (s *Stream) CreateGroup(name, startID string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	
+
 	// 检查组是否已存在
 	if _, ok := s.groups.Get(name); ok {
 		return ErrGroupExists
 	}
-	
+
 	var lastID StreamID
 	if startID == "$" {
 		// 从当前最后一个条目开始
@@ -372,7 +372,7 @@ func (s *Stream) CreateGroup(name, startID string) error {
 			return err
 		}
 	}
-	
+
 	group := NewConsumerGroup(name, lastID)
 	s.groups.Put(name, group)
 	return nil
@@ -382,11 +382,11 @@ func (s *Stream) CreateGroup(name, startID string) error {
 func (s *Stream) DestroyGroup(name string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	
+
 	if _, ok := s.groups.Get(name); !ok {
 		return ErrNoSuchGroup
 	}
-	
+
 	s.groups.Remove(name)
 	return nil
 }
@@ -395,7 +395,7 @@ func (s *Stream) DestroyGroup(name string) error {
 func (s *Stream) GetGroup(name string) (*ConsumerGroup, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	
+
 	raw, ok := s.groups.Get(name)
 	if !ok {
 		return nil, ErrNoSuchGroup
@@ -407,7 +407,7 @@ func (s *Stream) GetGroup(name string) (*ConsumerGroup, error) {
 func (s *Stream) GetGroups() []*ConsumerGroup {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	
+
 	var groups []*ConsumerGroup
 	s.groups.ForEach(func(key string, val interface{}) bool {
 		groups = append(groups, val.(*ConsumerGroup))
@@ -431,13 +431,13 @@ func (s *Stream) Claim(groupName, consumerName string, minIdleTime time.Duration
 	if err != nil {
 		return nil, err
 	}
-	
+
 	consumer := group.GetConsumer(consumerName)
 	consumer.SeenTime = time.Now()
-	
+
 	var result []*StreamEntry
 	now := time.Now()
-	
+
 	for _, id := range ids {
 		// 查找待处理条目
 		pending, ok := group.Pending[id]
@@ -455,11 +455,11 @@ func (s *Stream) Claim(groupName, consumerName string, minIdleTime time.Duration
 				}
 				return true
 			})
-			
+
 			if !found && !opts.Force {
 				continue
 			}
-			
+
 			if !found {
 				// 创建新的pending条目
 				pending = &PendingEntry{
@@ -467,7 +467,7 @@ func (s *Stream) Claim(groupName, consumerName string, minIdleTime time.Duration
 				}
 			}
 		}
-		
+
 		// 检查空闲时间
 		if opts.Force || now.Sub(pending.DeliveryTime) >= minIdleTime {
 			// 更新条目
@@ -481,10 +481,10 @@ func (s *Stream) Claim(groupName, consumerName string, minIdleTime time.Duration
 			} else {
 				pending.DeliveryCount++
 			}
-			
+
 			// 添加到消费者的pending
 			consumer.Pending[id] = pending
-			
+
 			// 获取条目内容
 			if !opts.JustID {
 				if raw, ok := s.entries.Get(id.String()); ok {
@@ -493,7 +493,7 @@ func (s *Stream) Claim(groupName, consumerName string, minIdleTime time.Duration
 			}
 		}
 	}
-	
+
 	return result, nil
 }
 
@@ -503,43 +503,43 @@ func (s *Stream) AutoClaim(groupName, consumerName string, minIdleTime time.Dura
 	if err != nil {
 		return nil, StreamID{}, err
 	}
-	
+
 	consumer := group.GetConsumer(consumerName)
 	consumer.SeenTime = time.Now()
-	
+
 	var result []*StreamEntry
 	var nextID StreamID
 	now := time.Now()
 	claimed := 0
-	
+
 	// 遍历组的pending条目
 	for id, pending := range group.Pending {
 		if id.Compare(start) < 0 {
 			continue
 		}
-		
+
 		if claimed >= count {
 			nextID = id
 			break
 		}
-		
+
 		if now.Sub(pending.DeliveryTime) >= minIdleTime {
 			// 认领条目
 			pending.Consumer = consumerName
 			pending.DeliveryTime = now
 			pending.DeliveryCount++
-			
+
 			consumer.Pending[id] = pending
 			delete(group.Pending, id)
-			
+
 			if raw, ok := s.entries.Get(id.String()); ok {
 				result = append(result, raw.(*StreamEntry))
 			}
-			
+
 			claimed++
 		}
 	}
-	
+
 	return result, nextID, nil
 }
 
@@ -559,16 +559,16 @@ func sortEntriesByID(entries []*StreamEntry) {
 func (s *Stream) GetInfo() map[string]interface{} {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	
+
 	info := make(map[string]interface{})
 	info["length"] = s.entries.Len()
-	info["radix-tree-keys"] = s.entries.Len() // 简化
+	info["radix-tree-keys"] = s.entries.Len()      // 简化
 	info["radix-tree-nodes"] = s.entries.Len() * 2 // 简化
 	info["last-generated-id"] = s.lastID.String()
 	info["max-deleted-entry-id"] = "0-0" // 简化
 	info["entries-added"] = s.entriesAdded
 	info["recorded-first-entry-id"] = s.lastID.String() // 简化
-	
+
 	// 获取第一个和最后一个条目
 	if s.entries.Len() > 0 {
 		var first, last *StreamEntry
@@ -582,7 +582,7 @@ func (s *Stream) GetInfo() map[string]interface{} {
 			}
 			return true
 		})
-		
+
 		if first != nil {
 			info["first-entry"] = first
 		}
@@ -590,6 +590,6 @@ func (s *Stream) GetInfo() map[string]interface{} {
 			info["last-entry"] = last
 		}
 	}
-	
+
 	return info
 }

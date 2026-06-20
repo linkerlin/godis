@@ -2,8 +2,8 @@
 package validate
 
 import (
-	"github.com/hdt3213/godis/lib/consts"
-	"github.com/hdt3213/godis/lib/errs"
+	"github.com/linkerlin/godis/lib/consts"
+	"github.com/linkerlin/godis/lib/errs"
 )
 
 // ValidateKey checks if key is valid

@@ -3,8 +3,8 @@ package database
 import (
 	"strings"
 
-	"github.com/hdt3213/godis/interface/redis"
-	"github.com/hdt3213/godis/redis/protocol"
+	"github.com/linkerlin/godis/interface/redis"
+	"github.com/linkerlin/godis/redis/protocol"
 )
 
 // execModule 处理 MODULE 命令
@@ -45,7 +45,7 @@ func execModuleLoad(args [][]byte) redis.Reply {
 	if len(args) < 1 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'module|load' command")
 	}
-	
+
 	// Godis 不支持动态加载外部模块
 	// 所有功能都是内置的
 	return protocol.MakeErrReply("ERR Godis does not support dynamic module loading. All features are built-in.")
@@ -56,7 +56,7 @@ func execModuleUnload(args [][]byte) redis.Reply {
 	if len(args) < 1 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'module|unload' command")
 	}
-	
+
 	// Godis 不支持卸载模块
 	return protocol.MakeErrReply("ERR Godis does not support module unloading.")
 }

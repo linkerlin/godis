@@ -5,11 +5,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hdt3213/godis/datastruct/dict"
-	"github.com/hdt3213/godis/interface/database"
-	"github.com/hdt3213/godis/interface/redis"
-	"github.com/hdt3213/godis/lib/utils"
-	"github.com/hdt3213/godis/redis/protocol"
+	"github.com/linkerlin/godis/datastruct/dict"
+	"github.com/linkerlin/godis/interface/database"
+	"github.com/linkerlin/godis/interface/redis"
+	"github.com/linkerlin/godis/lib/utils"
+	"github.com/linkerlin/godis/redis/protocol"
 )
 
 // getAsExpireDict 获取支持字段级过期的字典
@@ -18,12 +18,12 @@ func (db *DB) getAsExpireDict(key string) (*dict.ExpireDict, protocol.ErrorReply
 	if !exists {
 		return nil, nil
 	}
-	
+
 	// 尝试类型断言为ExpireDict
 	if ed, ok := entity.Data.(*dict.ExpireDict); ok {
 		return ed, nil
 	}
-	
+
 	// 尝试类型断言为普通Dict，需要迁移
 	if d, ok := entity.Data.(dict.Dict); ok {
 		// 创建新的ExpireDict并迁移数据
@@ -36,7 +36,7 @@ func (db *DB) getAsExpireDict(key string) (*dict.ExpireDict, protocol.ErrorReply
 		db.PutEntity(key, &database.DataEntity{Data: ed})
 		return ed, nil
 	}
-	
+
 	return nil, &protocol.WrongTypeErrReply{}
 }
 
@@ -60,10 +60,10 @@ func execHGetEx(db *DB, args [][]byte) redis.Reply {
 	if len(args) < 2 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'hgetex' command")
 	}
-	
+
 	key := string(args[0])
 	field := string(args[1])
-	
+
 	// 获取hash
 	ed, errReply := db.getAsExpireDict(key)
 	if errReply != nil {
@@ -72,18 +72,18 @@ func execHGetEx(db *DB, args [][]byte) redis.Reply {
 	if ed == nil {
 		return &protocol.NullBulkReply{}
 	}
-	
+
 	// 获取字段值
 	val, _, exists := ed.GetWithExpire(field)
 	if !exists {
 		return &protocol.NullBulkReply{}
 	}
-	
+
 	// 解析过期选项
 	now := time.Now()
 	expireAt := time.Time{} // 零值表示不设置过期
 	persist := false
-	
+
 	for i := 2; i < len(args); i++ {
 		arg := strings.ToUpper(string(args[i]))
 		switch arg {
@@ -133,7 +133,7 @@ func execHGetEx(db *DB, args [][]byte) redis.Reply {
 			return protocol.MakeSyntaxErrReply()
 		}
 	}
-	
+
 	// 应用过期设置
 	if persist {
 		ed.Persist(field)
@@ -142,7 +142,7 @@ func execHGetEx(db *DB, args [][]byte) redis.Reply {
 		ed.Expire(field, expireAt)
 		db.addAof(utils.ToCmdLine3("hgetex", args...))
 	}
-	
+
 	// 返回字段值
 	value, _ := val.([]byte)
 	return protocol.MakeBulkReply(value)
@@ -154,22 +154,22 @@ func execHSetEx(db *DB, args [][]byte) redis.Reply {
 	if len(args) < 3 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'hsetex' command")
 	}
-	
+
 	key := string(args[0])
 	field := string(args[1])
 	value := args[2]
-	
+
 	// 获取或创建hash
 	ed, _, errReply := db.getOrInitExpireDict(key)
 	if errReply != nil {
 		return errReply
 	}
-	
+
 	// 解析过期选项
 	now := time.Now()
 	expireAt := time.Time{}
 	keepTTL := false
-	
+
 	for i := 3; i < len(args); i++ {
 		arg := strings.ToUpper(string(args[i]))
 		switch arg {
@@ -219,7 +219,7 @@ func execHSetEx(db *DB, args [][]byte) redis.Reply {
 			return protocol.MakeSyntaxErrReply()
 		}
 	}
-	
+
 	// 检查是否需要保持原有TTL
 	if keepTTL {
 		_, ttl, exists := ed.GetWithExpire(field)
@@ -227,14 +227,14 @@ func execHSetEx(db *DB, args [][]byte) redis.Reply {
 			expireAt = now.Add(ttl)
 		}
 	}
-	
+
 	// 设置字段
 	if !expireAt.IsZero() {
 		ed.SetWithExpire(field, value, expireAt.Sub(now))
 	} else {
 		ed.Set(field, value)
 	}
-	
+
 	db.addAof(utils.ToCmdLine3("hsetex", args...))
 	return protocol.MakeIntReply(1)
 }
@@ -245,13 +245,13 @@ func execHGetDel(db *DB, args [][]byte) redis.Reply {
 	if len(args) < 2 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'hgetdel' command")
 	}
-	
+
 	key := string(args[0])
 	fields := make([]string, len(args)-1)
 	for i := 1; i < len(args); i++ {
 		fields[i-1] = string(args[i])
 	}
-	
+
 	// 获取hash
 	ed, errReply := db.getAsExpireDict(key)
 	if errReply != nil {
@@ -260,7 +260,7 @@ func execHGetDel(db *DB, args [][]byte) redis.Reply {
 	if ed == nil {
 		return &protocol.NullBulkReply{}
 	}
-	
+
 	// 如果只查询一个字段，返回该字段的值
 	if len(fields) == 1 {
 		val, exists := ed.Get(fields[0])
@@ -270,11 +270,11 @@ func execHGetDel(db *DB, args [][]byte) redis.Reply {
 		// 删除字段
 		ed.Delete(fields[0])
 		db.addAof(utils.ToCmdLine3("hgetdel", args...))
-		
+
 		value, _ := val.([]byte)
 		return protocol.MakeBulkReply(value)
 	}
-	
+
 	// 多个字段，返回数组
 	result := make([][]byte, len(fields))
 	for i, field := range fields {
@@ -285,7 +285,7 @@ func execHGetDel(db *DB, args [][]byte) redis.Reply {
 			ed.Delete(field)
 		}
 	}
-	
+
 	db.addAof(utils.ToCmdLine3("hgetdel", args...))
 	return protocol.MakeMultiBulkReply(result)
 }
@@ -296,10 +296,10 @@ func execHTTL(db *DB, args [][]byte) redis.Reply {
 	if len(args) != 2 {
 		return protocol.MakeArgNumErrReply("httl")
 	}
-	
+
 	key := string(args[0])
 	field := string(args[1])
-	
+
 	ed, errReply := db.getAsExpireDict(key)
 	if errReply != nil {
 		return errReply
@@ -307,7 +307,7 @@ func execHTTL(db *DB, args [][]byte) redis.Reply {
 	if ed == nil {
 		return protocol.MakeIntReply(-2)
 	}
-	
+
 	ttl := ed.TTL(field)
 	return protocol.MakeIntReply(ttl)
 }
@@ -318,10 +318,10 @@ func execHPTTL(db *DB, args [][]byte) redis.Reply {
 	if len(args) != 2 {
 		return protocol.MakeArgNumErrReply("hpttl")
 	}
-	
+
 	key := string(args[0])
 	field := string(args[1])
-	
+
 	ed, errReply := db.getAsExpireDict(key)
 	if errReply != nil {
 		return errReply
@@ -329,7 +329,7 @@ func execHPTTL(db *DB, args [][]byte) redis.Reply {
 	if ed == nil {
 		return protocol.MakeIntReply(-2)
 	}
-	
+
 	pttl := ed.PTTL(field)
 	return protocol.MakeIntReply(pttl)
 }
@@ -340,13 +340,13 @@ func execHPersist(db *DB, args [][]byte) redis.Reply {
 	if len(args) < 2 {
 		return protocol.MakeArgNumErrReply("hpersist")
 	}
-	
+
 	key := string(args[0])
 	fields := make([]string, len(args)-1)
 	for i := 1; i < len(args); i++ {
 		fields[i-1] = string(args[i])
 	}
-	
+
 	ed, errReply := db.getAsExpireDict(key)
 	if errReply != nil {
 		return errReply
@@ -354,18 +354,18 @@ func execHPersist(db *DB, args [][]byte) redis.Reply {
 	if ed == nil {
 		return protocol.MakeIntReply(0)
 	}
-	
+
 	persisted := 0
 	for _, field := range fields {
 		if ed.Persist(field) {
 			persisted++
 		}
 	}
-	
+
 	if persisted > 0 {
 		db.addAof(utils.ToCmdLine3("hpersist", args...))
 	}
-	
+
 	return protocol.MakeIntReply(int64(persisted))
 }
 

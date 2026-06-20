@@ -5,8 +5,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/hdt3213/godis/lib/logger"
-	"github.com/hdt3213/godis/lib/sync/wait"
+	"github.com/linkerlin/godis/lib/logger"
+	"github.com/linkerlin/godis/lib/sync/wait"
 )
 
 const (
@@ -34,6 +34,11 @@ type Connection struct {
 
 	// password may be changed by CONFIG command during runtime, so store the password
 	password string
+
+	// ACL user bound to this connection (empty means "default")
+	aclUser string
+	// aclAuthed is true after successful AUTH / HELLO AUTH
+	aclAuthed bool
 
 	// queued commands for `multi`
 	queue    [][][]byte
@@ -63,6 +68,8 @@ func (c *Connection) Close() error {
 	}
 	c.subs = nil
 	c.password = ""
+	c.aclUser = ""
+	c.aclAuthed = false
 	c.queue = nil
 	c.watching = nil
 	c.txErrors = nil
@@ -83,7 +90,6 @@ func NewConn(conn net.Conn) *Connection {
 	c.conn = conn
 	return c
 }
-
 
 // Write sends response to client over tcp connection
 func (c *Connection) Write(b []byte) (int, error) {
@@ -154,6 +160,26 @@ func (c *Connection) SetPassword(password string) {
 // GetPassword get password for authentication
 func (c *Connection) GetPassword() string {
 	return c.password
+}
+
+// SetACLUser stores the ACL username for this connection.
+func (c *Connection) SetACLUser(username string) {
+	c.aclUser = username
+}
+
+// GetACLUser returns the ACL username (empty means "default").
+func (c *Connection) GetACLUser() string {
+	return c.aclUser
+}
+
+// SetACLAuthenticated marks the connection as ACL-authenticated.
+func (c *Connection) SetACLAuthenticated(authed bool) {
+	c.aclAuthed = authed
+}
+
+// IsACLAuthenticated reports whether AUTH / HELLO AUTH succeeded.
+func (c *Connection) IsACLAuthenticated() bool {
+	return c.aclAuthed
 }
 
 // InMultiState tells is connection in an uncommitted transaction

@@ -6,9 +6,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/hdt3213/godis/acl"
-	"github.com/hdt3213/godis/interface/redis"
-	"github.com/hdt3213/godis/redis/protocol"
+	"github.com/linkerlin/godis/acl"
+	"github.com/linkerlin/godis/config"
+	"github.com/linkerlin/godis/interface/redis"
+	"github.com/linkerlin/godis/redis/protocol"
 )
 
 var aclEngine *acl.Engine
@@ -35,7 +36,7 @@ var (
 func addACLLogEntry(reason, context, object, username string) {
 	aclLogMu.Lock()
 	defer aclLogMu.Unlock()
-	
+
 	// 检查是否存在相同条目（去重）
 	for _, entry := range aclLogEntries {
 		if entry.Reason == reason && entry.Object == object && entry.Username == username {
@@ -44,19 +45,19 @@ func addACLLogEntry(reason, context, object, username string) {
 			return
 		}
 	}
-	
+
 	// 添加新条目
 	entry := &ACLLogEntry{
-		Count:      1,
-		Reason:     reason,
-		Context:    context,
-		Object:     object,
-		Username:   username,
-		Timestamp:  time.Now(),
+		Count:     1,
+		Reason:    reason,
+		Context:   context,
+		Object:    object,
+		Username:  username,
+		Timestamp: time.Now(),
 	}
-	
+
 	aclLogEntries = append(aclLogEntries, entry)
-	
+
 	// 限制日志数量
 	if len(aclLogEntries) > aclLogMaxLen {
 		aclLogEntries = aclLogEntries[len(aclLogEntries)-aclLogMaxLen:]
@@ -67,18 +68,18 @@ func addACLLogEntry(reason, context, object, username string) {
 func getACLLogEntries(count int) redis.Reply {
 	aclLogMu.RLock()
 	defer aclLogMu.RUnlock()
-	
+
 	entries := aclLogEntries
 	if count > 0 && count < len(entries) {
 		entries = entries[len(entries)-count:]
 	}
-	
+
 	var result [][]byte
 	now := time.Now()
-	
+
 	for _, entry := range entries {
 		age := now.Sub(entry.Timestamp).Seconds()
-		
+
 		var fields [][]byte
 		fields = append(fields, []byte("count"))
 		fields = append(fields, []byte(strconv.FormatInt(entry.Count, 10)))
@@ -94,10 +95,10 @@ func getACLLogEntries(count int) redis.Reply {
 		fields = append(fields, []byte(strconv.FormatFloat(age, 'f', 6, 64)))
 		fields = append(fields, []byte("timestamp"))
 		fields = append(fields, []byte(strconv.FormatInt(entry.Timestamp.Unix(), 10)))
-		
+
 		result = append(result, protocol.MakeMultiBulkReply(fields).ToBytes())
 	}
-	
+
 	return protocol.MakeMultiBulkReply(result)
 }
 
@@ -105,21 +106,20 @@ func getACLLogEntries(count int) redis.Reply {
 func resetACLLog() {
 	aclLogMu.Lock()
 	defer aclLogMu.Unlock()
-	
+
 	aclLogEntries = make([]*ACLLogEntry, 0)
 }
 
 // InitACLEngine initializes the ACL engine
 func (server *Server) InitACLEngine() {
 	aclEngine = acl.NewEngine()
-	
-	// Create default user with full permissions
-	defaultUser := acl.NewUser("default")
-	defaultUser.Enabled = true
-	defaultUser.AllowAllCommands()
-	defaultUser.AddKeyPattern("*", true)
-	
-	aclEngine.SetUser("default", nil)
+	rules := []string{"on", "+@all", "~*"}
+	if config.Properties.RequirePass != "" {
+		rules = append(rules, ">"+config.Properties.RequirePass)
+	} else {
+		rules = append(rules, "nopass")
+	}
+	_, _ = aclEngine.SetUser("default", rules)
 }
 
 // execACL handles ACL subcommands
@@ -127,9 +127,9 @@ func execACL(db *DB, args [][]byte) redis.Reply {
 	if len(args) < 1 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'acl' command")
 	}
-	
+
 	subCmd := strings.ToUpper(string(args[0]))
-	
+
 	switch subCmd {
 	case "WHOAMI":
 		return execACLWhoami(args[1:])
@@ -163,7 +163,7 @@ func execACLWhoami(args [][]byte) redis.Reply {
 	if len(args) != 0 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'acl|whoami' command")
 	}
-	
+
 	// For now, return default user
 	return protocol.MakeBulkReply([]byte("default"))
 }
@@ -173,11 +173,11 @@ func execACLList(args [][]byte) redis.Reply {
 	if len(args) != 0 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'acl|list' command")
 	}
-	
+
 	if aclEngine == nil {
 		return protocol.MakeEmptyMultiBulkReply()
 	}
-	
+
 	users := aclEngine.GetAllUsers()
 	result := make([][]byte, len(users))
 	for i, user := range users {
@@ -185,7 +185,7 @@ func execACLList(args [][]byte) redis.Reply {
 			result[i] = formatACLUser(u)
 		}
 	}
-	
+
 	return protocol.MakeMultiBulkReply(result)
 }
 
@@ -194,17 +194,17 @@ func execACLUsers(args [][]byte) redis.Reply {
 	if len(args) != 0 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'acl|users' command")
 	}
-	
+
 	if aclEngine == nil {
 		return protocol.MakeEmptyMultiBulkReply()
 	}
-	
+
 	users := aclEngine.GetAllUsers()
 	result := make([][]byte, len(users))
 	for i, user := range users {
 		result[i] = []byte(user)
 	}
-	
+
 	return protocol.MakeMultiBulkReply(result)
 }
 
@@ -213,17 +213,17 @@ func execACLGetUser(args [][]byte) redis.Reply {
 	if len(args) != 1 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'acl|getuser' command")
 	}
-	
+
 	if aclEngine == nil {
 		return &protocol.NullBulkReply{}
 	}
-	
+
 	username := string(args[0])
 	user, exists := aclEngine.GetUser(username)
 	if !exists {
 		return &protocol.NullBulkReply{}
 	}
-	
+
 	return formatACLUserReply(user)
 }
 
@@ -232,22 +232,22 @@ func execACLSetUser(args [][]byte) redis.Reply {
 	if len(args) < 1 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'acl|setuser' command")
 	}
-	
+
 	if aclEngine == nil {
 		return protocol.MakeErrReply("ERR ACL engine not initialized")
 	}
-	
+
 	username := string(args[0])
 	rules := make([]string, len(args)-1)
 	for i := 1; i < len(args); i++ {
 		rules[i-1] = string(args[i])
 	}
-	
+
 	_, err := aclEngine.SetUser(username, rules)
 	if err != nil {
 		return protocol.MakeErrReply("ERR " + err.Error())
 	}
-	
+
 	return protocol.MakeOkReply()
 }
 
@@ -256,16 +256,16 @@ func execACLDelUser(args [][]byte) redis.Reply {
 	if len(args) < 1 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'acl|deluser' command")
 	}
-	
+
 	if aclEngine == nil {
 		return protocol.MakeIntReply(0)
 	}
-	
+
 	names := make([]string, len(args))
 	for i, arg := range args {
 		names[i] = string(arg)
 	}
-	
+
 	deleted := aclEngine.DelUser(names)
 	return protocol.MakeIntReply(int64(deleted))
 }
@@ -275,7 +275,7 @@ func execACLCat(args [][]byte) redis.Reply {
 	if aclEngine == nil {
 		return protocol.MakeEmptyMultiBulkReply()
 	}
-	
+
 	if len(args) == 0 {
 		// List all categories
 		categories := []string{
@@ -290,14 +290,14 @@ func execACLCat(args [][]byte) redis.Reply {
 		}
 		return protocol.MakeMultiBulkReply(result)
 	}
-	
+
 	// List commands in a category
 	category := string(args[0])
 	cmds := acl.CommandCategoryMap[category]
 	if cmds == nil {
 		return protocol.MakeErrReply("ERR Unknown category '" + category + "'")
 	}
-	
+
 	result := make([][]byte, len(cmds))
 	for i, cmd := range cmds {
 		result[i] = []byte(cmd)
@@ -311,13 +311,13 @@ func execACLLog(args [][]byte) redis.Reply {
 		// 返回所有日志条目
 		return getACLLogEntries(-1)
 	}
-	
+
 	// 检查RESET
 	if len(args) == 1 && strings.ToUpper(string(args[0])) == "RESET" {
 		resetACLLog()
 		return protocol.MakeOkReply()
 	}
-	
+
 	// 解析数量限制
 	count := -1
 	if len(args) >= 1 {
@@ -326,7 +326,7 @@ func execACLLog(args [][]byte) redis.Reply {
 			count = c
 		}
 	}
-	
+
 	return getACLLogEntries(count)
 }
 
@@ -356,7 +356,7 @@ func execACLHelp(args [][]byte) redis.Reply {
 		"WHOAMI",
 		"    Return the username the current connection is authenticated with.",
 	}
-	
+
 	result := make([][]byte, len(help))
 	for i, line := range help {
 		result[i] = []byte(line)
@@ -376,23 +376,23 @@ func execACLDryRun(db *DB, args [][]byte) redis.Reply {
 	if len(args) < 2 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'acl|dryrun' command")
 	}
-	
+
 	if aclEngine == nil {
 		return protocol.MakeOkReply()
 	}
-	
+
 	username := string(args[0])
 	command := string(args[1])
-	
+
 	user, exists := aclEngine.GetUser(username)
 	if !exists {
 		return protocol.MakeErrReply("ERR User '" + username + "' not found")
 	}
-	
+
 	if !user.CheckCommand(command) {
 		return protocol.MakeErrReply("ERR User '" + username + "' cannot execute command '" + command + "'")
 	}
-	
+
 	return protocol.MakeOkReply()
 }
 
@@ -400,17 +400,17 @@ func execACLDryRun(db *DB, args [][]byte) redis.Reply {
 func formatACLUser(user *acl.User) []byte {
 	// Simplified format
 	parts := []string{"user", user.Name}
-	
+
 	if user.Enabled {
 		parts = append(parts, "on")
 	} else {
 		parts = append(parts, "off")
 	}
-	
+
 	if len(user.Passwords) == 0 {
 		parts = append(parts, "nopass")
 	}
-	
+
 	for _, pwd := range user.Passwords {
 		if pwd.IsSHA {
 			parts = append(parts, "#"+pwd.Hash)
@@ -418,18 +418,18 @@ func formatACLUser(user *acl.User) []byte {
 			parts = append(parts, ">"+pwd.Hash)
 		}
 	}
-	
+
 	if user.Commands.AllCommands {
 		parts = append(parts, "+@all")
 	}
-	
+
 	return []byte(strings.Join(parts, " "))
 }
 
 // formatACLUserReply formats user details as Redis reply
 func formatACLUserReply(user *acl.User) redis.Reply {
 	var result [][]byte
-	
+
 	// Flags
 	flags := []string{}
 	if user.Enabled {
@@ -437,14 +437,14 @@ func formatACLUserReply(user *acl.User) redis.Reply {
 	} else {
 		flags = append(flags, "off")
 	}
-	
+
 	var flagReplies [][]byte
 	for _, f := range flags {
 		flagReplies = append(flagReplies, []byte(f))
 	}
 	result = append(result, []byte("flags"))
 	result = append(result, protocol.MakeMultiBulkReply(flagReplies).ToBytes())
-	
+
 	// Passwords
 	result = append(result, []byte("passwords"))
 	var pwdReplies [][]byte
@@ -454,7 +454,7 @@ func formatACLUserReply(user *acl.User) redis.Reply {
 		}
 	}
 	result = append(result, protocol.MakeMultiBulkReply(pwdReplies).ToBytes())
-	
+
 	// Commands
 	result = append(result, []byte("commands"))
 	var cmdReplies [][]byte
@@ -465,7 +465,7 @@ func formatACLUserReply(user *acl.User) redis.Reply {
 		cmdReplies = append(cmdReplies, []byte("+"+cmd))
 	}
 	result = append(result, protocol.MakeMultiBulkReply(cmdReplies).ToBytes())
-	
+
 	// Keys
 	result = append(result, []byte("keys"))
 	var keyReplies [][]byte
@@ -475,7 +475,7 @@ func formatACLUserReply(user *acl.User) redis.Reply {
 		}
 	}
 	result = append(result, protocol.MakeMultiBulkReply(keyReplies).ToBytes())
-	
+
 	return protocol.MakeMultiBulkReply(result)
 }
 

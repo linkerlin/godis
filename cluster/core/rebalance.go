@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/hdt3213/godis/lib/logger"
+	"github.com/linkerlin/godis/lib/logger"
 )
 
 // RebalanceManager manages cluster slot rebalancing
@@ -236,10 +236,10 @@ func (rm *RebalanceManager) CalculateRebalancePlan() (*RebalanceTask, error) {
 	}
 
 	task := &RebalanceTask{
-		ID:           generateTaskID(),
-		StartTime:    time.Now(),
-		Migrations:   make([]SlotMigration, 0),
-		Status:       RebalanceStatusPending,
+		ID:         generateTaskID(),
+		StartTime:  time.Now(),
+		Migrations: make([]SlotMigration, 0),
+		Status:     RebalanceStatusPending,
 	}
 
 	// Calculate target slots per node
@@ -566,14 +566,4 @@ func (rm *RebalanceManager) GetMigrationProgress() (completed, total int, percen
 	}
 
 	return completed, total, math.Round(percentage*100) / 100
-}
-
-// doMigrateSlot is a wrapper for the cluster's internal slot migration
-// This should be implemented to use the existing migration mechanism
-func (cluster *Cluster) doMigrateSlot(slot uint32, from, to string) error {
-	// This is a placeholder - actual implementation should use
-	// the existing migration mechanism from node_manager.go
-	logger.Infof("Migrating slot %d from %s to %s", slot, from, to)
-	// TODO: Implement using existing cluster migration logic
-	return nil
 }

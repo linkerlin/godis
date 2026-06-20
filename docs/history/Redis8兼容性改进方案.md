@@ -191,7 +191,7 @@ XACKDEL key group id [id ...]
 package stream
 
 import (
-    "github.com/hdt3213/godis/datastruct/dict"
+    "github.com/linkerlin/godis/datastruct/dict"
     "sync"
     "time"
 )
@@ -283,7 +283,7 @@ package scripting
 
 import (
     "github.com/yuin/gopher-lua"
-    "github.com/hdt3213/godis/interface/database"
+    "github.com/linkerlin/godis/interface/database"
 )
 
 // ScriptEngine Lua 脚本执行引擎
@@ -421,7 +421,7 @@ ACL DRYRUN username command [arg [arg ...]]
 package acl
 
 import (
-    "github.com/hdt3213/godis/datastruct/dict"
+    "github.com/linkerlin/godis/datastruct/dict"
     "sync"
 )
 

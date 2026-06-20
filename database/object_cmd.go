@@ -5,13 +5,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hdt3213/godis/datastruct/dict"
-	"github.com/hdt3213/godis/datastruct/list"
-	"github.com/hdt3213/godis/datastruct/set"
-	"github.com/hdt3213/godis/datastruct/sortedset"
-	"github.com/hdt3213/godis/datastruct/stream"
-	"github.com/hdt3213/godis/interface/redis"
-	"github.com/hdt3213/godis/redis/protocol"
+	"github.com/linkerlin/godis/datastruct/dict"
+	"github.com/linkerlin/godis/datastruct/list"
+	"github.com/linkerlin/godis/datastruct/set"
+	"github.com/linkerlin/godis/datastruct/sortedset"
+	"github.com/linkerlin/godis/datastruct/stream"
+	"github.com/linkerlin/godis/interface/redis"
+	"github.com/linkerlin/godis/redis/protocol"
 )
 
 // execObject inspects the internals of Redis objects associated with keys

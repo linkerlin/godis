@@ -3,8 +3,8 @@ package database
 import (
 	"strings"
 
-	"github.com/hdt3213/godis/interface/redis"
-	"github.com/hdt3213/godis/redis/protocol"
+	"github.com/linkerlin/godis/interface/redis"
+	"github.com/linkerlin/godis/redis/protocol"
 )
 
 // execPubsub 处理 PUBSUB 命令
@@ -44,14 +44,14 @@ func execPubsubChannels(args [][]byte) redis.Reply {
 // execPubsubNumsub 返回指定频道的订阅数
 func execPubsubNumsub(args [][]byte) redis.Reply {
 	result := make([][]byte, 0, len(args)*2)
-	
+
 	for _, arg := range args {
 		channel := string(arg)
 		result = append(result, []byte(channel))
 		// 由于没有直接访问 hub 的方法，返回 0
 		result = append(result, []byte("0"))
 	}
-	
+
 	return protocol.MakeMultiBulkReply(result)
 }
 

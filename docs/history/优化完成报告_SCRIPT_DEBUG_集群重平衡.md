@@ -181,10 +181,10 @@ manager.StartAutoRebalance()
 ### 3.1 测试状态
 
 ```
-✅ github.com/hdt3213/godis/scripting        0.587s
-✅ github.com/hdt3213/godis/cluster/core     0.131s
-✅ github.com/hdt3213/godis/cluster/commands 4.830s
-✅ github.com/hdt3213/godis/database         19.265s
+✅ github.com/linkerlin/godis/scripting        0.587s
+✅ github.com/linkerlin/godis/cluster/core     0.131s
+✅ github.com/linkerlin/godis/cluster/commands 4.830s
+✅ github.com/linkerlin/godis/database         19.265s
 ```
 
 ### 3.2 新增测试

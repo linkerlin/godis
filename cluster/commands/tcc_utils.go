@@ -1,10 +1,10 @@
 package commands
 
 import (
-	"github.com/hdt3213/godis/cluster/core"
-	"github.com/hdt3213/godis/interface/redis"
-	"github.com/hdt3213/godis/lib/utils"
-	"github.com/hdt3213/godis/redis/protocol"
+	"github.com/linkerlin/godis/cluster/core"
+	"github.com/linkerlin/godis/interface/redis"
+	"github.com/linkerlin/godis/lib/utils"
+	"github.com/linkerlin/godis/redis/protocol"
 )
 
 type CmdLine = [][]byte
@@ -24,8 +24,8 @@ func getRouteMap(cluster *core.Cluster, keys []string) RouteMap {
 
 type TccTx struct {
 	rawCmdLine CmdLine
-	routeMap RouteMap
-	cmdLines map[string]CmdLine // node -> CmdLine
+	routeMap   RouteMap
+	cmdLines   map[string]CmdLine // node -> CmdLine
 }
 
 // execute tcc

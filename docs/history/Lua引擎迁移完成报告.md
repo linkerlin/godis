@@ -142,7 +142,7 @@ export GODIS_LUA_ENGINE=gopher
 ### 6.2 测试通过率
 
 ```
-ok      github.com/hdt3213/godis/scripting      0.539s
+ok      github.com/linkerlin/godis/scripting      0.539s
 ```
 
 ---

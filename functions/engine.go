@@ -8,7 +8,8 @@ import (
 	"strings"
 	"sync"
 	"time"
-	"github.com/hdt3213/godis/scripting"
+
+	"github.com/linkerlin/godis/scripting"
 )
 
 // Function represents a Redis Function
@@ -56,12 +57,12 @@ type Engine struct {
 	functions map[string]*Function // Global function name -> Function
 	luaEngine *scripting.LuaEngine
 	dbExec    func(cmd string, args ...string) (interface{}, error)
-	
+
 	// Execution tracking for KILL
-	running     *RunningFunction
-	runningMu   sync.RWMutex
-	
-	mu        sync.RWMutex
+	running   *RunningFunction
+	runningMu sync.RWMutex
+
+	mu sync.RWMutex
 }
 
 // NewEngine creates a new Functions engine
@@ -86,33 +87,33 @@ func (e *Engine) SetDBExec(dbExec func(cmd string, args ...string) (interface{},
 func (e *Engine) LoadLibrary(name, code string, replace bool) (int, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	
+
 	// Check if library exists
 	if _, exists := e.libraries[name]; exists && !replace {
 		return 0, fmt.Errorf("library '%s' already exists", name)
 	}
-	
+
 	// Parse library
 	library, err := e.parseLibrary(name, code)
 	if err != nil {
 		return 0, err
 	}
-	
+
 	// Remove old library functions if replacing
 	if oldLib, exists := e.libraries[name]; exists {
 		for funcName := range oldLib.Functions {
 			delete(e.functions, funcName)
 		}
 	}
-	
+
 	// Register new library
 	e.libraries[name] = library
-	
+
 	// Register functions
 	for funcName, fn := range library.Functions {
 		e.functions[funcName] = fn
 	}
-	
+
 	return len(library.Functions), nil
 }
 
@@ -125,10 +126,10 @@ func (e *Engine) parseLibrary(name, code string) (*Library, error) {
 		Code:      code,
 		SHA:       computeSHA(code),
 	}
-	
+
 	// Extract description from first comment block
 	lib.Description = extractDescription(code)
-	
+
 	// Parse function registrations
 	// Format: redis.register_function('name', function(...) ... end)
 	// Or: redis.register_function{
@@ -136,31 +137,31 @@ func (e *Engine) parseLibrary(name, code string) (*Library, error) {
 	//   callback = function(...) ... end,
 	//   flags = { 'readonly' }
 	// }
-	
+
 	// Simple regex-based parsing for function registrations
 	registerPattern := regexp.MustCompile(`(?s)redis\.register_function\s*\(\s*['"]([^'"]+)['"]\s*,\s*(function\s*\([^)]*\)[^}]+)\s*\)`)
 	matches := registerPattern.FindAllStringSubmatch(code, -1)
-	
+
 	for _, match := range matches {
 		if len(match) >= 2 {
 			funcName := match[1]
 			funcCode := match[0]
-			
+
 			fn := &Function{
 				Name:    funcName,
 				Library: name,
 				Code:    funcCode,
 				SHA:     computeSHA(funcCode),
 			}
-			
+
 			lib.Functions[funcName] = fn
 		}
 	}
-	
+
 	// Parse table-style registrations with flags
 	tablePattern := regexp.MustCompile(`(?s)redis\.register_function\s*\{\s*name\s*=\s*['"]([^'"]+)['"]\s*,\s*callback\s*=\s*(function\s*\([^)]*\)[^}]+)\s*(?:,\s*flags\s*=\s*\{([^}]*)\})?\s*\}`)
 	tableMatches := tablePattern.FindAllStringSubmatch(code, -1)
-	
+
 	for _, match := range tableMatches {
 		if len(match) >= 2 {
 			funcName := match[1]
@@ -169,7 +170,7 @@ func (e *Engine) parseLibrary(name, code string) (*Library, error) {
 			if len(match) >= 4 {
 				flagsStr = match[3]
 			}
-			
+
 			// Parse flags
 			var flags []string
 			if flagsStr != "" {
@@ -181,7 +182,7 @@ func (e *Engine) parseLibrary(name, code string) (*Library, error) {
 					}
 				}
 			}
-			
+
 			fn := &Function{
 				Name:    funcName,
 				Library: name,
@@ -189,15 +190,15 @@ func (e *Engine) parseLibrary(name, code string) (*Library, error) {
 				Code:    funcCode,
 				SHA:     computeSHA(funcCode),
 			}
-			
+
 			lib.Functions[funcName] = fn
 		}
 	}
-	
+
 	if len(lib.Functions) == 0 {
 		return nil, fmt.Errorf("no functions found in library")
 	}
-	
+
 	return lib, nil
 }
 
@@ -205,17 +206,17 @@ func (e *Engine) parseLibrary(name, code string) (*Library, error) {
 func (e *Engine) DeleteLibrary(name string) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	
+
 	lib, exists := e.libraries[name]
 	if !exists {
 		return fmt.Errorf("library '%s' not found", name)
 	}
-	
+
 	// Remove functions
 	for funcName := range lib.Functions {
 		delete(e.functions, funcName)
 	}
-	
+
 	delete(e.libraries, name)
 	return nil
 }
@@ -224,7 +225,7 @@ func (e *Engine) DeleteLibrary(name string) error {
 func (e *Engine) GetFunction(name string) (*Function, bool) {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
-	
+
 	fn, exists := e.functions[name]
 	return fn, exists
 }
@@ -233,7 +234,7 @@ func (e *Engine) GetFunction(name string) (*Function, bool) {
 func (e *Engine) GetLibrary(name string) (*Library, bool) {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
-	
+
 	lib, exists := e.libraries[name]
 	return lib, exists
 }
@@ -242,7 +243,7 @@ func (e *Engine) GetLibrary(name string) (*Library, bool) {
 func (e *Engine) ListLibraries() []string {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
-	
+
 	names := make([]string, 0, len(e.libraries))
 	for name := range e.libraries {
 		names = append(names, name)
@@ -254,7 +255,7 @@ func (e *Engine) ListLibraries() []string {
 func (e *Engine) ListFunctions() []string {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
-	
+
 	names := make([]string, 0, len(e.functions))
 	for name := range e.functions {
 		names = append(names, name)
@@ -266,10 +267,10 @@ func (e *Engine) ListFunctions() []string {
 func (e *Engine) FlushAll() error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	
+
 	e.libraries = make(map[string]*Library)
 	e.functions = make(map[string]*Function)
-	
+
 	return nil
 }
 
@@ -279,21 +280,21 @@ func (e *Engine) Call(functionName string, keys []string, args []string) (interf
 	if !exists {
 		return nil, fmt.Errorf("function '%s' not found", functionName)
 	}
-	
+
 	// Get library code
 	lib, _ := e.GetLibrary(fn.Library)
 	if lib == nil {
 		return nil, fmt.Errorf("library '%s' not found", fn.Library)
 	}
-	
+
 	// Build Lua script to execute
 	// Wrap the library code and call the registered function
 	script := e.buildExecutionScript(lib.Code, functionName, keys, args)
-	
+
 	// Create execution context with cancel
 	cancel := make(chan struct{})
 	done := make(chan struct{})
-	
+
 	running := &RunningFunction{
 		Name:      functionName,
 		Library:   fn.Library,
@@ -301,7 +302,7 @@ func (e *Engine) Call(functionName string, keys []string, args []string) (interf
 		Cancel:    cancel,
 		Done:      done,
 	}
-	
+
 	// Register as running
 	e.runningMu.Lock()
 	if e.running != nil {
@@ -310,7 +311,7 @@ func (e *Engine) Call(functionName string, keys []string, args []string) (interf
 	}
 	e.running = running
 	e.runningMu.Unlock()
-	
+
 	// Clean up when done
 	defer func() {
 		close(done)
@@ -318,13 +319,13 @@ func (e *Engine) Call(functionName string, keys []string, args []string) (interf
 		e.running = nil
 		e.runningMu.Unlock()
 	}()
-	
+
 	// Execute using Lua engine with cancel support
 	result, err := e.luaEngine.ExecuteWithCancel(script, keys, args, e.dbExec, cancel)
 	if err != nil {
 		return nil, fmt.Errorf("function execution failed: %v", err)
 	}
-	
+
 	return result, nil
 }
 
@@ -340,14 +341,14 @@ func (e *Engine) KillRunningFunction() error {
 	e.runningMu.RLock()
 	running := e.running
 	e.runningMu.RUnlock()
-	
+
 	if running == nil {
 		return fmt.Errorf("no running function to kill")
 	}
-	
+
 	// Send cancel signal
 	close(running.Cancel)
-	
+
 	// Wait for function to stop (with timeout)
 	select {
 	case <-running.Done:
@@ -363,7 +364,7 @@ func (e *Engine) buildExecutionScript(libCode, funcName string, keys, args []str
 	// 1. Loads the library code
 	// 2. Calls the registered function
 	// 3. Returns the result
-	
+
 	script := `
 -- Redis Functions execution wrapper
 local redis = {
@@ -411,7 +412,7 @@ end
 func (e *Engine) Stats() map[string]interface{} {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
-	
+
 	return map[string]interface{}{
 		"libraries": len(e.libraries),
 		"functions": len(e.functions),
@@ -430,15 +431,15 @@ func extractDescription(code string) string {
 	lines := strings.Split(code, "\n")
 	var desc []string
 	inComment := false
-	
+
 	for _, line := range lines {
 		trimmed := strings.TrimSpace(line)
-		
+
 		if strings.HasPrefix(trimmed, "--[[") {
 			inComment = true
 			trimmed = strings.TrimPrefix(trimmed, "--[[")
 		}
-		
+
 		if inComment {
 			if strings.HasSuffix(trimmed, "]]") {
 				trimmed = strings.TrimSuffix(trimmed, "]]")
@@ -448,6 +449,6 @@ func extractDescription(code string) string {
 			desc = append(desc, trimmed)
 		}
 	}
-	
+
 	return strings.Join(desc, " ")
 }

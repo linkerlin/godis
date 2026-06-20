@@ -95,7 +95,7 @@ godis/
 │   ├── timeseries/         # 时序数据
 │   └── lock/               # 键级锁
 ├── scripting/              # Lua 脚本和 Functions
-│   ├── lua_engine.go       # 内置 Lua 解释器
+│   ├── lua_engine.go       # Lua 引擎（默认 gopher-lua，见 GODIS_LUA_ENGINE）
 │   └── functions.go        # Redis Functions 实现
 ├── database/               # 存储引擎核心
 │   ├── database.go         # DB 结构体和基本操作
@@ -113,9 +113,7 @@ godis/
 │   ├── timeseries.go       # 时序命令
 │   ├── rediSearch.go       # 全文搜索命令
 │   ├── rediSearch_synonym.go # 同义词支持
-│   ├── bloom.go            # Bloom Filter
-│   ├── cuckoo.go           # Cuckoo Filter
-│   ├── probal.go           # 概率数据结构
+│   ├── probabilistic.go    # Bloom/Cuckoo/CMS/Top-K/T-Digest
 │   ├── keys.go             # 键命令（DEL、EXPIRE 等）
 │   ├── transaction.go      # 事务支持
 │   ├── persistence.go      # AOF 集成
@@ -326,7 +324,7 @@ type DB struct {
 
 ### Lua 脚本和 Functions（scripting/）
 
-- 内置 Lua 解释器，无需外部依赖
+- 默认 **gopher-lua** 引擎（`GODIS_LUA_ENGINE`）；可选内置解释器路径
 - `EVAL`/`EVALSHA` 执行脚本
 - `FUNCTION LOAD`/`FCALL` 支持持久化函数
 - `redis.call()`/`redis.pcall()` 调用 Redis 命令
@@ -344,7 +342,8 @@ appendfilename appendonly.aof
 requirepass yourpassword
 
 # ACL 配置
-aclfile acl.conf
+# ACL 配置（aclfile 尚未实现，用户通过 ACL SETUSER 管理）
+# aclfile acl.conf
 
 # 集群模式
 cluster-enable yes
@@ -456,8 +455,8 @@ cluster-seed 127.0.0.1:6399
 | Vector Set | ✅ | database/vector.go, datastruct/vector/ |
 | RediSearch | ✅ | database/rediSearch*.go |
 | Time Series | ✅ | database/timeseries.go |
-| Bloom/Cuckoo Filter | ✅ | database/bloom.go, cuckoo.go |
-| CMS/Top-K/T-Digest | ✅ | database/probal.go |
+| Bloom/Cuckoo Filter | ✅ | database/probabilistic.go |
+| CMS/Top-K/T-Digest | ✅ | database/probabilistic.go |
 | Redis Functions | ✅ | scripting/functions.go |
 | 客户端缓存 | ✅ | database/caching.go |
 | Sharded Pub/Sub | ✅ | pubsub/sharded.go, cluster/sharded_pubsub.go |

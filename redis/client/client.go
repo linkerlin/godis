@@ -2,17 +2,18 @@ package client
 
 import (
 	"errors"
-	"github.com/hdt3213/godis/interface/redis"
-	"github.com/hdt3213/godis/lib/logger"
-	"github.com/hdt3213/godis/lib/sync/wait"
-	"github.com/hdt3213/godis/redis/parser"
-	"github.com/hdt3213/godis/redis/protocol"
 	"net"
 	"runtime/debug"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/linkerlin/godis/interface/redis"
+	"github.com/linkerlin/godis/lib/logger"
+	"github.com/linkerlin/godis/lib/sync/wait"
+	"github.com/linkerlin/godis/redis/parser"
+	"github.com/linkerlin/godis/redis/protocol"
 )
 
 const (

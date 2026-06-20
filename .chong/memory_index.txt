@@ -1,0 +1,8 @@
+# 记忆索引 — L1（自动维护，勿手动编辑）
+# 格式：场景关键词 → 记忆位置 | R: 红线规则
+
+## 场景映射
+改,系,阅,其,文,bash,glob,lua_exec,read,todos,ls,grep,write,统,给,出 → C:\GitHub\godis\.chong\memory\sop\___sop.md
+
+## RULES（红线）
+R: 执行成功

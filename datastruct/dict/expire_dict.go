@@ -3,16 +3,16 @@ package dict
 import (
 	"time"
 
-	"github.com/hdt3213/godis/datastruct/lock"
-	"github.com/hdt3213/godis/lib/timewheel"
+	"github.com/linkerlin/godis/datastruct/lock"
+	"github.com/linkerlin/godis/lib/timewheel"
 )
 
 // ExpireDict 支持字段级过期的字典
 type ExpireDict struct {
-	data   Dict           // 底层字典存储数据
-	expire Dict           // 字段 -> 过期时间的映射
+	data   Dict                 // 底层字典存储数据
+	expire Dict                 // 字段 -> 过期时间的映射
 	tw     *timewheel.TimeWheel // 时间轮，用于TTL管理
-	mu     *lock.Locks    // 分片锁
+	mu     *lock.Locks          // 分片锁
 }
 
 // NewExpireDict 创建支持字段级过期的字典
@@ -28,11 +28,11 @@ func NewExpireDict(shardCount int) *ExpireDict {
 func (ed *ExpireDict) SetWithExpire(key string, value interface{}, ttl time.Duration) {
 	ed.mu.Lock(key)
 	defer ed.mu.UnLock(key)
-	
+
 	ed.data.Put(key, value)
 	expireTime := time.Now().Add(ttl)
 	ed.expire.Put(key, expireTime)
-	
+
 	// 添加到时间轮（如果配置了）
 	if ed.tw != nil {
 		ed.tw.AddJob(ttl, key, func() {
@@ -45,12 +45,12 @@ func (ed *ExpireDict) SetWithExpire(key string, value interface{}, ttl time.Dura
 func (ed *ExpireDict) Set(key string, value interface{}) int {
 	ed.mu.Lock(key)
 	defer ed.mu.UnLock(key)
-	
+
 	// 检查并删除过期标记
 	if _, exists := ed.expire.Get(key); exists {
 		ed.expire.Remove(key)
 	}
-	
+
 	return ed.data.Put(key, value)
 }
 
@@ -58,14 +58,14 @@ func (ed *ExpireDict) Set(key string, value interface{}) int {
 func (ed *ExpireDict) Get(key string) (val interface{}, exists bool) {
 	ed.mu.RLock(key)
 	defer ed.mu.RUnLock(key)
-	
+
 	// 先检查是否过期
 	if ed.isExpired(key) {
 		// 过期了，删除
 		go ed.Delete(key) // 异步删除避免阻塞
 		return nil, false
 	}
-	
+
 	return ed.data.Get(key)
 }
 
@@ -73,17 +73,17 @@ func (ed *ExpireDict) Get(key string) (val interface{}, exists bool) {
 func (ed *ExpireDict) GetWithExpire(key string) (val interface{}, ttl time.Duration, exists bool) {
 	ed.mu.RLock(key)
 	defer ed.mu.RUnLock(key)
-	
+
 	if ed.isExpired(key) {
 		go ed.Delete(key)
 		return nil, -2, false
 	}
-	
+
 	val, exists = ed.data.Get(key)
 	if !exists {
 		return nil, -2, false
 	}
-	
+
 	// 获取过期时间
 	if expireRaw, hasExpire := ed.expire.Get(key); hasExpire {
 		expireTime := expireRaw.(time.Time)
@@ -95,7 +95,7 @@ func (ed *ExpireDict) GetWithExpire(key string) (val interface{}, ttl time.Durat
 		go ed.Delete(key)
 		return nil, -2, false
 	}
-	
+
 	// 没有过期时间
 	return val, -1, true
 }
@@ -104,7 +104,7 @@ func (ed *ExpireDict) GetWithExpire(key string) (val interface{}, ttl time.Durat
 func (ed *ExpireDict) Delete(key string) int {
 	ed.mu.Lock(key)
 	defer ed.mu.UnLock(key)
-	
+
 	ed.expire.Remove(key)
 	_, result := ed.data.Remove(key)
 	return result
@@ -114,7 +114,7 @@ func (ed *ExpireDict) Delete(key string) int {
 func (ed *ExpireDict) DeleteFields(keys []string) int {
 	ed.mu.Locks(keys...)
 	defer ed.mu.UnLocks(keys...)
-	
+
 	deleted := 0
 	for _, key := range keys {
 		ed.expire.Remove(key)
@@ -129,19 +129,19 @@ func (ed *ExpireDict) DeleteFields(keys []string) int {
 func (ed *ExpireDict) Expire(key string, expireAt time.Time) bool {
 	ed.mu.Lock(key)
 	defer ed.mu.UnLock(key)
-	
+
 	// 检查字段是否存在且未过期
 	if ed.isExpired(key) {
 		ed.data.Remove(key)
 		return false
 	}
-	
+
 	if _, exists := ed.data.Get(key); !exists {
 		return false
 	}
-	
+
 	ed.expire.Put(key, expireAt)
-	
+
 	// 添加到时间轮
 	if ed.tw != nil {
 		ttl := expireAt.Sub(time.Now())
@@ -151,39 +151,40 @@ func (ed *ExpireDict) Expire(key string, expireAt time.Time) bool {
 			})
 		}
 	}
-	
+
 	return true
 }
 
 // TTL 获取字段剩余生存时间
 // 返回：
-//   -2: 字段不存在
-//   -1: 字段存在但没有设置过期时间
-//   >=0: 剩余秒数
+//
+//	-2: 字段不存在
+//	-1: 字段存在但没有设置过期时间
+//	>=0: 剩余秒数
 func (ed *ExpireDict) TTL(key string) int64 {
 	ed.mu.RLock(key)
 	defer ed.mu.RUnLock(key)
-	
+
 	// 检查是否存在
 	if _, exists := ed.data.Get(key); !exists {
 		return -2
 	}
-	
+
 	// 检查是否有过期时间
 	expireRaw, hasExpire := ed.expire.Get(key)
 	if !hasExpire {
 		return -1
 	}
-	
+
 	expireTime := expireRaw.(time.Time)
 	remaining := expireTime.Sub(time.Now())
-	
+
 	if remaining <= 0 {
 		// 已过期
 		go ed.Delete(key)
 		return -2
 	}
-	
+
 	return int64(remaining.Seconds())
 }
 
@@ -191,24 +192,24 @@ func (ed *ExpireDict) TTL(key string) int64 {
 func (ed *ExpireDict) PTTL(key string) int64 {
 	ed.mu.RLock(key)
 	defer ed.mu.RUnLock(key)
-	
+
 	if _, exists := ed.data.Get(key); !exists {
 		return -2
 	}
-	
+
 	expireRaw, hasExpire := ed.expire.Get(key)
 	if !hasExpire {
 		return -1
 	}
-	
+
 	expireTime := expireRaw.(time.Time)
 	remaining := expireTime.Sub(time.Now())
-	
+
 	if remaining <= 0 {
 		go ed.Delete(key)
 		return -2
 	}
-	
+
 	return remaining.Milliseconds()
 }
 
@@ -216,18 +217,18 @@ func (ed *ExpireDict) PTTL(key string) int64 {
 func (ed *ExpireDict) Persist(key string) bool {
 	ed.mu.Lock(key)
 	defer ed.mu.UnLock(key)
-	
+
 	if _, exists := ed.expire.Get(key); !exists {
 		return false
 	}
-	
+
 	// 检查是否已过期
 	if ed.isExpired(key) {
 		ed.data.Remove(key)
 		ed.expire.Remove(key)
 		return false
 	}
-	
+
 	ed.expire.Remove(key)
 	return true
 }
@@ -254,7 +255,7 @@ func (ed *ExpireDict) isExpired(key string) bool {
 	if !exists {
 		return false
 	}
-	
+
 	expireTime := expireRaw.(time.Time)
 	return time.Now().After(expireTime)
 }

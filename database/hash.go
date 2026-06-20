@@ -1,13 +1,14 @@
 package database
 
 import (
-	Dict "github.com/hdt3213/godis/datastruct/dict"
-	"github.com/hdt3213/godis/interface/database"
-	"github.com/hdt3213/godis/interface/redis"
-	"github.com/hdt3213/godis/lib/utils"
-	"github.com/hdt3213/godis/redis/protocol"
 	"strconv"
 	"strings"
+
+	Dict "github.com/linkerlin/godis/datastruct/dict"
+	"github.com/linkerlin/godis/interface/database"
+	"github.com/linkerlin/godis/interface/redis"
+	"github.com/linkerlin/godis/lib/utils"
+	"github.com/linkerlin/godis/redis/protocol"
 )
 
 func (db *DB) getAsDict(key string) (Dict.Dict, protocol.ErrorReply) {

@@ -4,18 +4,18 @@ import (
 	"math"
 	"math/bits"
 
-	"github.com/hdt3213/godis/interface/database"
-	"github.com/hdt3213/godis/interface/redis"
-	"github.com/hdt3213/godis/lib/utils"
-	"github.com/hdt3213/godis/redis/protocol"
+	"github.com/linkerlin/godis/interface/database"
+	"github.com/linkerlin/godis/interface/redis"
+	"github.com/linkerlin/godis/lib/utils"
+	"github.com/linkerlin/godis/redis/protocol"
 )
 
 // HyperLogLog implementation using Redis's HLL algorithm
 // This is a simplified version using 16KB per HLL (2^14 registers)
 
 const (
-	hllRegisters = 16384 // 2^14
-	hllBits      = 14
+	hllRegisters     = 16384 // 2^14
+	hllBits          = 14
 	hllRegistersMask = hllRegisters - 1
 )
 
@@ -46,23 +46,23 @@ func (h *HLL) Add(elem []byte) {
 func (h *HLL) Count() uint64 {
 	var sum float64
 	var emptyRegisters int
-	
+
 	for _, val := range h.registers {
 		sum += 1.0 / math.Pow(2.0, float64(val))
 		if val == 0 {
 			emptyRegisters++
 		}
 	}
-	
+
 	// HLL estimator
 	alpha := 0.7213 / (1.0 + 1.079/float64(hllRegisters))
 	estimate := alpha * float64(hllRegisters*hllRegisters) / sum
-	
+
 	// Small range correction
 	if estimate <= 2.5*float64(hllRegisters) && emptyRegisters != 0 {
 		return uint64(float64(hllRegisters) * math.Log(float64(hllRegisters)/float64(emptyRegisters)))
 	}
-	
+
 	// Large range correction not implemented for simplicity
 	return uint64(estimate)
 }
@@ -92,19 +92,19 @@ func execPFAdd(db *DB, args [][]byte) redis.Reply {
 	if len(args) < 2 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'pfadd' command")
 	}
-	
+
 	key := string(args[0])
 	hll, errReply := db.getAsHLL(key)
 	if errReply != nil {
 		return errReply
 	}
-	
+
 	isNew := false
 	if hll == nil {
 		hll = NewHLL()
 		isNew = true
 	}
-	
+
 	added := false
 	for i := 1; i < len(args); i++ {
 		oldCount := hll.Count()
@@ -114,11 +114,11 @@ func execPFAdd(db *DB, args [][]byte) redis.Reply {
 			added = true
 		}
 	}
-	
+
 	if isNew {
 		db.PutEntity(key, &database.DataEntity{Data: hll})
 	}
-	
+
 	if added {
 		db.addAof(utils.ToCmdLine3("pfadd", args...))
 		return protocol.MakeIntReply(1)
@@ -132,7 +132,7 @@ func execPFCount(db *DB, args [][]byte) redis.Reply {
 	if len(args) < 1 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'pfcount' command")
 	}
-	
+
 	// Single key case
 	if len(args) == 1 {
 		key := string(args[0])
@@ -145,7 +145,7 @@ func execPFCount(db *DB, args [][]byte) redis.Reply {
 		}
 		return protocol.MakeIntReply(int64(hll.Count()))
 	}
-	
+
 	// Multi-key case: merge and count
 	mergedHLL := NewHLL()
 	for _, arg := range args {
@@ -158,7 +158,7 @@ func execPFCount(db *DB, args [][]byte) redis.Reply {
 			mergedHLL.Merge(hll)
 		}
 	}
-	
+
 	return protocol.MakeIntReply(int64(mergedHLL.Count()))
 }
 
@@ -168,10 +168,10 @@ func execPFMerge(db *DB, args [][]byte) redis.Reply {
 	if len(args) < 2 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'pfmerge' command")
 	}
-	
+
 	destKey := string(args[0])
 	mergedHLL := NewHLL()
-	
+
 	for i := 1; i < len(args); i++ {
 		sourceKey := string(args[i])
 		hll, errReply := db.getAsHLL(sourceKey)
@@ -182,7 +182,7 @@ func execPFMerge(db *DB, args [][]byte) redis.Reply {
 			mergedHLL.Merge(hll)
 		}
 	}
-	
+
 	db.PutEntity(destKey, &database.DataEntity{Data: mergedHLL})
 	db.addAof(utils.ToCmdLine3("pfmerge", args...))
 	return protocol.MakeOkReply()

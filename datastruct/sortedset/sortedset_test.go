@@ -3,7 +3,7 @@ package sortedset
 import (
 	"testing"
 
-	"github.com/hdt3213/godis/lib/utils"
+	"github.com/linkerlin/godis/lib/utils"
 )
 
 func TestSortedSet_PopMin(t *testing.T) {

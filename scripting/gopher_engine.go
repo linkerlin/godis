@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/hdt3213/godis/lib/logger"
+	"github.com/linkerlin/godis/lib/logger"
 	lua "github.com/yuin/gopher-lua"
 )
 

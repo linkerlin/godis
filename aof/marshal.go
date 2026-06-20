@@ -4,12 +4,12 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/hdt3213/godis/datastruct/dict"
-	List "github.com/hdt3213/godis/datastruct/list"
-	"github.com/hdt3213/godis/datastruct/set"
-	SortedSet "github.com/hdt3213/godis/datastruct/sortedset"
-	"github.com/hdt3213/godis/interface/database"
-	"github.com/hdt3213/godis/redis/protocol"
+	"github.com/linkerlin/godis/datastruct/dict"
+	List "github.com/linkerlin/godis/datastruct/list"
+	"github.com/linkerlin/godis/datastruct/set"
+	SortedSet "github.com/linkerlin/godis/datastruct/sortedset"
+	"github.com/linkerlin/godis/interface/database"
+	"github.com/linkerlin/godis/redis/protocol"
 )
 
 // EntityToCmd serialize data entity to redis command

@@ -1,9 +1,10 @@
 package database
 
 import (
-	"github.com/hdt3213/godis/interface/redis"
-	"github.com/hdt3213/godis/redis/protocol"
 	"strings"
+
+	"github.com/linkerlin/godis/interface/redis"
+	"github.com/linkerlin/godis/redis/protocol"
 )
 
 var cmdTable = make(map[string]*command)
@@ -103,7 +104,7 @@ func (cmd *command) toDocsReply() redis.Reply {
 	// 3) "group" - command group
 	// 4) "complexity" - time complexity
 	var result [][]byte
-	
+
 	result = append(result, []byte("summary"))
 	result = append(result, []byte("Command "+cmd.name))
 	result = append(result, []byte("since"))
@@ -112,7 +113,7 @@ func (cmd *command) toDocsReply() redis.Reply {
 	result = append(result, []byte("generic"))
 	result = append(result, []byte("complexity"))
 	result = append(result, []byte("O(1)"))
-	
+
 	return protocol.MakeMultiBulkReply(result)
 }
 

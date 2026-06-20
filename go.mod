@@ -1,4 +1,4 @@
-module github.com/hdt3213/godis
+module github.com/linkerlin/godis
 
 go 1.23.0
 
@@ -8,6 +8,7 @@ require (
 	github.com/hashicorp/raft-boltdb v0.0.0-20231211162105-6c830fa4535e
 	github.com/hdt3213/rdb v1.0.18
 	github.com/panjf2000/gnet/v2 v2.7.2
+	github.com/yuin/gopher-lua v1.1.1
 )
 
 require (
@@ -32,7 +33,6 @@ require (
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/rogpeppe/go-internal v1.9.0 // indirect
 	github.com/valyala/bytebufferpool v1.0.0 // indirect
-	github.com/yuin/gopher-lua v1.1.1 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	go.uber.org/zap v1.27.0 // indirect
 	golang.org/x/sync v0.12.0 // indirect

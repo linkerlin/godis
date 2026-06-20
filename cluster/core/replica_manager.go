@@ -5,19 +5,19 @@ import (
 	"sync"
 	"time"
 
-	"github.com/hdt3213/godis/cluster/raft"
-	"github.com/hdt3213/godis/interface/redis"
-	"github.com/hdt3213/godis/lib/logger"
-	"github.com/hdt3213/godis/lib/utils"
-	"github.com/hdt3213/godis/redis/connection"
-	"github.com/hdt3213/godis/redis/protocol"
+	"github.com/linkerlin/godis/cluster/raft"
+	"github.com/linkerlin/godis/interface/redis"
+	"github.com/linkerlin/godis/lib/logger"
+	"github.com/linkerlin/godis/lib/utils"
+	"github.com/linkerlin/godis/redis/connection"
+	"github.com/linkerlin/godis/redis/protocol"
 )
 
 /*
-1. The master and slave are both added to the raft group, and failover does not involve changes of raft members. 
+1. The master and slave are both added to the raft group, and failover does not involve changes of raft members.
 2. Timer job `doFailoverCheck` finds timeout masters, then calls `triggerFailover`
 3. Raft leader sends `slaveof no one` to new master
-4. Raft proposes `EventFinishFailover` to change route. 
+4. Raft proposes `EventFinishFailover` to change route.
 Other slaves and old master will get this message from raft, and become slave of new master.(see cluster.registerOnFailover)
 */
 

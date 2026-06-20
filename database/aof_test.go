@@ -8,15 +8,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hdt3213/godis/aof"
+	"github.com/linkerlin/godis/aof"
 
-	"github.com/hdt3213/godis/config"
-	"github.com/hdt3213/godis/interface/database"
-	"github.com/hdt3213/godis/interface/redis"
-	"github.com/hdt3213/godis/lib/utils"
-	"github.com/hdt3213/godis/redis/connection"
-	"github.com/hdt3213/godis/redis/protocol"
-	"github.com/hdt3213/godis/redis/protocol/asserts"
+	"github.com/linkerlin/godis/config"
+	"github.com/linkerlin/godis/interface/database"
+	"github.com/linkerlin/godis/interface/redis"
+	"github.com/linkerlin/godis/lib/utils"
+	"github.com/linkerlin/godis/redis/connection"
+	"github.com/linkerlin/godis/redis/protocol"
+	"github.com/linkerlin/godis/redis/protocol/asserts"
 )
 
 func makeTestData(db database.DB, dbIndex int, prefix string, size int) {
@@ -124,7 +124,7 @@ func TestAof(t *testing.T) {
 		prefixes = append(prefixes, prefix)
 		makeTestData(aofWriteDB, i, prefix, size)
 	}
-	aofWriteDB.Close()                 // wait for aof finished
+	aofWriteDB.Close()                     // wait for aof finished
 	aofReadDB := MustNewStandaloneServer() // start new db and read aof file
 	for i := 0; i < dbNum; i++ {
 		prefix := prefixes[i]
@@ -172,6 +172,42 @@ func TestRDB(t *testing.T) {
 	readDB.Close()
 }
 
+func TestConcurrentBackgroundRewriteRejected(t *testing.T) {
+	skipHeavyTests(t)
+	tmpFile, err := os.CreateTemp(config.GetTmpDir(), "*.aof")
+	if err != nil {
+		t.Fatal(err)
+	}
+	aofFilename := tmpFile.Name()
+	defer os.Remove(aofFilename)
+
+	config.Properties = &config.ServerProperties{
+		AppendOnly:        true,
+		AppendFilename:    aofFilename,
+		AofUseRdbPreamble: false,
+		AppendFsync:       aof.FsyncEverySec,
+	}
+	db := MustNewStandaloneServer()
+	defer db.Close()
+
+	if err := db.persister.RunRewriteAsync(); err != nil {
+		t.Fatalf("first RunRewriteAsync: %v", err)
+	}
+	if err := db.persister.RunRewriteAsync(); err != aof.ErrRewriteInProgress {
+		t.Fatalf("second RunRewriteAsync = %v, want ErrRewriteInProgress", err)
+	}
+
+	ret := db.Exec(nil, utils.ToCmdLine("BGREWRITEAOF"))
+	asserts.AssertErrReply(t, ret, "ERR Background rewrite already in progress")
+
+	rdbName := path.Join(config.GetTmpDir(), "concurrent-save.rdb")
+	defer os.Remove(rdbName)
+	ret = db.Exec(nil, utils.ToCmdLine("BGSAVE"))
+	asserts.AssertErrReply(t, ret, "ERR Background rewrite already in progress")
+
+	time.Sleep(2 * time.Second)
+}
+
 func TestRewriteAOF(t *testing.T) {
 	skipHeavyTests(t)
 	tmpFile, err := os.CreateTemp(config.GetTmpDir(), "*.aof")
@@ -200,8 +236,8 @@ func TestRewriteAOF(t *testing.T) {
 	}
 	//time.Sleep(2 * time.Second)
 	aofWriteDB.Exec(nil, utils.ToCmdLine("rewriteaof"))
-	time.Sleep(2 * time.Second)        // wait for async goroutine finish its job
-	aofWriteDB.Close()                 // wait for aof finished
+	time.Sleep(2 * time.Second)            // wait for async goroutine finish its job
+	aofWriteDB.Close()                     // wait for aof finished
 	aofReadDB := MustNewStandaloneServer() // start new db and read aof file
 	for i := 0; i < dbNum; i++ {
 		prefix := prefixes[i]

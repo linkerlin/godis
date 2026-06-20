@@ -5,21 +5,27 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/hdt3213/godis/config"
-	"github.com/hdt3213/godis/datastruct/dict"
-	List "github.com/hdt3213/godis/datastruct/list"
-	"github.com/hdt3213/godis/datastruct/set"
-	SortedSet "github.com/hdt3213/godis/datastruct/sortedset"
-	"github.com/hdt3213/godis/interface/database"
-	"github.com/hdt3213/godis/lib/logger"
 	rdb "github.com/hdt3213/rdb/encoder"
 	"github.com/hdt3213/rdb/model"
+	"github.com/linkerlin/godis/config"
+	"github.com/linkerlin/godis/datastruct/dict"
+	List "github.com/linkerlin/godis/datastruct/list"
+	"github.com/linkerlin/godis/datastruct/set"
+	SortedSet "github.com/linkerlin/godis/datastruct/sortedset"
+	"github.com/linkerlin/godis/interface/database"
+	"github.com/linkerlin/godis/lib/logger"
 )
-
-// todo: forbid concurrent rewrite
 
 // GenerateRDB generates rdb file from aof file
 func (persister *Persister) GenerateRDB(rdbFilename string) error {
+	if err := persister.acquireRewriteSlot(); err != nil {
+		return err
+	}
+	defer persister.releaseRewriteSlot()
+	return persister.generateRDBToFile(rdbFilename)
+}
+
+func (persister *Persister) generateRDBToFile(rdbFilename string) error {
 	ctx, err := persister.startGenerateRDB(nil, nil)
 	if err != nil {
 		return err
@@ -43,6 +49,11 @@ func (persister *Persister) GenerateRDB(rdbFilename string) error {
 // parameter listener would receive following updates of rdb
 // parameter hook allows you to do something during aof pausing
 func (persister *Persister) GenerateRDBForReplication(rdbFilename string, listener Listener, hook func()) error {
+	if err := persister.acquireRewriteSlot(); err != nil {
+		return err
+	}
+	defer persister.releaseRewriteSlot()
+
 	ctx, err := persister.startGenerateRDB(listener, hook)
 	if err != nil {
 		return err

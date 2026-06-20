@@ -37,6 +37,9 @@ func ParseV2(r io.Reader) ([][]byte, error) {
 	if count < 0 {
 		return nil, nil
 	}
+	if int64(count) > maxArrayElements {
+		return nil, errors.New("array too long")
+	}
 
 	// 读取每个参数
 	result := make([][]byte, count)
@@ -56,6 +59,9 @@ func ParseV2(r io.Reader) ([][]byte, error) {
 			if strLen < 0 {
 				result[i] = nil // Null Bulk String
 				continue
+			}
+			if int64(strLen) > maxBulkStringLen {
+				return nil, errors.New("bulk string too long")
 			}
 
 			data := make([]byte, strLen+2)

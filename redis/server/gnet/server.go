@@ -2,21 +2,30 @@ package gnet
 
 import (
 	"context"
+	"sync"
 	"sync/atomic"
+	"time"
 
-	"github.com/hdt3213/godis/interface/database"
-	"github.com/hdt3213/godis/interface/redis"
-	"github.com/hdt3213/godis/lib/logger"
-	"github.com/hdt3213/godis/redis/connection"
-	"github.com/hdt3213/godis/redis/parser"
+	"github.com/linkerlin/godis/interface/database"
+	"github.com/linkerlin/godis/interface/redis"
+	"github.com/linkerlin/godis/lib/logger"
+	"github.com/linkerlin/godis/lib/stats"
+	gatomic "github.com/linkerlin/godis/lib/sync/atomic"
+	"github.com/linkerlin/godis/redis/connection"
+	"github.com/linkerlin/godis/redis/parser"
 	"github.com/panjf2000/gnet/v2"
 )
+
+const shutdownWaitTimeout = 10 * time.Second
 
 type GnetServer struct {
 	gnet.BuiltinEventEngine
 	eng       gnet.Engine
+	booted    atomic.Bool
 	connected int32
 	db        database.DB
+	closing   gatomic.Boolean
+	inFlight  sync.WaitGroup
 }
 
 func NewGnetServer(db database.DB) *GnetServer {
@@ -31,10 +40,14 @@ func (s *GnetServer) Run(listenAddr string) error {
 
 func (s *GnetServer) OnBoot(eng gnet.Engine) (action gnet.Action) {
 	s.eng = eng
+	s.booted.Store(true)
 	return
 }
 
 func (s *GnetServer) OnOpen(c gnet.Conn) (out []byte, action gnet.Action) {
+	if s.closing.Get() {
+		return nil, gnet.Close
+	}
 	client := connection.NewConn(c)
 	c.SetContext(client)
 	atomic.AddInt32(&s.connected, 1)
@@ -46,12 +59,20 @@ func (s *GnetServer) OnClose(c gnet.Conn, err error) (action gnet.Action) {
 		logger.Infof("error occurred on connection=%s, %v\n", c.RemoteAddr().String(), err)
 	}
 	atomic.AddInt32(&s.connected, -1)
-	conn := c.Context().(redis.Connection)
-	s.db.AfterClientClose(conn)
+	if ctx := c.Context(); ctx != nil {
+		conn := ctx.(redis.Connection)
+		s.db.AfterClientClose(conn)
+	}
 	return
 }
 
 func (s *GnetServer) OnTraffic(c gnet.Conn) (action gnet.Action) {
+	if s.closing.Get() {
+		return gnet.Close
+	}
+	s.inFlight.Add(1)
+	defer s.inFlight.Done()
+
 	conn := c.Context().(redis.Connection)
 	cmdLine, err := parser.ParseV2(c)
 	if err != nil {
@@ -62,13 +83,39 @@ func (s *GnetServer) OnTraffic(c gnet.Conn) (action gnet.Action) {
 		return gnet.None
 	}
 	result := s.db.Exec(conn, cmdLine)
+	if result == nil {
+		return gnet.None
+	}
 	buffer := result.ToBytes()
 	if len(buffer) > 0 {
-		c.Write(buffer)
+		if _, err := c.Write(buffer); err != nil {
+			logger.Infof("write response failed: %v", err)
+			return gnet.Close
+		}
+		stats.RecordOutput(len(buffer))
 	}
 	return gnet.None
 }
 
-func (s *GnetServer) Close() {
-	s.eng.Stop(context.Background())
+// Close stops the gnet engine after in-flight command handlers finish.
+func (s *GnetServer) Close() error {
+	logger.Info("gnet server shutting down...")
+	s.closing.Set(true)
+
+	done := make(chan struct{})
+	go func() {
+		s.inFlight.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(shutdownWaitTimeout):
+		logger.Warn("gnet graceful shutdown timed out, force stopping engine")
+	}
+
+	if s.booted.Load() {
+		s.eng.Stop(context.Background())
+	}
+	s.db.Close()
+	return nil
 }

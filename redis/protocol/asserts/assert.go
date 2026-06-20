@@ -2,11 +2,12 @@ package asserts
 
 import (
 	"fmt"
-	"github.com/hdt3213/godis/interface/redis"
-	"github.com/hdt3213/godis/lib/utils"
-	"github.com/hdt3213/godis/redis/protocol"
 	"runtime"
 	"testing"
+
+	"github.com/linkerlin/godis/interface/redis"
+	"github.com/linkerlin/godis/lib/utils"
+	"github.com/linkerlin/godis/redis/protocol"
 )
 
 // AssertIntReply checks if the given redis.Reply is the expected integer

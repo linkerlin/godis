@@ -4,11 +4,11 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/hdt3213/godis/datastruct/stream"
-	"github.com/hdt3213/godis/interface/database"
-	"github.com/hdt3213/godis/interface/redis"
-	"github.com/hdt3213/godis/lib/utils"
-	"github.com/hdt3213/godis/redis/protocol"
+	"github.com/linkerlin/godis/datastruct/stream"
+	"github.com/linkerlin/godis/interface/database"
+	"github.com/linkerlin/godis/interface/redis"
+	"github.com/linkerlin/godis/lib/utils"
+	"github.com/linkerlin/godis/redis/protocol"
 )
 
 func (db *DB) getAsStream(key string) (*stream.Stream, protocol.ErrorReply) {
@@ -45,12 +45,12 @@ func execXAdd(db *DB, args [][]byte) redis.Reply {
 	if len(args) < 4 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'xadd' command")
 	}
-	
+
 	key := string(args[0])
 	var opts stream.AddOptions
 	var idStr string
 	var fieldArgs [][]byte
-	
+
 	// 解析选项
 	i := 1
 	parseOpts := true
@@ -80,7 +80,7 @@ func execXAdd(db *DB, args [][]byte) redis.Reply {
 			}
 			opts.MaxLen = maxlen
 			i++
-			
+
 			// 解析可选的LIMIT
 			if i < len(args) && strings.ToUpper(string(args[i])) == "LIMIT" {
 				if i+1 >= len(args) {
@@ -114,7 +114,7 @@ func execXAdd(db *DB, args [][]byte) redis.Reply {
 			}
 			opts.MinID = minID
 			i++
-			
+
 			// 解析可选的LIMIT
 			if i < len(args) && strings.ToUpper(string(args[i])) == "LIMIT" {
 				if i+1 >= len(args) {
@@ -131,18 +131,18 @@ func execXAdd(db *DB, args [][]byte) redis.Reply {
 			parseOpts = false
 		}
 	}
-	
+
 	// 剩余参数应该是ID和field-value对
 	if i >= len(args) {
 		return protocol.MakeSyntaxErrReply()
 	}
-	
+
 	idStr = string(args[i])
 	if reply := validateBulkBytes(args[i]); reply != nil {
 		return reply
 	}
 	i++
-	
+
 	// 检查field-value对
 	if len(args)-i < 2 || (len(args)-i)%2 != 0 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for XADD")
@@ -151,7 +151,7 @@ func execXAdd(db *DB, args [][]byte) redis.Reply {
 	if reply := validateBulkBytesSlice(fieldArgs); reply != nil {
 		return reply
 	}
-	
+
 	// 构建fields map
 	fields := make(map[string]string)
 	for j := 0; j < len(fieldArgs); j += 2 {
@@ -159,12 +159,12 @@ func execXAdd(db *DB, args [][]byte) redis.Reply {
 		value := string(fieldArgs[j+1])
 		fields[field] = value
 	}
-	
+
 	// 获取或创建stream
 	var s *stream.Stream
 	var inited bool
 	var errReply protocol.ErrorReply
-	
+
 	if opts.NoMkStream {
 		s, errReply = db.getAsStream(key)
 		if errReply != nil {
@@ -179,18 +179,18 @@ func execXAdd(db *DB, args [][]byte) redis.Reply {
 			return errReply
 		}
 	}
-	
+
 	// 如果stream不存在且NoMkStream为true
 	if s == nil {
 		return &protocol.NullBulkReply{}
 	}
-	
+
 	// 添加条目
 	id, err := s.Add(idStr, fields, &opts)
 	if err != nil {
 		return protocol.MakeErrReply(err.Error())
 	}
-	
+
 	// 记录AOF
 	if inited {
 		// 如果新建了stream，使用特殊的编码
@@ -198,7 +198,7 @@ func execXAdd(db *DB, args [][]byte) redis.Reply {
 	} else {
 		db.addAof(utils.ToCmdLine3("xadd", args...))
 	}
-	
+
 	return protocol.MakeBulkReply([]byte(id.String()))
 }
 
@@ -208,11 +208,11 @@ func execXRange(db *DB, args [][]byte) redis.Reply {
 	if len(args) < 3 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'xrange' command")
 	}
-	
+
 	key := string(args[0])
 	startStr := string(args[1])
 	endStr := string(args[2])
-	
+
 	countArg := -1 // 无限制
 	if len(args) > 3 {
 		if len(args) != 5 || strings.ToUpper(string(args[3])) != "COUNT" {
@@ -224,11 +224,11 @@ func execXRange(db *DB, args [][]byte) redis.Reply {
 		}
 		countArg = c
 	}
-	
+
 	// 解析start
 	var start stream.StreamID
 	if startStr == "-" {
-		start = stream.StreamID{0, 0} // 最小可能ID
+		start = stream.StreamID{Timestamp: 0, Sequence: 0} // 最小可能ID
 	} else {
 		var err error
 		start, err = stream.ParseStreamID(startStr, stream.StreamID{})
@@ -241,7 +241,7 @@ func execXRange(db *DB, args [][]byte) redis.Reply {
 			}
 		}
 	}
-	
+
 	// 解析end
 	var end stream.StreamID
 	if endStr == "+" {
@@ -258,7 +258,7 @@ func execXRange(db *DB, args [][]byte) redis.Reply {
 			}
 		}
 	}
-	
+
 	s, errReply := db.getAsStream(key)
 	if errReply != nil {
 		return errReply
@@ -266,14 +266,14 @@ func execXRange(db *DB, args [][]byte) redis.Reply {
 	if s == nil {
 		return protocol.MakeEmptyMultiBulkReply()
 	}
-	
+
 	entries := s.Range(start, end)
-	
+
 	// 应用count限制
 	if countArg >= 0 && len(entries) > countArg {
 		entries = entries[:countArg]
 	}
-	
+
 	return streamEntriesToReply(entries)
 }
 
@@ -283,11 +283,11 @@ func execXRevRange(db *DB, args [][]byte) redis.Reply {
 	if len(args) < 3 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'xrevrange' command")
 	}
-	
+
 	key := string(args[0])
 	endStr := string(args[1])
 	startStr := string(args[2])
-	
+
 	count := -1
 	if len(args) > 3 {
 		if len(args) != 5 || strings.ToUpper(string(args[3])) != "COUNT" {
@@ -299,7 +299,7 @@ func execXRevRange(db *DB, args [][]byte) redis.Reply {
 		}
 		count = c
 	}
-	
+
 	// 解析end (作为最大值)
 	var end stream.StreamID
 	if endStr == "+" {
@@ -315,11 +315,11 @@ func execXRevRange(db *DB, args [][]byte) redis.Reply {
 			}
 		}
 	}
-	
+
 	// 解析start (作为最小值)
 	var start stream.StreamID
 	if startStr == "-" {
-		start = stream.StreamID{0, 0}
+		start = stream.StreamID{Timestamp: 0, Sequence: 0}
 	} else {
 		var err error
 		start, err = stream.ParseStreamID(startStr, stream.StreamID{})
@@ -331,7 +331,7 @@ func execXRevRange(db *DB, args [][]byte) redis.Reply {
 			}
 		}
 	}
-	
+
 	s, errReply := db.getAsStream(key)
 	if errReply != nil {
 		return errReply
@@ -339,7 +339,7 @@ func execXRevRange(db *DB, args [][]byte) redis.Reply {
 	if s == nil {
 		return protocol.MakeEmptyMultiBulkReply()
 	}
-	
+
 	entries := s.ReverseRange(start, end, count)
 	return streamEntriesToReply(entries)
 }
@@ -350,7 +350,7 @@ func execXLen(db *DB, args [][]byte) redis.Reply {
 	if len(args) != 1 {
 		return protocol.MakeArgNumErrReply("xlen")
 	}
-	
+
 	key := string(args[0])
 	s, errReply := db.getAsStream(key)
 	if errReply != nil {
@@ -359,7 +359,7 @@ func execXLen(db *DB, args [][]byte) redis.Reply {
 	if s == nil {
 		return protocol.MakeIntReply(0)
 	}
-	
+
 	return protocol.MakeIntReply(int64(s.Len()))
 }
 
@@ -369,7 +369,7 @@ func execXDel(db *DB, args [][]byte) redis.Reply {
 	if len(args) < 2 {
 		return protocol.MakeArgNumErrReply("xdel")
 	}
-	
+
 	key := string(args[0])
 	s, errReply := db.getAsStream(key)
 	if errReply != nil {
@@ -378,7 +378,7 @@ func execXDel(db *DB, args [][]byte) redis.Reply {
 	if s == nil {
 		return protocol.MakeIntReply(0)
 	}
-	
+
 	ids := make([]stream.StreamID, len(args)-1)
 	for i := 1; i < len(args); i++ {
 		id, err := stream.ParseStreamID(string(args[i]), stream.StreamID{})
@@ -387,12 +387,12 @@ func execXDel(db *DB, args [][]byte) redis.Reply {
 		}
 		ids[i-1] = id
 	}
-	
+
 	deleted := s.Delete(ids)
 	if deleted > 0 {
 		db.addAof(utils.ToCmdLine3("xdel", args...))
 	}
-	
+
 	return protocol.MakeIntReply(int64(deleted))
 }
 
@@ -408,10 +408,10 @@ func execXGroupCreate(db *DB, args [][]byte) redis.Reply {
 	key := string(args[0])
 	groupName := string(args[1])
 	startID := string(args[2])
-	
+
 	mkStream := false
 	entriesRead := int64(-1)
-	
+
 	// 解析选项
 	for i := 3; i < len(args); i++ {
 		arg := strings.ToUpper(string(args[i]))
@@ -432,10 +432,10 @@ func execXGroupCreate(db *DB, args [][]byte) redis.Reply {
 			return protocol.MakeSyntaxErrReply()
 		}
 	}
-	
+
 	var s *stream.Stream
 	var errReply protocol.ErrorReply
-	
+
 	if mkStream {
 		s, _, errReply = db.getOrInitStream(key)
 		if errReply != nil {
@@ -450,17 +450,17 @@ func execXGroupCreate(db *DB, args [][]byte) redis.Reply {
 			return protocol.MakeErrReply("ERR The XGROUP subcommand requires the key to exist.")
 		}
 	}
-	
+
 	err := s.CreateGroup(groupName, startID)
 	if err != nil {
 		return protocol.MakeErrReply(err.Error())
 	}
-	
+
 	// 设置entriesRead (简化处理)
 	if entriesRead >= 0 {
 		// 实际应该更新组的EntriesRead字段
 	}
-	
+
 	db.addAof(utils.ToCmdLine3("xgroup", append([][]byte{[]byte("create")}, args...)...))
 	return protocol.MakeOkReply()
 }
@@ -476,7 +476,7 @@ func execXGroupDestroy(db *DB, args [][]byte) redis.Reply {
 	}
 	key := string(args[0])
 	groupName := string(args[1])
-	
+
 	s, errReply := db.getAsStream(key)
 	if errReply != nil {
 		return errReply
@@ -484,12 +484,12 @@ func execXGroupDestroy(db *DB, args [][]byte) redis.Reply {
 	if s == nil {
 		return protocol.MakeIntReply(0)
 	}
-	
+
 	err := s.DestroyGroup(groupName)
 	if err != nil {
 		return protocol.MakeIntReply(0)
 	}
-	
+
 	db.addAof(utils.ToCmdLine3("xgroup", append([][]byte{[]byte("destroy")}, args...)...))
 	return protocol.MakeIntReply(1)
 }
@@ -500,7 +500,7 @@ func execXInfoStream(db *DB, args [][]byte) redis.Reply {
 	if len(args) < 1 {
 		return protocol.MakeArgNumErrReply("xinfo")
 	}
-	
+
 	key := string(args[0])
 	s, errReply := db.getAsStream(key)
 	if errReply != nil {
@@ -509,9 +509,9 @@ func execXInfoStream(db *DB, args [][]byte) redis.Reply {
 	if s == nil {
 		return protocol.MakeErrReply("ERR no such key")
 	}
-	
+
 	full := false
-	
+
 	if len(args) > 1 {
 		if strings.ToUpper(string(args[1])) == "FULL" {
 			full = true
@@ -525,12 +525,12 @@ func execXInfoStream(db *DB, args [][]byte) redis.Reply {
 			}
 		}
 	}
-	
+
 	info := s.GetInfo()
-	
+
 	// 构建回复
 	var result [][]byte
-	
+
 	// 基本信息
 	result = append(result, []byte("length"), []byte(strconv.Itoa(info["length"].(int))))
 	result = append(result, []byte("radix-tree-keys"), []byte(strconv.Itoa(info["radix-tree-keys"].(int))))
@@ -539,11 +539,11 @@ func execXInfoStream(db *DB, args [][]byte) redis.Reply {
 	result = append(result, []byte("max-deleted-entry-id"), []byte(info["max-deleted-entry-id"].(string)))
 	result = append(result, []byte("entries-added"), []byte(strconv.FormatInt(info["entries-added"].(int64), 10)))
 	result = append(result, []byte("recorded-first-entry-id"), []byte(info["recorded-first-entry-id"].(string)))
-	
+
 	// 组信息
 	groups := s.GetGroups()
 	result = append(result, []byte("groups"), []byte(strconv.Itoa(len(groups))))
-	
+
 	// 第一个和最后一个条目
 	if first, ok := info["first-entry"]; ok {
 		if entry, ok := first.(*stream.StreamEntry); ok {
@@ -557,13 +557,13 @@ func execXInfoStream(db *DB, args [][]byte) redis.Reply {
 			result = append(result, streamEntryToBytes(entry)...)
 		}
 	}
-	
+
 	if full {
 		// 详细信息（简化处理）
 		result = append(result, []byte("entries"))
 		// 这里可以添加条目列表
 	}
-	
+
 	return protocol.MakeMultiBulkReply(result)
 }
 
@@ -575,7 +575,7 @@ func streamEntryToBytes(entry *stream.StreamEntry) [][]byte {
 	}
 	return [][]byte{
 		[]byte(entry.ID.String()),
-	}	
+	}
 }
 
 // 辅助函数：将条目列表转换为Redis回复
@@ -583,7 +583,7 @@ func streamEntriesToReply(entries []*stream.StreamEntry) redis.Reply {
 	if len(entries) == 0 {
 		return protocol.MakeEmptyMultiBulkReply()
 	}
-	
+
 	var result [][]byte
 	for _, entry := range entries {
 		result = append(result, []byte(entry.ID.String()))
@@ -593,7 +593,7 @@ func streamEntriesToReply(entries []*stream.StreamEntry) redis.Reply {
 		}
 		result = append(result, fields...)
 	}
-	
+
 	return protocol.MakeMultiBulkReply(result)
 }
 
@@ -603,12 +603,12 @@ func execXTrim(db *DB, args [][]byte) redis.Reply {
 	if len(args) < 3 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'xtrim' command")
 	}
-	
+
 	key := string(args[0])
 	strategy := strings.ToUpper(string(args[1]))
-	
+
 	var opts stream.AddOptions
-	
+
 	switch strategy {
 	case "MAXLEN":
 		idx := 2
@@ -627,7 +627,7 @@ func execXTrim(db *DB, args [][]byte) redis.Reply {
 		}
 		opts.MaxLen = maxlen
 		idx++
-		
+
 		// 解析可选的LIMIT
 		if idx < len(args) && strings.ToUpper(string(args[idx])) == "LIMIT" {
 			if idx+1 >= len(args) {
@@ -655,7 +655,7 @@ func execXTrim(db *DB, args [][]byte) redis.Reply {
 		}
 		opts.MinID = minID
 		idx++
-		
+
 		// 解析可选的LIMIT
 		if idx < len(args) && strings.ToUpper(string(args[idx])) == "LIMIT" {
 			if idx+1 >= len(args) {
@@ -670,7 +670,7 @@ func execXTrim(db *DB, args [][]byte) redis.Reply {
 	default:
 		return protocol.MakeSyntaxErrReply()
 	}
-	
+
 	s, errReply := db.getAsStream(key)
 	if errReply != nil {
 		return errReply
@@ -678,36 +678,37 @@ func execXTrim(db *DB, args [][]byte) redis.Reply {
 	if s == nil {
 		return protocol.MakeIntReply(0)
 	}
-	
+
 	// 执行裁剪 (这里简化处理，实际需要更好的实现)
 	beforeLen := s.Len()
-	
+
 	// 重新添加maxlen/minid限制
 	if opts.MaxLen > 0 {
 		// 创建临时条目触发裁剪
 		s.Add("9999999999999-0", map[string]string{"_": "_"}, &opts)
 	}
-	
+
 	afterLen := s.Len()
 	trimmed := beforeLen - afterLen
-	
+
 	if trimmed > 0 {
 		db.addAof(utils.ToCmdLine3("xtrim", args...))
 	}
-	
+
 	return protocol.MakeIntReply(int64(trimmed))
 }
 
 // execXGroup handles XGROUP subcommands
-// XGROUP [CREATE key groupname id|$ [MKSTREAM] [ENTRIESREAD entries-read]] 
-//        [DESTROY key groupname] [SETID key groupname id|$]
+// XGROUP [CREATE key groupname id|$ [MKSTREAM] [ENTRIESREAD entries-read]]
+//
+//	[DESTROY key groupname] [SETID key groupname id|$]
 func execXGroup(db *DB, args [][]byte) redis.Reply {
 	if len(args) < 1 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'xgroup' command")
 	}
-	
+
 	subCmd := strings.ToUpper(string(args[0]))
-	
+
 	switch subCmd {
 	case "CREATE":
 		if len(args) < 4 {
@@ -740,7 +741,7 @@ func execXGroupSetID(db *DB, args [][]byte) redis.Reply {
 	key := string(args[0])
 	groupName := string(args[1])
 	newID := string(args[2])
-	
+
 	s, errReply := db.getAsStream(key)
 	if errReply != nil {
 		return errReply
@@ -748,13 +749,13 @@ func execXGroupSetID(db *DB, args [][]byte) redis.Reply {
 	if s == nil {
 		return protocol.MakeErrReply("ERR no such key")
 	}
-	
+
 	// Get the group
 	group, err := s.GetGroup(groupName)
 	if err != nil {
 		return protocol.MakeErrReply("ERR No such consumer group '" + groupName + "' for key name '" + key + "'")
 	}
-	
+
 	// Parse new ID
 	var newStreamID stream.StreamID
 	if newID == "$" {
@@ -766,10 +767,10 @@ func execXGroupSetID(db *DB, args [][]byte) redis.Reply {
 			return protocol.MakeErrReply("ERR Invalid stream ID")
 		}
 	}
-	
+
 	// Set new ID
 	group.LastID = newStreamID
-	
+
 	db.addAof(utils.ToCmdLine3("xgroup", append([][]byte{[]byte("setid")}, args...)...))
 	return protocol.MakeOkReply()
 }
@@ -787,7 +788,7 @@ func execXGroupHelp() redis.Reply {
 		"HELP",
 		"    Print this help.",
 	}
-	
+
 	result := make([]redis.Reply, len(help))
 	for i, h := range help {
 		result[i] = protocol.MakeBulkReply([]byte(h))

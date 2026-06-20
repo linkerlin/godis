@@ -2,11 +2,13 @@ package parser
 
 import (
 	"bytes"
-	"github.com/hdt3213/godis/interface/redis"
-	"github.com/hdt3213/godis/lib/utils"
-	"github.com/hdt3213/godis/redis/protocol"
 	"io"
 	"testing"
+	"time"
+
+	"github.com/linkerlin/godis/interface/redis"
+	"github.com/linkerlin/godis/lib/utils"
+	"github.com/linkerlin/godis/redis/protocol"
 )
 
 func TestParseStream(t *testing.T) {
@@ -77,5 +79,49 @@ func TestParseOne(t *testing.T) {
 		if !utils.BytesEquals(result.ToBytes(), re.ToBytes()) {
 			t.Error("parse failed: " + string(re.ToBytes()))
 		}
+	}
+}
+
+func TestParseRejectsHugeArrayHeader(t *testing.T) {
+	data := []byte("*155555555\r\n\n0\r\n")
+	done := make(chan struct{})
+	var parseErr error
+	go func() {
+		_, parseErr = ParseOne(data)
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("ParseOne hung on huge array header")
+	}
+	if parseErr == nil {
+		t.Fatal("expected protocol error for huge array")
+	}
+}
+
+func TestParseRejectsHugeBulkHeader(t *testing.T) {
+	data := []byte("$999999999999\r\n")
+	_, err := ParseOne(data)
+	if err == nil {
+		t.Fatal("expected error for huge bulk header")
+	}
+}
+
+func TestParseRejectsHugeBulkInArray(t *testing.T) {
+	data := []byte("*1\r\n$42222222222\r\nPING\r\n")
+	done := make(chan struct{})
+	var parseErr error
+	go func() {
+		_, parseErr = ParseOne(data)
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("ParseOne hung on huge bulk in array")
+	}
+	if parseErr == nil {
+		t.Fatal("expected protocol error for huge bulk in array")
 	}
 }

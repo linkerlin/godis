@@ -9,9 +9,15 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/hdt3213/godis/interface/redis"
-	"github.com/hdt3213/godis/lib/logger"
-	"github.com/hdt3213/godis/redis/protocol"
+	"github.com/linkerlin/godis/interface/redis"
+	"github.com/linkerlin/godis/lib/logger"
+	"github.com/linkerlin/godis/redis/protocol"
+)
+
+// Upper bounds aligned with Redis proto-max-bulk-len default (512MB).
+const (
+	maxBulkStringLen int64 = 512 * 1024 * 1024
+	maxArrayElements int64 = 1024 * 1024
 )
 
 // Payload stores redis.Reply or error
@@ -61,17 +67,25 @@ func ParseOne(data []byte) (redis.Reply, error) {
 }
 
 func parse0(rawReader io.Reader, ch chan<- *Payload) {
+	closed := false
+	closeCh := func() {
+		if !closed {
+			closed = true
+			close(ch)
+		}
+	}
 	defer func() {
 		if err := recover(); err != nil {
 			logger.Error(err, string(debug.Stack()))
 		}
+		closeCh()
 	}()
 	reader := bufio.NewReader(rawReader)
 	for {
 		line, err := reader.ReadBytes('\n')
 		if err != nil {
 			ch <- &Payload{Err: err}
-			close(ch)
+			closeCh()
 			return
 		}
 		length := len(line)
@@ -91,7 +105,7 @@ func parse0(rawReader io.Reader, ch chan<- *Payload) {
 				err = parseRDBBulkString(reader, ch)
 				if err != nil {
 					ch <- &Payload{Err: err}
-					close(ch)
+					closeCh()
 					return
 				}
 			}
@@ -112,14 +126,14 @@ func parse0(rawReader io.Reader, ch chan<- *Payload) {
 			err = parseBulkString(line, reader, ch)
 			if err != nil {
 				ch <- &Payload{Err: err}
-				close(ch)
+				closeCh()
 				return
 			}
 		case '*':
 			err = parseArray(line, reader, ch)
 			if err != nil {
 				ch <- &Payload{Err: err}
-				close(ch)
+				closeCh()
 				return
 			}
 		default:
@@ -140,6 +154,9 @@ func parseBulkString(header []byte, reader *bufio.Reader, ch chan<- *Payload) er
 		ch <- &Payload{
 			Data: protocol.MakeNullBulkReply(),
 		}
+		return nil
+	} else if strLen > maxBulkStringLen {
+		protocolError(ch, "bulk string too long")
 		return nil
 	}
 	body := make([]byte, strLen+2)
@@ -167,6 +184,9 @@ func parseRDBBulkString(reader *bufio.Reader, ch chan<- *Payload) error {
 	if err != nil || strLen <= 0 {
 		return errors.New("illegal bulk header: " + string(header))
 	}
+	if strLen > maxBulkStringLen {
+		return errors.New("bulk string too long")
+	}
 	body := make([]byte, strLen)
 	_, err = io.ReadFull(reader, body)
 	if err != nil {
@@ -188,8 +208,11 @@ func parseArray(header []byte, reader *bufio.Reader, ch chan<- *Payload) error {
 			Data: protocol.MakeEmptyMultiBulkReply(),
 		}
 		return nil
+	} else if nStrs > maxArrayElements {
+		protocolError(ch, "array too long")
+		return nil
 	}
-	lines := make([][]byte, 0, nStrs)
+	lines := make([][]byte, 0, 16)
 	for i := int64(0); i < nStrs; i++ {
 		var line []byte
 		line, err = reader.ReadBytes('\n')
@@ -208,6 +231,10 @@ func parseArray(header []byte, reader *bufio.Reader, ch chan<- *Payload) error {
 		} else if strLen == -1 {
 			lines = append(lines, []byte{})
 		} else {
+			if strLen > maxBulkStringLen {
+				protocolError(ch, "bulk string too long")
+				break
+			}
 			body := make([]byte, strLen+2)
 			_, err := io.ReadFull(reader, body)
 			if err != nil {

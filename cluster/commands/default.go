@@ -1,6 +1,6 @@
 package commands
 
-import "github.com/hdt3213/godis/cluster/core"
+import "github.com/linkerlin/godis/cluster/core"
 
 func init() {
 	defaultCmds := []string{

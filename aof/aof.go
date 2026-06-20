@@ -11,14 +11,14 @@ import (
 
 	rdb "github.com/hdt3213/rdb/core"
 
-	"github.com/hdt3213/godis/config"
+	"github.com/linkerlin/godis/config"
 
-	"github.com/hdt3213/godis/interface/database"
-	"github.com/hdt3213/godis/lib/logger"
-	"github.com/hdt3213/godis/lib/utils"
-	"github.com/hdt3213/godis/redis/connection"
-	"github.com/hdt3213/godis/redis/parser"
-	"github.com/hdt3213/godis/redis/protocol"
+	"github.com/linkerlin/godis/interface/database"
+	"github.com/linkerlin/godis/lib/logger"
+	"github.com/linkerlin/godis/lib/utils"
+	"github.com/linkerlin/godis/redis/connection"
+	"github.com/linkerlin/godis/redis/parser"
+	"github.com/linkerlin/godis/redis/protocol"
 )
 
 // CmdLine is alias for [][]byte, represents a command line
@@ -68,6 +68,7 @@ type Persister struct {
 	aofFinished chan struct{}
 	// pause aof for start/finish aof rewrite progress
 	pausingAof sync.Mutex
+	rewriteJob rewriteJob
 	currentDB  int
 	listeners  map[Listener]struct{}
 	// reuse cmdLine buffer
@@ -280,18 +281,18 @@ func (persister *Persister) Stats() map[string]interface{} {
 			"enabled": false,
 		}
 	}
-	
+
 	stats := map[string]interface{}{
-		"enabled":     true,
-		"filename":    persister.aofFilename,
-		"fsync":       persister.aofFsync,
+		"enabled":  true,
+		"filename": persister.aofFilename,
+		"fsync":    persister.aofFsync,
 	}
-	
+
 	// Get file info
 	if info, err := persister.aofFile.Stat(); err == nil {
 		stats["size"] = info.Size()
 	}
-	
+
 	return stats
 }
 
