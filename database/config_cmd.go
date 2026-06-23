@@ -10,12 +10,8 @@ import (
 	"github.com/linkerlin/godis/redis/protocol"
 )
 
-// execConfig 处理 CONFIG 命令
-// CONFIG GET parameter [parameter ...]
-// CONFIG SET parameter value [parameter value ...]
-// CONFIG RESETSTAT
-// CONFIG REWRITE
-func execConfig(args [][]byte) redis.Reply {
+// execConfig handles CONFIG command
+func (server *Server) execConfig(args [][]byte) redis.Reply {
 	if len(args) < 1 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'config' command")
 	}
@@ -32,25 +28,22 @@ func execConfig(args [][]byte) redis.Reply {
 		if len(args) < 3 || len(args)%2 != 1 {
 			return protocol.MakeErrReply("ERR wrong number of arguments for 'config|set' command")
 		}
-		return execConfigSet(args[1:])
+		return server.execConfigSet(args[1:])
 	case "RESETSTAT":
-		// 重置统计信息 - 目前只是返回 OK
 		return protocol.MakeOkReply()
 	case "REWRITE":
-		// 重写配置文件 - 目前只是返回 OK
 		return protocol.MakeOkReply()
 	default:
 		return protocol.MakeErrReply(fmt.Sprintf("ERR Unknown subcommand '%s'", subCmd))
 	}
 }
 
-// execConfigGet 处理 CONFIG GET 命令
+// execConfigGet handles CONFIG GET
 func execConfigGet(parameters [][]byte) redis.Reply {
 	result := make([][]byte, 0)
 
 	for _, param := range parameters {
 		paramStr := strings.ToLower(string(param))
-		// 支持通配符模式匹配
 		matches := getConfigMatches(paramStr)
 		for _, match := range matches {
 			result = append(result, []byte(match.key), []byte(match.value))
@@ -65,11 +58,9 @@ type configPair struct {
 	value string
 }
 
-// getConfigMatches 根据模式获取配置项
 func getConfigMatches(pattern string) []configPair {
 	matches := make([]configPair, 0)
 
-	// 支持的配置项
 	configs := []configPair{
 		{"databases", strconv.Itoa(config.Properties.Databases)},
 		{"port", strconv.Itoa(config.Properties.Port)},
@@ -82,6 +73,7 @@ func getConfigMatches(pattern string) []configPair {
 		{"maxclients", strconv.Itoa(config.Properties.MaxClients)},
 		{"slowlog-log-slower-than", strconv.FormatInt(config.Properties.SlowLogSlowerThan, 10)},
 		{"slowlog-max-len", strconv.Itoa(config.Properties.SlowLogMaxLen)},
+		{"acllog-max-len", strconv.Itoa(config.Properties.AclLogMaxLen)},
 		{"cluster-enabled", boolToString(config.Properties.ClusterEnable)},
 		{"repl-timeout", strconv.Itoa(config.Properties.ReplTimeout)},
 	}
@@ -95,22 +87,17 @@ func getConfigMatches(pattern string) []configPair {
 	return matches
 }
 
-// patternMatch 简单的通配符匹配
 func patternMatch(pattern, str string) bool {
-	// 完全匹配
 	if pattern == str {
 		return true
 	}
-	// * 匹配所有
 	if pattern == "*" {
 		return true
 	}
-	// 前缀* 模式
 	if strings.HasSuffix(pattern, "*") {
 		prefix := pattern[:len(pattern)-1]
 		return strings.HasPrefix(str, prefix)
 	}
-	// 后缀* 模式
 	if strings.HasPrefix(pattern, "*") {
 		suffix := pattern[1:]
 		return strings.HasSuffix(str, suffix)
@@ -118,8 +105,7 @@ func patternMatch(pattern, str string) bool {
 	return false
 }
 
-// execConfigSet 处理 CONFIG SET 命令
-func execConfigSet(kvPairs [][]byte) redis.Reply {
+func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 	for i := 0; i < len(kvPairs); i += 2 {
 		key := strings.ToLower(string(kvPairs[i]))
 		value := string(kvPairs[i+1])
@@ -133,12 +119,25 @@ func execConfigSet(kvPairs [][]byte) redis.Reply {
 				return protocol.MakeErrReply(fmt.Sprintf("ERR Invalid value for '%s'", key))
 			}
 			config.Properties.SlowLogSlowerThan = n
+			if server.slogLogger != nil {
+				server.slogLogger.SetThreshold(n)
+			}
 		case "slowlog-max-len":
 			n, err := strconv.Atoi(value)
-			if err != nil {
+			if err != nil || n < 0 {
 				return protocol.MakeErrReply(fmt.Sprintf("ERR Invalid value for '%s'", key))
 			}
 			config.Properties.SlowLogMaxLen = n
+			if server.slogLogger != nil {
+				server.slogLogger.SetMaxLen(n)
+			}
+		case "acllog-max-len":
+			n, err := strconv.Atoi(value)
+			if err != nil || n < 0 {
+				return protocol.MakeErrReply(fmt.Sprintf("ERR Invalid value for '%s'", key))
+			}
+			config.Properties.AclLogMaxLen = n
+			trimACLLogToMax(n)
 		case "repl-timeout":
 			n, err := strconv.Atoi(value)
 			if err != nil {
@@ -146,7 +145,6 @@ func execConfigSet(kvPairs [][]byte) redis.Reply {
 			}
 			config.Properties.ReplTimeout = n
 		default:
-			// 其他配置项不支持运行时修改
 			return protocol.MakeErrReply(fmt.Sprintf("ERR Unsupported CONFIG parameter: %s", key))
 		}
 	}

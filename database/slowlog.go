@@ -76,6 +76,56 @@ func (sl *SlowLogger) Record(start time.Time, args [][]byte, client string) {
 	}
 }
 
+func (sl *SlowLogger) SetThreshold(threshold int64) {
+	sl.mu.Lock()
+	defer sl.mu.Unlock()
+	sl.threshold = threshold
+}
+
+// SetMaxLen resizes the slowlog ring buffer and trims older entries if needed.
+func (sl *SlowLogger) SetMaxLen(newMax int) {
+	if newMax < 0 {
+		return
+	}
+	sl.mu.Lock()
+	defer sl.mu.Unlock()
+
+	kept := sl.collectEntriesLocked(sl.count)
+	sl.maxEntries = newMax
+	sl.count = 0
+	sl.nextIdx = 0
+	if newMax == 0 {
+		sl.entries = nil
+		return
+	}
+
+	sl.entries = make([]*SlowLogEntry, newMax)
+	if len(kept) > newMax {
+		kept = kept[:newMax]
+	}
+	for i := len(kept) - 1; i >= 0; i-- {
+		sl.entries[sl.nextIdx] = kept[i]
+		sl.nextIdx = (sl.nextIdx + 1) % sl.maxEntries
+		sl.count++
+	}
+}
+
+func (sl *SlowLogger) collectEntriesLocked(count int) []*SlowLogEntry {
+	if count <= 0 || sl.maxEntries == 0 || len(sl.entries) == 0 {
+		return nil
+	}
+	if count > sl.count {
+		count = sl.count
+	}
+	result := make([]*SlowLogEntry, 0, count)
+	startIdx := (sl.nextIdx - 1 + sl.maxEntries) % sl.maxEntries
+	for i := 0; i < count; i++ {
+		idx := (startIdx - i + sl.maxEntries) % sl.maxEntries
+		result = append(result, sl.entries[idx])
+	}
+	return result
+}
+
 func (sl *SlowLogger) GetEntries(count int) []*SlowLogEntry {
 	sl.mu.RLock()
 	defer sl.mu.RUnlock()
@@ -84,20 +134,11 @@ func (sl *SlowLogger) GetEntries(count int) []*SlowLogEntry {
 		return []*SlowLogEntry{}
 	}
 
-	// 获取实际返回数量
 	if count > sl.count {
 		count = sl.count
 	}
 
-	result := make([]*SlowLogEntry, 0, count)
-	startIdx := (sl.nextIdx - 1 + sl.maxEntries) % sl.maxEntries
-
-	for i := 0; i < count; i++ {
-		idx := (startIdx - i + sl.maxEntries) % sl.maxEntries
-		result = append(result, sl.entries[idx])
-	}
-
-	return result
+	return sl.collectEntriesLocked(count)
 }
 
 func (sl *SlowLogger) Len() int {

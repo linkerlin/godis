@@ -166,14 +166,14 @@ func execTDigestInfo(db *DB, args [][]byte) redis.Reply {
 }
 
 func init() {
-	registerCommand("TDigest.Create", execTDigestCreate, nil, nil, -2, flagWrite).
+	registerCommand("TDigest.Create", execTDigestCreate, writeFirstKey, nil, -2, flagWrite).
 		attachCommandExtra([]string{redisFlagWrite, redisFlagDenyOOM}, 0, 0, 0)
-	registerCommand("TDigest.Add", execTDigestAdd, nil, nil, -3, flagWrite).
+	registerCommand("TDigest.Add", execTDigestAdd, writeFirstKey, nil, -3, flagWrite).
 		attachCommandExtra([]string{redisFlagWrite}, 0, 0, 0)
-	registerCommand("TDigest.Quantile", execTDigestQuantile, nil, nil, -3, flagReadOnly).
+	registerCommand("TDigest.Quantile", execTDigestQuantile, readFirstKey, nil, -3, flagReadOnly).
 		attachCommandExtra([]string{redisFlagReadonly}, 0, 0, 0)
-	registerCommand("TDigest.CDF", execTDigestCDF, nil, nil, -3, flagReadOnly).
+	registerCommand("TDigest.CDF", execTDigestCDF, readFirstKey, nil, -3, flagReadOnly).
 		attachCommandExtra([]string{redisFlagReadonly}, 0, 0, 0)
-	registerCommand("TDigest.Info", execTDigestInfo, nil, nil, 2, flagReadOnly).
+	registerCommand("TDigest.Info", execTDigestInfo, readFirstKey, nil, 2, flagReadOnly).
 		attachCommandExtra([]string{redisFlagReadonly}, 0, 0, 0)
 }

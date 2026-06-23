@@ -49,7 +49,10 @@ func New(code ErrorCode, msg string) error {
 
 // Newf creates a new formatted error with stack trace
 func Newf(code ErrorCode, format string, args ...interface{}) error {
-	return errors.NewWithDepthf(1, format, args...)
+	return errors.WithStack(&GodisError{
+		Code:    code,
+		Message: fmt.Sprintf(format, args...),
+	})
 }
 
 // Wrap wraps an error with additional context and stack trace

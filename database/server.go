@@ -127,6 +127,12 @@ func newServerWithSize(dictSize int) (*Server, error) {
 	server.role = masterRole // The initialization process does not require atomicity
 
 	// record slow log
+	if config.Properties.SlowLogMaxLen <= 0 {
+		config.Properties.SlowLogMaxLen = 128
+	}
+	if config.Properties.AclLogMaxLen <= 0 {
+		config.Properties.AclLogMaxLen = 128
+	}
 	server.slogLogger = NewSlowLogger(config.Properties.SlowLogMaxLen, config.Properties.SlowLogSlowerThan)
 
 	// initialize lock manager
@@ -239,7 +245,7 @@ func (server *Server) Exec(c redis.Connection, cmdLine [][]byte) (result redis.R
 	} else if cmdName == "command" {
 		return execCommand(cmdLine[1:])
 	} else if cmdName == "config" {
-		return execConfig(cmdLine[1:])
+		return server.execConfig(cmdLine[1:])
 	} else if cmdName == "memory" {
 		return execMemory(cmdLine[1:])
 	} else if cmdName == "latency" {

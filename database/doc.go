@@ -14,6 +14,6 @@ Server.Exec is the main entry for Server, it handles authentication, publish-sub
 [registerCommand](https://github.com/linkerlin/godis/blob/master/database/router.go) is used for registering normal command. A normal command requires three functions：
 
 - ExecFunc: The function that actually executes the command, such as [execHSet](https://github.com/linkerlin/godis/blob/master/database/hash.go)
-- PrepareFunc executes before ExecFunc, it analysises command line and returns read/written keys for lock
+- PrepareFunc executes before ExecFunc, it analyses command line and returns read/written keys for lock
 - UndoFunc invoked in transaction only, it generates undo log in case need rollback in transaction
 */

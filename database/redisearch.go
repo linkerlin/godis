@@ -988,28 +988,28 @@ func isFTFieldType(token string) bool {
 }
 
 func init() {
-	registerCommand("FT.Create", execFTCreate, nil, nil, -3, flagWrite).
+	registerCommand("FT.Create", execFTCreate, writeFirstKey, nil, -3, flagWrite).
 		attachCommandExtra([]string{redisFlagWrite}, 0, 0, 0)
-	registerCommand("FT.DropIndex", execFTDropIndex, nil, nil, -2, flagWrite).
+	registerCommand("FT.DropIndex", execFTDropIndex, writeFirstKey, nil, -2, flagWrite).
 		attachCommandExtra([]string{redisFlagWrite}, 0, 0, 0)
-	registerCommand("FT.Add", execFTAdd, nil, nil, -5, flagWrite).
+	registerCommand("FT.Add", execFTAdd, writeFirstKey, nil, -5, flagWrite).
 		attachCommandExtra([]string{redisFlagWrite}, 0, 0, 0)
-	registerCommand("FT.Del", execFTDel, nil, nil, -3, flagWrite).
+	registerCommand("FT.Del", execFTDel, writeFirstKey, nil, -3, flagWrite).
 		attachCommandExtra([]string{redisFlagWrite}, 0, 0, 0)
-	registerCommand("FT.Search", execFTSearch, nil, nil, -3, flagReadOnly).
+	registerCommand("FT.Search", execFTSearch, readFirstKey, nil, -3, flagReadOnly).
 		attachCommandExtra([]string{redisFlagReadonly}, 0, 0, 0)
-	registerCommand("FT.Aggregate", execFTAggregate, nil, nil, -3, flagReadOnly).
+	registerCommand("FT.Aggregate", execFTAggregate, readFirstKey, nil, -3, flagReadOnly).
 		attachCommandExtra([]string{redisFlagReadonly}, 0, 0, 0)
-	registerCommand("FT.Info", execFTInfo, nil, nil, 2, flagReadOnly).
+	registerCommand("FT.Info", execFTInfo, readFirstKey, nil, 2, flagReadOnly).
 		attachCommandExtra([]string{redisFlagReadonly}, 0, 0, 0)
-	registerCommand("FT._List", execFTList, nil, nil, 1, flagReadOnly).
+	registerCommand("FT._List", execFTList, prepareNoKeys, nil, 1, flagReadOnly).
 		attachCommandExtra([]string{redisFlagReadonly}, 0, 0, 0)
-	registerCommand("FT.SugAdd", execFTSugAdd, nil, nil, -4, flagWrite).
+	registerCommand("FT.SugAdd", execFTSugAdd, writeFirstKey, nil, -4, flagWrite).
 		attachCommandExtra([]string{redisFlagWrite}, 0, 0, 0)
-	registerCommand("FT.SugGet", execFTSugGet, nil, nil, -3, flagReadOnly).
+	registerCommand("FT.SugGet", execFTSugGet, readFirstKey, nil, -3, flagReadOnly).
 		attachCommandExtra([]string{redisFlagReadonly}, 0, 0, 0)
-	registerCommand("FT.SugDel", execFTSugDel, nil, nil, -3, flagWrite).
+	registerCommand("FT.SugDel", execFTSugDel, writeFirstKey, nil, -3, flagWrite).
 		attachCommandExtra([]string{redisFlagWrite}, 0, 0, 0)
-	registerCommand("FT.SugLen", execFTSugLen, nil, nil, 2, flagReadOnly).
+	registerCommand("FT.SugLen", execFTSugLen, readFirstKey, nil, 2, flagReadOnly).
 		attachCommandExtra([]string{redisFlagReadonly}, 0, 0, 0)
 }

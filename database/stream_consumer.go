@@ -651,6 +651,6 @@ func init() {
 		attachCommandExtra([]string{redisFlagWrite, redisFlagFast}, 1, 1, 1)
 	registerCommand("XGroupDelConsumer", execXGroupDelConsumer, writeFirstKey, nil, 4, flagWrite).
 		attachCommandExtra([]string{redisFlagWrite, redisFlagFast}, 1, 1, 1)
-	registerCommand("XInfoGroups", execXInfoGroups, readFirstKey, nil, 3, flagReadOnly).
+	registerCommand("XInfoGroups", execXInfoGroups, readFirstKey, nil, 2, flagReadOnly).
 		attachCommandExtra([]string{redisFlagReadonly}, 1, 1, 1)
 }

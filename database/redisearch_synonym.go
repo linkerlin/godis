@@ -105,8 +105,8 @@ func getSynonyms(term string) []string {
 }
 
 func init() {
-	registerCommand("FT.SynUpdate", execFTSynUpdate, nil, nil, -4, flagWrite).
+	registerCommand("FT.SynUpdate", execFTSynUpdate, writeFirstKey, nil, -4, flagWrite).
 		attachCommandExtra([]string{redisFlagWrite}, 0, 0, 0)
-	registerCommand("FT.SynDump", execFTSynDump, nil, nil, 2, flagReadOnly).
+	registerCommand("FT.SynDump", execFTSynDump, readFirstKey, nil, 2, flagReadOnly).
 		attachCommandExtra([]string{redisFlagReadonly}, 0, 0, 0)
 }

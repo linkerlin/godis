@@ -51,3 +51,14 @@ func TestParseMaxClientsAndMetricsAddr(t *testing.T) {
 		t.Fatalf("metrics-addr: got %q", p.MetricsAddr)
 	}
 }
+
+func TestParseAclLogMaxLen(t *testing.T) {
+	src := "acllog-max-len 64\n"
+	p, err := parse(strings.NewReader(src))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.AclLogMaxLen != 64 {
+		t.Fatalf("acllog-max-len: got %d", p.AclLogMaxLen)
+	}
+}

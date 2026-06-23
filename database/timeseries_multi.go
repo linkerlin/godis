@@ -277,9 +277,9 @@ func matchFilters(ts *timeseries.TimeSeries, filters []string) bool {
 }
 
 func init() {
-	registerCommand("TS.MRange", execTSMRange, nil, nil, -4, flagReadOnly).
+	registerCommand("TS.MRange", execTSMRange, prepareNoKeys, nil, -4, flagReadOnly).
 		attachCommandExtra([]string{redisFlagReadonly}, 0, 0, 0)
-	registerCommand("TS.MGet", execTSMGet, nil, nil, -2, flagReadOnly).
+	registerCommand("TS.MGet", execTSMGet, prepareNoKeys, nil, -2, flagReadOnly).
 		attachCommandExtra([]string{redisFlagReadonly}, 0, 0, 0)
 	registerCommand("TS.QueryIndex", execTSQueryIndex, nil, nil, -2, flagReadOnly).
 		attachCommandExtra([]string{redisFlagReadonly, redisFlagFast}, 0, 0, 0)

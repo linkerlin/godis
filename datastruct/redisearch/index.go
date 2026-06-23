@@ -218,9 +218,10 @@ func (idx *InvertedIndex) Search(query string, field string) []string {
 			// Try stemming
 			stemmed := idx.stemmer.Stem(token)
 			if stemmed != token {
-				docs, ok = idx.terms[stemmed]
-				if !ok && field != "" {
-					docs, ok = idx.terms[field+":"+stemmed]
+				if d, found := idx.terms[stemmed]; found {
+					docs = d
+				} else if field != "" {
+					docs = idx.terms[field+":"+stemmed]
 				}
 			}
 		}
@@ -281,7 +282,9 @@ func (idx *InvertedIndex) SearchOr(query string, field string) []string {
 			// Try stemming
 			stemmed := idx.stemmer.Stem(token)
 			if stemmed != token {
-				docs, ok = idx.terms[stemmed]
+				if d, found := idx.terms[stemmed]; found {
+					docs = d
+				}
 			}
 		}
 		

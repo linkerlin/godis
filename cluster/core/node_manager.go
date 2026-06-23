@@ -30,7 +30,7 @@ import (
 11. Source Node send dirty keys to Target Node
 
 12. Source Node send migrationChangeRouteCommand to Leader
-13. Leader porposes EventFinishMigrate to raft and waits Source Node and Target Node receives this entry(at `execMigrationChangeRoute`)
+13. Leader proposes EventFinishMigrate to raft and waits Source Node and Target Node receives this entry(at `execMigrationChangeRoute`)
 14. Source Node finish exporting, unlock slots, clean data
 15. Target Node finish importing, unlock slots, start serve
 */
@@ -272,7 +272,7 @@ func (cluster *Cluster) waitMigrationDone(taskID string, slot uint32, targetNode
 	return fmt.Errorf("timeout waiting for slot %d migration to %s", slot, targetNode)
 }
 
-// execMigrationChangeRoute should be exectued at leader
+// execMigrationChangeRoute should be executed at leader
 // it proposes EventFinishMigrate through raft, to change the route to the new node
 // it returns until the proposal has been accepted by the majority  and two related nodes
 // format: cluster.migration.changeroute taskid

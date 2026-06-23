@@ -50,6 +50,7 @@ type ServerProperties struct {
 
 	SlowLogSlowerThan int64 `cfg:"slowlog-log-slower-than"`
 	SlowLogMaxLen     int   `cfg:"slowlog-max-len"`
+	AclLogMaxLen      int   `cfg:"acllog-max-len"`
 
 	Maxmemory       int64  `cfg:"maxmemory"`
 	MaxmemoryPolicy string `cfg:"maxmemory-policy"`

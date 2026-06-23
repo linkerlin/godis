@@ -258,12 +258,12 @@ func execFTDictDump(db *DB, args [][]byte) redis.Reply {
 }
 
 func init() {
-	registerCommand("FT.SpellCheck", execFTSpellCheck, nil, nil, -3, flagReadOnly).
+	registerCommand("FT.SpellCheck", execFTSpellCheck, readFirstKey, nil, -3, flagReadOnly).
 		attachCommandExtra([]string{redisFlagReadonly}, 0, 0, 0)
-	registerCommand("FT.DictAdd", execFTDictAdd, nil, nil, -3, flagWrite).
+	registerCommand("FT.DictAdd", execFTDictAdd, writeFirstKey, nil, -3, flagWrite).
 		attachCommandExtra([]string{redisFlagWrite}, 0, 0, 0)
-	registerCommand("FT.DictDel", execFTDictDel, nil, nil, -3, flagWrite).
+	registerCommand("FT.DictDel", execFTDictDel, writeFirstKey, nil, -3, flagWrite).
 		attachCommandExtra([]string{redisFlagWrite}, 0, 0, 0)
-	registerCommand("FT.DictDump", execFTDictDump, nil, nil, 2, flagReadOnly).
+	registerCommand("FT.DictDump", execFTDictDump, readFirstKey, nil, 2, flagReadOnly).
 		attachCommandExtra([]string{redisFlagReadonly}, 0, 0, 0)
 }

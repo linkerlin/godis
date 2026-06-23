@@ -328,7 +328,6 @@ func execLMPop(db *DB, args [][]byte) redis.Reply {
 		if err != nil {
 			return protocol.MakeErrReply("ERR value is not an integer or out of range")
 		}
-		idx += 2
 	}
 
 	// Try each key

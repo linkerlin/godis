@@ -12,7 +12,7 @@
 |------|------|------|
 | **P0** | 可长期运行基线 | ✅ 已完成 |
 | **P1** | 运维与可观测 | 🔄 进行中 |
-| **P2** | 稳定性与质量门禁 | ⬜ 待开始 |
+| **P2** | 稳定性与质量门禁 | 🔄 进行中 |
 | **P3** | 部署与发布 | ⬜ 待开始 |
 
 ---
@@ -77,7 +77,7 @@
 
 ### P1-2 慢查询与 ACL 日志运维化
 
-- [ ] SLOWLOG 与 ACL LOG 最大长度可配置且热更新
+- [x] SLOWLOG 与 ACL LOG 最大长度可配置且热更新（`CONFIG SET slowlog-max-len` / `acllog-max-len`）
 - [ ] 可选：结构化 JSON 日志输出（`lib/logger`）
 
 ### P1-3 健康检查
@@ -104,19 +104,19 @@
 
 ### P2-1 输入校验全覆盖
 
-- [ ] 审计 `prepare=nil` 命令（rediSearch、vector、geo、timeseries、probabilistic）
-- [ ] 统一走 `lib/validate`
+- [x] 审计 `prepare=nil` 命令（rediSearch、vector、geo、timeseries、probabilistic）并补 `writeFirstKey`/`readFirstKey`
+- [x] 统一走 `lib/validate`（修复 `errs.Newf` 错误码丢失；集成测试 `validate_cmd_test.go`）
 
 ### P2-2 测试与覆盖率
 
-- [ ] `database` 包覆盖率 33% → **50%+**（优先 `server.go`、`stream*.go`、`caching.go`）
-- [ ] CI 全量 `go test -race ./...`（ nightly 或 PR 可选）
-- [ ] 核心命令兼容性对照测试（Godis vs Redis 8 子集）
+- [x] `database` 包覆盖率 33% → **50%+**（当前 **50.1%**，stream/ACL/connection/dump/misc 等测试）
+- [x] CI 全量 `go test -race`（nightly `race.yml`）
+- [x] 核心命令兼容性对照测试（`database/compat_test.go` 子集）
 
 ### P2-3 静态分析门禁
 
 - [x] CI 恢复 `go vet ./...`
-- [ ] `golangci-lint` 配置 + CI
+- [x] `golangci-lint` 配置 + CI（`ineffassign` + `misspell` 基线）
 
 ---
 
@@ -129,7 +129,7 @@
 
 ### P3-2 配置与示例
 
-- [ ] `example.conf` 补充 `maxmemory` 说明（metrics/aclfile 已补充）
+- [ ] `example.conf` 补充 `maxmemory` 说明（metrics/aclfile/acllog 已补充）
 - [ ] Docker / docker-compose 示例（可选）
 
 ### P3-3 Fork 维护

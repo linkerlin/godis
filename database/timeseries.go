@@ -483,29 +483,29 @@ func prependCmd(cmd string, args [][]byte) [][]byte {
 }
 
 func init() {
-	registerCommand("TS.Create", execTSCreate, nil, nil, -2, flagWrite).
+	registerCommand("TS.Create", execTSCreate, writeFirstKey, nil, -2, flagWrite).
 		attachCommandExtra([]string{redisFlagWrite, redisFlagDenyOOM}, 0, 0, 0)
-	registerCommand("TS.Add", execTSAdd, nil, nil, -4, flagWrite).
+	registerCommand("TS.Add", execTSAdd, writeFirstKey, nil, -4, flagWrite).
 		attachCommandExtra([]string{redisFlagWrite, redisFlagDenyOOM}, 0, 0, 0)
-	registerCommand("TS.Get", execTSGet, nil, nil, 2, flagReadOnly).
+	registerCommand("TS.Get", execTSGet, readFirstKey, nil, 2, flagReadOnly).
 		attachCommandExtra([]string{redisFlagReadonly, redisFlagFast}, 0, 0, 0)
-	registerCommand("TS.Range", execTSRange, nil, nil, -4, flagReadOnly).
+	registerCommand("TS.Range", execTSRange, readFirstKey, nil, -4, flagReadOnly).
 		attachCommandExtra([]string{redisFlagReadonly}, 0, 0, 0)
-	registerCommand("TS.RevRange", execTSRevRange, nil, nil, -4, flagReadOnly).
+	registerCommand("TS.RevRange", execTSRevRange, readFirstKey, nil, -4, flagReadOnly).
 		attachCommandExtra([]string{redisFlagReadonly}, 0, 0, 0)
-	registerCommand("TS.Info", execTSInfo, nil, nil, 2, flagReadOnly).
+	registerCommand("TS.Info", execTSInfo, readFirstKey, nil, 2, flagReadOnly).
 		attachCommandExtra([]string{redisFlagReadonly, redisFlagFast}, 0, 0, 0)
-	registerCommand("TS.Del", execTSDel, nil, nil, 4, flagWrite).
+	registerCommand("TS.Del", execTSDel, writeFirstKey, nil, 4, flagWrite).
 		attachCommandExtra([]string{redisFlagWrite}, 0, 0, 0)
-	registerCommand("TS.IncrBy", execTSIncrBy, nil, nil, -3, flagWrite).
+	registerCommand("TS.IncrBy", execTSIncrBy, writeFirstKey, nil, -3, flagWrite).
 		attachCommandExtra([]string{redisFlagWrite, redisFlagDenyOOM}, 0, 0, 0)
-	registerCommand("TS.DecrBy", execTSDecrBy, nil, nil, -3, flagWrite).
+	registerCommand("TS.DecrBy", execTSDecrBy, writeFirstKey, nil, -3, flagWrite).
 		attachCommandExtra([]string{redisFlagWrite, redisFlagDenyOOM}, 0, 0, 0)
-	registerCommand("TS.Alter", execTSAlter, nil, nil, -2, flagWrite).
+	registerCommand("TS.Alter", execTSAlter, writeFirstKey, nil, -2, flagWrite).
 		attachCommandExtra([]string{redisFlagWrite}, 0, 0, 0)
-	registerCommand("TS.CreateRule", execTSCreateRule, nil, nil, 6, flagWrite).
+	registerCommand("TS.CreateRule", execTSCreateRule, prepareWriteFirstTwoKeys, nil, 6, flagWrite).
 		attachCommandExtra([]string{redisFlagWrite}, 0, 0, 0)
-	registerCommand("TS.DeleteRule", execTSDeleteRule, nil, nil, 3, flagWrite).
+	registerCommand("TS.DeleteRule", execTSDeleteRule, writeFirstKey, nil, 3, flagWrite).
 		attachCommandExtra([]string{redisFlagWrite}, 0, 0, 0)
 }
 
@@ -612,9 +612,7 @@ func execTSCreateRule(db *DB, args [][]byte) redis.Reply {
 		destTS = timeseries.NewTimeSeries(destKey, sourceTS.GetRetention())
 		db.PutEntity(destKey, &database.DataEntity{Data: destTS})
 	} else {
-		var ok bool
-		destTS, ok = destEntity.Data.(*timeseries.TimeSeries)
-		if !ok {
+		if _, ok := destEntity.Data.(*timeseries.TimeSeries); !ok {
 			return &protocol.WrongTypeErrReply{}
 		}
 	}

@@ -591,46 +591,46 @@ func execTopKList(db *DB, args [][]byte) redis.Reply {
 
 func init() {
 	// Bloom Filter
-	registerCommand("BF.Reserve", execBFReserve, nil, nil, 4, flagWrite).
+	registerCommand("BF.Reserve", execBFReserve, writeFirstKey, nil, 4, flagWrite).
 		attachCommandExtra([]string{redisFlagWrite, redisFlagDenyOOM}, 0, 0, 0)
-	registerCommand("BF.Add", execBFAdd, nil, nil, 3, flagWrite).
+	registerCommand("BF.Add", execBFAdd, writeFirstKey, nil, 3, flagWrite).
 		attachCommandExtra([]string{redisFlagWrite, redisFlagDenyOOM}, 0, 0, 0)
-	registerCommand("BF.MAdd", execBFMAdd, nil, nil, -3, flagWrite).
+	registerCommand("BF.MAdd", execBFMAdd, writeFirstKey, nil, -3, flagWrite).
 		attachCommandExtra([]string{redisFlagWrite, redisFlagDenyOOM}, 0, 0, 0)
-	registerCommand("BF.Exists", execBFExists, nil, nil, 3, flagReadOnly).
+	registerCommand("BF.Exists", execBFExists, readFirstKey, nil, 3, flagReadOnly).
 		attachCommandExtra([]string{redisFlagReadonly, redisFlagFast}, 0, 0, 0)
-	registerCommand("BF.Info", execBFInfo, nil, nil, 2, flagReadOnly).
+	registerCommand("BF.Info", execBFInfo, readFirstKey, nil, 2, flagReadOnly).
 		attachCommandExtra([]string{redisFlagReadonly}, 0, 0, 0)
 
 	// Cuckoo Filter
-	registerCommand("CF.Reserve", execCFReserve, nil, nil, -3, flagWrite).
+	registerCommand("CF.Reserve", execCFReserve, writeFirstKey, nil, -3, flagWrite).
 		attachCommandExtra([]string{redisFlagWrite, redisFlagDenyOOM}, 0, 0, 0)
-	registerCommand("CF.Add", execCFAdd, nil, nil, 3, flagWrite).
+	registerCommand("CF.Add", execCFAdd, writeFirstKey, nil, 3, flagWrite).
 		attachCommandExtra([]string{redisFlagWrite, redisFlagDenyOOM}, 0, 0, 0)
-	registerCommand("CF.AddNX", execCFAddNX, nil, nil, 3, flagWrite).
+	registerCommand("CF.AddNX", execCFAddNX, writeFirstKey, nil, 3, flagWrite).
 		attachCommandExtra([]string{redisFlagWrite, redisFlagDenyOOM}, 0, 0, 0)
-	registerCommand("CF.Exists", execCFExists, nil, nil, 3, flagReadOnly).
+	registerCommand("CF.Exists", execCFExists, readFirstKey, nil, 3, flagReadOnly).
 		attachCommandExtra([]string{redisFlagReadonly, redisFlagFast}, 0, 0, 0)
-	registerCommand("CF.Del", execCFDel, nil, nil, 3, flagWrite).
+	registerCommand("CF.Del", execCFDel, writeFirstKey, nil, 3, flagWrite).
 		attachCommandExtra([]string{redisFlagWrite}, 0, 0, 0)
-	registerCommand("CF.Count", execCFCount, nil, nil, 3, flagReadOnly).
+	registerCommand("CF.Count", execCFCount, readFirstKey, nil, 3, flagReadOnly).
 		attachCommandExtra([]string{redisFlagReadonly, redisFlagFast}, 0, 0, 0)
 
 	// Count-Min Sketch
-	registerCommand("CMS.InitByDim", execCMSInitByDim, nil, nil, 4, flagWrite).
+	registerCommand("CMS.InitByDim", execCMSInitByDim, writeFirstKey, nil, 4, flagWrite).
 		attachCommandExtra([]string{redisFlagWrite, redisFlagDenyOOM}, 0, 0, 0)
-	registerCommand("CMS.IncrBy", execCMSIncrBy, nil, nil, -4, flagWrite).
+	registerCommand("CMS.IncrBy", execCMSIncrBy, writeFirstKey, nil, -4, flagWrite).
 		attachCommandExtra([]string{redisFlagWrite}, 0, 0, 0)
-	registerCommand("CMS.Query", execCMSQuery, nil, nil, -3, flagReadOnly).
+	registerCommand("CMS.Query", execCMSQuery, readFirstKey, nil, -3, flagReadOnly).
 		attachCommandExtra([]string{redisFlagReadonly, redisFlagFast}, 0, 0, 0)
 
 	// Top-K
-	registerCommand("TopK.Reserve", execTopKReserve, nil, nil, -3, flagWrite).
+	registerCommand("TopK.Reserve", execTopKReserve, writeFirstKey, nil, -3, flagWrite).
 		attachCommandExtra([]string{redisFlagWrite, redisFlagDenyOOM}, 0, 0, 0)
-	registerCommand("TopK.Add", execTopKAdd, nil, nil, -3, flagWrite).
+	registerCommand("TopK.Add", execTopKAdd, writeFirstKey, nil, -3, flagWrite).
 		attachCommandExtra([]string{redisFlagWrite}, 0, 0, 0)
-	registerCommand("TopK.Query", execTopKQuery, nil, nil, -3, flagReadOnly).
+	registerCommand("TopK.Query", execTopKQuery, readFirstKey, nil, -3, flagReadOnly).
 		attachCommandExtra([]string{redisFlagReadonly, redisFlagFast}, 0, 0, 0)
-	registerCommand("TopK.List", execTopKList, nil, nil, -2, flagReadOnly).
+	registerCommand("TopK.List", execTopKList, readFirstKey, nil, -2, flagReadOnly).
 		attachCommandExtra([]string{redisFlagReadonly}, 0, 0, 0)
 }

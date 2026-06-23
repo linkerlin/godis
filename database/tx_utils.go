@@ -18,6 +18,17 @@ func writeFirstKey(args [][]byte) ([]string, []string) {
 	return []string{key}, nil
 }
 
+func prepareWriteFirstTwoKeys(args [][]byte) ([]string, []string) {
+	if len(args) < 2 {
+		return writeFirstKey(args)
+	}
+	return []string{string(args[0]), string(args[1])}, nil
+}
+
+func prepareNoKeys(_ [][]byte) ([]string, []string) {
+	return nil, nil
+}
+
 func writeAllKeys(args [][]byte) ([]string, []string) {
 	keys := make([]string, len(args))
 	for i, v := range args {

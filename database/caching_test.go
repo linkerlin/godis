@@ -7,6 +7,9 @@ import (
 	"time"
 
 	"github.com/linkerlin/godis/interface/redis"
+	"github.com/linkerlin/godis/lib/utils"
+	"github.com/linkerlin/godis/redis/protocol"
+	"github.com/linkerlin/godis/redis/protocol/asserts"
 )
 
 type trackingTestConn struct {
@@ -182,6 +185,70 @@ func TestInvalidateKeysOnWrite(t *testing.T) {
 		time.Sleep(20 * time.Millisecond)
 	}
 	t.Fatal("expected invalidation push after InvalidateKeysOnWrite")
+}
+
+func TestCachingInvalidateKeyNoClients(t *testing.T) {
+	resetClientCacheForTest(t)
+	InvalidateKey("missing-key") // should not panic
+}
+
+func TestCachingTrackKeyWhenDisabled(t *testing.T) {
+	resetClientCacheForTest(t)
+	TrackKey("no-such-client", "k")
+	if GetTotalTrackedKeys() != 0 {
+		t.Fatalf("expected 0 tracked keys, got %d", GetTotalTrackedKeys())
+	}
+}
+
+func TestCachingBcastKeepsTrackingAfterInvalidate(t *testing.T) {
+	resetClientCacheForTest(t)
+	conn := &trackingTestConn{name: "bcast-client"}
+	id := EnableTracking(conn, "bcast", []string{"app:"})
+	TrackKey(id, "app:item")
+
+	InvalidateKey("app:item")
+
+	if info := GetTrackingInfo(id); info["keys"].(int) != 1 {
+		t.Fatalf("BCAST should keep tracked key after invalidate: %#v", info)
+	}
+	if GetTotalTrackedKeys() != 1 {
+		t.Fatalf("expected key still tracked globally")
+	}
+}
+
+func TestCachingGetTotalTrackedKeys(t *testing.T) {
+	resetClientCacheForTest(t)
+	conn := &trackingTestConn{clientID: 7}
+	id := EnableTracking(conn, "", nil)
+	TrackKey(id, "k1")
+	TrackKey(id, "k2")
+
+	if GetTotalTrackedKeys() != 2 {
+		t.Fatalf("expected 2 tracked keys, got %d", GetTotalTrackedKeys())
+	}
+}
+
+func TestClientTrackingInfoCommand(t *testing.T) {
+	resetClientCacheForTest(t)
+	server := getTestServer()
+	conn := &trackingTestConn{clientID: 11}
+
+	asserts.AssertStatusReply(t, server.Exec(conn, utils.ToCmdLine("CLIENT", "TRACKING", "ON")), "OK")
+	reply := server.Exec(conn, utils.ToCmdLine("CLIENT", "TRACKINGINFO"))
+	multi, ok := reply.(*protocol.MultiBulkReply)
+	if !ok {
+		t.Fatalf("expected TRACKINGINFO multi bulk, got %T", reply)
+	}
+	foundFlags := false
+	for _, arg := range multi.Args {
+		if string(arg) == "flags" {
+			foundFlags = true
+			break
+		}
+	}
+	if !foundFlags {
+		t.Fatalf("TRACKINGINFO missing flags field: %v", multi.Args)
+	}
 }
 
 func TestGetTrackingStats(t *testing.T) {

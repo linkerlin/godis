@@ -30,8 +30,25 @@ type ACLLogEntry struct {
 var (
 	aclLogEntries []*ACLLogEntry
 	aclLogMu      sync.RWMutex
-	aclLogMaxLen  = 128
 )
+
+func getACLLogMaxLen() int {
+	if config.Properties != nil && config.Properties.AclLogMaxLen > 0 {
+		return config.Properties.AclLogMaxLen
+	}
+	return 128
+}
+
+func trimACLLogToMax(maxLen int) {
+	if maxLen <= 0 {
+		maxLen = 128
+	}
+	aclLogMu.Lock()
+	defer aclLogMu.Unlock()
+	if len(aclLogEntries) > maxLen {
+		aclLogEntries = aclLogEntries[len(aclLogEntries)-maxLen:]
+	}
+}
 
 // addACLLogEntry 添加ACL日志条目
 func addACLLogEntry(reason, context, object, username string) {
@@ -60,8 +77,9 @@ func addACLLogEntry(reason, context, object, username string) {
 	aclLogEntries = append(aclLogEntries, entry)
 
 	// 限制日志数量
-	if len(aclLogEntries) > aclLogMaxLen {
-		aclLogEntries = aclLogEntries[len(aclLogEntries)-aclLogMaxLen:]
+	maxLen := getACLLogMaxLen()
+	if len(aclLogEntries) > maxLen {
+		aclLogEntries = aclLogEntries[len(aclLogEntries)-maxLen:]
 	}
 }
 

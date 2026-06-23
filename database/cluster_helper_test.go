@@ -56,3 +56,41 @@ func TestDumpKeyAndRenameTo(t *testing.T) {
 		return
 	}
 }
+
+func TestClusterCopyCommands(t *testing.T) {
+	testDB.Flush()
+	src := utils.RandString(8)
+	dst := src + "-copy"
+	testDB.Exec(nil, utils.ToCmdLine("SET", src, "copy-val", "EX", "1000"))
+
+	dumpResult := testDB.Exec(nil, utils.ToCmdLine("DumpKey", src))
+	dumpMulti, ok := dumpResult.(*protocol.MultiBulkReply)
+	if !ok || len(dumpMulti.Args) < 2 {
+		t.Fatalf("DumpKey: got %s", dumpResult.ToBytes())
+	}
+
+	asserts.AssertStatusReply(t, testDB.Exec(nil, utils.ToCmdLine("CopyFrom", src)), "OK")
+	reply := execCopyTo(testDB, [][]byte{
+		[]byte(dst),
+		dumpMulti.Args[0],
+		dumpMulti.Args[1],
+	})
+	asserts.AssertStatusReply(t, reply, "OK")
+	asserts.AssertBulkReply(t, testDB.Exec(nil, utils.ToCmdLine("GET", dst)), "copy-val")
+}
+
+func TestExecRenameNxToDirect(t *testing.T) {
+	db := makeTestDB()
+	key := "rn-src"
+	newKey := "rn-dst"
+	db.Exec(nil, utils.ToCmdLine("SET", key, "v"))
+
+	dump := db.Exec(nil, utils.ToCmdLine("DumpKey", key)).(*protocol.MultiBulkReply)
+	reply := execRenameNxTo(db, [][]byte{
+		[]byte(newKey),
+		dump.Args[0],
+		dump.Args[1],
+	})
+	asserts.AssertStatusReply(t, reply, "OK")
+	asserts.AssertBulkReply(t, db.Exec(nil, utils.ToCmdLine("GET", newKey)), "v")
+}

@@ -266,10 +266,18 @@ func (s *Stream) trimToMaxLen(maxlen int64, approx bool) {
 	}
 
 	for int64(s.entries.Len()) > maxlen {
-		// 删除最老的条目
-		// 注意：这里简化处理，实际应该按ID排序删除
-		// 由于 ConcurrentDict 是无序的，我们需要其他方式
-		// 实际实现中可能需要维护一个有序索引
+		var oldest *StreamEntry
+		s.entries.ForEach(func(key string, val interface{}) bool {
+			entry := val.(*StreamEntry)
+			if oldest == nil || entry.ID.Compare(oldest.ID) < 0 {
+				oldest = entry
+			}
+			return true
+		})
+		if oldest == nil {
+			return
+		}
+		s.entries.Remove(oldest.ID.String())
 	}
 }
 

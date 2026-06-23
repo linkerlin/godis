@@ -387,7 +387,7 @@ func execGeoSearch(db *DB, args [][]byte) redis.Reply {
 	}
 
 	// Convert unit to meters
-	unitMultiplier := 1.0
+	var unitMultiplier float64
 	switch unit {
 	case "M":
 		unitMultiplier = 1.0
