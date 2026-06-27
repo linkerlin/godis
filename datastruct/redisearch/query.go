@@ -161,6 +161,102 @@ func (n *TagNode) Evaluate(idx *InvertedIndex) []string {
 	return idx.TagSearch(n.Field, n.Tag)
 }
 
+// unescapeQuery reverses RediSearch query backslash escapes ("\X" -> "X").
+// Groker escapes -, :, ., /, + in tag values; real RediSearch unescapes them
+// before matching. Without this, "@collection:{ collection\-c }" would look for
+// the literal "collection\-c" and never match the stored tag "collection-c".
+func unescapeQuery(s string) string {
+	if !strings.ContainsRune(s, '\\') {
+		return s
+	}
+	var b strings.Builder
+	b.Grow(len(s))
+	for i := 0; i < len(s); i++ {
+		if s[i] == '\\' && i+1 < len(s) {
+			b.WriteByte(s[i+1])
+			i++
+			continue
+		}
+		b.WriteByte(s[i])
+	}
+	return b.String()
+}
+
+// parseTagList turns the contents of "@field:{ ... }" into a QueryNode.
+// It supports multiple tags separated by "|" (RediSearch tag OR), trims
+// surrounding whitespace, and unescapes backslash escapes.
+func parseTagList(field, raw string) QueryNode {
+	parts := strings.Split(raw, "|")
+	nodes := make([]QueryNode, 0, len(parts))
+	for _, t := range parts {
+		t = strings.TrimSpace(unescapeQuery(t))
+		if t == "" {
+			continue
+		}
+		nodes = append(nodes, &TagNode{Field: field, Tag: t})
+	}
+	switch len(nodes) {
+	case 0:
+		return &TagNode{Field: field, Tag: strings.TrimSpace(unescapeQuery(raw))}
+	case 1:
+		return nodes[0]
+	}
+	root := nodes[0]
+	for _, n := range nodes[1:] {
+		root = &OrNode{Left: root, Right: n}
+	}
+	return root
+}
+
+// NumericRangeNode represents @field:[min max] numeric range search.
+type NumericRangeNode struct {
+	Field        string
+	Min, Max     float64
+	MinInf       bool // -inf / no lower bound
+	MaxInf       bool // +inf / no upper bound
+	MinExclusive bool // "(min"
+	MaxExclusive bool // "max)"
+}
+
+// Evaluate evaluates a numeric range node by scanning indexed documents.
+func (n *NumericRangeNode) Evaluate(idx *InvertedIndex) []string {
+	return idx.NumericRangeSearch(n.Field, n.MinInf, n.MaxInf, n.MinExclusive, n.MaxExclusive, n.Min, n.Max)
+}
+
+// parseRangeBound parses one side of "[min max]": optional "(" (exclusive)
+// and a number or "-inf"/"+inf". Returns (inf, exclusive, value).
+func parseRangeBound(s string) (inf, exclusive bool, val float64) {
+	if strings.HasPrefix(s, "(") {
+		exclusive = true
+		s = s[1:]
+	}
+	switch strings.ToLower(s) {
+	case "-inf", "-infinity":
+		return true, exclusive, 0
+	case "inf", "+inf", "+infinity", "infinity":
+		return true, exclusive, 0
+	}
+	v, err := strconv.ParseFloat(s, 64)
+	if err != nil {
+		// Unparseable bound: treat as no bound rather than failing the query.
+		return true, exclusive, 0
+	}
+	return false, exclusive, v
+}
+
+// parseNumericRange turns the contents of "@field:[ ... ]" into a NumericRangeNode.
+func parseNumericRange(field, raw string) QueryNode {
+	parts := strings.Fields(raw)
+	node := &NumericRangeNode{Field: field, MinInf: true, MaxInf: true}
+	if len(parts) >= 1 {
+		node.MinInf, node.MinExclusive, node.Min = parseRangeBound(parts[0])
+	}
+	if len(parts) >= 2 {
+		node.MaxInf, node.MaxExclusive, node.Max = parseRangeBound(parts[1])
+	}
+	return node
+}
+
 // QueryParser parses query strings into query nodes
 type QueryParser struct {
 	tokenizer *StandardTokenizer
@@ -239,7 +335,7 @@ func (p *QueryParser) Parse(query string) (QueryNode, error) {
 		// Check for tag syntax @field:{tag}
 		if strings.HasPrefix(term, "{") && strings.HasSuffix(term, "}") {
 			tag := term[1 : len(term)-1]
-			var node QueryNode = &TagNode{Field: field, Tag: tag}
+			node := parseTagList(field, tag)
 			if negateNext {
 				node = &NotNode{Child: node}
 				negateNext = false
@@ -521,14 +617,25 @@ func (p *ExpressionParser) parsePrimary() (QueryNode, error) {
 	p.skipWhitespace()
 	
 	if p.match("{") {
-		// Tag
+		// Tag list: @field:{ tag | tag }
 		tagStart := p.pos
 		for p.pos < len(p.input) && p.input[p.pos] != '}' {
 			p.pos++
 		}
-		tag := p.input[tagStart:p.pos]
+		raw := p.input[tagStart:p.pos]
 		p.match("}")
-		return &TagNode{Field: field, Tag: tag}, nil
+		return parseTagList(field, raw), nil
+	}
+
+	if p.match("[") {
+		// Numeric range: @field:[min max] (with optional "(" exclusive and -inf/+inf)
+		rangeStart := p.pos
+		for p.pos < len(p.input) && p.input[p.pos] != ']' {
+			p.pos++
+		}
+		raw := p.input[rangeStart:p.pos]
+		p.match("]")
+		return parseNumericRange(field, strings.TrimSpace(raw)), nil
 	}
 	
 	if p.match("\"") {

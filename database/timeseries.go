@@ -300,17 +300,20 @@ func execTSRangeInternal(db *DB, args [][]byte, reverse bool) redis.Reply {
 		}
 	}
 
-	// Build reply
-	var result [][]byte
+	// Build reply. RedisTimeSeries returns an array of [timestamp, value] pairs
+	// where timestamp is an integer and value is a bulk number; each pair must be
+	// a nested array (not flattened), otherwise clients like go-redis fail to
+	// parse ("can't parse int reply").
+	replies := make([]redis.Reply, 0, len(samples))
 	for _, s := range samples {
-		pair := [][]byte{
-			[]byte(strconv.FormatInt(s.Timestamp, 10)),
-			[]byte(strconv.FormatFloat(s.Value, 'f', -1, 64)),
+		pair := []redis.Reply{
+			protocol.MakeIntReply(s.Timestamp),
+			protocol.MakeBulkReply([]byte(strconv.FormatFloat(s.Value, 'f', -1, 64))),
 		}
-		result = append(result, protocol.MakeMultiBulkReply(pair).ToBytes())
+		replies = append(replies, protocol.MakeMultiRawReply(pair))
 	}
 
-	return protocol.MakeMultiBulkReply(result)
+	return protocol.MakeMultiRawReply(replies)
 }
 
 // execTSInfo returns time series info

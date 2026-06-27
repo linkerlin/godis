@@ -39,11 +39,12 @@ func TestFTCreateMultiFieldAddSearch(t *testing.T) {
 	}
 
 	reply := db.Exec(nil, utils.ToCmdLine("FT.SEARCH", "idx", "hello"))
-	multi, ok := reply.(*protocol.MultiBulkReply)
-	if !ok || len(multi.Args) < 2 {
+	multi, ok := reply.(*protocol.MultiRawReply)
+	if !ok || len(multi.Replies) < 2 {
 		t.Fatalf("search: %s", reply.ToBytes())
 	}
-	if string(multi.Args[0]) != "1" {
-		t.Fatalf("expected 1 hit, got %s", multi.Args[0])
+	total, _ := multi.Replies[0].(*protocol.IntReply)
+	if total == nil || total.Code != 1 {
+		t.Fatalf("expected 1 hit, got %s", reply.ToBytes())
 	}
 }

@@ -170,9 +170,46 @@ func (e *RediSearchEngine) Search(query string, opts *SearchOptions) (*SearchRes
 		results = append(results, result)
 	}
 	
-	// Sort by score
-	sort.Slice(results, func(i, j int) bool {
-		return results[i].Score > results[j].Score
+	// Sort results. When SORTBY is requested, sort by that field's numeric
+	// value (RediSearch SORTBY on a NUMERIC field); otherwise sort by relevance.
+	// A deterministic tiebreaker (document ID) keeps paginated queries stable.
+	var cmp func(a, b *SearchResult) int
+	if opts != nil && opts.SortBy != "" {
+		field := opts.SortBy
+		desc := opts.SortDesc
+		cmp = func(a, b *SearchResult) int {
+			va, oka := numField(a, field)
+			vb, okb := numField(b, field)
+			if oka && okb {
+				if va < vb {
+					if desc {
+						return 1
+					}
+					return -1
+				} else if va > vb {
+					if desc {
+						return -1
+					}
+					return 1
+				}
+			}
+			return 0
+		}
+	} else {
+		cmp = func(a, b *SearchResult) int {
+			if a.Score > b.Score {
+				return -1
+			} else if a.Score < b.Score {
+				return 1
+			}
+			return 0
+		}
+	}
+	sort.SliceStable(results, func(i, j int) bool {
+		if c := cmp(results[i], results[j]); c != 0 {
+			return c < 0
+		}
+		return results[i].Document.ID < results[j].Document.ID
 	})
 	
 	// Apply pagination
@@ -206,7 +243,20 @@ type GeoFilterOptions struct {
 	Unit   string // m, km, mi, ft
 }
 
-// SearchOptions holds search options
+// numField reads a numeric field value from a search result's stored fields.
+func numField(r *SearchResult, field string) (float64, bool) {
+	raw, ok := r.Fields[field]
+	if !ok {
+		return 0, false
+	}
+	v, err := strconv.ParseFloat(fmt.Sprintf("%v", raw), 64)
+	if err != nil {
+		return 0, false
+	}
+	return v, true
+}
+
+// SearchOptions holds search options (legacy alias kept for callers).
 type SearchOptions struct {
 	Offset     int
 	Limit      int

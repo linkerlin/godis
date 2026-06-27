@@ -4,7 +4,6 @@ package database
 
 import (
 	"fmt"
-	"strconv"
 
 	"github.com/linkerlin/godis/interface/redis"
 	"github.com/linkerlin/godis/lib/utils"
@@ -73,20 +72,20 @@ func sqliteFTSearch(db *DB, args [][]byte) redis.Reply {
 		return protocol.MakeErrReply(fmt.Sprintf("ERR %v", err))
 	}
 
-	var reply [][]byte
-	reply = append(reply, []byte(strconv.Itoa(total)))
+	replies := make([]redis.Reply, 0, 1+3*len(hits))
+	replies = append(replies, protocol.MakeIntReply(int64(total)))
 	for _, hit := range hits {
-		reply = append(reply, []byte(hit.docID))
+		replies = append(replies, protocol.MakeBulkReply([]byte(hit.docID)))
 		if withScores {
-			reply = append(reply, []byte(fmt.Sprintf("%.6f", hit.score)))
+			replies = append(replies, protocol.MakeBulkReply([]byte(fmt.Sprintf("%.6f", hit.score))))
 		}
 		if !noContent {
 			var fields [][]byte
 			for k, v := range hit.fields {
 				fields = append(fields, []byte(k), []byte(v))
 			}
-			reply = append(reply, protocol.MakeMultiBulkReply(fields).ToBytes())
+			replies = append(replies, protocol.MakeMultiBulkReply(fields))
 		}
 	}
-	return protocol.MakeMultiBulkReply(reply)
+	return protocol.MakeMultiRawReply(replies)
 }

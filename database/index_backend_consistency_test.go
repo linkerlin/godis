@@ -81,18 +81,23 @@ func parseFTSearchSnapshot(reply redis.Reply) ftSearchSnapshot {
 	if protocol.IsErrorReply(reply) {
 		return ftSearchSnapshot{}
 	}
-	multi, ok := reply.(*protocol.MultiBulkReply)
-	if !ok || len(multi.Args) == 0 {
+	multi, ok := reply.(*protocol.MultiRawReply)
+	if !ok || len(multi.Replies) == 0 {
 		return ftSearchSnapshot{}
 	}
-	total, _ := strconv.Atoi(string(multi.Args[0]))
+	totalN := 0
+	if total, ok := multi.Replies[0].(*protocol.IntReply); ok {
+		totalN = int(total.Code)
+	}
 	ids := make([]string, 0)
-	for i := 1; i < len(multi.Args); {
-		ids = append(ids, string(multi.Args[i]))
-		i += 2 // skip fields multibulk chunk
+	// Replies layout: [total, docId, [fields], docId, [fields], ...]
+	for i := 1; i+1 < len(multi.Replies); i += 2 {
+		if id, ok := multi.Replies[i].(*protocol.BulkReply); ok {
+			ids = append(ids, string(id.Arg))
+		}
 	}
 	sort.Strings(ids)
-	return ftSearchSnapshot{total: total, docIDs: ids}
+	return ftSearchSnapshot{total: totalN, docIDs: ids}
 }
 
 func assertFTSnapshotsEqual(t *testing.T, native, sqlite ftSearchSnapshot) {

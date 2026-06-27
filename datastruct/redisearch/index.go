@@ -3,6 +3,7 @@ package redisearch
 import (
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 )
@@ -20,13 +21,14 @@ const (
 
 // Field represents a field definition in the index
 type Field struct {
-	Name        string
-	Type        FieldType
-	Weight      float64
-	Sortable    bool
-	NoIndex     bool
-	Stemming    bool
-	Tokenizer   Tokenizer
+	Name      string
+	Type      FieldType
+	Weight    float64
+	Sortable  bool
+	NoIndex   bool
+	Stemming  bool
+	Tokenizer Tokenizer
+	Separator string // for TAG fields; defaults to "," when empty
 }
 
 // Document represents a document to be indexed
@@ -150,8 +152,12 @@ func (idx *InvertedIndex) indexTextField(docID string, field *Field, text string
 
 // indexTagField indexes a tag field
 func (idx *InvertedIndex) indexTagField(docID string, field *Field, value string) {
-	// Tags are comma-separated
-	tags := strings.Split(value, ",")
+	// Tags are separated by the field's Separator (default ",").
+	sep := field.Separator
+	if sep == "" {
+		sep = ","
+	}
+	tags := strings.Split(value, sep)
 	for _, tag := range tags {
 		tag = strings.TrimSpace(strings.ToLower(tag))
 		if tag == "" {
@@ -428,18 +434,60 @@ func (idx *InvertedIndex) PrefixSearch(prefix string, field string) []string {
 func (idx *InvertedIndex) TagSearch(field, tag string) []string {
 	idx.mu.RLock()
 	defer idx.mu.RUnlock()
-	
+
 	tag = strings.ToLower(strings.TrimSpace(tag))
 	fieldTerm := field + ":$" + tag
-	
+
 	docs, ok := idx.terms[fieldTerm]
 	if !ok {
 		return nil
 	}
-	
+
 	var docIDs []string
 	for docID := range docs {
 		docIDs = append(docIDs, docID)
 	}
 	return docIDs
+}
+
+// NumericRangeSearch returns doc IDs whose stored numeric field value falls
+// within [min, max] (inclusive by default; exclusive bounds via minEx/maxEx).
+// Numeric fields are stored on the document but not inverted-indexed, so this
+// scans all documents. ponytail: linear scan per range query; add a sorted
+// numeric index if range throughput matters.
+func (idx *InvertedIndex) NumericRangeSearch(field string, minInf, maxInf, minEx, maxEx bool, min, max float64) []string {
+	idx.mu.RLock()
+	defer idx.mu.RUnlock()
+
+	var result []string
+	for docID, doc := range idx.documents {
+		raw, ok := doc.Fields[field]
+		if !ok {
+			continue
+		}
+		v, err := strconv.ParseFloat(fmt.Sprintf("%v", raw), 64)
+		if err != nil {
+			continue
+		}
+		if !minInf {
+			if minEx {
+				if v <= min {
+					continue
+				}
+			} else if v < min {
+				continue
+			}
+		}
+		if !maxInf {
+			if maxEx {
+				if v >= max {
+					continue
+				}
+			} else if v > max {
+				continue
+			}
+		}
+		result = append(result, docID)
+	}
+	return result
 }

@@ -17,6 +17,115 @@ import (
 var searchEngines = make(map[string]*redisearch.RediSearchEngine)
 var searchEnginesMu = &struct{ sync.RWMutex }{}
 
+// indexMeta tracks each FT index's key prefixes and schema so that hash keys
+// written via HSET/HMSet can be auto-indexed, mirroring RediSearch ON HASH.
+type indexMeta struct {
+	prefixes []string // empty entry = match all keys (PREFIX *)
+	schema   []*redisearch.Field
+}
+
+var (
+	searchIndexMeta   = make(map[string]*indexMeta)
+	searchIndexMetaMu sync.RWMutex
+)
+
+// indexMatchesKey reports whether key matches any of the index prefixes.
+// An empty prefix list, or a "*" / "" entry, matches every key.
+func indexMatchesKey(prefixes []string, key string) bool {
+	if len(prefixes) == 0 {
+		return true
+	}
+	for _, p := range prefixes {
+		if p == "" || p == "*" || strings.HasPrefix(key, p) {
+			return true
+		}
+	}
+	return false
+}
+
+// reindexHash re-indexes a hash key into every FT index whose prefix matches.
+// Best-effort: called after HSET/HMSet/HSetNX mutate a hash so that hash-based
+// documents (RediSearch ON HASH) stay searchable. Errors are ignored to keep
+// the hash write path from failing.
+// ponytail: synchronous re-index per HSET; batch/offload if HSET throughput matters.
+func reindexHash(db *DB, key string) {
+	dict, errReply := db.getAsDict(key)
+	if errReply != nil || dict == nil {
+		return
+	}
+	searchIndexMetaMu.RLock()
+	metas := make(map[string]*indexMeta, len(searchIndexMeta))
+	for name, meta := range searchIndexMeta {
+		metas[name] = meta
+	}
+	searchIndexMetaMu.RUnlock()
+	if len(metas) == 0 {
+		return
+	}
+
+	searchEnginesMu.RLock()
+	engines := make(map[string]*redisearch.RediSearchEngine, len(metas))
+	for name := range metas {
+		if e := searchEngines[name]; e != nil {
+			engines[name] = e
+		}
+	}
+	searchEnginesMu.RUnlock()
+
+	for name, meta := range metas {
+		if !indexMatchesKey(meta.prefixes, key) {
+			continue
+		}
+		engine := engines[name]
+		if engine == nil {
+			continue
+		}
+		fields := make(map[string]interface{}, len(meta.schema))
+		for _, f := range meta.schema {
+			raw, ok := dict.Get(f.Name)
+			if !ok {
+				continue
+			}
+			if b, ok := raw.([]byte); ok {
+				fields[f.Name] = string(b)
+			} else {
+				fields[f.Name] = raw
+			}
+		}
+		engine.DeleteDocument(key)
+		_ = engine.AddDocument(key, fields, 1.0, nil)
+	}
+}
+
+// removeHashFromIndex removes a hash key from every FT index whose prefix
+// matches. Called on DEL/UNLINK (and HDel of the last field) so that deleted
+// hash documents stop appearing in searches. Best-effort: errors ignored.
+func removeHashFromIndex(db *DB, key string) {
+	_ = db
+	searchIndexMetaMu.RLock()
+	names := make([]string, 0, len(searchIndexMeta))
+	for name, meta := range searchIndexMeta {
+		if indexMatchesKey(meta.prefixes, key) {
+			names = append(names, name)
+		}
+	}
+	searchIndexMetaMu.RUnlock()
+	if len(names) == 0 {
+		return
+	}
+	searchEnginesMu.RLock()
+	engines := make([]*redisearch.RediSearchEngine, 0, len(names))
+	for _, name := range names {
+		if e := searchEngines[name]; e != nil {
+			engines = append(engines, e)
+		}
+	}
+	searchEnginesMu.RUnlock()
+	for _, engine := range engines {
+		engine.DeleteDocument(key)
+	}
+}
+
 // execFTCreate creates a new search index
 // FT.CREATE index [ON HASH | JSON] [PREFIX count prefix ...] SCHEMA field [TEXT [NOSTEM] | NUMERIC | TAG | GEO] [SORTABLE] [NOINDEX] ...
 func execFTCreate(db *DB, args [][]byte) redis.Reply {
@@ -118,9 +227,15 @@ func execFTCreate(db *DB, args [][]byte) redis.Reply {
 			case "NOINDEX":
 				field.NoIndex = true
 				i++
-			case "NOSTEM":
-				field.Stemming = false
-				i++
+		case "NOSTEM":
+			field.Stemming = false
+			i++
+		case "SEPARATOR":
+			if i+1 >= len(args) {
+				return protocol.MakeSyntaxErrReply()
+			}
+			field.Separator = string(args[i+1])
+			i += 2
 			case "WEIGHT":
 				if i+1 >= len(args) {
 					return protocol.MakeSyntaxErrReply()
@@ -161,6 +276,12 @@ func execFTCreate(db *DB, args [][]byte) redis.Reply {
 	searchEngines[indexName] = engine
 	searchEnginesMu.Unlock()
 
+	// Store prefix + schema meta for hash auto-indexing (RediSearch ON HASH).
+	meta := &indexMeta{prefixes: prefix, schema: fields}
+	searchIndexMetaMu.Lock()
+	searchIndexMeta[indexName] = meta
+	searchIndexMetaMu.Unlock()
+
 	// Also store in DB for persistence tracking
 	db.PutEntity(indexName, &database.DataEntity{Data: engine})
 
@@ -197,6 +318,10 @@ func execFTDropIndex(db *DB, args [][]byte) redis.Reply {
 	searchEnginesMu.Lock()
 	delete(searchEngines, indexName)
 	searchEnginesMu.Unlock()
+
+	searchIndexMetaMu.Lock()
+	delete(searchIndexMeta, indexName)
+	searchIndexMetaMu.Unlock()
 
 	db.Remove(indexName)
 
@@ -475,19 +600,23 @@ func execFTSearch(db *DB, args [][]byte) redis.Reply {
 		return protocol.MakeErrReply(fmt.Sprintf("ERR %v", err))
 	}
 
-	// Build response
-	var reply [][]byte
-	reply = append(reply, []byte(strconv.Itoa(results.Total)))
+	// Build response in RediSearch wire format:
+	//   [total(int), docId, [field,val,...], docId, [field,val,...], ...]
+	// The total must be an integer (not a bulk string) and each document's
+	// fields must be a nested array, otherwise clients like go-redis reject the
+	// reply ("invalid total results format").
+	replies := make([]redis.Reply, 0, 1+3*len(results.Results))
+	replies = append(replies, protocol.MakeIntReply(int64(results.Total)))
 
 	for _, result := range results.Results {
-		reply = append(reply, []byte(result.Document.ID))
+		replies = append(replies, protocol.MakeBulkReply([]byte(result.Document.ID)))
 
 		if withScores {
-			reply = append(reply, []byte(fmt.Sprintf("%.6f", result.Score)))
+			replies = append(replies, protocol.MakeBulkReply([]byte(fmt.Sprintf("%.6f", result.Score))))
 		}
 
 		if withPayloads && result.Document.Payload != nil {
-			reply = append(reply, result.Document.Payload)
+			replies = append(replies, protocol.MakeBulkReply(result.Document.Payload))
 		}
 
 		if !noContent {
@@ -509,7 +638,7 @@ func execFTSearch(db *DB, args [][]byte) redis.Reply {
 				}
 			}
 
-			reply = append(reply, protocol.MakeMultiBulkReply(fields).ToBytes())
+			replies = append(replies, protocol.MakeMultiBulkReply(fields))
 
 			// Add highlights if requested
 			if opts.Highlight && len(result.Highlights) > 0 {
@@ -519,14 +648,14 @@ func execFTSearch(db *DB, args [][]byte) redis.Reply {
 					highlights = append(highlights, []byte(value))
 				}
 				if len(highlights) > 0 {
-					reply = append(reply, []byte("highlight"))
-					reply = append(reply, protocol.MakeMultiBulkReply(highlights).ToBytes())
+					replies = append(replies, protocol.MakeBulkReply([]byte("highlight")))
+					replies = append(replies, protocol.MakeMultiBulkReply(highlights))
 				}
 			}
 		}
 	}
 
-	return protocol.MakeMultiBulkReply(reply)
+	return protocol.MakeMultiRawReply(replies)
 }
 
 // execFTAggregate performs an aggregation query

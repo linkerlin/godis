@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 )
@@ -449,7 +450,7 @@ func AggregationTypeToString(agg AggregationType) string {
 
 // ParseAggregationType parses aggregation type string
 func ParseAggregationType(s string) (AggregationType, error) {
-	switch s {
+	switch strings.ToLower(s) {
 	case "avg":
 		return AvgAggregation, nil
 	case "sum":

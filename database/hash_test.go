@@ -3,6 +3,7 @@ package database
 import (
 	"math"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/linkerlin/godis/lib/utils"
@@ -49,6 +50,44 @@ func TestHSet(t *testing.T) {
 	actual := testDB.Exec(nil, utils.ToCmdLine("hlen", key))
 	if intResult, _ := actual.(*protocol.IntReply); intResult.Code != int64(len(values)) {
 		t.Errorf("expected %d, actually %d", len(values), intResult.Code)
+	}
+}
+
+// TestHSetMulti covers the variadic form HSET key f1 v1 f2 v2 ...
+// (supported by Redis 4.0+): it returns the number of newly added fields.
+func TestHSetMulti(t *testing.T) {
+	testDB.Flush()
+	key := utils.RandString(10)
+
+	// add three new fields in one call -> expect 3 added
+	result := testDB.Exec(nil, utils.ToCmdLine("hset", key, "f1", "v1", "f2", "v2", "f3", "v3"))
+	intResult, ok := result.(*protocol.IntReply)
+	if !ok {
+		t.Fatalf("expected IntReply, actually %s", result.ToBytes())
+	}
+	if intResult.Code != 3 {
+		t.Errorf("expected 3 added, actually %d", intResult.Code)
+	}
+
+	// update one existing + add one new -> expect 1 added
+	result = testDB.Exec(nil, utils.ToCmdLine("hset", key, "f1", "v1b", "f4", "v4"))
+	intResult, _ = result.(*protocol.IntReply)
+	if intResult.Code != 1 {
+		t.Errorf("expected 1 added, actually %d", intResult.Code)
+	}
+	// f1 should reflect the updated value
+	actual := testDB.Exec(nil, utils.ToCmdLine("hget", key, "f1"))
+	if !utils.BytesEquals(actual.ToBytes(), protocol.MakeBulkReply([]byte("v1b")).ToBytes()) {
+		t.Errorf("f1 not updated: %s", actual.ToBytes())
+	}
+
+	// odd number of args after key must be rejected
+	errReply := testDB.Exec(nil, utils.ToCmdLine("hset", key, "f5"))
+	if _, isErr := errReply.(*protocol.StandardErrReply); !isErr && !strings.HasPrefix(string(errReply.ToBytes()), "-ERR") {
+		// tolerate either StandardErrReply or raw ERR bytes
+	}
+	if got := string(errReply.ToBytes()); !strings.Contains(got, "wrong number of arguments") {
+		t.Errorf("expected wrong-number-of-arguments error, actually %s", got)
 	}
 }
 

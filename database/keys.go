@@ -28,6 +28,9 @@ func execDel(db *DB, args [][]byte) redis.Reply {
 	if deleted > 0 {
 		db.addAof(utils.ToCmdLine3("del", args...))
 	}
+	for _, k := range keys {
+		removeHashFromIndex(db, k)
+	}
 	return protocol.MakeIntReply(int64(deleted))
 }
 

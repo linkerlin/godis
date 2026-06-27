@@ -39,17 +39,19 @@ func (db *DB) getOrInitDict(key string) (dict Dict.Dict, inited bool, errReply p
 	return dict, inited, nil
 }
 
-// execHSet sets field in hash table
+// execHSet sets one or more fields in a hash table.
+// Usage: HSET key field value [field value ...]
+// Returns the number of fields that were added (not updated).
 func execHSet(db *DB, args [][]byte) redis.Reply {
-	// parse args
-	key := string(args[0])
-	field := string(args[1])
-	value := args[2]
-	if reply := validateBulkBytes(args[1]); reply != nil {
-		return reply
+	// args layout: key, then one or more field/value pairs.
+	if len(args) < 3 || len(args)%2 != 1 {
+		return protocol.MakeErrReply("ERR wrong number of arguments for 'hset' command")
 	}
-	if reply := validateBulkBytes(value); reply != nil {
-		return reply
+	key := string(args[0])
+	for i := 1; i < len(args); i++ {
+		if reply := validateBulkBytes(args[i]); reply != nil {
+			return reply
+		}
 	}
 
 	// get or init entity
@@ -58,15 +60,26 @@ func execHSet(db *DB, args [][]byte) redis.Reply {
 		return errReply
 	}
 
-	result := dict.Put(field, value)
+	added := 0
+	for i := 1; i < len(args); i += 2 {
+		field := string(args[i])
+		value := args[i+1]
+		if dict.Put(field, value) > 0 {
+			added++
+		}
+	}
 	db.addAof(utils.ToCmdLine3("hset", args...))
-	return protocol.MakeIntReply(int64(result))
+	reindexHash(db, key)
+	return protocol.MakeIntReply(int64(added))
 }
 
 func undoHSet(db *DB, args [][]byte) []CmdLine {
 	key := string(args[0])
-	field := string(args[1])
-	return rollbackHashFields(db, key, field)
+	fields := make([]string, 0, (len(args)-1)/2)
+	for i := 1; i < len(args); i += 2 {
+		fields = append(fields, string(args[i]))
+	}
+	return rollbackHashFields(db, key, fields...)
 }
 
 // execHSetNX sets field in hash table only if field not exists
@@ -90,7 +103,7 @@ func execHSetNX(db *DB, args [][]byte) redis.Reply {
 	result := dict.PutIfAbsent(field, value)
 	if result > 0 {
 		db.addAof(utils.ToCmdLine3("hsetnx", args...))
-
+		reindexHash(db, key)
 	}
 	return protocol.MakeIntReply(int64(result))
 }
@@ -268,6 +281,7 @@ func execHMSet(db *DB, args [][]byte) redis.Reply {
 		dict.Put(field, value)
 	}
 	db.addAof(utils.ToCmdLine3("hmset", args...))
+	reindexHash(db, key)
 	return &protocol.OkReply{}
 }
 
@@ -584,7 +598,7 @@ func execHScan(db *DB, args [][]byte) redis.Reply {
 }
 
 func init() {
-	registerCommand("HSet", execHSet, writeFirstKey, undoHSet, 4, flagWrite).
+	registerCommand("HSet", execHSet, writeFirstKey, undoHSet, -4, flagWrite).
 		attachCommandExtra([]string{redisFlagWrite, redisFlagDenyOOM, redisFlagFast}, 1, 1, 1)
 	registerCommand("HSetNX", execHSetNX, writeFirstKey, undoHSet, 4, flagWrite).
 		attachCommandExtra([]string{redisFlagWrite, redisFlagDenyOOM, redisFlagFast}, 1, 1, 1)
