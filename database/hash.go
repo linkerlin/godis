@@ -427,7 +427,7 @@ func execHIncrBy(db *DB, args [][]byte) redis.Reply {
 	}
 	val += delta
 	bytes := []byte(strconv.FormatInt(val, 10))
-	dict.Put(field, bytes)
+	putHashValuePreservingTTL(dict, field, bytes)
 	db.addAof(utils.ToCmdLine3("hincrby", args...))
 	return protocol.MakeBulkReply(bytes)
 }
@@ -466,9 +466,25 @@ func execHIncrByFloat(db *DB, args [][]byte) redis.Reply {
 	}
 	result := val + delta
 	resultBytes := []byte(strconv.FormatFloat(result, 'f', -1, 64))
-	dict.Put(field, resultBytes)
+	putHashValuePreservingTTL(dict, field, resultBytes)
 	db.addAof(utils.ToCmdLine3("hincrbyfloat", args...))
 	return protocol.MakeBulkReply(resultBytes)
+}
+
+// putHashValuePreservingTTL updates a hash field value without clearing an
+// existing field-level TTL. It is used by HINCRBY/HINCRBYFLOAT which should
+// preserve expiration.
+func putHashValuePreservingTTL(d Dict.Dict, field string, value []byte) {
+	if ed, ok := d.(*Dict.ExpireDict); ok {
+		_, remaining, exists := ed.GetWithExpire(field)
+		if !exists {
+			ed.Put(field, value)
+			return
+		}
+		ed.SetWithTTL(field, value, remaining)
+		return
+	}
+	d.Put(field, value)
 }
 
 // execHRandField return a random field(or field-value) from the hash value stored at key.
@@ -615,8 +631,6 @@ func init() {
 	registerCommand("HMSet", execHMSet, writeFirstKey, undoHMSet, -4, flagWrite).
 		attachCommandExtra([]string{redisFlagWrite, redisFlagDenyOOM, redisFlagFast}, 1, 1, 1)
 	registerCommand("HMGet", execHMGet, readFirstKey, nil, -3, flagReadOnly).
-		attachCommandExtra([]string{redisFlagReadonly, redisFlagFast}, 1, 1, 1)
-	registerCommand("HGet", execHGet, readFirstKey, nil, -3, flagReadOnly).
 		attachCommandExtra([]string{redisFlagReadonly, redisFlagFast}, 1, 1, 1)
 	registerCommand("HKeys", execHKeys, readFirstKey, nil, 2, flagReadOnly).
 		attachCommandExtra([]string{redisFlagReadonly, redisFlagSortForScript}, 1, 1, 1)

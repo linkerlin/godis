@@ -85,6 +85,11 @@ func execClientTrackingConn(c redis.Connection, args [][]byte) redis.Reply {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'client|tracking' command")
 	}
 
+	// CLIENT TRACKING requires RESP3 because invalidations are sent as Push messages.
+	if c.GetProtocolVersion() != 3 {
+		return protocol.MakeErrReply("ERR CLIENT TRACKING is only supported in RESP3 mode")
+	}
+
 	mode := strings.ToUpper(string(args[0]))
 	if mode == "OFF" {
 		if id := c.GetTrackingID(); id != "" {
@@ -99,6 +104,8 @@ func execClientTrackingConn(c redis.Connection, args [][]byte) redis.Reply {
 
 	trackMode := ""
 	var prefixes []string
+	redirectID := ""
+	noLoop := false
 	for i := 1; i < len(args); i++ {
 		opt := strings.ToUpper(string(args[i]))
 		switch opt {
@@ -109,6 +116,7 @@ func execClientTrackingConn(c redis.Connection, args [][]byte) redis.Reply {
 			if _, err := strconv.Atoi(string(args[i+1])); err != nil {
 				return protocol.MakeErrReply("ERR Invalid client ID")
 			}
+			redirectID = string(args[i+1])
 			i++
 		case "PREFIX":
 			if i+1 >= len(args) {
@@ -118,8 +126,12 @@ func execClientTrackingConn(c redis.Connection, args [][]byte) redis.Reply {
 			i++
 		case "BCAST":
 			trackMode = "bcast"
-		case "OPTIN", "OPTOUT", "NOLOOP":
-			// accepted, not fully implemented
+		case "OPTIN":
+			trackMode = "optin"
+		case "OPTOUT":
+			trackMode = "optout"
+		case "NOLOOP":
+			noLoop = true
 		default:
 			return protocol.MakeSyntaxErrReply()
 		}
@@ -128,7 +140,7 @@ func execClientTrackingConn(c redis.Connection, args [][]byte) redis.Reply {
 	if prev := c.GetTrackingID(); prev != "" {
 		DisableTracking(prev)
 	}
-	id := EnableTracking(c, trackMode, prefixes)
+	id := EnableTracking(c, trackMode, prefixes, redirectID, noLoop)
 	c.SetTrackingID(id)
 	return protocol.MakeStatusReply("OK")
 }
@@ -157,13 +169,20 @@ func execClientTrackingInfoConn(c redis.Connection, args [][]byte) redis.Reply {
 	} else {
 		flags = append(flags, []byte("off"))
 	}
-	if mode, ok := info["mode"].(string); ok && mode == "bcast" {
-		flags = append(flags, []byte("bcast"))
+	if mode, ok := info["mode"].(string); ok && mode != "" {
+		flags = append(flags, []byte(mode))
+	}
+	if noloop, ok := info["noloop"].(bool); ok && noloop {
+		flags = append(flags, []byte("noloop"))
 	}
 	result = append(result, protocol.MakeMultiBulkReply(flags).ToBytes())
 
 	result = append(result, []byte("redirect"))
-	result = append(result, []byte("0"))
+	if redirect, ok := info["redirect"].(string); ok && redirect != "" {
+		result = append(result, []byte(redirect))
+	} else {
+		result = append(result, []byte("0"))
+	}
 
 	result = append(result, []byte("prefixes"))
 	var prefixReply [][]byte

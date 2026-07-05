@@ -53,13 +53,13 @@ func StartMulti(conn redis.Connection) redis.Reply {
 
 // EnqueueCmd puts command line into `multi` pending queue
 func EnqueueCmd(conn redis.Connection, cmdLine [][]byte) redis.Reply {
-	cmdName := strings.ToLower(string(cmdLine[0]))
-	cmd, ok := cmdTable[cmdName]
+	cmdLine, cmdName, ok := ResolveCommandLine(cmdLine)
 	if !ok {
 		err := protocol.MakeErrReply("ERR unknown command '" + cmdName + "'")
 		conn.AddTxError(err)
 		return err
 	}
+	cmd := cmdTable[cmdName]
 	if cmd.prepare == nil {
 		err := protocol.MakeErrReply("ERR command '" + cmdName + "' cannot be used in MULTI")
 		conn.AddTxError(err)
@@ -99,11 +99,11 @@ func (db *DB) ExecMulti(conn redis.Connection, watching map[string]uint64, cmdLi
 		if reply := validateCmdArgCount(cmdLine); reply != nil {
 			return reply
 		}
-		cmdName := strings.ToLower(string(cmdLine[0]))
-		cmd, ok := cmdTable[cmdName]
+		cmdLine, cmdName, ok := ResolveCommandLine(cmdLine)
 		if !ok {
 			return protocol.MakeErrReply("ERR unknown command '" + cmdName + "'")
 		}
+		cmd := cmdTable[cmdName]
 		if cmd.prepare == nil {
 			return protocol.MakeErrReply("ERR command '" + cmdName + "' cannot be used in MULTI")
 		}

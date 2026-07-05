@@ -38,16 +38,12 @@ func TestHelloCommand(t *testing.T) {
 	c := connection.NewFakeConn()
 
 	reply := server.Exec(c, utils.ToCmdLine("HELLO", "3"))
-	multi, ok := reply.(*protocol.MultiBulkReply)
+	m, ok := reply.(*protocol.MapReply)
 	if !ok {
 		t.Fatalf("HELLO 3: got %T", reply)
 	}
-	body := strings.Builder{}
-	for _, arg := range multi.Args {
-		body.Write(arg)
-	}
-	if !strings.Contains(body.String(), "proto") {
-		t.Fatalf("HELLO missing proto: %s", body.String())
+	if _, exists := m.Data["proto"]; !exists {
+		t.Fatalf("HELLO missing proto: %v", m.Data)
 	}
 }
 

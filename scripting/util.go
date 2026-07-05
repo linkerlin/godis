@@ -182,12 +182,11 @@ func ConvertToRedisReply(v interface{}) redis.Reply {
 		}
 		return protocol.MakeIntReply(0)
 	case []interface{}:
-		var elems [][]byte
+		replies := make([]redis.Reply, 0, len(val))
 		for _, elem := range val {
-			r := ConvertToRedisReply(elem)
-			elems = append(elems, r.ToBytes())
+			replies = append(replies, ConvertToRedisReply(elem))
 		}
-		return protocol.MakeMultiBulkReply(elems)
+		return protocol.MakeMultiRawReply(replies)
 	case map[string]interface{}:
 		// Check for error reply (used by pcall)
 		if errVal, ok := val["err"]; ok {
@@ -197,13 +196,14 @@ func ConvertToRedisReply(v interface{}) redis.Reply {
 		if okVal, ok := val["ok"]; ok {
 			return ConvertToRedisReply(okVal)
 		}
-		var elems [][]byte
+		replies := make([]redis.Reply, 0, len(val)*2)
 		for k, v := range val {
-			elems = append(elems, []byte(k))
-			r := ConvertToRedisReply(v)
-			elems = append(elems, r.ToBytes())
+			replies = append(replies,
+				protocol.MakeBulkReply([]byte(k)),
+				ConvertToRedisReply(v),
+			)
 		}
-		return protocol.MakeMultiBulkReply(elems)
+		return protocol.MakeMultiRawReply(replies)
 	case error:
 		return protocol.MakeErrReply(val.Error())
 	default:

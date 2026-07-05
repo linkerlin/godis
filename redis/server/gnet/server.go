@@ -13,6 +13,7 @@ import (
 	gatomic "github.com/linkerlin/godis/lib/sync/atomic"
 	"github.com/linkerlin/godis/redis/connection"
 	"github.com/linkerlin/godis/redis/parser"
+	"github.com/linkerlin/godis/redis/protocol"
 	"github.com/linkerlin/godis/tcp"
 	"github.com/panjf2000/gnet/v2"
 )
@@ -88,7 +89,12 @@ func (s *GnetServer) OnTraffic(c gnet.Conn) (action gnet.Action) {
 	if result == nil {
 		return gnet.None
 	}
-	buffer := result.ToBytes()
+	var buffer []byte
+	if conn.GetProtocolVersion() == 3 {
+		buffer = protocol.ReplyToRESP3(result)
+	} else {
+		buffer = result.ToBytes()
+	}
 	if len(buffer) > 0 {
 		if _, err := c.Write(buffer); err != nil {
 			logger.Infof("write response failed: %v", err)

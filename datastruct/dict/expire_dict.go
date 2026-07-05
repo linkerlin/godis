@@ -24,6 +24,29 @@ func NewExpireDict(shardCount int) *ExpireDict {
 	}
 }
 
+// SetWithTTL 更新字段值并保留原有 TTL（用于 HINCRBY 等只改值不改 TTL 的命令）
+func (ed *ExpireDict) SetWithTTL(key string, value interface{}, ttl time.Duration) {
+	ed.mu.Lock(key)
+	defer ed.mu.UnLock(key)
+
+	if ed.isExpired(key) {
+		ed.data.Remove(key)
+		ed.expire.Remove(key)
+		return
+	}
+
+	ed.data.Put(key, value)
+	if ttl >= 0 {
+		expireTime := time.Now().Add(ttl)
+		ed.expire.Put(key, expireTime)
+		if ed.tw != nil {
+			ed.tw.AddJob(ttl, key, func() {
+				ed.Delete(key)
+			})
+		}
+	}
+}
+
 // SetWithExpire 设置字段并指定过期时间
 func (ed *ExpireDict) SetWithExpire(key string, value interface{}, ttl time.Duration) {
 	ed.mu.Lock(key)
@@ -41,8 +64,9 @@ func (ed *ExpireDict) SetWithExpire(key string, value interface{}, ttl time.Dura
 	}
 }
 
-// Set 设置字段（无过期）
-func (ed *ExpireDict) Set(key string, value interface{}) int {
+// Put 设置字段（无过期），实现 dict.Dict 接口
+// 如果字段原来有 TTL，会被清除（与 Redis HSET 不带 TTL 参数语义一致）
+func (ed *ExpireDict) Put(key string, value interface{}) int {
 	ed.mu.Lock(key)
 	defer ed.mu.UnLock(key)
 
@@ -52,6 +76,45 @@ func (ed *ExpireDict) Set(key string, value interface{}) int {
 	}
 
 	return ed.data.Put(key, value)
+}
+
+// Set 是 Put 的别名，保持现有代码兼容
+func (ed *ExpireDict) Set(key string, value interface{}) int {
+	return ed.Put(key, value)
+}
+
+// PutIfAbsent 实现 dict.Dict 接口
+// 字段已过期时会被清理，随后视为不存在
+func (ed *ExpireDict) PutIfAbsent(key string, value interface{}) int {
+	ed.mu.Lock(key)
+	defer ed.mu.UnLock(key)
+
+	if ed.isExpired(key) {
+		ed.data.Remove(key)
+		ed.expire.Remove(key)
+	}
+
+	return ed.data.PutIfAbsent(key, value)
+}
+
+// PutIfExists 实现 dict.Dict 接口
+// 字段不存在或已过期时返回 0；存在时覆盖值并清除 TTL
+func (ed *ExpireDict) PutIfExists(key string, value interface{}) int {
+	ed.mu.Lock(key)
+	defer ed.mu.UnLock(key)
+
+	if ed.isExpired(key) {
+		ed.data.Remove(key)
+		ed.expire.Remove(key)
+		return 0
+	}
+
+	if _, exists := ed.data.Get(key); !exists {
+		return 0
+	}
+
+	ed.expire.Remove(key)
+	return ed.data.PutIfExists(key, value)
 }
 
 // Get 获取字段值，自动检查过期
@@ -100,14 +163,19 @@ func (ed *ExpireDict) GetWithExpire(key string) (val interface{}, ttl time.Durat
 	return val, -1, true
 }
 
-// Delete 删除字段
+// Delete 删除字段（现有别名）
 func (ed *ExpireDict) Delete(key string) int {
+	_, result := ed.Remove(key)
+	return result
+}
+
+// Remove 实现 dict.Dict 接口
+func (ed *ExpireDict) Remove(key string) (val interface{}, result int) {
 	ed.mu.Lock(key)
 	defer ed.mu.UnLock(key)
 
 	ed.expire.Remove(key)
-	_, result := ed.data.Remove(key)
-	return result
+	return ed.data.Remove(key)
 }
 
 // DeleteFields 批量删除字段
@@ -283,4 +351,39 @@ func (ed *ExpireDict) Keys() []string {
 		return true
 	})
 	return keys
+}
+
+// GetExpireTime returns the absolute expiration time for a field if one exists
+// and the field has not expired.
+func (ed *ExpireDict) GetExpireTime(key string) (time.Time, bool) {
+	ed.mu.RLock(key)
+	defer ed.mu.RUnLock(key)
+
+	if ed.isExpired(key) {
+		return time.Time{}, false
+	}
+	if raw, ok := ed.expire.Get(key); ok {
+		return raw.(time.Time), true
+	}
+	return time.Time{}, false
+}
+
+// Clear 清空所有字段，实现 dict.Dict 接口
+func (ed *ExpireDict) Clear() {
+	ed.data.Clear()
+	ed.expire.Clear()
+}
+
+// DictScan 实现 dict.Dict 接口，返回未过期字段的 key/value 对
+func (ed *ExpireDict) DictScan(cursor int, count int, pattern string) ([][]byte, int) {
+	pairs, nextCursor := ed.data.DictScan(cursor, count, pattern)
+	result := make([][]byte, 0, len(pairs))
+	for i := 0; i < len(pairs); i += 2 {
+		field := string(pairs[i])
+		if ed.isExpired(field) {
+			continue
+		}
+		result = append(result, pairs[i], pairs[i+1])
+	}
+	return result, nextCursor
 }

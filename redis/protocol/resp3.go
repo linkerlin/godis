@@ -169,11 +169,15 @@ func MakeAttributeReply(attrs *MapReply, reply redis.Reply) *AttributeReply {
 	return &AttributeReply{Attributes: attrs, Reply: reply}
 }
 
-// ToBytes marshals redis.Reply
+// ToBytes marshals redis.Reply as a RESP3 attribute.
 func (r *AttributeReply) ToBytes() []byte {
 	var buf bytes.Buffer
-	buf.Write(r.Attributes.ToBytes())
-	buf.Write(r.Reply.ToBytes())
+	buf.WriteString(fmt.Sprintf("|%d\r\n", len(r.Attributes.Data)))
+	for k, v := range r.Attributes.Data {
+		buf.Write(MakeBulkReply([]byte(k)).ToBytes())
+		buf.Write(ReplyToRESP3(v))
+	}
+	buf.Write(ReplyToRESP3(r.Reply))
 	return buf.Bytes()
 }
 
@@ -519,9 +523,40 @@ func formatFloat(f float64) string {
 	return strconv.FormatFloat(f, 'f', -1, 64)
 }
 
-// IsRESP3Enabled returns whether RESP3 is enabled for this connection
-// This would be stored in the connection object in practice
-func IsRESP3Enabled() bool {
-	// Simplified - would check connection's protocol version
-	return false
+// ReplyToRESP3 converts a generic redis.Reply into RESP3 encoded bytes.
+// It is used by the server when the connection has negotiated RESP3.
+func ReplyToRESP3(reply redis.Reply) []byte {
+	if reply == nil {
+		return []byte("_\r\n")
+	}
+	switch r := reply.(type) {
+	case *NullBulkReply:
+		return []byte("_\r\n")
+	case *MultiBulkReply:
+		var buf bytes.Buffer
+		buf.WriteString("*" + strconv.Itoa(len(r.Args)) + CRLF)
+		for _, arg := range r.Args {
+			if arg == nil {
+				buf.WriteString("_\r\n")
+			} else {
+				buf.Write(MakeBulkReply(arg).ToBytes())
+			}
+		}
+		return buf.Bytes()
+	case *MultiRawReply:
+		var buf bytes.Buffer
+		buf.WriteString("*" + strconv.Itoa(len(r.Replies)) + CRLF)
+		for _, elem := range r.Replies {
+			buf.Write(ReplyToRESP3(elem))
+		}
+		return buf.Bytes()
+	case *AttributeReply:
+		return r.ToBytes()
+	case *PushReply, *SetReply, *MapReply:
+		return r.ToBytes()
+	case RESP3Reply:
+		return r.ToRESP3()
+	default:
+		return r.ToBytes()
+	}
 }

@@ -14,6 +14,81 @@
 | **P1** | 运维与可观测 | 🔄 进行中 |
 | **P2** | 稳定性与质量门禁 | 🔄 进行中 |
 | **P3** | 部署与发布 | ⬜ 待开始 |
+| **Redis 8.x 兼容** | 协议/命令/集群深度对齐 | 🔴 新启动 |
+
+---
+
+## 进行中：Redis 8.x 协议与命令兼容性深度落地
+
+> 来源：[`分析报告.md`](分析报告.md)（2026-06-29）。  
+> 目标：把“功能面很广、深度不足”的兼容层，先收敛到 **RESP3 端到端 + 标准命令分发 + 关键 Redis 8.x 命令**，再逐步补齐集群/ACL/持久化。
+
+### R0 — 协议与命令分发基线（当前迭代）
+
+- [x] **R0-1 命令分发标准化**
+  - `database/router.go` 增加 `ResolveCommandLine` 与运行时别名映射，自动处理 `.` / `|` 分隔的模块/Function/Script 命令，并手动补齐 `VS.*` / `TDIGEST.*`。
+  - `DB.Exec`、`execNormalCommand`、`execWithLock`、`EnqueueCmd`、`ExecMulti`、`COMMAND GETKEYS` 均接入别名解析。
+  - 新增测试：`TestCommandAliasDispatch`、`TestCommandGetKeysModule`。
+
+- [x] **R0-2 连接 RESP 协议版本状态**
+  - `interface/redis/conn.go` 与 `redis/connection/conn.go` 增加 `GetProtocolVersion` / `SetProtocolVersion`。
+  - `HELLO` 写入协议版本并调用 `SetClientName`；`CLIENT SETNAME/GETNAME/ID` 真实读写连接状态。
+  - 修复 `database/commandinfo.go` 中 `COMMAND INFO/DOCS/GETKEYS` 未小写命令名的 bug。
+  - 新增测试：`TestHelloProtocolVersion`、`TestClientSetNameGetNameID`。
+
+- [x] **R0-3 修复明显命令 bug**
+  - 删除 `database/hash.go` 中重复的 `HGet` 注册。
+  - `RENAME` / `RENAMENX` flags 改为 `flagWrite`。
+  - 统一修正 `FT.*`、`TS.*`、`BF.*`、`CF.*`、`CMS.*`、`TopK.*`、`TDigest.*`、`BF/CF.ScanDump/LoadChunk` 的 `firstKey/lastKey/keyStep`。
+  - 顺手修复 `database/tdigest.go` `TDIGEST.INFO` 对整数字段 panic 的问题。
+  - 新增测试：`TestHGetArity`、`TestRenameCommandFlag`。
+
+**验收结果：** `go test ./...` 全绿；新增 6 个兼容性测试全部通过。
+
+### R1 — RESP3 端到端（已完成）
+
+- [x] **R1-1 RESP3 请求解析器接入**
+  - `redis/parser/parser.go` 已支持 `_ # , ( = % ~ > |` 等 RESP3 类型帧与嵌套聚合。
+  - 修复了嵌套聚合与 Push 类型的解析 bug。
+
+- [x] **R1-2 回复按协议版本编码**
+  - 新增 `redis/protocol/resp3.go:ReplyToRESP3`。
+  - `std`/`gnet` server 根据 `conn.GetProtocolVersion()` 切换 RESP3 编码。
+  - `HELLO 3` 返回 `%` Map。
+
+- [x] **R1-3 客户端缓存高级语义**
+  - `CLIENT TRACKING` 强制要求 RESP3。
+  - 实现 `REDIRECT` 转发；解析 `OPTIN/OPTOUT/NOLOOP`。
+  - 修复相关测试，新增 RESP3 解析/编码测试。
+
+**验收结果：** `go test ./...` 全绿；`go vet ./...` 无告警。
+
+### R2 — 关键 Redis 8.x 命令补齐
+
+- [x] **R2-1 Hash Field TTL**：`HEXPIRE/HPEXPIRE/HEXPIREAT/HPEXPIREAT`。
+  - `datastruct/dict/expire_dict.go` 补齐 `Dict` 接口，解决 `ExpireDict` 与普通 Hash 命令互斥问题。
+  - `database/hash_expire.go` 实现四个 HEXPIRE 命令，支持 `NX/XX/GT/LT` 条件与正确返回值。
+  - 新增事务回滚 `undoHExpire`。
+  - AOF 重写（非 RDB 前导）支持 `ExpireDict`，重写为 `HMSET` + `HPEXPIREAT`。
+  - RDB 前导模式降级为普通 Hash 并记录 warning。
+  - 新增 `database/hash_expire_test.go` 覆盖基本、条件、绝对时间、duality、事务等场景。
+
+- [ ] **R2-2 基础缺失命令**：`BITOP`、`SMOVE`、`XCLAIM/XAUTOCLAIM`、`WAIT`、`UNWATCH`。
+- [ ] **R2-2 基础缺失命令**：`BITOP`、`SMOVE`、`XCLAIM/XAUTOCLAIM`、`WAIT`、`UNWATCH`。
+- [ ] **R2-3 ZSet 新选项**：`ZRANGE BYSCORE/BYLEX/REV/LIMIT`、`ZRANK WITHSCORE`。
+- [ ] **R2-4 String 新选项**：`SET KEEPTTL/GET`、`GETEX EXAT/PXAT`。
+
+### R3 — 集群/ACL/持久化（后续轮次）
+
+- [ ] **R3-1 集群槽位统一为 16384**；补齐 `ASK/MOVED/READONLY/READWRITE`；Sharded Pub/Sub 用 CRC16 并与集群转发集成。
+- [ ] **R3-2 ACL 细粒度权限**：key/channel/selectors 检查；集群路径也接入 ACL。
+- [ ] **R3-3 持久化扩展**：AOF marshal 与 RDB 加载覆盖 JSON/Vector/Timeseries/Stream/概率结构；RDB aux 版本号更新。
+
+### R4 — 测试与文档
+
+- [ ] **R4-1 Redis 8.x 响应比对套件**：CI 中用 Redis 8 sidecar 做参考，diff 关键命令输出。
+- [ ] **R4-2 覆盖率提升**：`aof`、`pubsub`、`redis/protocol`、`redis/connection`、新数据类型包达到可接受覆盖。
+- [ ] **R4-3 文档同步**：`commands.md`、`AGENTS.md`、`README` 与代码一致，移除“100% 兼容”表述；新增 `CHANGELOG.md`。
 
 ---
 
@@ -158,5 +233,5 @@ P0-4 aclfile  →  P0-5 CI smoke  →  P1 INFO/ARCHITECTURE  →  P2 校验/覆�
 
 ---
 
-**最后更新：** 2026-06-20  
+**最后更新：** 2026-06-29  
 **维护：** 每完成一项将 `[ ]` 改为 `[x]` 并注明 PR/commit。

@@ -12,7 +12,7 @@ import (
 	rdb "github.com/hdt3213/rdb/core"
 
 	"github.com/linkerlin/godis/config"
-
+	"github.com/linkerlin/godis/datastruct/dict"
 	"github.com/linkerlin/godis/interface/database"
 	"github.com/linkerlin/godis/lib/logger"
 	"github.com/linkerlin/godis/lib/utils"
@@ -311,6 +311,29 @@ func (persister *Persister) fsyncEverySecond() {
 	}()
 }
 
+// writeExpireDictToAof serializes a hash-with-field-TTL as HMSET followed by
+// per-field HPEXPIREAT commands. This preserves field-level TTLs in AOF rewrites
+// when aof-use-rdb-preamble is disabled.
+func writeExpireDictToAof(tmpFile *os.File, key string, ed *dict.ExpireDict) {
+	hashArgs := [][]byte{[]byte("HMSET"), []byte(key)}
+	ed.ForEach(func(field string, val interface{}) bool {
+		bytes, _ := val.([]byte)
+		hashArgs = append(hashArgs, []byte(field), bytes)
+		return true
+	})
+	if len(hashArgs) > 2 {
+		_, _ = tmpFile.Write(protocol.MakeMultiBulkReply(hashArgs).ToBytes())
+	}
+	ed.ForEach(func(field string, val interface{}) bool {
+		if expireAt, ok := ed.GetExpireTime(field); ok {
+			ms := strconv.FormatInt(expireAt.UnixNano()/1e6, 10)
+			cmd := utils.ToCmdLine("HPEXPIREAT", key, ms, field)
+			_, _ = tmpFile.Write(protocol.MakeMultiBulkReply(cmd).ToBytes())
+		}
+		return true
+	})
+}
+
 func (persister *Persister) generateAof(ctx *RewriteCtx) error {
 	// rewrite aof tmpFile
 	tmpFile := ctx.tmpFile
@@ -326,9 +349,13 @@ func (persister *Persister) generateAof(ctx *RewriteCtx) error {
 		}
 		// dump db
 		tmpAof.db.ForEach(i, func(key string, entity *database.DataEntity, expiration *time.Time) bool {
-			cmd := EntityToCmd(key, entity)
-			if cmd != nil {
-				_, _ = tmpFile.Write(cmd.ToBytes())
+			if ed, ok := entity.Data.(*dict.ExpireDict); ok {
+				writeExpireDictToAof(tmpFile, key, ed)
+			} else {
+				cmd := EntityToCmd(key, entity)
+				if cmd != nil {
+					_, _ = tmpFile.Write(cmd.ToBytes())
+				}
 			}
 			if expiration != nil {
 				cmd := MakeExpireCmd(key, *expiration)

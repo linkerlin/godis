@@ -13,7 +13,7 @@ import (
 
 func TestInfoClientTrackingFields(t *testing.T) {
 	c := connection.NewFakeConn()
-	_ = EnableTracking(c, "default", nil)
+	_ = EnableTracking(c, "default", nil, "", false)
 
 	ret := testServer.Exec(c, utils.ToCmdLine("INFO", "client"))
 	bulk, ok := ret.(*protocol.BulkReply)

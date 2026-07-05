@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"errors"
+	"fmt"
 	"io"
 	"runtime/debug"
 	"strconv"
@@ -136,7 +137,56 @@ func parse0(rawReader io.Reader, ch chan<- *Payload) {
 				closeCh()
 				return
 			}
+		case '_':
+			ch <- &Payload{Data: &protocol.NullReply{}}
+		case '#':
+			ch <- &Payload{Data: protocol.MakeBooleanReply(string(line[1:]) == "t")}
+		case ',':
+			value, err := strconv.ParseFloat(string(line[1:]), 64)
+			if err != nil {
+				protocolError(ch, "illegal double "+string(line[1:]))
+				continue
+			}
+			ch <- &Payload{Data: protocol.MakeDoubleReply(value)}
+		case '(':
+			ch <- &Payload{Data: protocol.MakeBigNumberReply(string(line[1:]))}
+		case '=':
+			err = parseVerbatim(line, reader, ch)
+			if err != nil {
+				ch <- &Payload{Err: err}
+				closeCh()
+				return
+			}
+		case '%':
+			err = parseMap(line, reader, ch)
+			if err != nil {
+				ch <- &Payload{Err: err}
+				closeCh()
+				return
+			}
+		case '~':
+			err = parseSet(line, reader, ch)
+			if err != nil {
+				ch <- &Payload{Err: err}
+				closeCh()
+				return
+			}
+		case '>':
+			err = parsePush(line, reader, ch)
+			if err != nil {
+				ch <- &Payload{Err: err}
+				closeCh()
+				return
+			}
+		case '|':
+			err = parseAttribute(line, reader, ch)
+			if err != nil {
+				ch <- &Payload{Err: err}
+				closeCh()
+				return
+			}
 		default:
+			// Inline command text protocol (e.g. telnet / replication traffic).
 			args := bytes.Split(line, []byte{' '})
 			ch <- &Payload{
 				Data: protocol.MakeMultiBulkReply(args),
@@ -212,41 +262,370 @@ func parseArray(header []byte, reader *bufio.Reader, ch chan<- *Payload) error {
 		protocolError(ch, "array too long")
 		return nil
 	}
-	lines := make([][]byte, 0, 16)
+	replies := make([]redis.Reply, 0, nStrs)
+	allBulk := true
 	for i := int64(0); i < nStrs; i++ {
-		var line []byte
-		line, err = reader.ReadBytes('\n')
+		reply, err := parseElement(reader)
 		if err != nil {
 			return err
 		}
-		length := len(line)
-		if length < 4 || line[length-2] != '\r' || line[0] != '$' {
-			protocolError(ch, "illegal bulk string header "+string(line))
-			break
-		}
-		strLen, err := strconv.ParseInt(string(line[1:length-2]), 10, 64)
-		if err != nil || strLen < -1 {
-			protocolError(ch, "illegal bulk string length "+string(line))
-			break
-		} else if strLen == -1 {
-			lines = append(lines, []byte{})
-		} else {
-			if strLen > maxBulkStringLen {
-				protocolError(ch, "bulk string too long")
-				break
-			}
-			body := make([]byte, strLen+2)
-			_, err := io.ReadFull(reader, body)
-			if err != nil {
-				return err
-			}
-			lines = append(lines, body[:len(body)-2])
+		replies = append(replies, reply)
+		switch reply.(type) {
+		case *protocol.BulkReply, *protocol.NullBulkReply:
+		default:
+			allBulk = false
 		}
 	}
-	ch <- &Payload{
-		Data: protocol.MakeMultiBulkReply(lines),
+	if allBulk {
+		lines := make([][]byte, nStrs)
+		for i, reply := range replies {
+			if br, ok := reply.(*protocol.BulkReply); ok {
+				lines[i] = br.Arg
+			}
+			// NullBulkReply leaves lines[i] as nil, matching MakeMultiBulkReply semantics
+		}
+		ch <- &Payload{
+			Data: protocol.MakeMultiBulkReply(lines),
+		}
+	} else {
+		ch <- &Payload{
+			Data: protocol.MakeMultiRawReply(replies),
+		}
 	}
 	return nil
+}
+
+func parseElement(reader *bufio.Reader) (redis.Reply, error) {
+	ch, err := reader.ReadByte()
+	if err != nil {
+		return nil, err
+	}
+	return parseRESP3Value(reader, ch)
+}
+
+func parseRESP3Value(reader *bufio.Reader, ch byte) (redis.Reply, error) {
+	switch ch {
+	case '+':
+		line, err := readCRLFLine(reader)
+		if err != nil {
+			return nil, err
+		}
+		return protocol.MakeStatusReply(string(line)), nil
+	case '-':
+		line, err := readCRLFLine(reader)
+		if err != nil {
+			return nil, err
+		}
+		return protocol.MakeErrReply(string(line)), nil
+	case ':':
+		line, err := readCRLFLine(reader)
+		if err != nil {
+			return nil, err
+		}
+		value, err := strconv.ParseInt(string(line), 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("illegal integer: %w", err)
+		}
+		return protocol.MakeIntReply(value), nil
+	case '_':
+		_, err := readCRLFLine(reader)
+		return &protocol.NullReply{}, err
+	case '#':
+		line, err := readCRLFLine(reader)
+		if err != nil {
+			return nil, err
+		}
+		return protocol.MakeBooleanReply(string(line) == "t"), nil
+	case ',':
+		line, err := readCRLFLine(reader)
+		if err != nil {
+			return nil, err
+		}
+		value, err := strconv.ParseFloat(string(line), 64)
+		if err != nil {
+			return nil, fmt.Errorf("illegal double: %w", err)
+		}
+		return protocol.MakeDoubleReply(value), nil
+	case '(':
+		line, err := readCRLFLine(reader)
+		if err != nil {
+			return nil, err
+		}
+		return protocol.MakeBigNumberReply(string(line)), nil
+	case '$':
+		return parseBulkStringFull(reader)
+	case '=':
+		return parseVerbatimFull(reader)
+	case '*':
+		return parseAggregate(reader, '*')
+	case '~':
+		return parseAggregate(reader, '~')
+	case '>':
+		return parseAggregate(reader, '>')
+	case '%':
+		return parseMapFull(reader)
+	case '|':
+		return parseAttributeFull(reader)
+	default:
+		return nil, fmt.Errorf("unknown RESP type: %c", ch)
+	}
+}
+
+func readCRLFLine(reader *bufio.Reader) ([]byte, error) {
+	line, err := reader.ReadBytes('\n')
+	if err != nil {
+		return nil, err
+	}
+	if len(line) < 2 || line[len(line)-2] != '\r' {
+		return nil, errors.New("invalid line ending")
+	}
+	return bytes.TrimSuffix(line, []byte{'\r', '\n'}), nil
+}
+
+func parseBulkStringFull(reader *bufio.Reader) (redis.Reply, error) {
+	header, err := readCRLFLine(reader)
+	if err != nil {
+		return nil, err
+	}
+	strLen, err := strconv.ParseInt(string(header), 10, 64)
+	if err != nil || strLen < -1 {
+		return nil, errors.New("illegal bulk string header")
+	}
+	if strLen == -1 {
+		return protocol.MakeNullBulkReply(), nil
+	}
+	if strLen > maxBulkStringLen {
+		return nil, errors.New("bulk string too long")
+	}
+	body := make([]byte, strLen+2)
+	_, err = io.ReadFull(reader, body)
+	if err != nil {
+		return nil, err
+	}
+	return protocol.MakeBulkReply(body[:len(body)-2]), nil
+}
+
+func parseVerbatim(header []byte, reader *bufio.Reader, ch chan<- *Payload) error {
+	reply, err := parseVerbatimFromHeader(header, reader)
+	if err != nil {
+		return err
+	}
+	ch <- &Payload{Data: reply}
+	return nil
+}
+
+func parseVerbatimFull(reader *bufio.Reader) (redis.Reply, error) {
+	header, err := readCRLFLine(reader)
+	if err != nil {
+		return nil, err
+	}
+	return parseVerbatimFromHeader(header, reader)
+}
+
+func parseVerbatimFromHeader(header []byte, reader *bufio.Reader) (redis.Reply, error) {
+	strLen, err := strconv.ParseInt(string(header[1:]), 10, 64)
+	if err != nil || strLen < 0 {
+		return nil, errors.New("illegal verbatim string header")
+	}
+	if strLen > maxBulkStringLen {
+		return nil, errors.New("verbatim string too long")
+	}
+	body := make([]byte, strLen+2)
+	_, err = io.ReadFull(reader, body)
+	if err != nil {
+		return nil, err
+	}
+	content := string(body[:len(body)-2])
+	idx := strings.IndexByte(content, ':')
+	if idx < 0 {
+		return nil, errors.New("invalid verbatim string format")
+	}
+	return protocol.MakeVerbatimReply(content[:idx], content[idx+1:]), nil
+}
+
+func parseMap(header []byte, reader *bufio.Reader, ch chan<- *Payload) error {
+	reply, err := parseMapFromHeader(header, reader)
+	if err != nil {
+		return err
+	}
+	ch <- &Payload{Data: reply}
+	return nil
+}
+
+func parseMapFull(reader *bufio.Reader) (redis.Reply, error) {
+	header, err := readCRLFLine(reader)
+	if err != nil {
+		return nil, err
+	}
+	return parseMapFromHeader(header, reader)
+}
+
+func parseMapFromHeader(header []byte, reader *bufio.Reader) (redis.Reply, error) {
+	n, err := strconv.ParseInt(string(header[1:]), 10, 64)
+	if err != nil || n < 0 {
+		return nil, errors.New("illegal map header")
+	}
+	if n > maxArrayElements {
+		return nil, errors.New("map too long")
+	}
+	m := protocol.MakeMapReply()
+	for i := int64(0); i < n; i++ {
+		keyReply, err := parseElement(reader)
+		if err != nil {
+			return nil, err
+		}
+		valueReply, err := parseElement(reader)
+		if err != nil {
+			return nil, err
+		}
+		var key string
+		switch k := keyReply.(type) {
+		case *protocol.BulkReply:
+			key = string(k.Arg)
+		case *protocol.StatusReply:
+			key = k.Status
+		default:
+			key = string(keyReply.ToBytes())
+		}
+		m.Put(key, valueReply)
+	}
+	return m, nil
+}
+
+func parseSet(header []byte, reader *bufio.Reader, ch chan<- *Payload) error {
+	reply, err := parseAggregateFromHeader(header, reader, '~')
+	if err != nil {
+		return err
+	}
+	if set, ok := reply.(*protocol.SetReply); ok {
+		ch <- &Payload{Data: set}
+		return nil
+	}
+	return errors.New("internal error: expected SetReply")
+}
+
+func parsePush(header []byte, reader *bufio.Reader, ch chan<- *Payload) error {
+	reply, err := parseAggregateFromHeader(header, reader, '>')
+	if err != nil {
+		return err
+	}
+	push, ok := reply.(*protocol.PushReply)
+	if !ok {
+		return errors.New("internal error: expected PushReply from push")
+	}
+	kind := push.Kind
+	var data []redis.Reply
+	if kind == "" && len(push.Data) > 0 {
+		// parseAggregateFromHeader returns a generic PushReply with an empty Kind;
+		// the first element is the push type.
+		if br, ok := push.Data[0].(*protocol.BulkReply); ok {
+			kind = string(br.Arg)
+		}
+		if len(push.Data) > 1 {
+			data = push.Data[1:]
+		}
+	} else {
+		data = push.Data
+	}
+	ch <- &Payload{Data: protocol.MakePushReply(kind, data)}
+	return nil
+}
+
+func parseAttribute(header []byte, reader *bufio.Reader, ch chan<- *Payload) error {
+	reply, err := parseAttributeFromHeader(header, reader)
+	if err != nil {
+		return err
+	}
+	ch <- &Payload{Data: reply}
+	return nil
+}
+
+func parseAttributeFull(reader *bufio.Reader) (redis.Reply, error) {
+	header, err := readCRLFLine(reader)
+	if err != nil {
+		return nil, err
+	}
+	return parseAttributeFromHeader(header, reader)
+}
+
+func parseAttributeFromHeader(header []byte, reader *bufio.Reader) (redis.Reply, error) {
+	n, err := strconv.ParseInt(string(header[1:]), 10, 64)
+	if err != nil || n < 0 {
+		return nil, errors.New("illegal attribute header")
+	}
+	attrs := protocol.MakeMapReply()
+	for i := int64(0); i < n; i++ {
+		keyReply, err := parseElement(reader)
+		if err != nil {
+			return nil, err
+		}
+		valueReply, err := parseElement(reader)
+		if err != nil {
+			return nil, err
+		}
+		var key string
+		switch k := keyReply.(type) {
+		case *protocol.BulkReply:
+			key = string(k.Arg)
+		case *protocol.StatusReply:
+			key = k.Status
+		default:
+			key = string(keyReply.ToBytes())
+		}
+		attrs.Put(key, valueReply)
+	}
+	content, err := parseElement(reader)
+	if err != nil {
+		return nil, err
+	}
+	return protocol.MakeAttributeReply(attrs, content), nil
+}
+
+func parseAggregate(reader *bufio.Reader, typ byte) (redis.Reply, error) {
+	header, err := readCRLFLine(reader)
+	if err != nil {
+		return nil, err
+	}
+	// parseAggregate is called after the type byte has already been consumed,
+	// so reconstruct a header that includes the type prefix.
+	fullHeader := append([]byte{typ}, header...)
+	return parseAggregateFromHeader(fullHeader, reader, typ)
+}
+
+func parseAggregateFromHeader(header []byte, reader *bufio.Reader, typ byte) (redis.Reply, error) {
+	n, err := strconv.ParseInt(string(header[1:]), 10, 64)
+	if err != nil || n < 0 {
+		return nil, errors.New("illegal aggregate header")
+	}
+	if n > maxArrayElements {
+		return nil, errors.New("aggregate too long")
+	}
+	if n == 0 {
+		switch typ {
+		case '~':
+			return protocol.MakeSetReply(nil), nil
+		case '>':
+			return protocol.MakePushReply("", nil), nil
+		default:
+			return protocol.MakeEmptyMultiBulkReply(), nil
+		}
+	}
+	replies := make([]redis.Reply, 0, n)
+	for i := int64(0); i < n; i++ {
+		reply, err := parseElement(reader)
+		if err != nil {
+			return nil, err
+		}
+		replies = append(replies, reply)
+	}
+	switch typ {
+	case '~':
+		return protocol.MakeSetReply(replies), nil
+	case '>':
+		return protocol.MakePushReply("", replies), nil
+	default:
+		return protocol.MakeMultiRawReply(replies), nil
+	}
 }
 
 func protocolError(ch chan<- *Payload, msg string) {

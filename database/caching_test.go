@@ -69,6 +69,8 @@ func (c *trackingTestConn) SetACLUser(string)              {}
 func (c *trackingTestConn) GetACLUser() string             { return "" }
 func (c *trackingTestConn) SetACLAuthenticated(bool)       {}
 func (c *trackingTestConn) IsACLAuthenticated() bool       { return false }
+func (c *trackingTestConn) SetProtocolVersion(int)         {}
+func (c *trackingTestConn) GetProtocolVersion() int        { return 3 }
 
 func (c *trackingTestConn) lastWrite() string {
 	c.mu.Lock()
@@ -102,7 +104,7 @@ func TestEnableDisableTracking(t *testing.T) {
 	resetClientCacheForTest(t)
 	conn := &trackingTestConn{name: "client-a"}
 
-	id := EnableTracking(conn, "", nil)
+	id := EnableTracking(conn, "", nil, "", false)
 	if id == "" {
 		t.Fatal("expected client id")
 	}
@@ -130,7 +132,7 @@ func TestEnableDisableTracking(t *testing.T) {
 func TestTrackKeyAndInvalidate(t *testing.T) {
 	resetClientCacheForTest(t)
 	conn := &trackingTestConn{name: "client-b"}
-	id := EnableTracking(conn, "", nil)
+	id := EnableTracking(conn, "", nil, "", false)
 
 	TrackKey(id, "cache-key")
 	TrackKeysOnRead(id, []string{"cache-key", "cache-key"})
@@ -155,7 +157,7 @@ func TestTrackKeyAndInvalidate(t *testing.T) {
 func TestTrackKeyBCASTPrefixFilter(t *testing.T) {
 	resetClientCacheForTest(t)
 	conn := &trackingTestConn{name: "client-c"}
-	id := EnableTracking(conn, "bcast", []string{"user:"})
+	id := EnableTracking(conn, "bcast", []string{"user:"}, "", false)
 
 	TrackKey(id, "other:key")
 	if info := GetTrackingInfo(id); info["keys"].(int) != 0 {
@@ -171,7 +173,7 @@ func TestTrackKeyBCASTPrefixFilter(t *testing.T) {
 func TestInvalidateKeysOnWrite(t *testing.T) {
 	resetClientCacheForTest(t)
 	conn := &trackingTestConn{name: "client-d"}
-	id := EnableTracking(conn, "", nil)
+	id := EnableTracking(conn, "", nil, "", false)
 	TrackKey(id, "k1")
 	TrackKey(id, "k2")
 
@@ -203,7 +205,7 @@ func TestCachingTrackKeyWhenDisabled(t *testing.T) {
 func TestCachingBcastKeepsTrackingAfterInvalidate(t *testing.T) {
 	resetClientCacheForTest(t)
 	conn := &trackingTestConn{name: "bcast-client"}
-	id := EnableTracking(conn, "bcast", []string{"app:"})
+	id := EnableTracking(conn, "bcast", []string{"app:"}, "", false)
 	TrackKey(id, "app:item")
 
 	InvalidateKey("app:item")
@@ -219,7 +221,7 @@ func TestCachingBcastKeepsTrackingAfterInvalidate(t *testing.T) {
 func TestCachingGetTotalTrackedKeys(t *testing.T) {
 	resetClientCacheForTest(t)
 	conn := &trackingTestConn{clientID: 7}
-	id := EnableTracking(conn, "", nil)
+	id := EnableTracking(conn, "", nil, "", false)
 	TrackKey(id, "k1")
 	TrackKey(id, "k2")
 
@@ -254,7 +256,7 @@ func TestClientTrackingInfoCommand(t *testing.T) {
 func TestGetTrackingStats(t *testing.T) {
 	resetClientCacheForTest(t)
 	conn := &trackingTestConn{name: "client-e", clientID: 5}
-	id := EnableTracking(conn, "", nil)
+	id := EnableTracking(conn, "", nil, "", false)
 	conn.SetTrackingID(id)
 	TrackKey(id, "stat-key")
 

@@ -169,6 +169,17 @@ func (persister *Persister) generateRDB(ctx *RewriteCtx) error {
 					return true
 				})
 				err = encoder.WriteSetObject(key, vals, opts...)
+			case *dict.ExpireDict:
+				// Redis 8 hash field TTL is not supported by the RDB encoder used here.
+				// Fall back to a plain hash and log the limitation.
+				logger.Warn("RDB preamble does not preserve hash field TTLs; set aof-use-rdb-preamble=no to keep them")
+				hash := make(map[string][]byte)
+				obj.ForEach(func(field string, val interface{}) bool {
+					bytes, _ := val.([]byte)
+					hash[field] = bytes
+					return true
+				})
+				err = encoder.WriteHashMapObject(key, hash, opts...)
 			case dict.Dict:
 				hash := make(map[string][]byte)
 				obj.ForEach(func(key string, val interface{}) bool {

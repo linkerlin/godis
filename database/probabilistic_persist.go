@@ -168,11 +168,11 @@ func deserializeCuckooFilter(data []byte) *probabilistic.CuckooFilter {
 
 func init() {
 	registerCommand("BF.ScanDump", execBFScanDump, readFirstKey, nil, 3, flagReadOnly).
-		attachCommandExtra([]string{redisFlagReadonly}, 0, 0, 0)
+		attachCommandExtra([]string{redisFlagReadonly}, 1, 1, 1)
 	registerCommand("BF.LoadChunk", execBFLoadChunk, writeFirstKey, nil, 4, flagWrite).
-		attachCommandExtra([]string{redisFlagWrite}, 0, 0, 0)
+		attachCommandExtra([]string{redisFlagWrite}, 1, 1, 1)
 	registerCommand("CF.ScanDump", execCFScanDump, readFirstKey, nil, 3, flagReadOnly).
-		attachCommandExtra([]string{redisFlagReadonly}, 0, 0, 0)
+		attachCommandExtra([]string{redisFlagReadonly}, 1, 1, 1)
 	registerCommand("CF.LoadChunk", execCFLoadChunk, writeFirstKey, nil, 4, flagWrite).
-		attachCommandExtra([]string{redisFlagWrite}, 0, 0, 0)
+		attachCommandExtra([]string{redisFlagWrite}, 1, 1, 1)
 }

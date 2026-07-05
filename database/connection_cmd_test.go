@@ -37,6 +37,7 @@ func TestConnectionCommandsViaDB(t *testing.T) {
 	if _, ok := list.(*protocol.BulkReply); !ok {
 		t.Fatalf("CLIENT LIST: got %s", list.ToBytes())
 	}
+	c.SetProtocolVersion(3)
 	asserts.AssertStatusReply(t, db.Exec(c, utils.ToCmdLine("CLIENT", "REPLY", "ON")), "OK")
 	asserts.AssertStatusReply(t, db.Exec(c, utils.ToCmdLine("CLIENT", "CACHING", "YES")), "OK")
 	asserts.AssertStatusReply(t, db.Exec(c, utils.ToCmdLine("CLIENT", "TRACKING", "ON")), "OK")
@@ -49,6 +50,7 @@ func TestConnectionCommandsViaDB(t *testing.T) {
 func TestClientSubcommands(t *testing.T) {
 	server := getTestServer()
 	c := connection.NewFakeConn()
+	c.SetProtocolVersion(3)
 
 	asserts.AssertStatusReply(t, server.Exec(c, utils.ToCmdLine("CLIENT", "SETNAME", "my-client")), "OK")
 	asserts.AssertBulkReply(t, server.Exec(c, utils.ToCmdLine("CLIENT", "GETNAME")), "my-client")

@@ -42,6 +42,10 @@ type Connection interface {
 	SetTrackingID(string)
 	GetTrackingID() string
 
+	// RESP protocol version (2 or 3) negotiated via HELLO
+	GetProtocolVersion() int
+	SetProtocolVersion(int)
+
 	// ACL authentication state (Redis 6+)
 	SetACLUser(string)
 	GetACLUser() string

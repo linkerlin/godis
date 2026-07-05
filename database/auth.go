@@ -194,9 +194,23 @@ func Hello(c redis.Connection, args [][]byte) redis.Reply {
 		bindAuthToConnection(c, username, password)
 	}
 
-	if clientName != "" && c != nil {
-		// Client name storage is handled by CLIENT SETNAME; HELLO only accepts SETNAME here.
-		_ = clientName
+	if c != nil {
+		c.SetProtocolVersion(protoVersion)
+		if clientName != "" {
+			c.SetClientName(clientName)
+		}
+	}
+
+	if protoVersion == 3 {
+		m := protocol.MakeMapReply()
+		m.Put("server", protocol.MakeBulkReply([]byte("godis")))
+		m.Put("version", protocol.MakeBulkReply([]byte("8.0.0")))
+		m.Put("proto", protocol.MakeBulkReply([]byte(strconv.Itoa(protoVersion))))
+		m.Put("id", protocol.MakeBulkReply([]byte("1")))
+		m.Put("mode", protocol.MakeBulkReply([]byte("standalone")))
+		m.Put("role", protocol.MakeBulkReply([]byte("master")))
+		m.Put("modules", protocol.MakeEmptyMultiBulkReply())
+		return m
 	}
 
 	var result [][]byte

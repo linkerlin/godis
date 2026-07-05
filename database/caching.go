@@ -31,6 +31,12 @@ type ClientCache struct {
 	// Connection mapping for sending pushes
 	connections map[string]redis.Connection
 
+	// Redirect mapping: clientID -> redirect target clientID
+	redirects map[string]string
+
+	// No-loop flags per client
+	noLoop map[string]bool
+
 	// Stats
 	trackingClientsCount int
 	invalidationMsgsSent uint64
@@ -47,12 +53,14 @@ var clientCache = &ClientCache{
 	prefixes:             make(map[string][]string),
 	invalidationQueues:   make(map[string]chan []string),
 	connections:          make(map[string]redis.Connection),
+	redirects:            make(map[string]string),
+	noLoop:               make(map[string]bool),
 	trackingClientsCount: 0,
 	invalidationMsgsSent: 0,
 }
 
 // EnableTracking enables client tracking for a connection
-func EnableTracking(conn redis.Connection, mode string, prefixes []string) string {
+func EnableTracking(conn redis.Connection, mode string, prefixes []string, redirectID string, noLoop bool) string {
 	clientCache.mu.Lock()
 	defer clientCache.mu.Unlock()
 
@@ -65,6 +73,8 @@ func EnableTracking(conn redis.Connection, mode string, prefixes []string) strin
 	clientCache.trackingMode[clientID] = mode
 	clientCache.prefixes[clientID] = prefixes
 	clientCache.connections[clientID] = conn
+	clientCache.redirects[clientID] = redirectID
+	clientCache.noLoop[clientID] = noLoop
 
 	if clientCache.trackedKeys[clientID] == nil {
 		clientCache.trackedKeys[clientID] = make(map[string]bool)
@@ -102,6 +112,8 @@ func DisableTracking(clientID string) {
 	delete(clientCache.prefixes, clientID)
 	delete(clientCache.trackedKeys, clientID)
 	delete(clientCache.connections, clientID)
+	delete(clientCache.redirects, clientID)
+	delete(clientCache.noLoop, clientID)
 
 	// Update stats
 	clientCache.trackingClientsCount--
@@ -122,8 +134,14 @@ func TrackKey(clientID string, key string) {
 		return
 	}
 
-	// Check prefix match for BCAST mode
 	mode := clientCache.trackingMode[clientID]
+
+	// OPTIN requires explicit CLIENT CACHING YES; without it, don't track.
+	if mode == "optin" {
+		return
+	}
+
+	// Check prefix match for BCAST mode
 	if mode == "bcast" {
 		prefixes := clientCache.prefixes[clientID]
 		if len(prefixes) > 0 {
@@ -214,10 +232,19 @@ func (cc *ClientCache) invalidationSender(clientID string) {
 		cc.mu.RLock()
 		queue, ok := cc.invalidationQueues[clientID]
 		conn, hasConn := cc.connections[clientID]
+		redirectID := cc.redirects[clientID]
 		cc.mu.RUnlock()
 
 		if !ok {
 			return
+		}
+
+		// Resolve redirect target connection if configured
+		targetConn := conn
+		if redirectID != "" {
+			cc.mu.RLock()
+			targetConn, hasConn = cc.connections[redirectID]
+			cc.mu.RUnlock()
 		}
 
 		select {
@@ -226,7 +253,7 @@ func (cc *ClientCache) invalidationSender(clientID string) {
 				return
 			}
 			if hasConn {
-				sendInvalidation(conn, keys)
+				sendInvalidation(targetConn, keys)
 			}
 		case <-ticker.C:
 			// Continue
@@ -239,7 +266,10 @@ func sendInvalidation(conn redis.Connection, keys []string) {
 	push := protocol.MakeInvalidatePush(keys)
 
 	// Write to connection
-	conn.Write(push.ToBytes())
+	_, err := conn.Write(push.ToBytes())
+	if err != nil {
+		return
+	}
 	clientCache.mu.Lock()
 	clientCache.invalidationMsgsSent++
 	clientCache.mu.Unlock()
@@ -274,11 +304,18 @@ func GetTrackingInfo(clientID string) map[string]interface{} {
 	clientCache.mu.RLock()
 	defer clientCache.mu.RUnlock()
 
+	redirect := clientCache.redirects[clientID]
+	if redirect == "" {
+		redirect = "0"
+	}
+
 	return map[string]interface{}{
-		"enabled":  clientCache.trackingEnabled[clientID],
-		"mode":     clientCache.trackingMode[clientID],
-		"prefixes": clientCache.prefixes[clientID],
-		"keys":     len(clientCache.trackedKeys[clientID]),
+		"enabled":   clientCache.trackingEnabled[clientID],
+		"mode":      clientCache.trackingMode[clientID],
+		"prefixes":  clientCache.prefixes[clientID],
+		"keys":      len(clientCache.trackedKeys[clientID]),
+		"redirect":  redirect,
+		"noloop":    clientCache.noLoop[clientID],
 	}
 }
 

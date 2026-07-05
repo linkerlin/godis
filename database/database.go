@@ -140,11 +140,11 @@ func (db *DB) Exec(c redis.Connection, cmdLine [][]byte) redis.Reply {
 }
 
 func (db *DB) execNormalCommand(c redis.Connection, cmdLine [][]byte) redis.Reply {
-	cmdName := strings.ToLower(string(cmdLine[0]))
-	cmd, ok := cmdTable[cmdName]
+	cmdLine, cmdName, ok := ResolveCommandLine(cmdLine)
 	if !ok {
 		return protocol.MakeErrReply("ERR unknown command '" + cmdName + "'")
 	}
+	cmd := cmdTable[cmdName]
 	if reply := validateCmdArgCount(cmdLine); reply != nil {
 		return reply
 	}
@@ -181,11 +181,11 @@ func (db *DB) execNormalCommand(c redis.Connection, cmdLine [][]byte) redis.Repl
 
 // execWithLock executes normal commands, invoker should provide locks
 func (db *DB) execWithLock(c redis.Connection, cmdLine [][]byte) redis.Reply {
-	cmdName := strings.ToLower(string(cmdLine[0]))
-	cmd, ok := cmdTable[cmdName]
+	cmdLine, cmdName, ok := ResolveCommandLine(cmdLine)
 	if !ok {
 		return protocol.MakeErrReply("ERR unknown command '" + cmdName + "'")
 	}
+	cmd := cmdTable[cmdName]
 	if reply := validateCmdArgCount(cmdLine); reply != nil {
 		return reply
 	}

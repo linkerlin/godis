@@ -487,29 +487,29 @@ func prependCmd(cmd string, args [][]byte) [][]byte {
 
 func init() {
 	registerCommand("TS.Create", execTSCreate, writeFirstKey, nil, -2, flagWrite).
-		attachCommandExtra([]string{redisFlagWrite, redisFlagDenyOOM}, 0, 0, 0)
+		attachCommandExtra([]string{redisFlagWrite, redisFlagDenyOOM}, 1, 1, 1)
 	registerCommand("TS.Add", execTSAdd, writeFirstKey, nil, -4, flagWrite).
-		attachCommandExtra([]string{redisFlagWrite, redisFlagDenyOOM}, 0, 0, 0)
+		attachCommandExtra([]string{redisFlagWrite, redisFlagDenyOOM}, 1, 1, 1)
 	registerCommand("TS.Get", execTSGet, readFirstKey, nil, 2, flagReadOnly).
-		attachCommandExtra([]string{redisFlagReadonly, redisFlagFast}, 0, 0, 0)
+		attachCommandExtra([]string{redisFlagReadonly, redisFlagFast}, 1, 1, 1)
 	registerCommand("TS.Range", execTSRange, readFirstKey, nil, -4, flagReadOnly).
-		attachCommandExtra([]string{redisFlagReadonly}, 0, 0, 0)
+		attachCommandExtra([]string{redisFlagReadonly}, 1, 1, 1)
 	registerCommand("TS.RevRange", execTSRevRange, readFirstKey, nil, -4, flagReadOnly).
-		attachCommandExtra([]string{redisFlagReadonly}, 0, 0, 0)
+		attachCommandExtra([]string{redisFlagReadonly}, 1, 1, 1)
 	registerCommand("TS.Info", execTSInfo, readFirstKey, nil, 2, flagReadOnly).
-		attachCommandExtra([]string{redisFlagReadonly, redisFlagFast}, 0, 0, 0)
+		attachCommandExtra([]string{redisFlagReadonly, redisFlagFast}, 1, 1, 1)
 	registerCommand("TS.Del", execTSDel, writeFirstKey, nil, 4, flagWrite).
-		attachCommandExtra([]string{redisFlagWrite}, 0, 0, 0)
+		attachCommandExtra([]string{redisFlagWrite}, 1, 1, 1)
 	registerCommand("TS.IncrBy", execTSIncrBy, writeFirstKey, nil, -3, flagWrite).
-		attachCommandExtra([]string{redisFlagWrite, redisFlagDenyOOM}, 0, 0, 0)
+		attachCommandExtra([]string{redisFlagWrite, redisFlagDenyOOM}, 1, 1, 1)
 	registerCommand("TS.DecrBy", execTSDecrBy, writeFirstKey, nil, -3, flagWrite).
-		attachCommandExtra([]string{redisFlagWrite, redisFlagDenyOOM}, 0, 0, 0)
+		attachCommandExtra([]string{redisFlagWrite, redisFlagDenyOOM}, 1, 1, 1)
 	registerCommand("TS.Alter", execTSAlter, writeFirstKey, nil, -2, flagWrite).
-		attachCommandExtra([]string{redisFlagWrite}, 0, 0, 0)
+		attachCommandExtra([]string{redisFlagWrite}, 1, 1, 1)
 	registerCommand("TS.CreateRule", execTSCreateRule, prepareWriteFirstTwoKeys, nil, 6, flagWrite).
-		attachCommandExtra([]string{redisFlagWrite}, 0, 0, 0)
+		attachCommandExtra([]string{redisFlagWrite}, 1, 2, 1)
 	registerCommand("TS.DeleteRule", execTSDeleteRule, writeFirstKey, nil, 3, flagWrite).
-		attachCommandExtra([]string{redisFlagWrite}, 0, 0, 0)
+		attachCommandExtra([]string{redisFlagWrite}, 1, 1, 1)
 }
 
 // execTSAlter modifies the labels or retention of an existing time series

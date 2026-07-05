@@ -584,17 +584,27 @@ func streamEntriesToReply(entries []*stream.StreamEntry) redis.Reply {
 		return protocol.MakeEmptyMultiBulkReply()
 	}
 
-	var result [][]byte
+	// Standard Redis nested format:
+	// Each entry is: [entry_id_bulk, [field1_bulk, val1_bulk, field2_bulk, val2_bulk, ...]]
+	subReplies := make([]redis.Reply, 0, len(entries))
 	for _, entry := range entries {
-		result = append(result, []byte(entry.ID.String()))
-		var fields [][]byte
+		fieldPairs := make([]redis.Reply, 0, len(entry.Fields)*2)
 		for k, v := range entry.Fields {
-			fields = append(fields, []byte(k), []byte(v))
+			fieldPairs = append(fieldPairs,
+				protocol.MakeBulkReply([]byte(k)),
+				protocol.MakeBulkReply([]byte(v)),
+			)
 		}
-		result = append(result, fields...)
+		fieldsArray := protocol.MakeMultiRawReply(fieldPairs)
+
+		entryArray := protocol.MakeMultiRawReply([]redis.Reply{
+			protocol.MakeBulkReply([]byte(entry.ID.String())),
+			fieldsArray,
+		})
+		subReplies = append(subReplies, entryArray)
 	}
 
-	return protocol.MakeMultiBulkReply(result)
+	return protocol.MakeMultiRawReply(subReplies)
 }
 
 // execXTrim 裁剪Stream

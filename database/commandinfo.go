@@ -61,7 +61,7 @@ func getCommandDocs(args [][]byte) redis.Reply {
 	// Return docs for specified commands
 	result := make([][]byte, 0, len(args)*2)
 	for _, v := range args {
-		cmdName := string(v)
+		cmdName := strings.ToLower(string(v))
 		result = append(result, []byte(cmdName))
 		if cmd, ok := cmdTable[cmdName]; ok {
 			result = append(result, cmd.toDocsReply().ToBytes())
@@ -73,19 +73,19 @@ func getCommandDocs(args [][]byte) redis.Reply {
 }
 
 func getKeys(args [][]byte) redis.Reply {
-	cmdName := string(args[0])
-	cmd, ok := cmdTable[cmdName]
+	cmdLine, cmdName, ok := ResolveCommandLine(args)
 	if !ok {
 		return protocol.MakeErrReply("Invalid command specified")
 	}
-	if !validateArity(cmd.arity, args[1:]) {
+	cmd := cmdTable[cmdName]
+	if !validateArity(cmd.arity, cmdLine) {
 		return protocol.MakeArgNumErrReply(cmdName)
 	}
 
 	if cmd.prepare == nil {
 		return protocol.MakeErrReply("The command has no key arguments")
 	}
-	writeKeys, readKeys := cmd.prepare(args[1:])
+	writeKeys, readKeys := cmd.prepare(cmdLine[1:])
 	keys := append(writeKeys, readKeys...)
 	resp := make([][]byte, len(keys))
 	for i, key := range keys {
@@ -97,7 +97,7 @@ func getKeys(args [][]byte) redis.Reply {
 func getCommands(args [][]byte) redis.Reply {
 	replies := make([]redis.Reply, len(args))
 	for i, v := range args {
-		cmd, ok := cmdTable[string(v)]
+		cmd, ok := cmdTable[strings.ToLower(string(v))]
 		if ok {
 			replies[i] = cmd.toDescReply()
 		} else {

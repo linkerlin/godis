@@ -2,12 +2,85 @@ package database
 
 import (
 	"strings"
+	"sync"
 
 	"github.com/linkerlin/godis/interface/redis"
 	"github.com/linkerlin/godis/redis/protocol"
 )
 
 var cmdTable = make(map[string]*command)
+
+var (
+	cmdAliasesOnce sync.Once
+	cmdAliases     map[string]string
+)
+
+// buildCommandAliases creates mappings from multi-word command names (as standard
+// Redis clients send them) to the single-token names used in cmdTable.
+func buildCommandAliases() {
+	cmdAliases = make(map[string]string)
+	for name := range cmdTable {
+		lower := strings.ToLower(name)
+		var parts []string
+		if strings.Contains(lower, ".") {
+			parts = strings.SplitN(lower, ".", 2)
+		} else if strings.Contains(lower, "|") {
+			parts = strings.SplitN(lower, "|", 2)
+		}
+		if len(parts) == 2 {
+			alias := parts[0] + " " + parts[1]
+			cmdAliases[alias] = lower
+		}
+	}
+
+	// Godis-specific commands without a separator in their registration name.
+	manual := [][]string{
+		{"vs", "add", "vsadd"},
+		{"vs", "get", "vsget"},
+		{"vs", "del", "vsdel"},
+		{"vs", "search", "vssearch"},
+		{"vs", "query", "vsquery"},
+		{"vs", "range", "vsrange"},
+		{"vs", "len", "vslen"},
+		{"vs", "card", "vscard"},
+		{"tdigest", "create", "tdigest.create"},
+		{"tdigest", "add", "tdigest.add"},
+		{"tdigest", "quantile", "tdigest.quantile"},
+		{"tdigest", "cdf", "tdigest.cdf"},
+		{"tdigest", "info", "tdigest.info"},
+	}
+	for _, m := range manual {
+		cmdAliases[m[0]+" "+m[1]] = m[2]
+	}
+}
+
+// ResolveCommandLine resolves a possibly multi-word command into the internal
+// command name and a reconstructed command line where cmdLine[0] is the internal
+// name. It returns the original cmdLine unchanged when the first token already
+// maps to a registered command.
+func ResolveCommandLine(cmdLine [][]byte) (newCmdLine [][]byte, cmdName string, ok bool) {
+	if len(cmdLine) == 0 {
+		return nil, "", false
+	}
+	cmdAliasesOnce.Do(buildCommandAliases)
+
+	cmdName = strings.ToLower(string(cmdLine[0]))
+	if _, exists := cmdTable[cmdName]; exists {
+		return cmdLine, cmdName, true
+	}
+
+	if len(cmdLine) >= 2 {
+		alias := cmdName + " " + strings.ToLower(string(cmdLine[1]))
+		if full, found := cmdAliases[alias]; found {
+			newCmdLine = make([][]byte, 0, len(cmdLine)-1)
+			newCmdLine = append(newCmdLine, []byte(full))
+			newCmdLine = append(newCmdLine, cmdLine[2:]...)
+			return newCmdLine, full, true
+		}
+	}
+
+	return nil, cmdName, false
+}
 
 type command struct {
 	name     string

@@ -369,6 +369,202 @@ func execHPersist(db *DB, args [][]byte) redis.Reply {
 	return protocol.MakeIntReply(int64(persisted))
 }
 
+// hExpireFlags holds optional NX/XX/GT/LT modifiers
+type hExpireFlags struct {
+	nx bool
+	xx bool
+	gt bool
+	lt bool
+}
+
+func parseHExpireFlags(args [][]byte) (flags hExpireFlags, fields [][]byte, errReply redis.Reply) {
+	for i := 0; i < len(args); i++ {
+		arg := strings.ToUpper(string(args[i]))
+		switch arg {
+		case "NX":
+			flags.nx = true
+		case "XX":
+			flags.xx = true
+		case "GT":
+			flags.gt = true
+		case "LT":
+			flags.lt = true
+		default:
+			// first non-flag argument starts the field list
+			fields = args[i:]
+			return
+		}
+	}
+	return
+}
+
+func validateHExpireFlags(flags hExpireFlags) redis.Reply {
+	count := 0
+	if flags.nx {
+		count++
+	}
+	if flags.xx {
+		count++
+	}
+	if flags.gt {
+		count++
+	}
+	if flags.lt {
+		count++
+	}
+	if count > 1 {
+		return protocol.MakeErrReply("ERR NX, XX, GT, and LT options are mutually exclusive")
+	}
+	return nil
+}
+
+func execHExpireFamily(db *DB, args [][]byte, at bool, unit time.Duration) redis.Reply {
+	if len(args) < 3 {
+		return protocol.MakeErrReply("ERR wrong number of arguments")
+	}
+
+	key := string(args[0])
+	rawTTL, err := strconv.ParseInt(string(args[1]), 10, 64)
+	if err != nil || rawTTL <= 0 {
+		return protocol.MakeErrReply("ERR value is not an integer or out of range")
+	}
+
+	flags, fields, errReply := parseHExpireFlags(args[2:])
+	if errReply != nil {
+		return errReply
+	}
+	if len(fields) == 0 {
+		return protocol.MakeErrReply("ERR wrong number of arguments")
+	}
+	if reply := validateHExpireFlags(flags); reply != nil {
+		return reply
+	}
+
+	var expireAt time.Time
+	if at {
+		if unit == time.Second {
+			expireAt = time.Unix(rawTTL, 0)
+		} else {
+			expireAt = time.Unix(0, rawTTL*int64(time.Millisecond))
+		}
+	} else {
+		expireAt = time.Now().Add(time.Duration(rawTTL) * unit)
+	}
+
+	ed, errReply2 := db.getAsExpireDict(key)
+	if errReply2 != nil {
+		return errReply2
+	}
+	if ed == nil {
+		// key does not exist: every field is reported as missing
+		replies := make([]redis.Reply, len(fields))
+		for i := range fields {
+			replies[i] = protocol.MakeIntReply(-2)
+		}
+		return protocol.MakeMultiRawReply(replies)
+	}
+
+	results := make([]redis.Reply, len(fields))
+	now := time.Now()
+	for i, fieldBytes := range fields {
+		field := string(fieldBytes)
+		_, remaining, exists := ed.GetWithExpire(field)
+		if !exists {
+			results[i] = protocol.MakeIntReply(-2)
+			continue
+		}
+
+		hasExpire := remaining >= 0
+		var currentExpire time.Time
+		if hasExpire {
+			currentExpire = now.Add(remaining)
+		}
+
+		// condition checks
+		if flags.nx && hasExpire {
+			results[i] = protocol.MakeIntReply(0)
+			continue
+		}
+		if flags.xx && !hasExpire {
+			results[i] = protocol.MakeIntReply(0)
+			continue
+		}
+		if flags.gt && (!hasExpire || !expireAt.After(currentExpire)) {
+			results[i] = protocol.MakeIntReply(0)
+			continue
+		}
+		if flags.lt && (!hasExpire || !expireAt.Before(currentExpire)) {
+			results[i] = protocol.MakeIntReply(0)
+			continue
+		}
+
+		if !expireAt.After(now) {
+			ed.Delete(field)
+			results[i] = protocol.MakeIntReply(2)
+			continue
+		}
+
+		if ed.Expire(field, expireAt) {
+			results[i] = protocol.MakeIntReply(1)
+		} else {
+			results[i] = protocol.MakeIntReply(0)
+		}
+	}
+
+	return protocol.MakeMultiRawReply(results)
+}
+
+// execHExpire sets expiration on hash fields in seconds
+func execHExpire(db *DB, args [][]byte) redis.Reply {
+	return execHExpireFamily(db, args, false, time.Second)
+}
+
+// execHPExpire sets expiration on hash fields in milliseconds
+func execHPExpire(db *DB, args [][]byte) redis.Reply {
+	return execHExpireFamily(db, args, false, time.Millisecond)
+}
+
+// execHExpireAt sets absolute expiration on hash fields in unix seconds
+func execHExpireAt(db *DB, args [][]byte) redis.Reply {
+	return execHExpireFamily(db, args, true, time.Second)
+}
+
+// execHPExpireAt sets absolute expiration on hash fields in unix milliseconds
+func execHPExpireAt(db *DB, args [][]byte) redis.Reply {
+	return execHExpireFamily(db, args, true, time.Millisecond)
+}
+
+func undoHExpire(db *DB, args [][]byte) []CmdLine {
+	if len(args) < 3 {
+		return nil
+	}
+	key := string(args[0])
+	ed, errReply := db.getAsExpireDict(key)
+	if errReply != nil || ed == nil {
+		return rollbackGivenKeys(db, key)
+	}
+
+	var undoCmdLines []CmdLine
+	// args[1] is the TTL; args[2:] may contain flags before fields
+	_, fields, _ := parseHExpireFlags(args[2:])
+	for _, fieldBytes := range fields {
+		field := string(fieldBytes)
+		val, remaining, exists := ed.GetWithExpire(field)
+		if !exists {
+			undoCmdLines = append(undoCmdLines, utils.ToCmdLine("HDEL", key, field))
+			continue
+		}
+		value, _ := val.([]byte)
+		undoCmdLines = append(undoCmdLines, utils.ToCmdLine("HSET", key, field, string(value)))
+		if remaining >= 0 {
+			expireAtMs := time.Now().Add(remaining).UnixNano() / int64(time.Millisecond)
+			undoCmdLines = append(undoCmdLines, utils.ToCmdLine("HPEXPIREAT", key,
+				strconv.FormatInt(expireAtMs, 10), field))
+		}
+	}
+	return undoCmdLines
+}
+
 func undoHGetEx(db *DB, args [][]byte) []CmdLine {
 	// HGETEX的回滚比较复杂，因为它可能修改了过期时间
 	// 简化处理：只回滚字段值（如果字段被删除）
@@ -398,5 +594,14 @@ func init() {
 	registerCommand("HPTTL", execHPTTL, readFirstKey, nil, 3, flagReadOnly).
 		attachCommandExtra([]string{redisFlagReadonly, redisFlagFast}, 1, 1, 1)
 	registerCommand("HPersist", execHPersist, writeFirstKey, nil, -3, flagWrite).
+		attachCommandExtra([]string{redisFlagWrite, redisFlagFast}, 1, 1, 1)
+
+	registerCommand("HExpire", execHExpire, writeFirstKey, undoHExpire, -4, flagWrite).
+		attachCommandExtra([]string{redisFlagWrite, redisFlagFast}, 1, 1, 1)
+	registerCommand("HPExpire", execHPExpire, writeFirstKey, undoHExpire, -4, flagWrite).
+		attachCommandExtra([]string{redisFlagWrite, redisFlagFast}, 1, 1, 1)
+	registerCommand("HExpireAt", execHExpireAt, writeFirstKey, undoHExpire, -4, flagWrite).
+		attachCommandExtra([]string{redisFlagWrite, redisFlagFast}, 1, 1, 1)
+	registerCommand("HPExpireAt", execHPExpireAt, writeFirstKey, undoHExpire, -4, flagWrite).
 		attachCommandExtra([]string{redisFlagWrite, redisFlagFast}, 1, 1, 1)
 }

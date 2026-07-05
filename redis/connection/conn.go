@@ -51,9 +51,10 @@ type Connection struct {
 	// selected db
 	selectedDB int
 
-	clientID    uint64
-	clientName  string
-	trackingID  string
+	clientID        uint64
+	clientName      string
+	trackingID      string
+	protocolVersion int
 }
 
 var connPool = sync.Pool{
@@ -83,6 +84,7 @@ func (c *Connection) Close() error {
 	c.selectedDB = 0
 	c.clientName = ""
 	c.trackingID = ""
+	c.protocolVersion = 0
 	c.clientID = 0
 	connPool.Put(c)
 	return nil
@@ -148,6 +150,19 @@ func (c *Connection) SetTrackingID(id string) {
 
 func (c *Connection) GetTrackingID() string {
 	return c.trackingID
+}
+
+// SetProtocolVersion stores the RESP protocol version negotiated via HELLO.
+func (c *Connection) SetProtocolVersion(v int) {
+	c.protocolVersion = v
+}
+
+// GetProtocolVersion returns the RESP protocol version (default 2).
+func (c *Connection) GetProtocolVersion() int {
+	if c.protocolVersion == 0 {
+		return 2
+	}
+	return c.protocolVersion
 }
 
 // Subscribe add current connection into subscribers of the given channel

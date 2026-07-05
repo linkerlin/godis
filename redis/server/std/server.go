@@ -119,9 +119,14 @@ func (h *Handler) Handle(ctx context.Context, conn net.Conn) {
 		}
 		result := h.db.Exec(client, r.Args)
 		if result != nil {
-			bytes := result.ToBytes()
-			_, _ = client.Write(bytes)
-			stats.RecordOutput(len(bytes))
+			var resultBytes []byte
+			if client.GetProtocolVersion() == 3 {
+				resultBytes = protocol.ReplyToRESP3(result)
+			} else {
+				resultBytes = result.ToBytes()
+			}
+			_, _ = client.Write(resultBytes)
+			stats.RecordOutput(len(resultBytes))
 		} else {
 			_, _ = client.Write(unknownErrReplyBytes)
 			stats.RecordOutput(len(unknownErrReplyBytes))

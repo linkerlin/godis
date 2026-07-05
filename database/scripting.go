@@ -250,27 +250,37 @@ func redisReplyToGo(reply redis.Reply) interface{} {
 	switch r := reply.(type) {
 	case *protocol.BulkReply:
 		if r.Arg == nil {
-			return nil
+			return false // nil bulk → Lua false
 		}
 		return string(r.Arg)
+	case *protocol.NullBulkReply:
+		return false // Lua false (standard Redis Lua returns false for nil)
+	case *protocol.EmptyMultiBulkReply:
+		return []interface{}{}
 	case *protocol.IntReply:
 		return r.Code
 	case *protocol.StatusReply:
 		return r.Status
+	case *protocol.OkReply:
+		return "OK"
+	case *protocol.PongReply:
+		return "PONG"
 	case *protocol.MultiBulkReply:
 		result := make([]interface{}, len(r.Args))
 		for i, arg := range r.Args {
-			if arg == nil {
-				result[i] = nil
-			} else {
-				result[i] = string(arg)
-			}
+			result[i] = redisReplyToGo(protocol.MakeBulkReply(arg))
+		}
+		return result
+	case *protocol.MultiRawReply:
+		result := make([]interface{}, len(r.Replies))
+		for i, sub := range r.Replies {
+			result[i] = redisReplyToGo(sub)
 		}
 		return result
 	case *protocol.StandardErrReply:
 		return fmt.Errorf("%s", r.Status)
 	default:
-		return reply.ToBytes()
+		return string(reply.ToBytes())
 	}
 }
 

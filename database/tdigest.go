@@ -1,6 +1,7 @@
 package database
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
 
@@ -159,7 +160,18 @@ func execTDigestInfo(db *DB, args [][]byte) redis.Reply {
 	var reply [][]byte
 	for k, v := range info {
 		reply = append(reply, []byte(k))
-		reply = append(reply, []byte(strconv.FormatFloat(v.(float64), 'f', -1, 64)))
+		switch val := v.(type) {
+		case float64:
+			reply = append(reply, []byte(strconv.FormatFloat(val, 'f', -1, 64)))
+		case int:
+			reply = append(reply, []byte(strconv.Itoa(val)))
+		case int64:
+			reply = append(reply, []byte(strconv.FormatInt(val, 10)))
+		case uint64:
+			reply = append(reply, []byte(strconv.FormatUint(val, 10)))
+		default:
+			reply = append(reply, []byte(fmt.Sprintf("%v", v)))
+		}
 	}
 
 	return protocol.MakeMultiBulkReply(reply)
@@ -167,13 +179,13 @@ func execTDigestInfo(db *DB, args [][]byte) redis.Reply {
 
 func init() {
 	registerCommand("TDigest.Create", execTDigestCreate, writeFirstKey, nil, -2, flagWrite).
-		attachCommandExtra([]string{redisFlagWrite, redisFlagDenyOOM}, 0, 0, 0)
+		attachCommandExtra([]string{redisFlagWrite, redisFlagDenyOOM}, 1, 1, 1)
 	registerCommand("TDigest.Add", execTDigestAdd, writeFirstKey, nil, -3, flagWrite).
-		attachCommandExtra([]string{redisFlagWrite}, 0, 0, 0)
+		attachCommandExtra([]string{redisFlagWrite}, 1, 1, 1)
 	registerCommand("TDigest.Quantile", execTDigestQuantile, readFirstKey, nil, -3, flagReadOnly).
-		attachCommandExtra([]string{redisFlagReadonly}, 0, 0, 0)
+		attachCommandExtra([]string{redisFlagReadonly}, 1, 1, 1)
 	registerCommand("TDigest.CDF", execTDigestCDF, readFirstKey, nil, -3, flagReadOnly).
-		attachCommandExtra([]string{redisFlagReadonly}, 0, 0, 0)
+		attachCommandExtra([]string{redisFlagReadonly}, 1, 1, 1)
 	registerCommand("TDigest.Info", execTDigestInfo, readFirstKey, nil, 2, flagReadOnly).
-		attachCommandExtra([]string{redisFlagReadonly}, 0, 0, 0)
+		attachCommandExtra([]string{redisFlagReadonly}, 1, 1, 1)
 }
