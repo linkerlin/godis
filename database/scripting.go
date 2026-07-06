@@ -252,6 +252,10 @@ func redisReplyToGo(reply redis.Reply) interface{} {
 		if r.Arg == nil {
 			return false // nil bulk → Lua false
 		}
+		// Try to parse as integer first (HINCRBY, etc. return numbers as bulk strings)
+		if i, err := strconv.ParseInt(string(r.Arg), 10, 64); err == nil {
+			return i
+		}
 		return string(r.Arg)
 	case *protocol.NullBulkReply:
 		return false // Lua false (standard Redis Lua returns false for nil)

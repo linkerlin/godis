@@ -129,7 +129,7 @@ func init() {
 	registerSpecialCommand("Subscribe", -2, 0).
 		attachCommandExtra([]string{redisFlagPubSub, redisFlagNoScript, redisFlagLoading, redisFlagStale}, 0, 0, 0)
 	registerSpecialCommand("Publish", 3, 0).
-		attachCommandExtra([]string{redisFlagPubSub, redisFlagNoScript, redisFlagLoading, redisFlagFast}, 0, 0, 0)
+		attachCommandExtra([]string{redisFlagPubSub, redisFlagLoading, redisFlagFast}, 0, 0, 0)
 	registerSpecialCommand("FlushAll", -1, 0).
 		attachCommandExtra([]string{redisFlagWrite}, 0, 0, 0)
 	registerSpecialCommand("FlushDB", -1, 0).

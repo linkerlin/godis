@@ -11,6 +11,7 @@ import (
 	"github.com/linkerlin/godis/interface/redis"
 	"github.com/linkerlin/godis/lib/logger"
 	"github.com/linkerlin/godis/lib/timewheel"
+	"github.com/linkerlin/godis/pubsub"
 	"github.com/linkerlin/godis/redis/protocol"
 )
 
@@ -134,6 +135,17 @@ func (db *DB) Exec(c redis.Connection, cmdLine [][]byte) redis.Reply {
 
 	if cmdName == "client" {
 		return execClientConn(c, db, cmdLine[1:])
+	}
+
+	// ponytail: handle pub/sub commands that may be called from Lua scripts
+	if cmdName == "publish" {
+		if db.server != nil {
+			return pubsub.Publish(db.server.hub, cmdLine[1:])
+		}
+		return protocol.MakeIntReply(0)
+	}
+	if cmdName == "subscribe" || cmdName == "unsubscribe" {
+		return protocol.MakeErrReply("ERR " + cmdName + " is not allowed from Lua scripts")
 	}
 
 	return db.execNormalCommand(c, cmdLine)
