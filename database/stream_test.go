@@ -23,14 +23,14 @@ func TestStreamBasicWorkflow(t *testing.T) {
 	asserts.AssertIntReply(t, db.Exec(nil, utils.ToCmdLine("XLEN", "s:1")), 1)
 
 	rangeReply := db.Exec(nil, utils.ToCmdLine("XRANGE", "s:1", "-", "+"))
-	multi, ok := rangeReply.(*protocol.MultiBulkReply)
-	if !ok || len(multi.Args) == 0 {
+	multi, ok := rangeReply.(*protocol.MultiRawReply)
+	if !ok || len(multi.Replies) == 0 {
 		t.Fatalf("XRANGE: expected entries, got %s", rangeReply.ToBytes())
 	}
 
 	revReply := db.Exec(nil, utils.ToCmdLine("XREVRANGE", "s:1", "+", "-", "COUNT", "1"))
-	revMulti, ok := revReply.(*protocol.MultiBulkReply)
-	if !ok || len(revMulti.Args) < 3 {
+	revMulti, ok := revReply.(*protocol.MultiRawReply)
+	if !ok || len(revMulti.Replies) < 1 {
 		t.Fatalf("XREVRANGE COUNT: got %s", revReply.ToBytes())
 	}
 
