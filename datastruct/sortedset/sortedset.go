@@ -231,15 +231,17 @@ func (sortedSet *SortedSet) PopMin(count int) []*Element {
 
 // PopMax removes and returns members with highest scores
 func (sortedSet *SortedSet) PopMax(count int) []*Element {
-	last := sortedSet.skiplist.getLastInRange(scoreNegativeInfBorder, scorePositiveInfBorder)
-	if last == nil {
+	length := sortedSet.Len()
+	if length == 0 {
 		return nil
 	}
-	border := &ScoreBorder{
-		Value:   last.Score,
-		Exclude: false,
+	// 1-based rank
+	start := length - int64(count) + 1
+	if start < 1 {
+		start = 1
 	}
-	removed := sortedSet.skiplist.RemoveRange(scoreNegativeInfBorder, border, count)
+	stop := length + 1
+	removed := sortedSet.skiplist.RemoveRangeByRank(start, stop)
 	for _, element := range removed {
 		delete(sortedSet.dict, element.Member)
 	}

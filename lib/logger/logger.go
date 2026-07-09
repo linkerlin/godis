@@ -200,4 +200,6 @@ func Errorf(format string, v ...interface{}) {
 func Fatal(v ...interface{}) {
 	msg := fmt.Sprintln(v...)
 	DefaultLogger.Output(FATAL, defaultCallerDepth, msg)
+	fmt.Fprint(os.Stderr, msg)
+	os.Exit(1)
 }
