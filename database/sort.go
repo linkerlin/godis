@@ -1,6 +1,8 @@
 package database
 
 import (
+	"math"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -14,20 +16,19 @@ import (
 )
 
 // execSort sorts the elements in a list, set or sorted set
-// SORT key [BY pattern] [LIMIT offset count] [GET pattern [GET pattern ...]] [ASC|DESC] [ALPHA] [STORE destination]
+// SORT key [BY pattern] [LIMIT offset count] [GET pattern ...] [ASC|DESC] [ALPHA] [STORE destination]
 func execSort(db *DB, args [][]byte) redis.Reply {
 	if len(args) < 1 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'sort' command")
 	}
 
 	key := string(args[0])
-
-	// Parse options
 	byPattern := ""
 	offset := 0
 	count := -1
 	getPatterns := make([]string, 0)
 	alpha := false
+	desc := false
 	storeDest := ""
 
 	for i := 1; i < len(args); i++ {
@@ -60,9 +61,9 @@ func execSort(db *DB, args [][]byte) redis.Reply {
 			getPatterns = append(getPatterns, string(args[i+1]))
 			i++
 		case "ASC":
-			// ASC is default, desc = false
+			desc = false
 		case "DESC":
-			// DESC not fully implemented yet
+			desc = true
 		case "ALPHA":
 			alpha = true
 		case "STORE":
@@ -76,62 +77,94 @@ func execSort(db *DB, args [][]byte) redis.Reply {
 		}
 	}
 
-	// Get the data to sort
 	entity, exists := db.GetEntity(key)
 	if !exists {
+		if storeDest != "" {
+			db.Remove(storeDest)
+			return protocol.MakeIntReply(0)
+		}
 		return protocol.MakeEmptyMultiBulkReply()
 	}
 
-	// Extract elements based on data type
 	var elements []sortElement
 	switch val := entity.Data.(type) {
-	case []byte:
-		// Single string - just return it
-		return protocol.MakeMultiBulkReply([][]byte{val})
 	case List.List:
-		// List
 		val.ForEach(func(i int, v interface{}) bool {
-			elements = append(elements, sortElement{
-				value: v.([]byte),
-				score: float64(i),
-			})
+			b := v.([]byte)
+			elements = append(elements, sortElement{value: b, member: string(b)})
 			return true
 		})
 	case *Set.Set:
-		// Set
-		i := 0
 		val.ForEach(func(member string) bool {
-			elements = append(elements, sortElement{
-				value: []byte(member),
-				score: float64(i),
-			})
-			i++
+			elements = append(elements, sortElement{value: []byte(member), member: member})
 			return true
 		})
 	case *SortedSet.SortedSet:
-		// Sorted set - sort by score
-		members := val.RangeByRank(0, -1, false)
+		members := val.RangeByRank(0, val.Len(), false)
 		for _, elem := range members {
 			elements = append(elements, sortElement{
 				value:  []byte(elem.Member),
-				score:  elem.Score,
 				member: elem.Member,
+				score:  elem.Score,
 			})
 		}
 	default:
-		return protocol.MakeErrReply("WRONGTYPE Operation against a key holding the wrong kind of value")
+		return &protocol.WrongTypeErrReply{}
 	}
 
-	// Apply BY pattern (simplified - just use value as score)
-	if byPattern == "" && !alpha {
-		// Sort by numeric value of element
+	noSort := strings.EqualFold(byPattern, "nosort")
+	if !noSort {
 		for i := range elements {
-			s, _ := strconv.ParseFloat(string(elements[i].value), 64)
-			elements[i].score = s
+			if byPattern != "" {
+				lookup := strings.Replace(byPattern, "*", elements[i].member, 1)
+				raw, errReply := db.getAsString(lookup)
+				if errReply != nil {
+					return errReply
+				}
+				if alpha {
+					elements[i].cmpStr = string(raw)
+				} else {
+					elements[i].score = parseSortWeight(raw)
+				}
+			} else if alpha {
+				elements[i].cmpStr = elements[i].member
+			} else if _, isZ := entity.Data.(*SortedSet.SortedSet); !isZ {
+				elements[i].score = parseSortWeight(elements[i].value)
+			}
 		}
+
+		sort.SliceStable(elements, func(i, j int) bool {
+			cmp := 0
+			if alpha {
+				switch {
+				case elements[i].cmpStr < elements[j].cmpStr:
+					cmp = -1
+				case elements[i].cmpStr > elements[j].cmpStr:
+					cmp = 1
+				case elements[i].member < elements[j].member:
+					cmp = -1
+				case elements[i].member > elements[j].member:
+					cmp = 1
+				}
+			} else {
+				switch {
+				case elements[i].score < elements[j].score:
+					cmp = -1
+				case elements[i].score > elements[j].score:
+					cmp = 1
+				case elements[i].member < elements[j].member:
+					cmp = -1
+				case elements[i].member > elements[j].member:
+					cmp = 1
+				}
+			}
+			if desc {
+				return cmp > 0
+			}
+			return cmp < 0
+		})
 	}
 
-	// Apply LIMIT
 	if offset < 0 {
 		offset = 0
 	}
@@ -139,48 +172,52 @@ func execSort(db *DB, args [][]byte) redis.Reply {
 		count = len(elements)
 	}
 	end := offset + count
-	if end > len(elements) {
-		end = len(elements)
-	}
 	if offset >= len(elements) {
-		elements = []sortElement{}
+		elements = nil
 	} else {
+		if end > len(elements) {
+			end = len(elements)
+		}
 		elements = elements[offset:end]
 	}
 
-	// Apply GET patterns (simplified - just return the value)
 	var result [][]byte
 	for _, elem := range elements {
 		if len(getPatterns) == 0 {
 			result = append(result, elem.value)
-		} else {
-			for _, pattern := range getPatterns {
-				if pattern == "#" {
-					result = append(result, []byte(elem.member))
-				} else {
-					// Try to get value from key
-					getKey := strings.Replace(pattern, "*", elem.member, -1)
-					getEntity, exists := db.GetEntity(getKey)
-					if exists {
-						if v, ok := getEntity.Data.([]byte); ok {
-							result = append(result, v)
-						} else {
-							result = append(result, []byte{})
-						}
-					} else {
-						result = append(result, []byte{})
-					}
-				}
+			continue
+		}
+		for _, pattern := range getPatterns {
+			if pattern == "#" {
+				result = append(result, elem.value)
+				continue
+			}
+			getKey := strings.Replace(pattern, "*", elem.member, 1)
+			raw, errReply := db.getAsString(getKey)
+			if errReply != nil {
+				return errReply
+			}
+			if raw == nil {
+				result = append(result, nil) // null bulk
+			} else {
+				result = append(result, raw)
 			}
 		}
 	}
 
-	// Store or return
 	if storeDest != "" {
-		// Store as list
+		if len(result) == 0 {
+			db.Remove(storeDest)
+			db.addAof(utils.ToCmdLine3("sort", args...))
+			return protocol.MakeIntReply(0)
+		}
 		list := List.NewQuickList()
 		for _, v := range result {
-			list.Add(v)
+			if v == nil {
+				list.Add([]byte{})
+			} else {
+				list.Add(v)
+			}
 		}
 		db.PutEntity(storeDest, &database.DataEntity{Data: list})
 		db.addAof(utils.ToCmdLine3("sort", args...))
@@ -190,13 +227,42 @@ func execSort(db *DB, args [][]byte) redis.Reply {
 	return protocol.MakeMultiBulkReply(result)
 }
 
+func parseSortWeight(raw []byte) float64 {
+	if len(raw) == 0 {
+		return 0
+	}
+	f, err := strconv.ParseFloat(string(raw), 64)
+	if err != nil {
+		return 0
+	}
+	if math.IsNaN(f) {
+		return 0
+	}
+	return f
+}
+
 type sortElement struct {
 	value  []byte
-	score  float64
 	member string
+	score  float64
+	cmpStr string
+}
+
+func prepareSort(args [][]byte) ([]string, []string) {
+	if len(args) < 1 {
+		return nil, nil
+	}
+	write := []string{string(args[0])}
+	for i := 1; i < len(args); i++ {
+		if strings.EqualFold(string(args[i]), "STORE") && i+1 < len(args) {
+			write = append(write, string(args[i+1]))
+			i++
+		}
+	}
+	return write, nil
 }
 
 func init() {
-	registerCommand("Sort", execSort, writeFirstKey, rollbackFirstKey, -2, flagWrite).
+	registerCommand("Sort", execSort, prepareSort, rollbackFirstKey, -2, flagWrite).
 		attachCommandExtra([]string{redisFlagWrite, redisFlagDenyOOM}, 1, 1, 1)
 }
