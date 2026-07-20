@@ -256,6 +256,24 @@ func (s *Stream) Add(idStr string, fields map[string]string, opts *AddOptions) (
 	return id, nil
 }
 
+// Trim removes entries according to MaxLen / MinID options without inserting new ones.
+func (s *Stream) Trim(opts *AddOptions) int64 {
+	if opts == nil {
+		return 0
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	before := int64(s.entries.Len())
+	if opts.MaxLen > 0 {
+		s.trimToMaxLen(opts.MaxLen, opts.MaxLenApprox)
+	}
+	if !opts.MinID.IsZero() {
+		s.trimToMinID(opts.MinID, opts.Limit)
+	}
+	return before - int64(s.entries.Len())
+}
+
 // trimToMaxLen 根据最大长度裁剪Stream
 func (s *Stream) trimToMaxLen(maxlen int64, approx bool) {
 	if approx {

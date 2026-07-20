@@ -113,12 +113,16 @@ func execRename(db *DB, args [][]byte) redis.Reply {
 	if !ok {
 		return protocol.MakeErrReply("no such key")
 	}
+	// Redis: RENAME key key is a no-op that returns OK
+	if src == dest {
+		return &protocol.OkReply{}
+	}
 	rawTTL, hasTTL := db.ttlMap.Get(src)
 	db.PutEntity(dest, entity)
 	db.Remove(src)
+	// Always clear dest TTL first; only restore if src had one
+	db.Persist(dest)
 	if hasTTL {
-		db.Persist(src) // clean src and dest with their ttl
-		db.Persist(dest)
 		expireTime, _ := rawTTL.(time.Time)
 		db.Expire(dest, expireTime)
 	}

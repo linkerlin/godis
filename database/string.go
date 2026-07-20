@@ -620,7 +620,10 @@ func execSetRange(db *DB, args [][]byte) redis.Reply {
 	key := string(args[0])
 	offset, errNative := strconv.ParseInt(string(args[1]), 10, 64)
 	if errNative != nil {
-		return protocol.MakeErrReply(errNative.Error())
+		return protocol.MakeErrReply("ERR value is not an integer or out of range")
+	}
+	if offset < 0 {
+		return protocol.MakeErrReply("ERR offset is out of range")
 	}
 	value := args[2]
 	if reply := validateBulkBytes(value); reply != nil {
@@ -687,7 +690,7 @@ func execGetRange(db *DB, args [][]byte) redis.Reply {
 func execSetBit(db *DB, args [][]byte) redis.Reply {
 	key := string(args[0])
 	offset, err := strconv.ParseInt(string(args[1]), 10, 64)
-	if err != nil {
+	if err != nil || offset < 0 {
 		return protocol.MakeErrReply("ERR bit offset is not an integer or out of range")
 	}
 	valStr := string(args[2])
@@ -714,7 +717,7 @@ func execSetBit(db *DB, args [][]byte) redis.Reply {
 func execGetBit(db *DB, args [][]byte) redis.Reply {
 	key := string(args[0])
 	offset, err := strconv.ParseInt(string(args[1]), 10, 64)
-	if err != nil {
+	if err != nil || offset < 0 {
 		return protocol.MakeErrReply("ERR bit offset is not an integer or out of range")
 	}
 	bs, errReply := db.getAsString(key)
@@ -736,6 +739,10 @@ func execBitCount(db *DB, args [][]byte) redis.Reply {
 	}
 	if bs == nil {
 		return protocol.MakeIntReply(0)
+	}
+	// BITCOUNT key [start end [BYTE|BIT]] — start alone is invalid
+	if len(args) == 2 {
+		return protocol.MakeErrReply("ERR syntax error")
 	}
 	byteMode := true
 	if len(args) > 3 {
@@ -827,20 +834,23 @@ func execBitPos(db *DB, args [][]byte) redis.Reply {
 	}
 	var beg, end int
 	if len(args) > 2 {
-		var err2 error
-		var startIdx, endIdx int64
-		startIdx, err2 = strconv.ParseInt(string(args[2]), 10, 64)
+		startIdx, err2 := strconv.ParseInt(string(args[2]), 10, 64)
 		if err2 != nil {
 			return protocol.MakeErrReply("ERR value is not an integer or out of range")
 		}
-		endIdx, err2 = strconv.ParseInt(string(args[3]), 10, 64)
-		if err2 != nil {
-			return protocol.MakeErrReply("ERR value is not an integer or out of range")
+		endIdx := size - 1
+		if len(args) > 3 {
+			endIdx, err2 = strconv.ParseInt(string(args[3]), 10, 64)
+			if err2 != nil {
+				return protocol.MakeErrReply("ERR value is not an integer or out of range")
+			}
 		}
 		beg, end = utils.ConvertRange(startIdx, endIdx, size)
 		if beg < 0 {
 			return protocol.MakeIntReply(0)
 		}
+	} else {
+		end = int(size)
 	}
 	if byteMode {
 		beg *= 8

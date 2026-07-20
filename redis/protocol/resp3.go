@@ -127,13 +127,24 @@ func (r *MapReply) Put(key string, value redis.Reply) {
 	r.Data[key] = value
 }
 
-// ToBytes marshals redis.Reply
+// ToBytes marshals as RESP2 array (flat key/value pairs) for RESP2 connections.
 func (r *MapReply) ToBytes() []byte {
+	var buf bytes.Buffer
+	buf.WriteString("*" + strconv.Itoa(len(r.Data)*2) + CRLF)
+	for k, v := range r.Data {
+		buf.Write(MakeBulkReply([]byte(k)).ToBytes())
+		buf.Write(v.ToBytes())
+	}
+	return buf.Bytes()
+}
+
+// ToRESP3 marshals as RESP3 map.
+func (r *MapReply) ToRESP3() []byte {
 	var buf bytes.Buffer
 	buf.WriteString(fmt.Sprintf("%%%d\r\n", len(r.Data)))
 	for k, v := range r.Data {
 		buf.Write(MakeBulkReply([]byte(k)).ToBytes())
-		buf.Write(v.ToBytes())
+		buf.Write(ReplyToRESP3(v))
 	}
 	return buf.Bytes()
 }
@@ -148,12 +159,22 @@ func MakeSetReply(data []redis.Reply) *SetReply {
 	return &SetReply{Data: data}
 }
 
-// ToBytes marshals redis.Reply
+// ToBytes marshals as RESP2 array for RESP2 connections.
 func (r *SetReply) ToBytes() []byte {
+	var buf bytes.Buffer
+	buf.WriteString("*" + strconv.Itoa(len(r.Data)) + CRLF)
+	for _, elem := range r.Data {
+		buf.Write(elem.ToBytes())
+	}
+	return buf.Bytes()
+}
+
+// ToRESP3 marshals as RESP3 set.
+func (r *SetReply) ToRESP3() []byte {
 	var buf bytes.Buffer
 	buf.WriteString(fmt.Sprintf("~%d\r\n", len(r.Data)))
 	for _, elem := range r.Data {
-		buf.Write(elem.ToBytes())
+		buf.Write(ReplyToRESP3(elem))
 	}
 	return buf.Bytes()
 }
@@ -169,8 +190,16 @@ func MakeAttributeReply(attrs *MapReply, reply redis.Reply) *AttributeReply {
 	return &AttributeReply{Attributes: attrs, Reply: reply}
 }
 
-// ToBytes marshals redis.Reply as a RESP3 attribute.
+// ToBytes drops attributes for RESP2 and returns the wrapped reply.
 func (r *AttributeReply) ToBytes() []byte {
+	if r.Reply == nil {
+		return MakeNullBulkReply().ToBytes()
+	}
+	return r.Reply.ToBytes()
+}
+
+// ToRESP3 marshals as a RESP3 attribute.
+func (r *AttributeReply) ToRESP3() []byte {
 	var buf bytes.Buffer
 	buf.WriteString(fmt.Sprintf("|%d\r\n", len(r.Attributes.Data)))
 	for k, v := range r.Attributes.Data {
@@ -192,13 +221,24 @@ func MakePushReply(kind string, data []redis.Reply) *PushReply {
 	return &PushReply{Kind: kind, Data: data}
 }
 
-// ToBytes marshals redis.Reply
+// ToBytes marshals as RESP2 array for RESP2 connections.
 func (r *PushReply) ToBytes() []byte {
+	var buf bytes.Buffer
+	buf.WriteString("*" + strconv.Itoa(len(r.Data)+1) + CRLF)
+	buf.Write(MakeBulkReply([]byte(r.Kind)).ToBytes())
+	for _, elem := range r.Data {
+		buf.Write(elem.ToBytes())
+	}
+	return buf.Bytes()
+}
+
+// ToRESP3 marshals as RESP3 push.
+func (r *PushReply) ToRESP3() []byte {
 	var buf bytes.Buffer
 	buf.WriteString(fmt.Sprintf(">%d\r\n", len(r.Data)+1))
 	buf.Write(MakeBulkReply([]byte(r.Kind)).ToBytes())
 	for _, elem := range r.Data {
-		buf.Write(elem.ToBytes())
+		buf.Write(ReplyToRESP3(elem))
 	}
 	return buf.Bytes()
 }
@@ -551,9 +591,13 @@ func ReplyToRESP3(reply redis.Reply) []byte {
 		}
 		return buf.Bytes()
 	case *AttributeReply:
-		return r.ToBytes()
-	case *PushReply, *SetReply, *MapReply:
-		return r.ToBytes()
+		return r.ToRESP3()
+	case *PushReply:
+		return r.ToRESP3()
+	case *SetReply:
+		return r.ToRESP3()
+	case *MapReply:
+		return r.ToRESP3()
 	case RESP3Reply:
 		return r.ToRESP3()
 	default:

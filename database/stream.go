@@ -689,23 +689,12 @@ func execXTrim(db *DB, args [][]byte) redis.Reply {
 		return protocol.MakeIntReply(0)
 	}
 
-	// 执行裁剪 (这里简化处理，实际需要更好的实现)
-	beforeLen := s.Len()
-
-	// 重新添加maxlen/minid限制
-	if opts.MaxLen > 0 {
-		// 创建临时条目触发裁剪
-		s.Add("9999999999999-0", map[string]string{"_": "_"}, &opts)
-	}
-
-	afterLen := s.Len()
-	trimmed := beforeLen - afterLen
-
+	trimmed := s.Trim(&opts)
 	if trimmed > 0 {
 		db.addAof(utils.ToCmdLine3("xtrim", args...))
 	}
 
-	return protocol.MakeIntReply(int64(trimmed))
+	return protocol.MakeIntReply(trimmed)
 }
 
 // execXGroup handles XGROUP subcommands

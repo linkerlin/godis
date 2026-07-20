@@ -146,6 +146,9 @@ func execSPop(db *DB, args [][]byte) redis.Reply {
 		result[i] = []byte(v)
 	}
 
+	if set.Len() == 0 {
+		db.Remove(key)
+	}
 	if count > 0 {
 		db.addAof(utils.ToCmdLine3("spop", args...))
 	}

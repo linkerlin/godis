@@ -108,6 +108,9 @@ func execLPop(db *DB, args [][]byte) redis.Reply {
 		if err != nil {
 			return protocol.MakeErrReply("ERR value is not an integer or out of range")
 		}
+		if count64 <= 0 {
+			return protocol.MakeErrReply("ERR value is out of range, must be positive")
+		}
 		count := int(count64)
 		if count > list.Len() {
 			count = list.Len()
@@ -422,6 +425,9 @@ func execRPop(db *DB, args [][]byte) redis.Reply {
 		if err != nil {
 			return protocol.MakeErrReply("ERR value is not an integer or out of range")
 		}
+		if count64 <= 0 {
+			return protocol.MakeErrReply("ERR value is out of range, must be positive")
+		}
 		count := int(count64)
 		if count > list.Len() {
 			count = list.Len()
@@ -650,6 +656,9 @@ func execLTrim(db *DB, args [][]byte) redis.Reply {
 	}
 	for i := 0; i < rightCount && list.Len() > 0; i++ {
 		list.RemoveLast()
+	}
+	if list.Len() == 0 {
+		db.Remove(key)
 	}
 
 	db.addAof(utils.ToCmdLine3("ltrim", args...))

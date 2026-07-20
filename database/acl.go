@@ -1,6 +1,7 @@
 package database
 
 import (
+	"crypto/rand"
 	"strconv"
 	"strings"
 	"sync"
@@ -402,9 +403,22 @@ func execACLHelp(args [][]byte) redis.Reply {
 }
 
 // execACLGenPass generates a secure password
+// ACL GENPASS [bits] — bits defaults to 256, must be multiple of 4 between 1 and 4096
 func execACLGenPass(args [][]byte) redis.Reply {
-	// Simplified - generate a 64-character random string
-	password := generateRandomPassword(64)
+	bits := 256
+	if len(args) > 1 {
+		return protocol.MakeErrReply("ERR wrong number of arguments for 'acl|genpass' command")
+	}
+	if len(args) == 1 {
+		n, err := strconv.Atoi(string(args[0]))
+		if err != nil || n <= 0 || n > 4096 || n%4 != 0 {
+			return protocol.MakeErrReply("ERR The size of the password should be a multiple of 4 between 4 and 4096")
+		}
+		bits = n
+	}
+	// Each hex char is 4 bits
+	length := bits / 4
+	password := generateRandomPassword(length)
 	return protocol.MakeBulkReply([]byte(password))
 }
 
@@ -553,15 +567,21 @@ func formatACLUserReply(user *acl.User) redis.Reply {
 	return protocol.MakeMultiBulkReply(result)
 }
 
-// generateRandomPassword generates a random password
+// generateRandomPassword generates a cryptographically random hex password
 func generateRandomPassword(length int) string {
-	// Simplified - generate random hex string
-	chars := "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-	result := make([]byte, length)
-	for i := 0; i < length; i++ {
-		result[i] = chars[i%len(chars)]
+	const hexchars = "0123456789abcdef"
+	buf := make([]byte, length)
+	if _, err := rand.Read(buf); err != nil {
+		// Extremely unlikely; fall back to zeroed hex rather than a fixed pattern
+		for i := range buf {
+			buf[i] = '0'
+		}
+		return string(buf)
 	}
-	return string(result)
+	for i := 0; i < length; i++ {
+		buf[i] = hexchars[buf[i]%16]
+	}
+	return string(buf)
 }
 
 func init() {

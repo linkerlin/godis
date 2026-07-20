@@ -153,13 +153,13 @@ func TestParseRESP3Types(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			original := tc.input.ToBytes()
+			original := protocol.ReplyToRESP3(tc.input)
 			parsed, err := ParseOne(original)
 			if err != nil {
 				t.Fatalf("parse error: %v", err)
 			}
-			if !utils.BytesEquals(parsed.ToBytes(), original) {
-				t.Fatalf("roundtrip mismatch:\noriginal: %q\nparsed:   %q", original, parsed.ToBytes())
+			if !utils.BytesEquals(protocol.ReplyToRESP3(parsed), original) {
+				t.Fatalf("roundtrip mismatch:\noriginal: %q\nparsed:   %q", original, protocol.ReplyToRESP3(parsed))
 			}
 		})
 	}
@@ -169,7 +169,7 @@ func TestParseRESP3Map(t *testing.T) {
 	m := protocol.MakeMapReply()
 	m.Put("proto", protocol.MakeIntReply(3))
 	m.Put("server", protocol.MakeBulkReply([]byte("godis")))
-	parsed, err := ParseOne(m.ToBytes())
+	parsed, err := ParseOne(protocol.ReplyToRESP3(m))
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
@@ -193,7 +193,7 @@ func TestParseRESP3Attribute(t *testing.T) {
 	attrs := protocol.MakeMapReply()
 	attrs.Put("key-popularity", protocol.MakeBulkReply([]byte("high")))
 	attr := protocol.MakeAttributeReply(attrs, protocol.MakeIntReply(42))
-	parsed, err := ParseOne(attr.ToBytes())
+	parsed, err := ParseOne(protocol.ReplyToRESP3(attr))
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}

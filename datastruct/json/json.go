@@ -158,6 +158,51 @@ func (jv *JSONValue) NumIncrBy(path string, increment float64) (float64, error) 
 	return newVal, nil
 }
 
+// NumMultBy multiplies a number at the given path by the specified factor
+func (jv *JSONValue) NumMultBy(path string, multiplier float64) (float64, error) {
+	jv.mu.Lock()
+	defer jv.mu.Unlock()
+
+	val, err := jv.getPath(path)
+	if err != nil {
+		return 0, err
+	}
+
+	var num float64
+	switch v := val.(type) {
+	case float64:
+		num = v
+	case float32:
+		num = float64(v)
+	case int:
+		num = float64(v)
+	case int64:
+		num = float64(v)
+	default:
+		return 0, fmt.Errorf("value at path is not a number")
+	}
+
+	newVal := num * multiplier
+	jv.setPath(path, newVal, false, false)
+	return newVal, nil
+}
+
+// StrLen returns the length of a string at the given path
+func (jv *JSONValue) StrLen(path string) (int, error) {
+	jv.mu.RLock()
+	defer jv.mu.RUnlock()
+
+	val, err := jv.getPath(path)
+	if err != nil {
+		return 0, err
+	}
+	str, ok := val.(string)
+	if !ok {
+		return 0, fmt.Errorf("value at path is not a string")
+	}
+	return len(str), nil
+}
+
 // StrAppend appends a string to the value at the given path
 func (jv *JSONValue) StrAppend(path string, appendStr string) (int, error) {
 	jv.mu.Lock()

@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/linkerlin/godis/lib/utils"
+	"github.com/linkerlin/godis/redis/protocol"
 	"github.com/linkerlin/godis/redis/protocol/asserts"
 )
 
@@ -122,10 +123,12 @@ func TestZMPop(t *testing.T) {
 	// Prepare data
 	asserts.AssertNotError(t, testDB.Exec(nil, utils.ToCmdLine("ZAdd", "zset1", "1", "a", "2", "b", "3", "c")))
 
-	// Test ZMPOP MIN
+	// Test ZMPOP MIN — nested MultiRawReply [key, [[member, score], ...]]
 	result := testDB.Exec(nil, utils.ToCmdLine("ZMPOP", "1", "zset1", "MIN"))
-	// Returns: [zset1, [[a, 1]]]
-	asserts.AssertMultiBulkReplySize(t, result, 2)
+	raw, ok := result.(*protocol.MultiRawReply)
+	if !ok || len(raw.Replies) != 2 {
+		t.Fatalf("ZMPOP MIN: expected MultiRawReply len 2, got %T %s", result, result.ToBytes())
+	}
 
 	// Check remaining elements
 	result = testDB.Exec(nil, utils.ToCmdLine("ZCARD", "zset1"))
@@ -134,8 +137,14 @@ func TestZMPop(t *testing.T) {
 	// Test ZMPOP MAX with count
 	asserts.AssertNotError(t, testDB.Exec(nil, utils.ToCmdLine("ZAdd", "zset2", "1", "x", "2", "y", "3", "z")))
 	result = testDB.Exec(nil, utils.ToCmdLine("ZMPOP", "1", "zset2", "MAX", "COUNT", "2"))
-	// Returns: [zset2, [[z, 3], [y, 2]]]
-	asserts.AssertMultiBulkReplySize(t, result, 2)
+	raw, ok = result.(*protocol.MultiRawReply)
+	if !ok || len(raw.Replies) != 2 {
+		t.Fatalf("ZMPOP MAX: expected MultiRawReply len 2, got %T %s", result, result.ToBytes())
+	}
+	elems, ok := raw.Replies[1].(*protocol.MultiRawReply)
+	if !ok || len(elems.Replies) != 2 {
+		t.Fatalf("ZMPOP MAX COUNT 2: expected 2 pairs, got %v", raw.Replies[1])
+	}
 
 	// Test ZMPOP on non-existent key
 	result = testDB.Exec(nil, utils.ToCmdLine("ZMPOP", "1", "nonexistent", "MIN"))

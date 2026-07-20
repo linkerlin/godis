@@ -403,7 +403,7 @@ func execGeoSearch(db *DB, args [][]byte) redis.Reply {
 
 	// Get all members and filter
 	var results []geoSearchResult
-	allMembers := sortedSet.RangeByRank(0, -1, false)
+	allMembers := sortedSet.RangeByRank(0, sortedSet.Len(), false)
 
 	for _, elem := range allMembers {
 		if elem.Member == member && useMember {
@@ -515,10 +515,24 @@ func execGeoSearchStore(db *DB, args [][]byte) redis.Reply {
 	}
 
 	destKey := string(args[0])
-	// Source key is args[1], remaining args similar to GEOSEARCH
+	storeDist := false
+	searchArgs := make([][]byte, 0, len(args)-1)
+	searchArgs = append(searchArgs, args[1]) // source key
+	for i := 2; i < len(args); i++ {
+		arg := strings.ToUpper(string(args[i]))
+		switch arg {
+		case "STOREDIST":
+			storeDist = true
+		case "WITHCOORD", "WITHDIST", "WITHHASH":
+			return protocol.MakeErrReply("ERR syntax error")
+		default:
+			searchArgs = append(searchArgs, args[i])
+		}
+	}
 
-	// Call GEOSEARCH with source key
-	searchResult := execGeoSearch(db, args[1:])
+	// Force WITHDIST+WITHHASH so we can recover score/distance from nested replies
+	searchWithMeta := append(append([][]byte{}, searchArgs...), []byte("WITHDIST"), []byte("WITHHASH"))
+	searchResult := execGeoSearch(db, searchWithMeta)
 	if protocol.IsErrorReply(searchResult) {
 		return searchResult
 	}
@@ -528,19 +542,33 @@ func execGeoSearchStore(db *DB, args [][]byte) redis.Reply {
 		return protocol.MakeIntReply(0)
 	}
 
-	// Create sorted set with results
 	newSet := sortedset.Make()
 	for _, r := range multiReply.Replies {
-		switch v := r.(type) {
-		case *protocol.BulkReply:
-			member := string(v.Arg)
-			// Need to get the original score
-			// Simplified: use distance as score
-			newSet.Add(member, 0)
+		nested, ok := r.(*protocol.MultiRawReply)
+		if !ok || len(nested.Replies) < 3 {
+			continue
 		}
+		memberBulk, ok1 := nested.Replies[0].(*protocol.BulkReply)
+		distBulk, ok2 := nested.Replies[1].(*protocol.BulkReply)
+		hashBulk, ok3 := nested.Replies[2].(*protocol.BulkReply)
+		if !ok1 || !ok2 || !ok3 {
+			continue
+		}
+		member := string(memberBulk.Arg)
+		var score float64
+		if storeDist {
+			score, _ = strconv.ParseFloat(string(distBulk.Arg), 64)
+		} else {
+			score, _ = strconv.ParseFloat(string(hashBulk.Arg), 64)
+		}
+		newSet.Add(member, score)
 	}
 
-	db.PutEntity(destKey, &database.DataEntity{Data: newSet})
+	if newSet.Len() == 0 {
+		db.Remove(destKey)
+	} else {
+		db.PutEntity(destKey, &database.DataEntity{Data: newSet})
+	}
 	db.addAof(utils.ToCmdLine3("geosearchstore", args...))
 
 	return protocol.MakeIntReply(int64(newSet.Len()))

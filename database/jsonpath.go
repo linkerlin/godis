@@ -6,6 +6,7 @@ import (
 
 	godisjson "github.com/linkerlin/godis/datastruct/json"
 	"github.com/linkerlin/godis/interface/redis"
+	"github.com/linkerlin/godis/lib/utils"
 	"github.com/linkerlin/godis/redis/protocol"
 )
 
@@ -59,18 +60,28 @@ func execJSONNumMultBy(db *DB, args [][]byte) redis.Reply {
 	key := string(args[0])
 	path := string(args[1])
 
-	// Parse multiplier
 	multiplier, err := strconv.ParseFloat(string(args[2]), 64)
 	if err != nil {
 		return protocol.MakeErrReply("ERR value is not a number")
 	}
 
-	_ = key
-	_ = path
-	_ = multiplier
+	entity, exists := db.GetEntity(key)
+	if !exists {
+		return protocol.MakeErrReply("ERR key does not exist")
+	}
 
-	// Simplified: return OK
-	return protocol.MakeOkReply()
+	jv, ok := entity.Data.(*godisjson.JSONValue)
+	if !ok {
+		return &protocol.WrongTypeErrReply{}
+	}
+
+	newVal, err := jv.NumMultBy(path, multiplier)
+	if err != nil {
+		return protocol.MakeErrReply("ERR " + err.Error())
+	}
+
+	db.addAof(utils.ToCmdLine3("json.nummultby", args...))
+	return protocol.MakeBulkReply([]byte(strconv.FormatFloat(newVal, 'g', -1, 64)))
 }
 
 // execJSONStrLen returns string length
@@ -86,11 +97,21 @@ func execJSONStrLen(db *DB, args [][]byte) redis.Reply {
 		path = string(args[1])
 	}
 
-	_ = key
-	_ = path
+	entity, exists := db.GetEntity(key)
+	if !exists {
+		return &protocol.NullBulkReply{}
+	}
 
-	// Simplified: return 0
-	return protocol.MakeIntReply(0)
+	jv, ok := entity.Data.(*godisjson.JSONValue)
+	if !ok {
+		return &protocol.WrongTypeErrReply{}
+	}
+
+	length, err := jv.StrLen(path)
+	if err != nil {
+		return protocol.MakeErrReply("ERR " + err.Error())
+	}
+	return protocol.MakeIntReply(int64(length))
 }
 
 // execJSONArrPop pops an element from array
@@ -209,17 +230,15 @@ func execJSONArrIndex(db *DB, args [][]byte) redis.Reply {
 }
 
 func init() {
-	// Register JSON commands
-	registerCommand("JSON.NumMultBy", execJSONNumMultBy, nil, nil, 4, flagWrite).
-		attachCommandExtra([]string{redisFlagWrite}, 0, 0, 0)
-	registerCommand("JSON.StrLen", execJSONStrLen, nil, nil, -2, flagReadOnly).
-		attachCommandExtra([]string{redisFlagReadonly}, 0, 0, 0)
-	registerCommand("JSON.ArrLen", execJSONArrLen, nil, nil, -2, flagReadOnly).
-		attachCommandExtra([]string{redisFlagReadonly}, 0, 0, 0)
-	registerCommand("JSON.ArrPop", execJSONArrPop, nil, nil, -2, flagWrite).
-		attachCommandExtra([]string{redisFlagWrite}, 0, 0, 0)
-	registerCommand("JSON.ArrTrim", execJSONArrTrim, nil, nil, 5, flagWrite).
-		attachCommandExtra([]string{redisFlagWrite}, 0, 0, 0)
-	registerCommand("JSON.ArrIndex", execJSONArrIndex, nil, nil, -4, flagReadOnly).
-		attachCommandExtra([]string{redisFlagReadonly}, 0, 0, 0)
+	// Register JSON commands (ArrLen is registered in json.go with prepareJSONKey)
+	registerCommand("JSON.NumMultBy", execJSONNumMultBy, prepareJSONKey, nil, 4, flagWrite).
+		attachCommandExtra([]string{redisFlagWrite}, 1, 1, 1)
+	registerCommand("JSON.StrLen", execJSONStrLen, prepareJSONKey, nil, -2, flagReadOnly).
+		attachCommandExtra([]string{redisFlagReadonly}, 1, 1, 1)
+	registerCommand("JSON.ArrPop", execJSONArrPop, prepareJSONKey, nil, -2, flagWrite).
+		attachCommandExtra([]string{redisFlagWrite}, 1, 1, 1)
+	registerCommand("JSON.ArrTrim", execJSONArrTrim, prepareJSONKey, nil, 5, flagWrite).
+		attachCommandExtra([]string{redisFlagWrite}, 1, 1, 1)
+	registerCommand("JSON.ArrIndex", execJSONArrIndex, prepareJSONKey, nil, -4, flagReadOnly).
+		attachCommandExtra([]string{redisFlagReadonly}, 1, 1, 1)
 }

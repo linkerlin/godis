@@ -62,7 +62,7 @@ func execZAdd(db *DB, args [][]byte) redis.Reply {
 		scoreValue := args[2*i+1]
 		member := string(args[2*i+2])
 		score, err := strconv.ParseFloat(string(scoreValue), 64)
-		if err != nil {
+		if err != nil || math.IsNaN(score) {
 			return protocol.MakeErrReply("ERR value is not a valid float")
 		}
 		elements[i] = &SortedSet.Element{
@@ -652,7 +652,7 @@ func execZIncrBy(db *DB, args [][]byte) redis.Reply {
 	rawDelta := string(args[1])
 	field := string(args[2])
 	delta, err := strconv.ParseFloat(rawDelta, 64)
-	if err != nil {
+	if err != nil || math.IsNaN(delta) {
 		return protocol.MakeErrReply("ERR value is not a valid float")
 	}
 
@@ -669,6 +669,9 @@ func execZIncrBy(db *DB, args [][]byte) redis.Reply {
 		return protocol.MakeBulkReply(args[1])
 	}
 	score := element.Score + delta
+	if math.IsNaN(score) {
+		return protocol.MakeErrReply("ERR resulting score is not a number (NaN)")
+	}
 	sortedSet.Add(field, score)
 	bytes := []byte(strconv.FormatFloat(score, 'f', -1, 64))
 	db.addAof(utils.ToCmdLine3("zincrby", args...))
@@ -1390,21 +1393,22 @@ func execZMPop(db *DB, args [][]byte) redis.Reply {
 			continue
 		}
 
-		// Build reply: [key, [[member, score], ...]]
-		var result [][]byte
-		result = append(result, []byte(key))
-
-		var elementsReply [][]byte
+		// Build reply: [key, [[member, score], ...]] as nested MultiRawReply
+		elements := make([]redis.Reply, 0, len(removed))
 		for _, elem := range removed {
-			elemPair := [][]byte{
-				[]byte(elem.Member),
-				[]byte(strconv.FormatFloat(elem.Score, 'f', -1, 64)),
-			}
-			elementsReply = append(elementsReply, protocol.MakeMultiBulkReply(elemPair).ToBytes())
+			elements = append(elements, protocol.MakeMultiRawReply([]redis.Reply{
+				protocol.MakeBulkReply([]byte(elem.Member)),
+				protocol.MakeBulkReply([]byte(strconv.FormatFloat(elem.Score, 'f', -1, 64))),
+			}))
 		}
-		result = append(result, protocol.MakeMultiBulkReply(elementsReply).ToBytes())
-
-		return protocol.MakeMultiBulkReply(result)
+		if sortedSet.Len() == 0 {
+			db.Remove(key)
+		}
+		db.addAof(utils.ToCmdLine3("zmpop", args...))
+		return protocol.MakeMultiRawReply([]redis.Reply{
+			protocol.MakeBulkReply([]byte(key)),
+			protocol.MakeMultiRawReply(elements),
+		})
 	}
 
 	return protocol.MakeNullBulkReply()

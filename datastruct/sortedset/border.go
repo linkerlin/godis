@@ -81,6 +81,9 @@ var scoreNegativeInfBorder = &ScoreBorder{
 
 // ParseScoreBorder creates ScoreBorder from redis arguments
 func ParseScoreBorder(s string) (Border, error) {
+	if len(s) == 0 {
+		return nil, errors.New("ERR min or max is not a float")
+	}
 	if s == "inf" || s == "+inf" {
 		return scorePositiveInfBorder, nil
 	}
@@ -88,6 +91,9 @@ func ParseScoreBorder(s string) (Border, error) {
 		return scoreNegativeInfBorder, nil
 	}
 	if s[0] == '(' {
+		if len(s) == 1 {
+			return nil, errors.New("ERR min or max is not a float")
+		}
 		value, err := strconv.ParseFloat(s[1:], 64)
 		if err != nil {
 			return nil, errors.New("ERR min or max is not a float")
@@ -168,6 +174,9 @@ var lexNegativeInfBorder = &LexBorder{
 
 // ParseLexBorder creates LexBorder from redis arguments
 func ParseLexBorder(s string) (Border, error) {
+	if len(s) == 0 {
+		return nil, errors.New("ERR min or max not valid string range item")
+	}
 	if s == "+" {
 		return lexPositiveInfBorder, nil
 	}
