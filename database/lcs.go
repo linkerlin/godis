@@ -208,6 +208,13 @@ func findMatches(s1, s2 string, minLen int) []lcsMatch {
 }
 
 func init() {
-	registerCommand("LCS", execLCS, prepareReadKeys, nil, -3, flagReadOnly).
+	registerCommand("LCS", execLCS, prepareLCSKeys, nil, -3, flagReadOnly).
 		attachCommandExtra([]string{redisFlagReadonly}, 1, 2, 1)
+}
+
+func prepareLCSKeys(args [][]byte) ([]string, []string) {
+	if len(args) < 2 {
+		return nil, nil
+	}
+	return nil, []string{string(args[0]), string(args[1])}
 }

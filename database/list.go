@@ -194,6 +194,7 @@ func execLPush(db *DB, args [][]byte) redis.Reply {
 	}
 
 	db.addAof(utils.ToCmdLine3("lpush", args...))
+	signalListWaiters(key)
 	return protocol.MakeIntReply(int64(list.Len()))
 }
 
@@ -229,6 +230,7 @@ func execLPushX(db *DB, args [][]byte) redis.Reply {
 		list.Insert(0, value)
 	}
 	db.addAof(utils.ToCmdLine3("lpushx", args...))
+	signalListWaiters(key)
 	return protocol.MakeIntReply(int64(list.Len()))
 }
 
@@ -573,6 +575,7 @@ func execRPush(db *DB, args [][]byte) redis.Reply {
 		list.Add(value)
 	}
 	db.addAof(utils.ToCmdLine3("rpush", args...))
+	signalListWaiters(key)
 	return protocol.MakeIntReply(int64(list.Len()))
 }
 
@@ -611,7 +614,7 @@ func execRPushX(db *DB, args [][]byte) redis.Reply {
 		list.Add(value)
 	}
 	db.addAof(utils.ToCmdLine3("rpushx", args...))
-
+	signalListWaiters(key)
 	return protocol.MakeIntReply(int64(list.Len()))
 }
 

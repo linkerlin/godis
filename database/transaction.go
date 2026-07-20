@@ -130,39 +130,16 @@ func (db *DB) ExecMulti(conn redis.Connection, watching map[string]uint64, cmdLi
 	defer db.RWUnLocks(writeKeys, readKeys)
 
 	if isWatchingChanged(db, watching) { // watching keys changed, abort
-		return protocol.MakeEmptyMultiBulkReply()
+		return protocol.MakeNullMultiBulkReply()
 	}
-	// execute
+	// execute — Redis continues on runtime errors; errors become array elements
 	results := make([]redis.Reply, 0, len(cmdLines))
-	aborted := false
-	undoCmdLines := make([][]CmdLine, 0, len(cmdLines))
 	for _, cmdLine := range cmdLines {
-		undoCmdLines = append(undoCmdLines, db.GetUndoLogs(cmdLine))
 		result := db.execWithLock(conn, cmdLine)
-		if protocol.IsErrorReply(result) {
-			aborted = true
-			// don't rollback failed commands
-			undoCmdLines = undoCmdLines[:len(undoCmdLines)-1]
-			break
-		}
 		results = append(results, result)
 	}
-	if !aborted { //success
-		db.addVersion(writeKeys...)
-		return protocol.MakeMultiRawReply(results)
-	}
-	// undo if aborted
-	size := len(undoCmdLines)
-	for i := size - 1; i >= 0; i-- {
-		curCmdLines := undoCmdLines[i]
-		if len(curCmdLines) == 0 {
-			continue
-		}
-		for _, cmdLine := range curCmdLines {
-			db.execWithLock(conn, cmdLine)
-		}
-	}
-	return protocol.MakeErrReply("EXECABORT Transaction discarded because of previous errors.")
+	db.addVersion(writeKeys...)
+	return protocol.MakeMultiRawReply(results)
 }
 
 // DiscardMulti drops MULTI pending commands

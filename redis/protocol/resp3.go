@@ -572,6 +572,8 @@ func ReplyToRESP3(reply redis.Reply) []byte {
 	switch r := reply.(type) {
 	case *NullBulkReply:
 		return []byte("_\r\n")
+	case *NullMultiBulkReply:
+		return []byte("_\r\n")
 	case *MultiBulkReply:
 		var buf bytes.Buffer
 		buf.WriteString("*" + strconv.Itoa(len(r.Args)) + CRLF)

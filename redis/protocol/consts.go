@@ -48,6 +48,21 @@ func MakeNullBulkReply() *NullBulkReply {
 	return &NullBulkReply{}
 }
 
+var nullMultiBulkBytes = []byte("*-1\r\n")
+
+// NullMultiBulkReply is a null array (RESP2 *-1), used by EXEC when WATCH fails
+type NullMultiBulkReply struct{}
+
+// ToBytes marshal redis.Reply
+func (r *NullMultiBulkReply) ToBytes() []byte {
+	return nullMultiBulkBytes
+}
+
+// MakeNullMultiBulkReply creates NullMultiBulkReply
+func MakeNullMultiBulkReply() *NullMultiBulkReply {
+	return &NullMultiBulkReply{}
+}
+
 var emptyMultiBulkBytes = []byte("*0\r\n")
 
 // EmptyMultiBulkReply is a empty list

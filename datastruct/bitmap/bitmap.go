@@ -36,16 +36,19 @@ func (b *BitMap) ToBytes() []byte {
 	return *b
 }
 
+// bitMask returns Redis MSB-first mask for offset within a byte (0 → 0x80, 7 → 0x01).
+func bitMask(bitOffset int64) byte {
+	return byte(0x80 >> bitOffset)
+}
+
 func (b *BitMap) SetBit(offset int64, val byte) {
 	byteIndex := offset / 8
 	bitOffset := offset % 8
-	mask := byte(1 << bitOffset)
+	mask := bitMask(bitOffset)
 	b.grow(offset + 1)
 	if val > 0 {
-		// set bit
 		(*b)[byteIndex] |= mask
 	} else {
-		// clear bit
 		(*b)[byteIndex] &^= mask
 	}
 }
@@ -56,7 +59,7 @@ func (b *BitMap) GetBit(offset int64) byte {
 	if byteIndex >= int64(len(*b)) {
 		return 0
 	}
-	return ((*b)[byteIndex] >> bitOffset) & 0x01
+	return ((*b)[byteIndex] >> (7 - bitOffset)) & 0x01
 }
 
 type Callback func(offset int64, val byte) bool
@@ -66,9 +69,9 @@ func (b *BitMap) ForEachBit(begin int64, end int64, cb Callback) {
 	byteIndex := offset / 8
 	bitOffset := offset % 8
 	for byteIndex < int64(len(*b)) {
-		b := (*b)[byteIndex]
+		by := (*b)[byteIndex]
 		for bitOffset < 8 {
-			bit := byte(b >> bitOffset & 0x01)
+			bit := (by >> (7 - bitOffset)) & 0x01
 			if !cb(offset, bit) {
 				return
 			}

@@ -37,7 +37,7 @@ func TestCompatHashAndList(t *testing.T) {
 	asserts.AssertBulkReply(t, db.Exec(nil, utils.ToCmdLine("LPOP", "compat:l")), "b")
 }
 
-func TestCompatTransactionRollback(t *testing.T) {
+func TestCompatTransactionContinueOnError(t *testing.T) {
 	db := makeTestDB()
 	c := connection.NewFakeConn()
 
@@ -45,8 +45,15 @@ func TestCompatTransactionRollback(t *testing.T) {
 	_ = db.Exec(c, utils.ToCmdLine("SET", "compat:tx2", "x"))
 	_ = db.Exec(c, utils.ToCmdLine("LPUSH", "compat:tx2", "bad"))
 	ret := db.Exec(c, utils.ToCmdLine("EXEC"))
-	asserts.AssertErrReply(t, ret, "EXECABORT Transaction discarded because of previous errors.")
-	asserts.AssertNullBulk(t, db.Exec(nil, utils.ToCmdLine("GET", "compat:tx2")))
+	raw, ok := ret.(*protocol.MultiRawReply)
+	if !ok || len(raw.Replies) != 2 {
+		t.Fatalf("expected MultiRawReply[2], got %T %v", ret, ret)
+	}
+	asserts.AssertStatusReply(t, raw.Replies[0], "OK")
+	if !protocol.IsErrorReply(raw.Replies[1]) {
+		t.Fatalf("expected WRONGTYPE element, got %s", raw.Replies[1].ToBytes())
+	}
+	asserts.AssertBulkReply(t, db.Exec(nil, utils.ToCmdLine("GET", "compat:tx2")), "x")
 }
 
 func TestCompatSlowlogThreshold(t *testing.T) {

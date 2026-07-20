@@ -5,6 +5,7 @@ import (
 
 	"github.com/linkerlin/godis/lib/utils"
 	"github.com/linkerlin/godis/redis/connection"
+	"github.com/linkerlin/godis/redis/protocol"
 	"github.com/linkerlin/godis/redis/protocol/asserts"
 )
 
@@ -54,11 +55,19 @@ func TestRollback(t *testing.T) {
 	key := utils.RandString(10)
 	value := utils.RandString(10)
 	testServer.Exec(conn, utils.ToCmdLine("set", key, value))
-	testServer.Exec(conn, utils.ToCmdLine("rpush", key, value))
+	testServer.Exec(conn, utils.ToCmdLine("rpush", key, value)) // WRONGTYPE at runtime
 	result = testServer.Exec(conn, utils.ToCmdLine("exec"))
-	asserts.AssertErrReply(t, result, "EXECABORT Transaction discarded because of previous errors.")
+	// Redis: continue execution; SET succeeds, RPUSH error is an array element
+	raw, ok := result.(*protocol.MultiRawReply)
+	if !ok || len(raw.Replies) != 2 {
+		t.Fatalf("expected MultiRawReply with 2 elements, got %T %v", result, result)
+	}
+	asserts.AssertStatusReply(t, raw.Replies[0], "OK")
+	if !protocol.IsErrorReply(raw.Replies[1]) {
+		t.Fatalf("expected WRONGTYPE as second element, got %s", raw.Replies[1].ToBytes())
+	}
 	result = testServer.Exec(conn, utils.ToCmdLine("type", key))
-	asserts.AssertStatusReply(t, result, "none")
+	asserts.AssertStatusReply(t, result, "string") // SET was not rolled back
 	if len(conn.GetWatching()) > 0 {
 		t.Error("watching map should be reset")
 	}
@@ -105,7 +114,9 @@ func TestWatch(t *testing.T) {
 		value2 := utils.RandString(10)
 		testServer.Exec(conn, utils.ToCmdLine("set", key2, value2))
 		result = testServer.Exec(conn, utils.ToCmdLine("exec"))
-		asserts.AssertNotError(t, result)
+		if _, ok := result.(*protocol.NullMultiBulkReply); !ok {
+			t.Errorf("expected null multi bulk on WATCH conflict, got %s", result.ToBytes())
+		}
 		result = testServer.Exec(conn, utils.ToCmdLine("get", key2))
 		asserts.AssertNullBulk(t, result)
 		if len(conn.GetWatching()) > 0 {

@@ -47,14 +47,26 @@ func TestSetBit(t *testing.T) {
 func TestFromBytes(t *testing.T) {
 	bs := []byte{0xff, 0xff}
 	bm := FromBytes(bs)
-	bm.SetBit(8, 0)
-	expect := []byte{0xff, 0xfe}
+	bm.SetBit(8, 0) // clear MSB of second byte (Redis MSB-first)
+	expect := []byte{0xff, 0x7f}
 	if !bytes.Equal(bs, expect) {
 		t.Error("wrong value")
 	}
 	ret := bm.ToBytes()
 	if !bytes.Equal(ret, expect) {
 		t.Error("wrong value")
+	}
+}
+
+func TestMSBFirstBitOrder(t *testing.T) {
+	bm := New()
+	bm.SetBit(0, 1)
+	if (*bm)[0] != 0x80 {
+		t.Fatalf("SETBIT 0 should set 0x80, got %#x", (*bm)[0])
+	}
+	bm.SetBit(7, 1)
+	if (*bm)[0] != 0x81 {
+		t.Fatalf("SETBIT 0+7 should be 0x81, got %#x", (*bm)[0])
 	}
 }
 
@@ -123,7 +135,7 @@ func TestBitMap_ForEachByte(t *testing.T) {
 	}
 	bm.ForEachByte(0, 0, func(offset int64, val byte) bool {
 		if offset%2 == 0 {
-			if val != 1 {
+			if val != 0x80 {
 				t.Error("wrong value")
 			}
 		} else {
@@ -135,7 +147,7 @@ func TestBitMap_ForEachByte(t *testing.T) {
 	})
 	bm.ForEachByte(0, 2000, func(offset int64, val byte) bool {
 		if offset%2 == 0 {
-			if val != 1 {
+			if val != 0x80 {
 				t.Error("wrong value")
 			}
 		} else {
@@ -147,7 +159,7 @@ func TestBitMap_ForEachByte(t *testing.T) {
 	})
 	bm.ForEachByte(0, 500, func(offset int64, val byte) bool {
 		if offset%2 == 0 {
-			if val != 1 {
+			if val != 0x80 {
 				t.Error("wrong value")
 			}
 		} else {
