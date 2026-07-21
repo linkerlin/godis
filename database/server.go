@@ -24,7 +24,7 @@ import (
 	"github.com/linkerlin/godis/redis/protocol"
 )
 
-var godisVersion = "1.2.8" // do not modify
+var godisVersion = "8.0.0"
 
 // Server is a redis-server with full capabilities including multiple database, rdb loader, replication
 type Server struct {

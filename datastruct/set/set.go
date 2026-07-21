@@ -1,6 +1,8 @@
 package set
 
 import (
+	"sort"
+
 	"github.com/linkerlin/godis/datastruct/dict"
 	"github.com/linkerlin/godis/lib/wildcard"
 )
@@ -180,12 +182,28 @@ func (set *Set) SetScan(cursor int, count int, pattern string) ([][]byte, int) {
 	if err != nil {
 		return result, -1
 	}
-	set.ForEach(func(member string) bool {
-		if pattern == "*" || matchKey.IsMatch(member) {
-			result = append(result, []byte(member))
+	if count <= 0 {
+		count = 10
+	}
+	keys := set.dict.Keys()
+	sort.Strings(keys)
+	if cursor < 0 || cursor > len(keys) {
+		return result, 0
+	}
+	i := cursor
+	visited := 0
+	for i < len(keys) && visited < count {
+		k := keys[i]
+		i++
+		visited++
+		if pattern != "*" && !matchKey.IsMatch(k) {
+			continue
 		}
-		return true
-	})
-
-	return result, 0
+		result = append(result, []byte(k))
+	}
+	next := i
+	if next >= len(keys) {
+		next = 0
+	}
+	return result, next
 }

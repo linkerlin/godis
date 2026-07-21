@@ -598,7 +598,7 @@ func undoRPush(db *DB, args [][]byte) []CmdLine {
 // execRPushX inserts element at last of list only if list exists
 func execRPushX(db *DB, args [][]byte) redis.Reply {
 	if len(args) < 2 {
-		return protocol.MakeErrReply("ERR wrong number of arguments for 'rpush' command")
+		return protocol.MakeErrReply("ERR wrong number of arguments for 'rpushx' command")
 	}
 	key := string(args[0])
 	values := args[1:]

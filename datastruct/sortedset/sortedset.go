@@ -1,6 +1,7 @@
 package sortedset
 
 import (
+	"sort"
 	"strconv"
 
 	"github.com/linkerlin/godis/lib/wildcard"
@@ -264,15 +265,36 @@ func (sortedSet *SortedSet) ZSetScan(cursor int, count int, pattern string) ([][
 	if err != nil {
 		return result, -1
 	}
-	for k := range sortedSet.dict {
-		if pattern == "*" || matchKey.IsMatch(k) {
-			elem, exists := sortedSet.dict[k]
-			if !exists {
-				continue
-			}
-			result = append(result, []byte(k))
-			result = append(result, []byte(strconv.FormatFloat(elem.Score, 'f', 10, 64)))
-		}
+	if count <= 0 {
+		count = 10
 	}
-	return result, 0
+	keys := make([]string, 0, len(sortedSet.dict))
+	for k := range sortedSet.dict {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	if cursor < 0 || cursor > len(keys) {
+		return result, 0
+	}
+	i := cursor
+	visited := 0
+	for i < len(keys) && visited < count {
+		k := keys[i]
+		i++
+		visited++
+		if pattern != "*" && !matchKey.IsMatch(k) {
+			continue
+		}
+		elem, exists := sortedSet.dict[k]
+		if !exists {
+			continue
+		}
+		result = append(result, []byte(k))
+		result = append(result, []byte(strconv.FormatFloat(elem.Score, 'f', -1, 64)))
+	}
+	next := i
+	if next >= len(keys) {
+		next = 0
+	}
+	return result, next
 }

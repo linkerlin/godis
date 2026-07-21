@@ -188,7 +188,7 @@ func (sl *SlowLogger) HandleSlowlogCommand(args [][]byte) redis.Reply {
 		sl.Reset()
 		return protocol.MakeOkReply()
 	default:
-		return protocol.MakeErrReply("ERR Unknown subcommand or wrong number of arguments for  '" + subCmd + "'")
+		return protocol.MakeErrReply("ERR Unknown subcommand or wrong number of arguments for '" + subCmd + "'")
 	}
 }
 

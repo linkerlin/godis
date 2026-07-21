@@ -225,7 +225,7 @@ func TestSlowLogger_HandleSlowlogCommand(t *testing.T) {
 			t.Fatalf("Expected StandardErrReply, got %T", reply)
 		}
 
-		expectedErr := "ERR Unknown subcommand or wrong number of arguments for  'invalid'"
+		expectedErr := "ERR Unknown subcommand or wrong number of arguments for 'invalid'"
 		if !strings.Contains(errReply.Error(), expectedErr) {
 			t.Errorf("Expected error '%s', got '%s'", expectedErr, errReply.Error())
 		}

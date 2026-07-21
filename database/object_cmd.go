@@ -67,7 +67,9 @@ func getObjectEncoding(data interface{}) string {
 		return "raw"
 	case list.List:
 		return "quicklist"
-	case *dict.ConcurrentDict:
+	case *dict.ConcurrentDict, *dict.SimpleDict, *dict.ExpireDict:
+		return "hashtable"
+	case dict.Dict:
 		return "hashtable"
 	case *set.Set:
 		return "hashtable"

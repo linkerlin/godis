@@ -3,7 +3,7 @@ package protocol
 // UnknownErrReply represents UnknownErr
 type UnknownErrReply struct{}
 
-var unknownErrBytes = []byte("-Err unknown\r\n")
+var unknownErrBytes = []byte("-ERR unknown\r\n")
 
 // ToBytes marshals redis.Reply
 func (r *UnknownErrReply) ToBytes() []byte {
@@ -11,7 +11,7 @@ func (r *UnknownErrReply) ToBytes() []byte {
 }
 
 func (r *UnknownErrReply) Error() string {
-	return "Err unknown"
+	return "ERR unknown"
 }
 
 // ArgNumErrReply represents wrong number of arguments for command

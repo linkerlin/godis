@@ -622,7 +622,7 @@ func execZRangeByScore(db *DB, args [][]byte) redis.Reply {
 // execZRevRangeByScore gets number of members which score within given range, in descending order
 func execZRevRangeByScore(db *DB, args [][]byte) redis.Reply {
 	if len(args) < 3 {
-		return protocol.MakeErrReply("ERR wrong number of arguments for 'zrangebyscore' command")
+		return protocol.MakeErrReply("ERR wrong number of arguments for 'zrevrangebyscore' command")
 	}
 	key := string(args[0])
 
@@ -689,7 +689,7 @@ func execZRemRangeByScore(db *DB, args [][]byte) redis.Reply {
 		return errReply
 	}
 	if sortedSet == nil {
-		return &protocol.EmptyMultiBulkReply{}
+		return protocol.MakeIntReply(0)
 	}
 
 	removed := sortedSet.RemoveRange(min, max)
@@ -911,7 +911,7 @@ func execZRangeByLex(db *DB, args [][]byte) redis.Reply {
 		return errReply
 	}
 	if sortedSet == nil {
-		return protocol.MakeIntReply(0)
+		return protocol.MakeEmptyMultiBulkReply()
 	}
 
 	minEle, maxEle := string(args[1]), string(args[2])
@@ -991,7 +991,7 @@ func execZRevRangeByLex(db *DB, args [][]byte) redis.Reply {
 		return protocol.MakeErrReply("ERR syntax error")
 	}
 	if n != 3 && n != 6 {
-		return protocol.MakeErrReply("ERR wrong number of arguments for 'zrangebylex' command")
+		return protocol.MakeErrReply("ERR wrong number of arguments for 'zrevrangebylex' command")
 	}
 
 	key := string(args[0])
@@ -1000,7 +1000,7 @@ func execZRevRangeByLex(db *DB, args [][]byte) redis.Reply {
 		return errReply
 	}
 	if sortedSet == nil {
-		return protocol.MakeIntReply(0)
+		return protocol.MakeEmptyMultiBulkReply()
 	}
 
 	minEle, maxEle := string(args[2]), string(args[1])

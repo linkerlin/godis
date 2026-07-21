@@ -263,7 +263,7 @@ func execSetEX(db *DB, args [][]byte) redis.Reply {
 		return &protocol.SyntaxErrReply{}
 	}
 	if ttlArg <= 0 {
-		return protocol.MakeErrReply("ERR invalid expire time in setex")
+		return protocol.MakeErrReply("ERR invalid expire time in 'setex' command")
 	}
 	ttl := ttlArg * 1000
 
@@ -289,7 +289,7 @@ func execPSetEX(db *DB, args [][]byte) redis.Reply {
 		return &protocol.SyntaxErrReply{}
 	}
 	if ttlArg <= 0 {
-		return protocol.MakeErrReply("ERR invalid expire time in setex")
+		return protocol.MakeErrReply("ERR invalid expire time in 'psetex' command")
 	}
 
 	entity := &database.DataEntity{
@@ -299,7 +299,7 @@ func execPSetEX(db *DB, args [][]byte) redis.Reply {
 	db.PutEntity(key, entity)
 	expireTime := time.Now().Add(time.Duration(ttlArg) * time.Millisecond)
 	db.Expire(key, expireTime)
-	db.addAof(utils.ToCmdLine3("setex", args...))
+	db.addAof(utils.ToCmdLine3("psetex", args...))
 	db.addAof(aof.MakeExpireCmd(key, expireTime).Args)
 
 	return &protocol.OkReply{}
