@@ -586,13 +586,7 @@ func TestGetRange_StringExist_StartIdxEndIdxAreSame(t *testing.T) {
 	testDB.Exec(nil, utils.ToCmdLine2("SET", key, key))
 
 	actual := testDB.Exec(nil, utils.ToCmdLine("GetRange", key, fmt.Sprint(len(key)+emptyByteLen), fmt.Sprint(len(key)+emptyByteLen)))
-	val, ok := actual.(*protocol.NullBulkReply)
-	if !ok {
-		t.Errorf("expect nil bulk protocol, get: %s", string(actual.ToBytes()))
-		return
-	}
-
-	asserts.AssertNullBulk(t, val)
+	asserts.AssertBulkReply(t, actual, "")
 }
 
 func TestGetRange_StringExist_StartIdxGreaterThanEndIdx(t *testing.T) {
@@ -660,13 +654,7 @@ func TestGetRange_StringExist_StartIsOutOfRange(t *testing.T) {
 	testDB.Exec(nil, utils.ToCmdLine2("SET", key, key))
 
 	actual := testDB.Exec(nil, utils.ToCmdLine("GetRange", key, fmt.Sprint(-len(key)-3), fmt.Sprint(len(key))))
-	val, ok := actual.(*protocol.NullBulkReply)
-	if !ok {
-		t.Errorf("expect bulk protocol, get: %s", string(actual.ToBytes()))
-		return
-	}
-
-	asserts.AssertNullBulk(t, val)
+	asserts.AssertBulkReply(t, actual, "")
 }
 
 func TestGetRange_StringExist_EndIdxIsOutOfRange(t *testing.T) {
@@ -675,13 +663,7 @@ func TestGetRange_StringExist_EndIdxIsOutOfRange(t *testing.T) {
 	testDB.Exec(nil, utils.ToCmdLine2("SET", key, key))
 
 	actual := testDB.Exec(nil, utils.ToCmdLine("GetRange", key, fmt.Sprint(0), fmt.Sprint(-len(key)-3)))
-	val, ok := actual.(*protocol.NullBulkReply)
-	if !ok {
-		t.Errorf("expect bulk protocol, get: %s", string(actual.ToBytes()))
-		return
-	}
-
-	asserts.AssertNullBulk(t, val)
+	asserts.AssertBulkReply(t, actual, "")
 }
 
 func TestGetRange_StringExist_StartIdxGreaterThanDataLen(t *testing.T) {
@@ -690,13 +672,7 @@ func TestGetRange_StringExist_StartIdxGreaterThanDataLen(t *testing.T) {
 	testDB.Exec(nil, utils.ToCmdLine2("SET", key, key))
 
 	actual := testDB.Exec(nil, utils.ToCmdLine("GetRange", key, fmt.Sprint(len(key)+1), fmt.Sprint(0)))
-	val, ok := actual.(*protocol.NullBulkReply)
-	if !ok {
-		t.Errorf("expect bulk protocol, get: %s", string(actual.ToBytes()))
-		return
-	}
-
-	asserts.AssertNullBulk(t, val)
+	asserts.AssertBulkReply(t, actual, "")
 }
 
 func TestGetRange_StringExist_StartIdxIncorrectFormat(t *testing.T) {

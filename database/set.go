@@ -467,15 +467,21 @@ func execSInterCard(db *DB, args [][]byte) redis.Reply {
 	}
 
 	// Parse LIMIT option
-	limit := 0
+	limit := -1 // -1 = no limit
 	if len(args) > 1+numKeys {
-		if strings.ToUpper(string(args[1+numKeys])) == "LIMIT" {
-			if len(args) > 2+numKeys {
-				limit, err = strconv.Atoi(string(args[2+numKeys]))
-				if err != nil {
-					return protocol.MakeErrReply("ERR value is not an integer or out of range")
-				}
-			}
+		tok := strings.ToUpper(string(args[1+numKeys]))
+		if tok != "LIMIT" {
+			return protocol.MakeSyntaxErrReply()
+		}
+		if len(args) <= 2+numKeys {
+			return protocol.MakeSyntaxErrReply()
+		}
+		limit, err = strconv.Atoi(string(args[2+numKeys]))
+		if err != nil {
+			return protocol.MakeErrReply("ERR value is not an integer or out of range")
+		}
+		if limit < 0 {
+			return protocol.MakeErrReply("ERR LIMIT can't be negative")
 		}
 	}
 
@@ -490,6 +496,10 @@ func execSInterCard(db *DB, args [][]byte) redis.Reply {
 			return protocol.MakeIntReply(0)
 		}
 		sets = append(sets, set)
+	}
+
+	if limit == 0 {
+		return protocol.MakeIntReply(0)
 	}
 
 	// Compute intersection

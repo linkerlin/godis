@@ -1,6 +1,7 @@
 package database
 
 import (
+	"math"
 	"math/bits"
 	"strconv"
 	"strings"
@@ -53,6 +54,8 @@ func execGetEX(db *DB, args [][]byte) redis.Reply {
 	key := string(args[0])
 	bytes, err := db.getAsString(key)
 	ttl := unlimitedTTL
+	var absExpire int64 = -1
+	persist := false
 	if err != nil {
 		return err
 	}
@@ -62,60 +65,50 @@ func execGetEX(db *DB, args [][]byte) redis.Reply {
 
 	for i := 1; i < len(args); i++ {
 		arg := strings.ToUpper(string(args[i]))
-		if arg == "EX" { // ttl in seconds
-			if ttl != unlimitedTTL {
-				// ttl has been set
+		switch arg {
+		case "EX", "PX", "EXAT", "PXAT":
+			if ttl != unlimitedTTL || absExpire >= 0 || persist {
 				return &protocol.SyntaxErrReply{}
 			}
 			if i+1 >= len(args) {
 				return &protocol.SyntaxErrReply{}
 			}
-			ttlArg, err := strconv.ParseInt(string(args[i+1]), 10, 64)
-			if err != nil {
-				return &protocol.SyntaxErrReply{}
-			}
-			if ttlArg <= 0 {
+			n, err := strconv.ParseInt(string(args[i+1]), 10, 64)
+			if err != nil || n <= 0 {
 				return protocol.MakeErrReply("ERR invalid expire time in getex")
 			}
-			ttl = ttlArg * 1000
-			i++ // skip next arg
-		} else if arg == "PX" { // ttl in milliseconds
-			if ttl != unlimitedTTL {
+			switch arg {
+			case "EX":
+				ttl = n * 1000
+			case "PX":
+				ttl = n
+			case "EXAT":
+				absExpire = n * 1000
+			case "PXAT":
+				absExpire = n
+			}
+			i++
+		case "PERSIST":
+			if ttl != unlimitedTTL || absExpire >= 0 {
 				return &protocol.SyntaxErrReply{}
 			}
-			if i+1 >= len(args) {
-				return &protocol.SyntaxErrReply{}
-			}
-			ttlArg, err := strconv.ParseInt(string(args[i+1]), 10, 64)
-			if err != nil {
-				return &protocol.SyntaxErrReply{}
-			}
-			if ttlArg <= 0 {
-				return protocol.MakeErrReply("ERR invalid expire time in getex")
-			}
-			ttl = ttlArg
-			i++ // skip next arg
-		} else if arg == "PERSIST" {
-			if ttl != unlimitedTTL { // PERSIST Cannot be used with EX | PX
-				return &protocol.SyntaxErrReply{}
-			}
-			if i+1 > len(args) {
-				return &protocol.SyntaxErrReply{}
-			}
-			db.Persist(key)
+			persist = true
+		default:
+			return &protocol.SyntaxErrReply{}
 		}
 	}
 
-	if len(args) > 1 {
-		if ttl != unlimitedTTL { // EX | PX
-			expireTime := time.Now().Add(time.Duration(ttl) * time.Millisecond)
-			db.Expire(key, expireTime)
-			db.addAof(aof.MakeExpireCmd(key, expireTime).Args)
-		} else { // PERSIST
-			db.Persist(key) // override ttl
-			// we convert to persist command to write aof
-			db.addAof(utils.ToCmdLine3("persist", args[0]))
-		}
+	if absExpire >= 0 {
+		expireTime := time.Unix(0, absExpire*int64(time.Millisecond))
+		db.Expire(key, expireTime)
+		db.addAof(aof.MakeExpireCmd(key, expireTime).Args)
+	} else if ttl != unlimitedTTL {
+		expireTime := time.Now().Add(time.Duration(ttl) * time.Millisecond)
+		db.Expire(key, expireTime)
+		db.addAof(aof.MakeExpireCmd(key, expireTime).Args)
+	} else if persist {
+		db.Persist(key)
+		db.addAof(utils.ToCmdLine3("persist", args[0]))
 	}
 	return protocol.MakeBulkReply(bytes)
 }
@@ -347,6 +340,7 @@ func execMSet(db *DB, args [][]byte) redis.Reply {
 
 	for i, key := range keys {
 		value := values[i]
+		db.Persist(key) // MSET clears TTL (Redis semantics)
 		db.PutEntity(key, &database.DataEntity{Data: value})
 	}
 	db.addAof(utils.ToCmdLine3("mset", args...))
@@ -473,6 +467,9 @@ func execIncr(db *DB, args [][]byte) redis.Reply {
 		if err != nil {
 			return protocol.MakeErrReply("ERR value is not an integer or out of range")
 		}
+		if wouldIntOverflow(val, 1) {
+			return protocol.MakeErrReply("ERR increment or decrement would overflow")
+		}
 		db.PutEntity(key, &database.DataEntity{
 			Data: []byte(strconv.FormatInt(val+1, 10)),
 		})
@@ -505,6 +502,9 @@ func execIncrBy(db *DB, args [][]byte) redis.Reply {
 		if err != nil {
 			return protocol.MakeErrReply("ERR value is not an integer or out of range")
 		}
+		if wouldIntOverflow(val, delta) {
+			return protocol.MakeErrReply("ERR increment or decrement would overflow")
+		}
 		db.PutEntity(key, &database.DataEntity{
 			Data: []byte(strconv.FormatInt(val+delta, 10)),
 		})
@@ -523,7 +523,7 @@ func execIncrByFloat(db *DB, args [][]byte) redis.Reply {
 	key := string(args[0])
 	rawDelta := string(args[1])
 	delta, err := strconv.ParseFloat(rawDelta, 64)
-	if err != nil {
+	if err != nil || math.IsNaN(delta) || math.IsInf(delta, 0) {
 		return protocol.MakeErrReply("ERR value is not a valid float")
 	}
 
@@ -536,7 +536,11 @@ func execIncrByFloat(db *DB, args [][]byte) redis.Reply {
 		if err != nil {
 			return protocol.MakeErrReply("ERR value is not a valid float")
 		}
-		resultBytes := []byte(strconv.FormatFloat(val+delta, 'f', -1, 64))
+		result := val + delta
+		if math.IsNaN(result) || math.IsInf(result, 0) {
+			return protocol.MakeErrReply("ERR increment would produce NaN or Infinity")
+		}
+		resultBytes := []byte(strconv.FormatFloat(result, 'f', -1, 64))
 		db.PutEntity(key, &database.DataEntity{
 			Data: resultBytes,
 		})
@@ -562,6 +566,9 @@ func execDecr(db *DB, args [][]byte) redis.Reply {
 		val, err := strconv.ParseInt(string(bytes), 10, 64)
 		if err != nil {
 			return protocol.MakeErrReply("ERR value is not an integer or out of range")
+		}
+		if wouldIntOverflow(val, -1) {
+			return protocol.MakeErrReply("ERR increment or decrement would overflow")
 		}
 		db.PutEntity(key, &database.DataEntity{
 			Data: []byte(strconv.FormatInt(val-1, 10)),
@@ -594,6 +601,9 @@ func execDecrBy(db *DB, args [][]byte) redis.Reply {
 		val, err := strconv.ParseInt(string(bytes), 10, 64)
 		if err != nil {
 			return protocol.MakeErrReply("ERR value is not an integer or out of range")
+		}
+		if wouldIntOverflow(val, -delta) {
+			return protocol.MakeErrReply("ERR increment or decrement would overflow")
 		}
 		db.PutEntity(key, &database.DataEntity{
 			Data: []byte(strconv.FormatInt(val-delta, 10)),
@@ -711,7 +721,7 @@ func execGetRange(db *DB, args [][]byte) redis.Reply {
 	bytesLen := int64(len(bs))
 	beg, end := utils.ConvertRange(startIdx, endIdx, bytesLen)
 	if beg < 0 {
-		return protocol.MakeNullBulkReply()
+		return protocol.MakeBulkReply([]byte{})
 	}
 	return protocol.MakeBulkReply(bs[beg:end])
 }
@@ -898,11 +908,16 @@ func execBitPos(db *DB, args [][]byte) redis.Reply {
 
 // GetRandomKey Randomly return (do not delete) a key from the godis
 func getRandomKey(db *DB, args [][]byte) redis.Reply {
-	k := db.data.RandomKeys(1)
-	if len(k) == 0 {
-		return &protocol.NullBulkReply{}
+	for try := 0; try < 100; try++ {
+		k := db.data.RandomKeys(1)
+		if len(k) == 0 {
+			return &protocol.NullBulkReply{}
+		}
+		if !db.IsExpired(k[0]) {
+			return protocol.MakeBulkReply([]byte(k[0]))
+		}
 	}
-	return protocol.MakeBulkReply([]byte(k[0]))
+	return &protocol.NullBulkReply{}
 }
 
 func init() {

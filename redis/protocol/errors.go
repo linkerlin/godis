@@ -38,7 +38,7 @@ func MakeArgNumErrReply(cmd string) *ArgNumErrReply {
 // SyntaxErrReply represents meeting unexpected arguments
 type SyntaxErrReply struct{}
 
-var syntaxErrBytes = []byte("-Err syntax error\r\n")
+var syntaxErrBytes = []byte("-ERR syntax error\r\n")
 var theSyntaxErrReply = &SyntaxErrReply{}
 
 // MakeSyntaxErrReply creates syntax error
@@ -52,7 +52,7 @@ func (r *SyntaxErrReply) ToBytes() []byte {
 }
 
 func (r *SyntaxErrReply) Error() string {
-	return "Err syntax error"
+	return "ERR syntax error"
 }
 
 // WrongTypeErrReply represents operation against a key holding the wrong kind of value

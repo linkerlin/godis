@@ -100,6 +100,9 @@ func execLPop(db *DB, args [][]byte) redis.Reply {
 		return errReply
 	}
 	if list == nil {
+		if len(args) == 2 {
+			return &protocol.EmptyMultiBulkReply{}
+		}
 		return &protocol.NullBulkReply{}
 	}
 
@@ -419,6 +422,9 @@ func execRPop(db *DB, args [][]byte) redis.Reply {
 		return errReply
 	}
 	if list == nil {
+		if len(args) == 2 {
+			return &protocol.EmptyMultiBulkReply{}
+		}
 		return &protocol.NullBulkReply{}
 	}
 

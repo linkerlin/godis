@@ -43,58 +43,150 @@ func (db *DB) getOrInitSortedSet(key string) (sortedSet *SortedSet.SortedSet, in
 }
 
 // execZAdd adds member into sorted set
+// ZADD key [NX|XX] [GT|LT] [CH] [INCR] score member [score member ...]
 func execZAdd(db *DB, args [][]byte) redis.Reply {
-	if len(args)%2 != 1 {
-		return protocol.MakeSyntaxErrReply()
+	if len(args) < 3 {
+		return protocol.MakeErrReply("ERR wrong number of arguments for 'zadd' command")
 	}
 	key := string(args[0])
-	size := (len(args) - 1) / 2
-	for i := 0; i < size; i++ {
-		if reply := validateBulkBytes(args[2*i+1]); reply != nil {
-			return reply
-		}
-		if reply := validateBulkBytes(args[2*i+2]); reply != nil {
-			return reply
+	nx, xx, gt, lt, ch, incr := false, false, false, false, false, false
+	i := 1
+	for i < len(args) {
+		opt := strings.ToUpper(string(args[i]))
+		switch opt {
+		case "NX":
+			nx = true
+			i++
+		case "XX":
+			xx = true
+			i++
+		case "GT":
+			gt = true
+			i++
+		case "LT":
+			lt = true
+			i++
+		case "CH":
+			ch = true
+			i++
+		case "INCR":
+			incr = true
+			i++
+		default:
+			goto parsePairs
 		}
 	}
-	elements := make([]*SortedSet.Element, size)
-	for i := 0; i < size; i++ {
-		scoreValue := args[2*i+1]
-		member := string(args[2*i+2])
-		score, err := strconv.ParseFloat(string(scoreValue), 64)
-		if err != nil || math.IsNaN(score) {
-			return protocol.MakeErrReply("ERR value is not a valid float")
-		}
-		elements[i] = &SortedSet.Element{
-			Member: member,
-			Score:  score,
-		}
+parsePairs:
+	if nx && xx {
+		return protocol.MakeSyntaxErrReply()
+	}
+	if gt && lt {
+		return protocol.MakeSyntaxErrReply()
+	}
+	rest := args[i:]
+	if len(rest) == 0 || len(rest)%2 != 0 {
+		return protocol.MakeSyntaxErrReply()
+	}
+	if incr && len(rest) != 2 {
+		return protocol.MakeErrReply("ERR INCR option supports a single increment-element pair")
 	}
 
-	// get or init entity
 	sortedSet, _, errReply := db.getOrInitSortedSet(key)
 	if errReply != nil {
 		return errReply
 	}
 
-	i := 0
-	for _, e := range elements {
-		if sortedSet.Add(e.Member, e.Score) {
-			i++
+	if incr {
+		scoreDelta, err := strconv.ParseFloat(string(rest[0]), 64)
+		if err != nil || math.IsNaN(scoreDelta) || math.IsInf(scoreDelta, 0) {
+			return protocol.MakeErrReply("ERR value is not a valid float")
+		}
+		member := string(rest[1])
+		cur, exists := sortedSet.Get(member)
+		if nx && exists {
+			return protocol.MakeNullBulkReply()
+		}
+		if xx && !exists {
+			return protocol.MakeNullBulkReply()
+		}
+		var newScore float64
+		if exists {
+			newScore = cur.Score + scoreDelta
+			if gt && !(newScore > cur.Score) {
+				return protocol.MakeNullBulkReply()
+			}
+			if lt && !(newScore < cur.Score) {
+				return protocol.MakeNullBulkReply()
+			}
+		} else {
+			newScore = scoreDelta
+		}
+		if math.IsNaN(newScore) || math.IsInf(newScore, 0) {
+			return protocol.MakeErrReply("ERR resulting score is not a number (NaN)")
+		}
+		sortedSet.Add(member, newScore)
+		db.addAof(utils.ToCmdLine3("zadd", args...))
+		signalZSetWaiters(key)
+		return protocol.MakeBulkReply([]byte(strconv.FormatFloat(newScore, 'f', -1, 64)))
+	}
+
+	added, changed := 0, 0
+	for j := 0; j < len(rest); j += 2 {
+		score, err := strconv.ParseFloat(string(rest[j]), 64)
+		if err != nil || math.IsNaN(score) {
+			return protocol.MakeErrReply("ERR value is not a valid float")
+		}
+		member := string(rest[j+1])
+		cur, exists := sortedSet.Get(member)
+		if nx && exists {
+			continue
+		}
+		if xx && !exists {
+			continue
+		}
+		if exists {
+			if gt && !(score > cur.Score) {
+				continue
+			}
+			if lt && !(score < cur.Score) {
+				continue
+			}
+			if score != cur.Score {
+				sortedSet.Add(member, score)
+				changed++
+			}
+		} else {
+			sortedSet.Add(member, score)
+			added++
+			changed++
 		}
 	}
 
 	db.addAof(utils.ToCmdLine3("zadd", args...))
 	signalZSetWaiters(key)
-	return protocol.MakeIntReply(int64(i))
+	if ch {
+		return protocol.MakeIntReply(int64(changed))
+	}
+	return protocol.MakeIntReply(int64(added))
 }
 
 func undoZAdd(db *DB, args [][]byte) []CmdLine {
 	key := string(args[0])
-	size := (len(args) - 1) / 2
-	fields := make([]string, size)
-	for i := 0; i < size; i++ {
-		fields[i] = string(args[2*i+2])
+	i := 1
+	for i < len(args) {
+		opt := strings.ToUpper(string(args[i]))
+		switch opt {
+		case "NX", "XX", "GT", "LT", "CH", "INCR":
+			i++
+		default:
+			goto done
+		}
+	}
+done:
+	rest := args[i:]
+	fields := make([]string, 0, len(rest)/2)
+	for j := 1; j < len(rest); j += 2 {
+		fields = append(fields, string(rest[j]))
 	}
 	return rollbackZSetFields(db, key, fields...)
 }
@@ -161,34 +253,31 @@ func execZMScore(db *DB, args [][]byte) redis.Reply {
 }
 
 // execZRank gets index of a member in sortedset, ascending order, start from 0
+// ZRANK key member [WITHSCORE]
 func execZRank(db *DB, args [][]byte) redis.Reply {
-	// parse args
-	key := string(args[0])
-	member := string(args[1])
-
-	// get entity
-	sortedSet, errReply := db.getAsSortedSet(key)
-	if errReply != nil {
-		return errReply
-	}
-	if sortedSet == nil {
-		return &protocol.NullBulkReply{}
-	}
-
-	rank := sortedSet.GetRank(member, false)
-	if rank < 0 {
-		return &protocol.NullBulkReply{}
-	}
-	return protocol.MakeIntReply(rank)
+	return execZRankFamily(db, args, false)
 }
 
 // execZRevRank gets index of a member in sortedset, descending order, start from 0
+// ZREVRANK key member [WITHSCORE]
 func execZRevRank(db *DB, args [][]byte) redis.Reply {
-	// parse args
+	return execZRankFamily(db, args, true)
+}
+
+func execZRankFamily(db *DB, args [][]byte, desc bool) redis.Reply {
+	if len(args) != 2 && len(args) != 3 {
+		return protocol.MakeErrReply("ERR wrong number of arguments")
+	}
+	withScore := false
+	if len(args) == 3 {
+		if strings.ToUpper(string(args[2])) != "WITHSCORE" {
+			return protocol.MakeSyntaxErrReply()
+		}
+		withScore = true
+	}
 	key := string(args[0])
 	member := string(args[1])
 
-	// get entity
 	sortedSet, errReply := db.getAsSortedSet(key)
 	if errReply != nil {
 		return errReply
@@ -197,11 +286,18 @@ func execZRevRank(db *DB, args [][]byte) redis.Reply {
 		return &protocol.NullBulkReply{}
 	}
 
-	rank := sortedSet.GetRank(member, true)
+	rank := sortedSet.GetRank(member, desc)
 	if rank < 0 {
 		return &protocol.NullBulkReply{}
 	}
-	return protocol.MakeIntReply(rank)
+	if !withScore {
+		return protocol.MakeIntReply(rank)
+	}
+	ele, _ := sortedSet.Get(member)
+	return protocol.MakeMultiRawReply([]redis.Reply{
+		protocol.MakeIntReply(rank),
+		protocol.MakeBulkReply([]byte(strconv.FormatFloat(ele.Score, 'f', -1, 64))),
+	})
 }
 
 // execZCard gets number of members in sortedset
@@ -221,29 +317,118 @@ func execZCard(db *DB, args [][]byte) redis.Reply {
 	return protocol.MakeIntReply(sortedSet.Len())
 }
 
-// execZRange gets members in range, sort by score in ascending order
+// execZRange gets members in range. Redis 6.2+ unified syntax:
+// ZRANGE key min max [BYSCORE|BYLEX] [REV] [LIMIT offset count] [WITHSCORES]
 func execZRange(db *DB, args [][]byte) redis.Reply {
-	// parse args
-	if len(args) != 3 && len(args) != 4 {
+	if len(args) < 3 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'zrange' command")
 	}
-	withScores := false
-	if len(args) == 4 {
-		if strings.ToUpper(string(args[3])) != "WITHSCORES" {
-			return protocol.MakeErrReply("syntax error")
-		}
-		withScores = true
-	}
 	key := string(args[0])
-	start, err := strconv.ParseInt(string(args[1]), 10, 64)
-	if err != nil {
-		return protocol.MakeErrReply("ERR value is not an integer or out of range")
+	byScore, byLex, rev, withScores := false, false, false, false
+	var limitOffset, limitCount int64 = 0, -1
+	i := 3
+	for i < len(args) {
+		opt := strings.ToUpper(string(args[i]))
+		switch opt {
+		case "BYSCORE":
+			byScore = true
+			i++
+		case "BYLEX":
+			byLex = true
+			i++
+		case "REV":
+			rev = true
+			i++
+		case "WITHSCORES":
+			withScores = true
+			i++
+		case "LIMIT":
+			if i+2 >= len(args) {
+				return protocol.MakeSyntaxErrReply()
+			}
+			var err error
+			limitOffset, err = strconv.ParseInt(string(args[i+1]), 10, 64)
+			if err != nil {
+				return protocol.MakeErrReply("ERR value is not an integer or out of range")
+			}
+			limitCount, err = strconv.ParseInt(string(args[i+2]), 10, 64)
+			if err != nil {
+				return protocol.MakeErrReply("ERR value is not an integer or out of range")
+			}
+			i += 3
+		default:
+			return protocol.MakeSyntaxErrReply()
+		}
 	}
-	stop, err := strconv.ParseInt(string(args[2]), 10, 64)
-	if err != nil {
-		return protocol.MakeErrReply("ERR value is not an integer or out of range")
+	if byScore && byLex {
+		return protocol.MakeSyntaxErrReply()
 	}
-	return range0(db, key, start, stop, withScores, false)
+	if byLex && withScores {
+		return protocol.MakeErrReply("ERR syntax error, WITHSCORES not supported in combination with BYLEX")
+	}
+
+	sortedSet, errReply := db.getAsSortedSet(key)
+	if errReply != nil {
+		return errReply
+	}
+	if sortedSet == nil {
+		return &protocol.EmptyMultiBulkReply{}
+	}
+
+	var elements []*SortedSet.Element
+	if byLex {
+		minBorder, err := SortedSet.ParseLexBorder(string(args[1]))
+		if err != nil {
+			return protocol.MakeErrReply(err.Error())
+		}
+		maxBorder, err := SortedSet.ParseLexBorder(string(args[2]))
+		if err != nil {
+			return protocol.MakeErrReply(err.Error())
+		}
+		if rev {
+			elements = sortedSet.Range(maxBorder, minBorder, limitOffset, limitCount, true)
+		} else {
+			elements = sortedSet.Range(minBorder, maxBorder, limitOffset, limitCount, false)
+		}
+	} else if byScore {
+		minBorder, err := SortedSet.ParseScoreBorder(string(args[1]))
+		if err != nil {
+			return protocol.MakeErrReply(err.Error())
+		}
+		maxBorder, err := SortedSet.ParseScoreBorder(string(args[2]))
+		if err != nil {
+			return protocol.MakeErrReply(err.Error())
+		}
+		if rev {
+			elements = sortedSet.Range(maxBorder, minBorder, limitOffset, limitCount, true)
+		} else {
+			elements = sortedSet.Range(minBorder, maxBorder, limitOffset, limitCount, false)
+		}
+	} else {
+		start, err := strconv.ParseInt(string(args[1]), 10, 64)
+		if err != nil {
+			return protocol.MakeErrReply("ERR value is not an integer or out of range")
+		}
+		stop, err := strconv.ParseInt(string(args[2]), 10, 64)
+		if err != nil {
+			return protocol.MakeErrReply("ERR value is not an integer or out of range")
+		}
+		return range0(db, key, start, stop, withScores, rev)
+	}
+
+	if withScores {
+		result := make([][]byte, len(elements)*2)
+		for i, e := range elements {
+			result[2*i] = []byte(e.Member)
+			result[2*i+1] = []byte(strconv.FormatFloat(e.Score, 'f', -1, 64))
+		}
+		return protocol.MakeMultiBulkReply(result)
+	}
+	result := make([][]byte, len(elements))
+	for i, e := range elements {
+		result[i] = []byte(e.Member)
+	}
+	return protocol.MakeMultiBulkReply(result)
 }
 
 // execZRevRange gets members in range, sort by score in descending order
@@ -254,8 +439,8 @@ func execZRevRange(db *DB, args [][]byte) redis.Reply {
 	}
 	withScores := false
 	if len(args) == 4 {
-		if string(args[3]) != "WITHSCORES" {
-			return protocol.MakeErrReply("syntax error")
+		if strings.ToUpper(string(args[3])) != "WITHSCORES" {
+			return protocol.MakeErrReply("ERR syntax error")
 		}
 		withScores = true
 	}
@@ -1026,11 +1211,11 @@ func init() {
 		attachCommandExtra([]string{redisFlagReadonly, redisFlagFast}, 1, 1, 1)
 	registerCommand("ZIncrBy", execZIncrBy, writeFirstKey, undoZIncr, 4, flagWrite).
 		attachCommandExtra([]string{redisFlagWrite, redisFlagDenyOOM, redisFlagFast}, 1, 1, 1)
-	registerCommand("ZRank", execZRank, readFirstKey, nil, 3, flagReadOnly).
+	registerCommand("ZRank", execZRank, readFirstKey, nil, -3, flagReadOnly).
 		attachCommandExtra([]string{redisFlagReadonly, redisFlagFast}, 1, 1, 1)
 	registerCommand("ZCount", execZCount, readFirstKey, nil, 4, flagReadOnly).
 		attachCommandExtra([]string{redisFlagReadonly, redisFlagFast}, 1, 1, 1)
-	registerCommand("ZRevRank", execZRevRank, readFirstKey, nil, 3, flagReadOnly).
+	registerCommand("ZRevRank", execZRevRank, readFirstKey, nil, -3, flagReadOnly).
 		attachCommandExtra([]string{redisFlagReadonly, redisFlagFast}, 1, 1, 1)
 	registerCommand("ZCard", execZCard, readFirstKey, nil, 2, flagReadOnly).
 		attachCommandExtra([]string{redisFlagReadonly, redisFlagFast}, 1, 1, 1)

@@ -1,6 +1,7 @@
 package database
 
 import (
+	"math"
 	"strconv"
 	"strings"
 
@@ -419,17 +420,20 @@ func execHIncrBy(db *DB, args [][]byte) redis.Reply {
 	if !exists {
 		dict.Put(field, args[2])
 		db.addAof(utils.ToCmdLine3("hincrby", args...))
-		return protocol.MakeBulkReply(args[2])
+		return protocol.MakeIntReply(delta)
 	}
 	val, err := strconv.ParseInt(string(value.([]byte)), 10, 64)
 	if err != nil {
 		return protocol.MakeErrReply("ERR hash value is not an integer")
 	}
+	if wouldIntOverflow(val, delta) {
+		return protocol.MakeErrReply("ERR increment or decrement would overflow")
+	}
 	val += delta
 	bytes := []byte(strconv.FormatInt(val, 10))
 	putHashValuePreservingTTL(dict, field, bytes)
 	db.addAof(utils.ToCmdLine3("hincrby", args...))
-	return protocol.MakeBulkReply(bytes)
+	return protocol.MakeIntReply(val)
 }
 
 func undoHIncr(db *DB, args [][]byte) []CmdLine {
@@ -456,6 +460,9 @@ func execHIncrByFloat(db *DB, args [][]byte) redis.Reply {
 
 	value, exists := dict.Get(field)
 	if !exists {
+		if math.IsNaN(delta) || math.IsInf(delta, 0) {
+			return protocol.MakeErrReply("ERR increment would produce NaN or Infinity")
+		}
 		dict.Put(field, args[2])
 		db.addAof(utils.ToCmdLine3("hincrbyfloat", args...))
 		return protocol.MakeBulkReply(args[2])
@@ -465,6 +472,9 @@ func execHIncrByFloat(db *DB, args [][]byte) redis.Reply {
 		return protocol.MakeErrReply("ERR hash value is not a float")
 	}
 	result := val + delta
+	if math.IsNaN(result) || math.IsInf(result, 0) {
+		return protocol.MakeErrReply("ERR increment would produce NaN or Infinity")
+	}
 	resultBytes := []byte(strconv.FormatFloat(result, 'f', -1, 64))
 	putHashValuePreservingTTL(dict, field, resultBytes)
 	db.addAof(utils.ToCmdLine3("hincrbyfloat", args...))
@@ -487,79 +497,98 @@ func putHashValuePreservingTTL(d Dict.Dict, field string, value []byte) {
 	d.Put(field, value)
 }
 
+func wouldIntOverflow(a, b int64) bool {
+	if b > 0 && a > math.MaxInt64-b {
+		return true
+	}
+	if b < 0 && a < math.MinInt64-b {
+		return true
+	}
+	return false
+}
+
 // execHRandField return a random field(or field-value) from the hash value stored at key.
 func execHRandField(db *DB, args [][]byte) redis.Reply {
 	key := string(args[0])
+	countSpecified := false
 	count := 1
-	withvalues := 0
+	withvalues := false
 
 	if len(args) > 3 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'hrandfield' command")
 	}
 
-	if len(args) == 3 {
-		if strings.ToLower(string(args[2])) == "withvalues" {
-			withvalues = 1
-		} else {
-			return protocol.MakeSyntaxErrReply()
-		}
-	}
-
 	if len(args) >= 2 {
+		countSpecified = true
 		count64, err := strconv.ParseInt(string(args[1]), 10, 64)
 		if err != nil {
 			return protocol.MakeErrReply("ERR value is not an integer or out of range")
 		}
 		count = int(count64)
 	}
+	if len(args) == 3 {
+		if strings.ToLower(string(args[2])) == "withvalues" {
+			withvalues = true
+		} else {
+			return protocol.MakeSyntaxErrReply()
+		}
+	}
 
 	dict, errReply := db.getAsDict(key)
 	if errReply != nil {
 		return errReply
 	}
-	if dict == nil {
+	if dict == nil || dict.Len() == 0 {
+		if !countSpecified {
+			return &protocol.NullBulkReply{}
+		}
 		return &protocol.EmptyMultiBulkReply{}
+	}
+
+	if !countSpecified {
+		fields := dict.RandomDistinctKeys(1)
+		if len(fields) == 0 {
+			return &protocol.NullBulkReply{}
+		}
+		return protocol.MakeBulkReply([]byte(fields[0]))
 	}
 
 	if count > 0 {
 		fields := dict.RandomDistinctKeys(count)
 		Numfield := len(fields)
-		if withvalues == 0 {
+		if !withvalues {
 			result := make([][]byte, Numfield)
 			for i, v := range fields {
 				result[i] = []byte(v)
 			}
 			return protocol.MakeMultiBulkReply(result)
-		} else {
-			result := make([][]byte, 2*Numfield)
-			for i, v := range fields {
-				result[2*i] = []byte(v)
-				raw, _ := dict.Get(v)
-				result[2*i+1] = raw.([]byte)
-			}
-			return protocol.MakeMultiBulkReply(result)
 		}
+		result := make([][]byte, 2*Numfield)
+		for i, v := range fields {
+			result[2*i] = []byte(v)
+			raw, _ := dict.Get(v)
+			result[2*i+1] = raw.([]byte)
+		}
+		return protocol.MakeMultiBulkReply(result)
 	} else if count < 0 {
 		fields := dict.RandomKeys(-count)
 		Numfield := len(fields)
-		if withvalues == 0 {
+		if !withvalues {
 			result := make([][]byte, Numfield)
 			for i, v := range fields {
 				result[i] = []byte(v)
 			}
 			return protocol.MakeMultiBulkReply(result)
-		} else {
-			result := make([][]byte, 2*Numfield)
-			for i, v := range fields {
-				result[2*i] = []byte(v)
-				raw, _ := dict.Get(v)
-				result[2*i+1] = raw.([]byte)
-			}
-			return protocol.MakeMultiBulkReply(result)
 		}
+		result := make([][]byte, 2*Numfield)
+		for i, v := range fields {
+			result[2*i] = []byte(v)
+			raw, _ := dict.Get(v)
+			result[2*i+1] = raw.([]byte)
+		}
+		return protocol.MakeMultiBulkReply(result)
 	}
 
-	// 'count' is 0 will reach.
 	return &protocol.EmptyMultiBulkReply{}
 }
 

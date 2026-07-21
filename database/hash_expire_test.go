@@ -34,7 +34,7 @@ func TestHExpireBasic(t *testing.T) {
 
 	asserts.AssertIntReply(t, db.Exec(nil, utils.ToCmdLine("HSET", "hk", "f1", "v1", "f2", "v2")), 2)
 
-	reply := db.Exec(nil, utils.ToCmdLine("HEXPIRE", "hk", "1", "f1"))
+	reply := db.Exec(nil, utils.ToCmdLine("HEXPIRE", "hk", "1", "FIELDS", "1", "f1"))
 	got := intArray(reply)
 	if len(got) != 1 || got[0] != 1 {
 		t.Fatalf("expected [1], got %v", got)
@@ -52,31 +52,31 @@ func TestHExpireMissingAndConditions(t *testing.T) {
 
 	asserts.AssertIntReply(t, db.Exec(nil, utils.ToCmdLine("HSET", "hk", "f1", "v1")), 1)
 
-	reply := db.Exec(nil, utils.ToCmdLine("HEXPIRE", "hk", "10", "f1", "missing"))
+	reply := db.Exec(nil, utils.ToCmdLine("HEXPIRE", "hk", "10", "FIELDS", "2", "f1", "missing"))
 	got := intArray(reply)
 	if len(got) != 2 || got[0] != 1 || got[1] != -2 {
 		t.Fatalf("expected [1 -2], got %v", got)
 	}
 
-	reply = db.Exec(nil, utils.ToCmdLine("HEXPIRE", "hk", "10", "NX", "f1"))
+	reply = db.Exec(nil, utils.ToCmdLine("HEXPIRE", "hk", "10", "NX", "FIELDS", "1", "f1"))
 	got = intArray(reply)
 	if len(got) != 1 || got[0] != 0 {
 		t.Fatalf("expected NX on existing field to fail, got %v", got)
 	}
 
-	reply = db.Exec(nil, utils.ToCmdLine("HEXPIRE", "hk", "10", "XX", "missing"))
+	reply = db.Exec(nil, utils.ToCmdLine("HEXPIRE", "hk", "10", "XX", "FIELDS", "1", "missing"))
 	got = intArray(reply)
 	if len(got) != 1 || got[0] != -2 {
 		t.Fatalf("expected XX on missing field to be -2, got %v", got)
 	}
 
-	reply = db.Exec(nil, utils.ToCmdLine("HEXPIRE", "hk", "10", "XX", "f1"))
+	reply = db.Exec(nil, utils.ToCmdLine("HEXPIRE", "hk", "10", "XX", "FIELDS", "1", "f1"))
 	got = intArray(reply)
 	if len(got) != 1 || got[0] != 1 {
 		t.Fatalf("expected XX on existing field to succeed, got %v", got)
 	}
 
-	reply = db.Exec(nil, utils.ToCmdLine("HEXPIRE", "nokey", "10", "f1"))
+	reply = db.Exec(nil, utils.ToCmdLine("HEXPIRE", "nokey", "10", "FIELDS", "1", "f1"))
 	got = intArray(reply)
 	if len(got) != 1 || got[0] != -2 {
 		t.Fatalf("expected -2 for non-existent key, got %v", got)
@@ -87,27 +87,27 @@ func TestHExpireConditionsGTandLT(t *testing.T) {
 	db := makeTestDB()
 
 	asserts.AssertIntReply(t, db.Exec(nil, utils.ToCmdLine("HSET", "hk", "f1", "v1")), 1)
-	reply := db.Exec(nil, utils.ToCmdLine("HEXPIRE", "hk", "100", "f1"))
+	reply := db.Exec(nil, utils.ToCmdLine("HEXPIRE", "hk", "100", "FIELDS", "1", "f1"))
 	if got := intArray(reply); len(got) != 1 || got[0] != 1 {
 		t.Fatalf("expected [1], got %v", got)
 	}
 
-	reply = db.Exec(nil, utils.ToCmdLine("HEXPIRE", "hk", "10", "GT", "f1"))
+	reply = db.Exec(nil, utils.ToCmdLine("HEXPIRE", "hk", "10", "GT", "FIELDS", "1", "f1"))
 	if got := intArray(reply); len(got) != 1 || got[0] != 0 {
 		t.Fatalf("expected GT fail, got %v", got)
 	}
 
-	reply = db.Exec(nil, utils.ToCmdLine("HEXPIRE", "hk", "200", "GT", "f1"))
+	reply = db.Exec(nil, utils.ToCmdLine("HEXPIRE", "hk", "200", "GT", "FIELDS", "1", "f1"))
 	if got := intArray(reply); len(got) != 1 || got[0] != 1 {
 		t.Fatalf("expected GT succeed, got %v", got)
 	}
 
-	reply = db.Exec(nil, utils.ToCmdLine("HEXPIRE", "hk", "300", "LT", "f1"))
+	reply = db.Exec(nil, utils.ToCmdLine("HEXPIRE", "hk", "300", "LT", "FIELDS", "1", "f1"))
 	if got := intArray(reply); len(got) != 1 || got[0] != 0 {
 		t.Fatalf("expected LT fail, got %v", got)
 	}
 
-	reply = db.Exec(nil, utils.ToCmdLine("HEXPIRE", "hk", "150", "LT", "f1"))
+	reply = db.Exec(nil, utils.ToCmdLine("HEXPIRE", "hk", "150", "LT", "FIELDS", "1", "f1"))
 	if got := intArray(reply); len(got) != 1 || got[0] != 1 {
 		t.Fatalf("expected LT succeed, got %v", got)
 	}
@@ -119,7 +119,7 @@ func TestHExpireAtAndPExpire(t *testing.T) {
 	asserts.AssertIntReply(t, db.Exec(nil, utils.ToCmdLine("HSET", "hk", "f1", "v1")), 1)
 
 	future := time.Now().Add(2 * time.Second).Unix()
-	reply := db.Exec(nil, utils.ToCmdLine("HEXPIREAT", "hk", strconv.FormatInt(future, 10), "f1"))
+	reply := db.Exec(nil, utils.ToCmdLine("HEXPIREAT", "hk", strconv.FormatInt(future, 10), "FIELDS", "1", "f1"))
 	if got := intArray(reply); len(got) != 1 || got[0] != 1 {
 		t.Fatalf("expected [1], got %v", got)
 	}
@@ -130,7 +130,7 @@ func TestHExpireAtAndPExpire(t *testing.T) {
 		t.Fatalf("expected positive PTTL, got %v", reply)
 	}
 
-	reply = db.Exec(nil, utils.ToCmdLine("HPExpire", "hk", "1", "f1"))
+	reply = db.Exec(nil, utils.ToCmdLine("HPExpire", "hk", "1", "FIELDS", "1", "f1"))
 	if got := intArray(reply); len(got) != 1 || got[0] != 1 {
 		t.Fatalf("expected [1], got %v", got)
 	}
@@ -142,7 +142,7 @@ func TestHExpireAfterClassicHash(t *testing.T) {
 	db := makeTestDB()
 
 	asserts.AssertIntReply(t, db.Exec(nil, utils.ToCmdLine("HSET", "hk", "f1", "v1")), 1)
-	reply := db.Exec(nil, utils.ToCmdLine("HEXPIRE", "hk", "3600", "f1"))
+	reply := db.Exec(nil, utils.ToCmdLine("HEXPIRE", "hk", "3600", "FIELDS", "1", "f1"))
 	if got := intArray(reply); len(got) != 1 || got[0] != 1 {
 		t.Fatalf("expected [1], got %v", got)
 	}
@@ -157,7 +157,7 @@ func TestHExpireAfterClassicHash(t *testing.T) {
 func TestHExpireMutuallyExclusiveFlags(t *testing.T) {
 	db := makeTestDB()
 	asserts.AssertIntReply(t, db.Exec(nil, utils.ToCmdLine("HSET", "hk", "f1", "v1")), 1)
-	reply := db.Exec(nil, utils.ToCmdLine("HEXPIRE", "hk", "10", "NX", "XX", "f1"))
+	reply := db.Exec(nil, utils.ToCmdLine("HEXPIRE", "hk", "10", "NX", "XX", "FIELDS", "1", "f1"))
 	if reply == nil {
 		t.Fatal("expected error reply")
 	}
@@ -171,7 +171,7 @@ func TestHExpirePastTimeDeletesField(t *testing.T) {
 	asserts.AssertIntReply(t, db.Exec(nil, utils.ToCmdLine("HSET", "hk", "f1", "v1")), 1)
 
 	past := time.Now().Add(-10 * time.Second).Unix()
-	reply := db.Exec(nil, utils.ToCmdLine("HEXPIREAT", "hk", strconv.FormatInt(past, 10), "f1"))
+	reply := db.Exec(nil, utils.ToCmdLine("HEXPIREAT", "hk", strconv.FormatInt(past, 10), "FIELDS", "1", "f1"))
 	if got := intArray(reply); len(got) != 1 || got[0] != 2 {
 		t.Fatalf("expected [2], got %v", got)
 	}
@@ -184,7 +184,7 @@ func TestHExpireInTransaction(t *testing.T) {
 	asserts.AssertIntReply(t, db.Exec(conn, utils.ToCmdLine("HSET", "hk", "f1", "v1")), 1)
 
 	asserts.AssertStatusReply(t, db.Exec(conn, utils.ToCmdLine("MULTI")), "OK")
-	db.Exec(conn, utils.ToCmdLine("HEXPIRE", "hk", "3600", "f1"))
+	db.Exec(conn, utils.ToCmdLine("HEXPIRE", "hk", "3600", "FIELDS", "1", "f1"))
 	reply := db.Exec(conn, utils.ToCmdLine("EXEC"))
 	multi, ok := reply.(*protocol.MultiRawReply)
 	if !ok {

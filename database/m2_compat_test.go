@@ -89,7 +89,7 @@ func TestM2SPopBulk(t *testing.T) {
 func TestM2HExpireTime(t *testing.T) {
 	db := makeTestDB()
 	db.Exec(nil, utils.ToCmdLine("HSET", "h", "f", "v"))
-	db.Exec(nil, utils.ToCmdLine("HEXPIRE", "h", "60", "f"))
+	db.Exec(nil, utils.ToCmdLine("HEXPIRE", "h", "60", "FIELDS", "1", "f"))
 	reply := db.Exec(nil, utils.ToCmdLine("HEXPIRETIME", "h", "FIELDS", "1", "f"))
 	mr, ok := reply.(*protocol.MultiRawReply)
 	if !ok || len(mr.Replies) != 1 {

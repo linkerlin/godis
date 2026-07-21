@@ -291,47 +291,65 @@ func execHGetDel(db *DB, args [][]byte) redis.Reply {
 }
 
 // execHTTL 获取字段剩余生存时间
-// HTTL key field
+// HTTL key field  |  HTTL key FIELDS numfields field [field ...]
 func execHTTL(db *DB, args [][]byte) redis.Reply {
-	if len(args) != 2 {
-		return protocol.MakeArgNumErrReply("httl")
-	}
-
-	key := string(args[0])
-	field := string(args[1])
-
-	ed, errReply := db.getAsExpireDict(key)
-	if errReply != nil {
-		return errReply
-	}
-	if ed == nil {
-		return protocol.MakeIntReply(-2)
-	}
-
-	ttl := ed.TTL(field)
-	return protocol.MakeIntReply(ttl)
+	return execHTTLFamily(db, args, false)
 }
 
 // execHPTTL 获取字段剩余生存时间（毫秒）
-// HPTTL key field
 func execHPTTL(db *DB, args [][]byte) redis.Reply {
-	if len(args) != 2 {
-		return protocol.MakeArgNumErrReply("hpttl")
-	}
+	return execHTTLFamily(db, args, true)
+}
 
+func execHTTLFamily(db *DB, args [][]byte, millis bool) redis.Reply {
+	if len(args) < 2 {
+		return protocol.MakeErrReply("ERR wrong number of arguments")
+	}
 	key := string(args[0])
-	field := string(args[1])
+	var fields []string
+	multi := false
+	if strings.ToUpper(string(args[1])) == "FIELDS" {
+		multi = true
+		if len(args) < 4 {
+			return protocol.MakeErrReply("ERR wrong number of arguments")
+		}
+		n, err := strconv.Atoi(string(args[2]))
+		if err != nil || n < 1 {
+			return protocol.MakeErrReply("ERR Number of fields can't be negative or zero")
+		}
+		if len(args) != 3+n {
+			return protocol.MakeErrReply("ERR wrong number of arguments")
+		}
+		fields = make([]string, n)
+		for i := 0; i < n; i++ {
+			fields[i] = string(args[3+i])
+		}
+	} else if len(args) == 2 {
+		fields = []string{string(args[1])}
+	} else {
+		return protocol.MakeSyntaxErrReply()
+	}
 
 	ed, errReply := db.getAsExpireDict(key)
 	if errReply != nil {
 		return errReply
 	}
-	if ed == nil {
-		return protocol.MakeIntReply(-2)
+	replies := make([]redis.Reply, len(fields))
+	for i, field := range fields {
+		if ed == nil {
+			replies[i] = protocol.MakeIntReply(-2)
+			continue
+		}
+		if millis {
+			replies[i] = protocol.MakeIntReply(ed.PTTL(field))
+		} else {
+			replies[i] = protocol.MakeIntReply(ed.TTL(field))
+		}
 	}
-
-	pttl := ed.PTTL(field)
-	return protocol.MakeIntReply(pttl)
+	if multi {
+		return protocol.MakeMultiRawReply(replies)
+	}
+	return replies[0]
 }
 
 // execHPersist 移除字段的过期时间
@@ -378,23 +396,45 @@ type hExpireFlags struct {
 }
 
 func parseHExpireFlags(args [][]byte) (flags hExpireFlags, fields [][]byte, errReply redis.Reply) {
-	for i := 0; i < len(args); i++ {
+	i := 0
+	for i < len(args) {
 		arg := strings.ToUpper(string(args[i]))
 		switch arg {
 		case "NX":
 			flags.nx = true
+			i++
 		case "XX":
 			flags.xx = true
+			i++
 		case "GT":
 			flags.gt = true
+			i++
 		case "LT":
 			flags.lt = true
+			i++
+		case "FIELDS":
+			goto fields
 		default:
-			// first non-flag argument starts the field list
-			fields = args[i:]
-			return
+			return flags, nil, protocol.MakeSyntaxErrReply()
 		}
 	}
+fields:
+	if i >= len(args) || strings.ToUpper(string(args[i])) != "FIELDS" {
+		return flags, nil, protocol.MakeSyntaxErrReply()
+	}
+	i++
+	if i >= len(args) {
+		return flags, nil, protocol.MakeErrReply("ERR wrong number of arguments")
+	}
+	n, err := strconv.Atoi(string(args[i]))
+	if err != nil || n < 1 {
+		return flags, nil, protocol.MakeErrReply("ERR Number of fields can't be negative or zero")
+	}
+	i++
+	if len(args) != i+n {
+		return flags, nil, protocol.MakeErrReply("ERR wrong number of arguments")
+	}
+	fields = args[i:]
 	return
 }
 
@@ -489,13 +529,19 @@ func execHExpireFamily(db *DB, args [][]byte, at bool, unit time.Duration) redis
 			results[i] = protocol.MakeIntReply(0)
 			continue
 		}
-		if flags.gt && (!hasExpire || !expireAt.After(currentExpire)) {
-			results[i] = protocol.MakeIntReply(0)
-			continue
+		if flags.gt {
+			// no TTL ≈ +inf → GT always ok
+			if hasExpire && !expireAt.After(currentExpire) {
+				results[i] = protocol.MakeIntReply(0)
+				continue
+			}
 		}
-		if flags.lt && (!hasExpire || !expireAt.Before(currentExpire)) {
-			results[i] = protocol.MakeIntReply(0)
-			continue
+		if flags.lt {
+			// no TTL ≈ +inf → LT never ok
+			if !hasExpire || !expireAt.Before(currentExpire) {
+				results[i] = protocol.MakeIntReply(0)
+				continue
+			}
 		}
 
 		if !expireAt.After(now) {
@@ -589,9 +635,9 @@ func init() {
 		attachCommandExtra([]string{redisFlagWrite, redisFlagDenyOOM, redisFlagFast}, 1, 1, 1)
 	registerCommand("HGetDel", execHGetDel, writeFirstKey, undoHGetDel, -3, flagWrite).
 		attachCommandExtra([]string{redisFlagWrite, redisFlagFast}, 1, 1, 1)
-	registerCommand("HTTL", execHTTL, readFirstKey, nil, 3, flagReadOnly).
+	registerCommand("HTTL", execHTTL, readFirstKey, nil, -3, flagReadOnly).
 		attachCommandExtra([]string{redisFlagReadonly, redisFlagFast}, 1, 1, 1)
-	registerCommand("HPTTL", execHPTTL, readFirstKey, nil, 3, flagReadOnly).
+	registerCommand("HPTTL", execHPTTL, readFirstKey, nil, -3, flagReadOnly).
 		attachCommandExtra([]string{redisFlagReadonly, redisFlagFast}, 1, 1, 1)
 	registerCommand("HPersist", execHPersist, writeFirstKey, nil, -3, flagWrite).
 		attachCommandExtra([]string{redisFlagWrite, redisFlagFast}, 1, 1, 1)

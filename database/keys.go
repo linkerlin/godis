@@ -111,7 +111,7 @@ func execRename(db *DB, args [][]byte) redis.Reply {
 
 	entity, ok := db.GetEntity(src)
 	if !ok {
-		return protocol.MakeErrReply("no such key")
+		return protocol.MakeErrReply("ERR no such key")
 	}
 	// Redis: RENAME key key is a no-op that returns OK
 	if src == dest {
@@ -148,7 +148,7 @@ func execRenameNx(db *DB, args [][]byte) redis.Reply {
 
 	entity, ok := db.GetEntity(src)
 	if !ok {
-		return protocol.MakeErrReply("no such key")
+		return protocol.MakeErrReply("ERR no such key")
 	}
 	rawTTL, hasTTL := db.ttlMap.Get(src)
 	db.Removes(src, dest) // clean src and dest with their ttl
@@ -589,6 +589,15 @@ func execScan(db *DB, args [][]byte) redis.Reply {
 			} else {
 				i++
 			}
+		}
+	}
+	// Filter expired keys (lazy expire)
+	for i := 0; i < len(keysReply); {
+		k := string(keysReply[i])
+		if db.IsExpired(k) {
+			keysReply = append(keysReply[:i], keysReply[i+1:]...)
+		} else {
+			i++
 		}
 	}
 	result := make([]redis.Reply, 2)
