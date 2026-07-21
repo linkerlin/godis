@@ -599,6 +599,9 @@ func execHScan(db *DB, args [][]byte) redis.Reply {
 		for i := 2; i < len(args); i++ {
 			arg := strings.ToLower(string(args[i]))
 			if arg == "count" {
+				if i+1 >= len(args) {
+					return &protocol.SyntaxErrReply{}
+				}
 				count0, err := strconv.Atoi(string(args[i+1]))
 				if err != nil {
 					return &protocol.SyntaxErrReply{}
@@ -606,6 +609,9 @@ func execHScan(db *DB, args [][]byte) redis.Reply {
 				count = count0
 				i++
 			} else if arg == "match" {
+				if i+1 >= len(args) {
+					return &protocol.SyntaxErrReply{}
+				}
 				pattern = string(args[i+1])
 				i++
 			} else {
@@ -617,13 +623,12 @@ func execHScan(db *DB, args [][]byte) redis.Reply {
 		return &protocol.SyntaxErrReply{}
 	}
 	key := string(args[0])
-	// get entity
 	dict, errReply := db.getAsDict(key)
 	if errReply != nil {
 		return errReply
 	}
 	if dict == nil {
-		return &protocol.NullBulkReply{}
+		return emptyScanReply()
 	}
 	cursor, err := strconv.Atoi(string(args[1]))
 	if err != nil {
@@ -632,14 +637,21 @@ func execHScan(db *DB, args [][]byte) redis.Reply {
 
 	keysReply, nextCursor := dict.DictScan(cursor, count, pattern)
 	if nextCursor < 0 {
-		return protocol.MakeErrReply("Invalid argument")
+		return protocol.MakeErrReply("ERR invalid argument")
 	}
 
-	result := make([]redis.Reply, 2)
-	result[0] = protocol.MakeBulkReply([]byte(strconv.FormatInt(int64(nextCursor), 10)))
-	result[1] = protocol.MakeMultiBulkReply(keysReply)
+	return protocol.MakeMultiRawReply([]redis.Reply{
+		protocol.MakeBulkReply([]byte(strconv.FormatInt(int64(nextCursor), 10))),
+		protocol.MakeMultiBulkReply(keysReply),
+	})
+}
 
-	return protocol.MakeMultiRawReply(result)
+// emptyScanReply is Redis SCAN/HSCAN reply for a missing key: ["0", []].
+func emptyScanReply() redis.Reply {
+	return protocol.MakeMultiRawReply([]redis.Reply{
+		protocol.MakeBulkReply([]byte("0")),
+		protocol.MakeMultiBulkReply([][]byte{}),
+	})
 }
 
 func init() {

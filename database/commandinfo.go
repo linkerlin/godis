@@ -38,11 +38,11 @@ func execCommand(args [][]byte) redis.Reply {
 		return protocol.MakeIntReply(int64(len(cmdTable)))
 	} else if subCommand == "getkeys" {
 		if len(args) < 2 {
-			return protocol.MakeErrReply("wrong number of arguments for 'command|" + subCommand + "'")
+			return protocol.MakeErrReply("ERR wrong number of arguments for 'command|" + subCommand + "'")
 		}
 		return getKeys(args[1:])
 	} else {
-		return protocol.MakeErrReply("Unknown subcommand '" + subCommand + "'")
+		return protocol.MakeErrReply("ERR Unknown subcommand or wrong number of arguments for '" + subCommand + "'")
 	}
 }
 

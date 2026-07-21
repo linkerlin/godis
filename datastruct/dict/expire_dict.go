@@ -376,14 +376,26 @@ func (ed *ExpireDict) Clear() {
 
 // DictScan 实现 dict.Dict 接口，返回未过期字段的 key/value 对
 func (ed *ExpireDict) DictScan(cursor int, count int, pattern string) ([][]byte, int) {
-	pairs, nextCursor := ed.data.DictScan(cursor, count, pattern)
-	result := make([][]byte, 0, len(pairs))
-	for i := 0; i < len(pairs); i += 2 {
-		field := string(pairs[i])
+	// ConcurrentDict.DictScan returns keys only; attach values here for HSCAN.
+	keys, nextCursor := ed.data.DictScan(cursor, count, pattern)
+	if nextCursor < 0 {
+		return nil, nextCursor
+	}
+	result := make([][]byte, 0, len(keys)*2)
+	for _, kBytes := range keys {
+		field := string(kBytes)
 		if ed.isExpired(field) {
 			continue
 		}
-		result = append(result, pairs[i], pairs[i+1])
+		val, exists := ed.Get(field)
+		if !exists {
+			continue
+		}
+		bytes, ok := val.([]byte)
+		if !ok {
+			continue
+		}
+		result = append(result, kBytes, bytes)
 	}
 	return result, nextCursor
 }

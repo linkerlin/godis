@@ -31,15 +31,17 @@ func NewHLL() *HLL {
 	}
 }
 
-// Add adds an element to the HLL
-func (h *HLL) Add(elem []byte) {
+// Add adds an element to the HLL. Returns true if any register was updated.
+func (h *HLL) Add(elem []byte) bool {
 	hash := hashBytes(elem)
 	index := hash & hllRegistersMask
 	// Count leading zeros + 1
 	value := uint8(bits.LeadingZeros64(hash>>hllBits)) + 1
 	if value > h.registers[index] {
 		h.registers[index] = value
+		return true
 	}
+	return false
 }
 
 // Count returns the estimated cardinality
@@ -107,10 +109,7 @@ func execPFAdd(db *DB, args [][]byte) redis.Reply {
 
 	added := false
 	for i := 1; i < len(args); i++ {
-		oldCount := hll.Count()
-		hll.Add(args[i])
-		newCount := hll.Count()
-		if newCount != oldCount {
+		if hll.Add(args[i]) {
 			added = true
 		}
 	}
@@ -163,9 +162,9 @@ func execPFCount(db *DB, args [][]byte) redis.Reply {
 }
 
 // execPFMerge merges multiple HyperLogLogs
-// PFMERGE destkey sourcekey [sourcekey ...]
+// PFMERGE destkey [sourcekey ...]
 func execPFMerge(db *DB, args [][]byte) redis.Reply {
-	if len(args) < 2 {
+	if len(args) < 1 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'pfmerge' command")
 	}
 
@@ -206,13 +205,12 @@ func init() {
 		attachCommandExtra([]string{redisFlagWrite, redisFlagDenyOOM, redisFlagFast}, 1, 1, 1)
 	registerCommand("PFCount", execPFCount, readFirstKey, nil, -2, flagReadOnly).
 		attachCommandExtra([]string{redisFlagReadonly, redisFlagFast}, 1, 1, 1)
-	registerCommand("PFMerge", execPFMerge, preparePFMerge, undoPFMerge, -3, flagWrite).
+	registerCommand("PFMerge", execPFMerge, preparePFMerge, undoPFMerge, -2, flagWrite).
 		attachCommandExtra([]string{redisFlagWrite, redisFlagDenyOOM}, 1, -1, 1)
 }
 
 // preparePFMerge prepares keys for PFMERGE
 func preparePFMerge(args [][]byte) ([]string, []string) {
-	// All keys are read except the first one (destKey)
 	writeKeys := []string{string(args[0])}
 	readKeys := make([]string, 0, len(args)-1)
 	for i := 1; i < len(args); i++ {

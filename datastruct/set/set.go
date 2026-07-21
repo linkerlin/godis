@@ -103,6 +103,11 @@ func Intersect(sets ...*Set) *Set {
 	if len(sets) == 0 {
 		return result
 	}
+	for _, set := range sets {
+		if set == nil || set.Len() == 0 {
+			return result
+		}
+	}
 
 	countMap := make(map[string]int)
 	for _, set := range sets {
@@ -123,6 +128,9 @@ func Intersect(sets ...*Set) *Set {
 func Union(sets ...*Set) *Set {
 	result := Make()
 	for _, set := range sets {
+		if set == nil {
+			continue
+		}
 		set.ForEach(func(member string) bool {
 			result.Add(member)
 			return true
@@ -133,11 +141,14 @@ func Union(sets ...*Set) *Set {
 
 // Diff subtracts two sets
 func Diff(sets ...*Set) *Set {
-	if len(sets) == 0 {
+	if len(sets) == 0 || sets[0] == nil {
 		return Make()
 	}
 	result := sets[0].ShallowCopy()
 	for i := 1; i < len(sets); i++ {
+		if sets[i] == nil {
+			continue
+		}
 		sets[i].ForEach(func(member string) bool {
 			result.Remove(member)
 			return true

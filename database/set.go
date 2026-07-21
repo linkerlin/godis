@@ -124,6 +124,10 @@ func execSPop(db *DB, args [][]byte) redis.Reply {
 		return errReply
 	}
 	if set == nil {
+		// Redis: no count → nil; with count → empty array
+		if len(args) == 2 {
+			return &protocol.EmptyMultiBulkReply{}
+		}
 		return &protocol.NullBulkReply{}
 	}
 
@@ -219,7 +223,8 @@ func execSInter(db *DB, args [][]byte) redis.Reply {
 		if errReply != nil {
 			return errReply
 		}
-		if set.Len() == 0 {
+		// missing key is treated as empty set → empty intersection
+		if set == nil || set.Len() == 0 {
 			return &protocol.EmptyMultiBulkReply{}
 		}
 		sets = append(sets, set)
@@ -238,13 +243,17 @@ func execSInterStore(db *DB, args [][]byte) redis.Reply {
 		if errReply != nil {
 			return errReply
 		}
-		if set.Len() == 0 {
+		if set == nil || set.Len() == 0 {
+			db.Remove(dest) // clear old dest + TTL (Redis semantics)
 			return protocol.MakeIntReply(0)
 		}
 		sets = append(sets, set)
 	}
 	result := HashSet.Intersect(sets...)
-
+	db.Remove(dest) // clean ttl
+	if result.Len() == 0 {
+		return protocol.MakeIntReply(0)
+	}
 	db.PutEntity(dest, &database.DataEntity{
 		Data: result,
 	})
@@ -344,6 +353,10 @@ func execSRandMember(db *DB, args [][]byte) redis.Reply {
 		return errReply
 	}
 	if set == nil {
+		// Redis: no count → nil; with count → empty array
+		if len(args) == 2 {
+			return &protocol.EmptyMultiBulkReply{}
+		}
 		return &protocol.NullBulkReply{}
 	}
 	if len(args) == 1 {
@@ -402,7 +415,7 @@ func execSScan(db *DB, args [][]byte) redis.Reply {
 		return errReply
 	}
 	if set == nil {
-		return &protocol.EmptyMultiBulkReply{}
+		return emptyScanReply()
 	}
 	cursor, err := strconv.Atoi(string(args[1]))
 	if err != nil {
@@ -411,7 +424,7 @@ func execSScan(db *DB, args [][]byte) redis.Reply {
 
 	keysReply, nextCursor := set.SetScan(cursor, count, pattern)
 	if nextCursor < 0 {
-		return protocol.MakeErrReply("Invalid argument")
+		return protocol.MakeErrReply("ERR invalid argument")
 	}
 
 	result := make([]redis.Reply, 2)

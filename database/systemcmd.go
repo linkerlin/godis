@@ -74,7 +74,7 @@ func Info(db *Server, args [][]byte) redis.Reply {
 		case "keyspace":
 			return protocol.MakeBulkReply(GenGodisInfoString("keyspace", db))
 		default:
-			return protocol.MakeErrReply("Invalid section for 'info' command")
+			return protocol.MakeErrReply("ERR Invalid section for 'info' command")
 		}
 	}
 	return protocol.MakeArgNumErrReply("info")

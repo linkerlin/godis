@@ -1072,7 +1072,7 @@ func execZScan(db *DB, args [][]byte) redis.Reply {
 		return errReply
 	}
 	if set == nil {
-		return &protocol.EmptyMultiBulkReply{}
+		return emptyScanReply()
 	}
 	cursor, err := strconv.Atoi(string(args[1]))
 	if err != nil {
@@ -1081,7 +1081,7 @@ func execZScan(db *DB, args [][]byte) redis.Reply {
 
 	keysReply, nextCursor := set.ZSetScan(cursor, count, pattern)
 	if nextCursor < 0 {
-		return protocol.MakeErrReply("Invalid argument")
+		return protocol.MakeErrReply("ERR invalid argument")
 	}
 
 	result := make([]redis.Reply, 2)
@@ -1405,26 +1405,51 @@ func execZSetOperation(db *DB, args [][]byte, op string, store bool) redis.Reply
 		}
 
 	case "INTER":
-		// Find intersection
+		// Find intersection; apply WEIGHTS then AGGREGATE (SUM/MIN/MAX)
 		if len(sets) > 0 && sets[0] != nil {
 			members := sets[0].RangeByRank(0, sets[0].Len(), false)
 			for _, m := range members {
-				score := m.Score * weights[0]
+				scores := make([]float64, len(sets))
+				scores[0] = m.Score * weights[0]
 				inAll := true
 				for i := 1; i < len(sets); i++ {
 					if sets[i] == nil {
 						inAll = false
 						break
 					}
-					if elem, ok := sets[i].Get(m.Member); !ok {
+					elem, ok := sets[i].Get(m.Member)
+					if !ok {
 						inAll = false
 						break
-					} else {
-						score += elem.Score * weights[i]
 					}
+					scores[i] = elem.Score * weights[i]
 				}
-				if inAll {
-					result[m.Member] = score
+				if !inAll {
+					continue
+				}
+				switch aggregate {
+				case "MIN":
+					min := scores[0]
+					for _, s := range scores[1:] {
+						if s < min {
+							min = s
+						}
+					}
+					result[m.Member] = min
+				case "MAX":
+					max := scores[0]
+					for _, s := range scores[1:] {
+						if s > max {
+							max = s
+						}
+					}
+					result[m.Member] = max
+				default: // SUM
+					sum := 0.0
+					for _, s := range scores {
+						sum += s
+					}
+					result[m.Member] = sum
 				}
 			}
 		}

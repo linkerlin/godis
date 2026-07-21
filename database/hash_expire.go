@@ -623,9 +623,12 @@ func undoHGetEx(db *DB, args [][]byte) []CmdLine {
 }
 
 func undoHGetDel(db *DB, args [][]byte) []CmdLine {
-	// HGETDEL删除字段，回滚需要恢复字段值
-	// 由于值已经丢失，这里简化处理
-	return nil
+	key := string(args[0])
+	fields := make([]string, len(args)-1)
+	for i := 1; i < len(args); i++ {
+		fields[i-1] = string(args[i])
+	}
+	return rollbackHashFields(db, key, fields...)
 }
 
 func init() {

@@ -1,6 +1,8 @@
 package dict
 
 import (
+	"sort"
+
 	"github.com/linkerlin/godis/lib/wildcard"
 )
 
@@ -131,15 +133,39 @@ func (dict *SimpleDict) DictScan(cursor int, count int, pattern string) ([][]byt
 	if err != nil {
 		return result, -1
 	}
-	for k := range dict.m {
-		if pattern == "*" || matchKey.IsMatch(k) {
-			raw, exists := dict.Get(k)
-			if !exists {
-				continue
-			}
-			result = append(result, []byte(k))
-			result = append(result, raw.([]byte))
-		}
+	if count <= 0 {
+		count = 10
 	}
-	return result, 0
+	keys := make([]string, 0, len(dict.m))
+	for k := range dict.m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	if cursor < 0 || cursor > len(keys) {
+		return result, 0
+	}
+	i := cursor
+	visited := 0
+	for i < len(keys) && visited < count {
+		k := keys[i]
+		i++
+		visited++
+		if pattern != "*" && !matchKey.IsMatch(k) {
+			continue
+		}
+		raw, exists := dict.Get(k)
+		if !exists {
+			continue
+		}
+		val, ok := raw.([]byte)
+		if !ok {
+			continue
+		}
+		result = append(result, []byte(k), val)
+	}
+	next := i
+	if next >= len(keys) {
+		next = 0
+	}
+	return result, next
 }

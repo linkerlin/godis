@@ -1,18 +1,31 @@
 package database
 
 import (
+	"bytes"
 	"encoding/binary"
 	"strconv"
 	"time"
 
+	"github.com/hdt3213/rdb/crc64jones"
+	rdbenc "github.com/hdt3213/rdb/encoder"
+	"github.com/hdt3213/rdb/model"
+	rdb "github.com/hdt3213/rdb/parser"
+	Dict "github.com/linkerlin/godis/datastruct/dict"
+	List "github.com/linkerlin/godis/datastruct/list"
+	HashSet "github.com/linkerlin/godis/datastruct/set"
+	SortedSet "github.com/linkerlin/godis/datastruct/sortedset"
 	"github.com/linkerlin/godis/interface/database"
 	"github.com/linkerlin/godis/interface/redis"
 	"github.com/linkerlin/godis/lib/utils"
 	"github.com/linkerlin/godis/redis/protocol"
 )
 
-// execDump serializes the value stored at key in a Redis-specific format
-// DUMP key
+// Redis DUMP footer: 2-byte RDB version (LE) + 8-byte CRC64-Jones (LE).
+// Version 11 matches REDIS0011 used by hdt3213/rdb encoder.
+const dumpRDBVersion = uint16(11)
+
+// execDump serializes the value stored at key in Redis DUMP format
+// (RDB object + version + CRC64). TTL is not embedded; use RESTORE's ttl arg.
 func execDump(db *DB, args [][]byte) redis.Reply {
 	if len(args) != 1 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'dump' command")
@@ -24,40 +37,14 @@ func execDump(db *DB, args [][]byte) redis.Reply {
 		return protocol.MakeNullBulkReply()
 	}
 
-	// Serialize the value using a simple format
-	// Format: [1 byte type][4 bytes TTL (0 if no TTL)][value data]
-	var data []byte
-
-	// Get TTL if exists
-	var ttlMs uint32 = 0
-	raw, hasTTL := db.ttlMap.Get(key)
-	if hasTTL {
-		expireTime := raw.(time.Time)
-		ttlMs = uint32(time.Until(expireTime).Milliseconds())
-		if ttlMs < 0 {
-			ttlMs = 0
-		}
+	payload, err := encodeDumpPayload(entity)
+	if err != nil {
+		return protocol.MakeErrReply("ERR " + err.Error())
 	}
-
-	// Serialize based on type
-	switch val := entity.Data.(type) {
-	case []byte:
-		data = make([]byte, 5+len(val))
-		data[0] = 0x00 // String type
-		binary.BigEndian.PutUint32(data[1:5], ttlMs)
-		copy(data[5:], val)
-	default:
-		// For other types, use string representation
-		strVal := utils.ToCmdLine3("dump", args...)
-		_ = strVal
-		// Simplified: return error for complex types
-		return protocol.MakeErrReply("ERR DUMP not fully implemented for this data type")
-	}
-
-	return protocol.MakeBulkReply(data)
+	return protocol.MakeBulkReply(payload)
 }
 
-// execRestore deserializes the value stored at key
+// execRestore deserializes a DUMP payload into key
 // RESTORE key ttl serialized-value [REPLACE] [ABSTTL] [IDLETIME seconds] [FREQ frequency]
 func execRestore(db *DB, args [][]byte) redis.Reply {
 	if len(args) < 3 {
@@ -65,7 +52,7 @@ func execRestore(db *DB, args [][]byte) redis.Reply {
 	}
 
 	key := string(args[0])
-	ttlArg, err := strconv.Atoi(string(args[1]))
+	ttlArg, err := strconv.ParseInt(string(args[1]), 10, 64)
 	if err != nil {
 		return protocol.MakeErrReply("ERR value is not an integer or out of range")
 	}
@@ -74,7 +61,6 @@ func execRestore(db *DB, args [][]byte) redis.Reply {
 	replace := false
 	absTTL := false
 
-	// Parse optional arguments
 	for i := 3; i < len(args); i++ {
 		arg := string(args[i])
 		switch arg {
@@ -83,70 +69,223 @@ func execRestore(db *DB, args [][]byte) redis.Reply {
 		case "ABSTTL":
 			absTTL = true
 		case "IDLETIME", "FREQ":
-			// Skip these options with their values
 			if i+1 < len(args) {
 				i++
 			}
+		default:
+			return protocol.MakeErrReply("ERR syntax error")
 		}
 	}
 
-	// Check if key exists
 	_, exists := db.GetEntity(key)
 	if exists && !replace {
 		return protocol.MakeErrReply("BUSYKEY Target key name already exists.")
 	}
 
-	// Deserialize data
-	if len(serializedData) < 5 {
+	entity, err := decodeDumpPayload(serializedData)
+	if err != nil {
 		return protocol.MakeErrReply("ERR DUMP payload version or checksum are wrong")
 	}
 
-	dataType := serializedData[0]
-	ttlMs := binary.BigEndian.Uint32(serializedData[1:5])
-	value := serializedData[5:]
-
-	// Restore based on type
-	var entity *database.DataEntity
-	switch dataType {
-	case 0x00: // String type
-		entity = &database.DataEntity{Data: value}
-	default:
-		return protocol.MakeErrReply("ERR DUMP payload version or checksum are wrong")
-	}
-
-	// Store the key
 	db.PutEntity(key, entity)
 
-	// Set TTL if specified
 	if ttlArg > 0 {
 		var expireTime time.Time
 		if absTTL {
-			// ttlArg is absolute timestamp in milliseconds
-			expireTime = time.Unix(0, int64(ttlArg)*int64(time.Millisecond))
+			expireTime = time.Unix(0, ttlArg*int64(time.Millisecond))
 		} else {
 			expireTime = time.Now().Add(time.Duration(ttlArg) * time.Millisecond)
 		}
 		db.Expire(key, expireTime)
-	} else if ttlMs > 0 && ttlArg == 0 {
-		// Use TTL from dump data if no explicit TTL provided
-		expireTime := time.Now().Add(time.Duration(ttlMs) * time.Millisecond)
-		db.Expire(key, expireTime)
+	} else {
+		db.Persist(key)
 	}
 
 	db.addAof(utils.ToCmdLine3("restore", args...))
 	return protocol.MakeOkReply()
 }
 
-// execRestoreAsking is used in cluster mode to restore a key from another node
-// RESTORE-ASKING key ttl serialized-value
 func execRestoreAsking(db *DB, args [][]byte) redis.Reply {
 	if len(args) != 3 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'restore-asking' command")
 	}
-	// For now, same as RESTORE with REPLACE
 	newArgs := append(args, []byte("REPLACE"))
 	return execRestore(db, newArgs)
 }
+
+func encodeDumpPayload(entity *database.DataEntity) ([]byte, error) {
+	full := &bytes.Buffer{}
+	enc := rdbenc.NewEncoder(full)
+	if err := enc.WriteHeader(); err != nil {
+		return nil, err
+	}
+	if err := enc.WriteDBHeader(0, 1, 0); err != nil {
+		return nil, err
+	}
+	start := full.Len()
+	if err := writeEntityToRDB(enc, "", entity); err != nil {
+		return nil, err
+	}
+	withKey := full.Bytes()[start:]
+	// WriteXxxObject encodes: type + key + value. Empty key is always 1-byte length 0.
+	if len(withKey) < 2 || withKey[1] != 0x00 {
+		return nil, errDumpUnsupported("unexpected RDB key encoding")
+	}
+	obj := append([]byte{withKey[0]}, withKey[2:]...)
+	return appendDumpFooter(obj), nil
+}
+
+func decodeDumpPayload(payload []byte) (*database.DataEntity, error) {
+	if len(payload) < 10 {
+		return nil, errDumpBadPayload
+	}
+	bodyLen := len(payload) - 10
+	body := payload[:bodyLen]
+	ver := binary.LittleEndian.Uint16(payload[bodyLen : bodyLen+2])
+	crcGot := binary.LittleEndian.Uint64(payload[bodyLen+2:])
+	if ver == 0 || ver > 12 {
+		return nil, errDumpBadPayload
+	}
+	if crcGot != 0 {
+		h := crc64jones.New()
+		_, _ = h.Write(payload[:bodyLen+2])
+		if h.Sum64() != crcGot {
+			return nil, errDumpBadPayload
+		}
+	}
+	if len(body) < 1 {
+		return nil, errDumpBadPayload
+	}
+
+	// Wrap DUMP object as a single-key RDB (empty key) for the existing decoder.
+	var rdbBuf bytes.Buffer
+	rdbBuf.WriteString("REDIS0011")
+	rdbBuf.WriteByte(0xFE) // SELECTDB
+	rdbBuf.WriteByte(0x00)
+	rdbBuf.WriteByte(0xFB) // RESIZEDB
+	rdbBuf.WriteByte(0x01)
+	rdbBuf.WriteByte(0x00)
+	rdbBuf.WriteByte(body[0]) // type
+	rdbBuf.WriteByte(0x00)    // empty key
+	rdbBuf.Write(body[1:])
+	rdbBuf.WriteByte(0xFF)                // EOF
+	rdbBuf.Write(make([]byte, 8))         // ignored file CRC
+	rdbBuf.WriteByte(0x0a)
+
+	var entity *database.DataEntity
+	dec := rdb.NewDecoder(bytes.NewReader(rdbBuf.Bytes()))
+	err := dec.Parse(func(o rdb.RedisObject) bool {
+		switch o.GetType() {
+		case rdb.StringType:
+			str := o.(*rdb.StringObject)
+			entity = &database.DataEntity{Data: str.Value}
+		case rdb.ListType:
+			listObj := o.(*rdb.ListObject)
+			list := List.NewQuickList()
+			for _, v := range listObj.Values {
+				list.Add(v)
+			}
+			entity = &database.DataEntity{Data: list}
+		case rdb.HashType:
+			hashObj := o.(*rdb.HashObject)
+			hash := Dict.MakeSimple()
+			for k, v := range hashObj.Hash {
+				hash.Put(k, v)
+			}
+			entity = &database.DataEntity{Data: hash}
+		case rdb.SetType:
+			setObj := o.(*rdb.SetObject)
+			set := HashSet.Make()
+			for _, mem := range setObj.Members {
+				set.Add(string(mem))
+			}
+			entity = &database.DataEntity{Data: set}
+		case rdb.ZSetType:
+			zsetObj := o.(*rdb.ZSetObject)
+			zset := SortedSet.Make()
+			for _, e := range zsetObj.Entries {
+				zset.Add(e.Member, e.Score)
+			}
+			entity = &database.DataEntity{Data: zset}
+		}
+		return true
+	})
+	if err != nil || entity == nil {
+		return nil, errDumpBadPayload
+	}
+	return entity, nil
+}
+
+func appendDumpFooter(obj []byte) []byte {
+	out := make([]byte, len(obj)+10)
+	copy(out, obj)
+	binary.LittleEndian.PutUint16(out[len(obj):], dumpRDBVersion)
+	h := crc64jones.New()
+	_, _ = h.Write(out[:len(obj)+2])
+	binary.LittleEndian.PutUint64(out[len(obj)+2:], h.Sum64())
+	return out
+}
+
+func writeEntityToRDB(enc *rdbenc.Encoder, key string, entity *database.DataEntity) error {
+	switch val := entity.Data.(type) {
+	case []byte:
+		return enc.WriteStringObject(key, val)
+	case List.List:
+		vals := make([][]byte, 0, val.Len())
+		val.ForEach(func(_ int, v interface{}) bool {
+			b, _ := v.([]byte)
+			vals = append(vals, b)
+			return true
+		})
+		return enc.WriteListObject(key, vals)
+	case *HashSet.Set:
+		vals := make([][]byte, 0, val.Len())
+		val.ForEach(func(m string) bool {
+			vals = append(vals, []byte(m))
+			return true
+		})
+		return enc.WriteSetObject(key, vals)
+	case *SortedSet.SortedSet:
+		entries := make([]*model.ZSetEntry, 0, val.Len())
+		elements := val.RangeByRank(0, val.Len(), false)
+		for _, e := range elements {
+			entries = append(entries, &model.ZSetEntry{Member: e.Member, Score: e.Score})
+		}
+		return enc.WriteZSetObject(key, entries)
+	case *Dict.ExpireDict:
+		hash := make(map[string][]byte)
+		val.ForEach(func(field string, v interface{}) bool {
+			b, ok := v.([]byte)
+			if ok {
+				hash[field] = b
+			}
+			return true
+		})
+		return enc.WriteHashMapObject(key, hash)
+	case Dict.Dict:
+		hash := make(map[string][]byte)
+		val.ForEach(func(field string, v interface{}) bool {
+			b, ok := v.([]byte)
+			if ok {
+				hash[field] = b
+			}
+			return true
+		})
+		return enc.WriteHashMapObject(key, hash)
+	default:
+		return errDumpUnsupported("DUMP not implemented for this data type")
+	}
+}
+
+type dumpError string
+
+func (e dumpError) Error() string { return string(e) }
+
+var (
+	errDumpBadPayload = dumpError("DUMP payload version or checksum are wrong")
+)
+
+func errDumpUnsupported(msg string) error { return dumpError(msg) }
 
 func init() {
 	registerCommand("Dump", execDump, readFirstKey, nil, 2, flagReadOnly).

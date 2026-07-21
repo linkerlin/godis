@@ -841,9 +841,6 @@ func execBitPos(db *DB, args [][]byte) redis.Reply {
 	if err != nil {
 		return err
 	}
-	if bs == nil {
-		return protocol.MakeIntReply(-1)
-	}
 	valStr := string(args[1])
 	var v byte
 	if valStr == "1" {
@@ -852,6 +849,13 @@ func execBitPos(db *DB, args [][]byte) redis.Reply {
 		v = 0
 	} else {
 		return protocol.MakeErrReply("ERR bit is not an integer or out of range")
+	}
+	// Redis: missing/empty key → 0 if looking for bit 0, else -1
+	if bs == nil || len(bs) == 0 {
+		if v == 0 {
+			return protocol.MakeIntReply(0)
+		}
+		return protocol.MakeIntReply(-1)
 	}
 	byteMode := true
 	if len(args) > 4 {
@@ -886,7 +890,7 @@ func execBitPos(db *DB, args [][]byte) redis.Reply {
 		}
 		beg, end = utils.ConvertRange(startIdx, endIdx, size)
 		if beg < 0 {
-			return protocol.MakeIntReply(0)
+			return protocol.MakeIntReply(-1)
 		}
 	} else {
 		end = int(size)
