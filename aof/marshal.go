@@ -29,6 +29,8 @@ func EntityToCmd(key string, entity *database.DataEntity) *protocol.MultiBulkRep
 		cmd = hashToCmd(key, val)
 	case *SortedSet.SortedSet:
 		cmd = zSetToCmd(key, val)
+	default:
+		cmd = opaqueToCmd(key, entity)
 	}
 	return cmd
 }

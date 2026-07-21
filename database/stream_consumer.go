@@ -586,7 +586,7 @@ func execXGroupDelConsumer(db *DB, args [][]byte) redis.Reply {
 // XINFO GROUPS key
 func execXInfoGroups(db *DB, args [][]byte) redis.Reply {
 	if len(args) != 1 {
-		return protocol.MakeErrReply("ERR wrong number of arguments for 'xinfo' command")
+		return protocol.MakeErrReply("ERR wrong number of arguments for 'xinfo|groups' command")
 	}
 
 	key := string(args[0])
@@ -595,30 +595,71 @@ func execXInfoGroups(db *DB, args [][]byte) redis.Reply {
 		return errReply
 	}
 	if s == nil {
-		return protocol.MakeEmptyMultiBulkReply()
+		return protocol.MakeErrReply("ERR no such key")
 	}
 
 	groups := s.GetGroups()
-
-	var result [][]byte
+	replies := make([]redis.Reply, 0, len(groups))
 	for _, group := range groups {
-		groupInfo := [][]byte{
-			[]byte("name"),
-			[]byte(group.Name),
-			[]byte("consumers"),
-			[]byte(strconv.Itoa(group.Consumers.Len())),
-			[]byte("pending"),
-			[]byte(strconv.Itoa(len(group.Pending))),
-			[]byte("last-delivered-id"),
-			[]byte(group.LastID.String()),
+		pairs := []redis.Reply{
+			protocol.MakeBulkReply([]byte("name")),
+			protocol.MakeBulkReply([]byte(group.Name)),
+			protocol.MakeBulkReply([]byte("consumers")),
+			protocol.MakeIntReply(int64(group.Consumers.Len())),
+			protocol.MakeBulkReply([]byte("pending")),
+			protocol.MakeIntReply(int64(len(group.Pending))),
+			protocol.MakeBulkReply([]byte("last-delivered-id")),
+			protocol.MakeBulkReply([]byte(group.LastID.String())),
 		}
 		if group.EntriesRead >= 0 {
-			groupInfo = append(groupInfo, []byte("entries-read"), []byte(strconv.FormatInt(group.EntriesRead, 10)))
+			pairs = append(pairs,
+				protocol.MakeBulkReply([]byte("entries-read")),
+				protocol.MakeIntReply(group.EntriesRead),
+			)
 		}
-		result = append(result, protocol.MakeMultiBulkReply(groupInfo).ToBytes())
+		replies = append(replies, protocol.MakeMultiRawReply(pairs))
+	}
+	return protocol.MakeMultiRawReply(replies)
+}
+
+// execXInfoConsumers XINFO CONSUMERS key groupname
+func execXInfoConsumers(db *DB, args [][]byte) redis.Reply {
+	if len(args) != 2 {
+		return protocol.MakeErrReply("ERR wrong number of arguments for 'xinfo|consumers' command")
+	}
+	key := string(args[0])
+	groupName := string(args[1])
+	s, errReply := db.getAsStream(key)
+	if errReply != nil {
+		return errReply
+	}
+	if s == nil {
+		return protocol.MakeErrReply("ERR no such key")
+	}
+	group, err := s.GetGroup(groupName)
+	if err != nil {
+		return protocol.MakeErrReply("ERR NOGROUP No such consumer group '" + groupName + "' for key name '" + key + "'")
 	}
 
-	return protocol.MakeMultiBulkReply(result)
+	var replies []redis.Reply
+	group.Consumers.ForEach(func(name string, val interface{}) bool {
+		c := val.(*stream.Consumer)
+		idle := time.Since(c.SeenTime).Milliseconds()
+		if c.SeenTime.IsZero() {
+			idle = 0
+		}
+		pairs := []redis.Reply{
+			protocol.MakeBulkReply([]byte("name")),
+			protocol.MakeBulkReply([]byte(c.Name)),
+			protocol.MakeBulkReply([]byte("pending")),
+			protocol.MakeIntReply(int64(len(c.Pending))),
+			protocol.MakeBulkReply([]byte("idle")),
+			protocol.MakeIntReply(idle),
+		}
+		replies = append(replies, protocol.MakeMultiRawReply(pairs))
+		return true
+	})
+	return protocol.MakeMultiRawReply(replies)
 }
 
 // 辅助函数：将条目列表转换为MultiBulk回复格式
@@ -647,6 +688,7 @@ func init() {
 		attachCommandExtra([]string{redisFlagWrite, redisFlagFast}, 1, 1, 1)
 	registerCommand("XPending", execXPending, readFirstKey, nil, -3, flagReadOnly).
 		attachCommandExtra([]string{redisFlagReadonly}, 1, 1, 1)
+	// Legacy concatenated names kept for backward compatibility
 	registerCommand("XGroupCreateConsumer", execXGroupCreateConsumer, writeFirstKey, nil, 4, flagWrite).
 		attachCommandExtra([]string{redisFlagWrite, redisFlagFast}, 1, 1, 1)
 	registerCommand("XGroupDelConsumer", execXGroupDelConsumer, writeFirstKey, nil, 4, flagWrite).

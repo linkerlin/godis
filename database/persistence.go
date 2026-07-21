@@ -46,8 +46,12 @@ func (server *Server) LoadRDB(dec *core.Decoder) error {
 		switch o.GetType() {
 		case rdb.StringType:
 			str := o.(*rdb.StringObject)
-			entity = &database.DataEntity{
-				Data: str.Value,
+			if restored, ok := aof.DecodeOpaque(str.Value); ok {
+				entity = restored
+			} else {
+				entity = &database.DataEntity{
+					Data: str.Value,
+				}
 			}
 		case rdb.ListType:
 			listObj := o.(*rdb.ListObject)
@@ -91,8 +95,9 @@ func (server *Server) LoadRDB(dec *core.Decoder) error {
 			if o.GetExpiration() != nil {
 				db.Expire(o.GetKey(), *o.GetExpiration())
 			}
-			// add to aof
-			db.addAof(aof.EntityToCmd(o.GetKey(), entity).Args)
+			if cmd := aof.EntityToCmd(o.GetKey(), entity); cmd != nil {
+				db.addAof(cmd.Args)
+			}
 		}
 		return true
 	})

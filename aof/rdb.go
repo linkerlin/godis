@@ -117,7 +117,7 @@ func (persister *Persister) generateRDB(ctx *RewriteCtx) error {
 		return err
 	}
 	auxMap := map[string]string{
-		"redis-ver":    "6.0.0",
+		"redis-ver":    "8.0.0",
 		"redis-bits":   "64",
 		"aof-preamble": "0",
 		"ctime":        strconv.FormatInt(time.Now().Unix(), 10),
@@ -198,6 +198,14 @@ func (persister *Persister) generateRDB(ctx *RewriteCtx) error {
 					return true
 				})
 				err = encoder.WriteZSetObject(key, entries, opts...)
+			default:
+				// Godis-specific types (stream/json/vector/timeseries): opaque string blob.
+				// Not Redis-interoperable; LoadRDB restores via DecodeOpaque.
+				if payload, ok := EncodeOpaque(entity); ok {
+					err = encoder.WriteStringObject(key, payload, opts...)
+				} else {
+					logger.Warn("RDB skip unsupported type for key: " + key)
+				}
 			}
 			if err != nil {
 				err2 = err

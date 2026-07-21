@@ -101,9 +101,15 @@ func TestStreamXInfoGroups(t *testing.T) {
 	db.Exec(nil, utils.ToCmdLine("XADD", "s:info", "*", "f", "v"))
 	asserts.AssertStatusReply(t, db.Exec(nil, utils.ToCmdLine("XGROUP", "CREATE", "s:info", "g", "$")), "OK")
 
+	// Legacy concatenated name
 	reply := db.Exec(nil, utils.ToCmdLine("XINFOGROUPS", "s:info"))
-	multi, ok := reply.(*protocol.MultiBulkReply)
-	if !ok || len(multi.Args) == 0 {
-		t.Fatalf("XINFO GROUPS: got %s", reply.ToBytes())
+	if _, ok := reply.(*protocol.MultiRawReply); !ok {
+		t.Fatalf("XINFOGROUPS: got %T %s", reply, reply.ToBytes())
+	}
+
+	// Standard spaced form
+	spaced := db.Exec(nil, utils.ToCmdLine("XINFO", "GROUPS", "s:info"))
+	if _, ok := spaced.(*protocol.MultiRawReply); !ok {
+		t.Fatalf("XINFO GROUPS: got %T %s", spaced, spaced.ToBytes())
 	}
 }

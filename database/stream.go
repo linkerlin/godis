@@ -724,10 +724,20 @@ func execXGroup(db *DB, args [][]byte) redis.Reply {
 			return protocol.MakeErrReply("ERR wrong number of arguments for 'xgroup|setid' command")
 		}
 		return execXGroupSetID(db, args[1:])
+	case "CREATECONSUMER":
+		if len(args) != 4 {
+			return protocol.MakeErrReply("ERR wrong number of arguments for 'xgroup|createconsumer' command")
+		}
+		return execXGroupCreateConsumer(db, args[1:])
+	case "DELCONSUMER":
+		if len(args) != 4 {
+			return protocol.MakeErrReply("ERR wrong number of arguments for 'xgroup|delconsumer' command")
+		}
+		return execXGroupDelConsumer(db, args[1:])
 	case "HELP":
 		return execXGroupHelp()
 	default:
-		return protocol.MakeErrReply("ERR Unknown XGROUP subcommand '" + subCmd + "'")
+		return protocol.MakeErrReply("ERR Unknown XGROUP subcommand '" + subCmd + "'. Try XGROUP HELP.")
 	}
 }
 
@@ -780,6 +790,10 @@ func execXGroupHelp() redis.Reply {
 		"XGROUP <subcommand> [<arg> [value] [opt] ...]. Subcommands are:",
 		"CREATE key groupname id|$ [MKSTREAM] [ENTRIESREAD entries-read]",
 		"    Create a new consumer group.",
+		"CREATECONSUMER key groupname consumername",
+		"    Create a new consumer in the group.",
+		"DELCONSUMER key groupname consumername",
+		"    Remove a consumer from the group.",
 		"DESTROY key groupname",
 		"    Remove a consumer group.",
 		"SETID key groupname id|$",
@@ -788,6 +802,50 @@ func execXGroupHelp() redis.Reply {
 		"    Print this help.",
 	}
 
+	result := make([]redis.Reply, len(help))
+	for i, h := range help {
+		result[i] = protocol.MakeBulkReply([]byte(h))
+	}
+	return protocol.MakeMultiRawReply(result)
+}
+
+// execXInfo dispatches XINFO subcommands: STREAM / GROUPS / CONSUMERS / HELP
+func execXInfo(db *DB, args [][]byte) redis.Reply {
+	if len(args) < 1 {
+		return protocol.MakeErrReply("ERR wrong number of arguments for 'xinfo' command")
+	}
+	sub := strings.ToUpper(string(args[0]))
+	switch sub {
+	case "STREAM":
+		if len(args) < 2 {
+			return protocol.MakeErrReply("ERR wrong number of arguments for 'xinfo|stream' command")
+		}
+		return execXInfoStream(db, args[1:])
+	case "GROUPS":
+		if len(args) != 2 {
+			return protocol.MakeErrReply("ERR wrong number of arguments for 'xinfo|groups' command")
+		}
+		return execXInfoGroups(db, args[1:])
+	case "CONSUMERS":
+		if len(args) != 3 {
+			return protocol.MakeErrReply("ERR wrong number of arguments for 'xinfo|consumers' command")
+		}
+		return execXInfoConsumers(db, args[1:])
+	case "HELP":
+		return execXInfoHelp()
+	default:
+		return protocol.MakeErrReply("ERR unknown subcommand '" + string(args[0]) + "'. Try XINFO HELP.")
+	}
+}
+
+func execXInfoHelp() redis.Reply {
+	help := []string{
+		"XINFO <subcommand> ... . Subcommands are:",
+		"CONSUMERS <key> <groupname>",
+		"GROUPS <key>",
+		"STREAM <key> [FULL [COUNT <count>]]",
+		"HELP",
+	}
 	result := make([]redis.Reply, len(help))
 	for i, h := range help {
 		result[i] = protocol.MakeBulkReply([]byte(h))
@@ -810,4 +868,6 @@ func init() {
 		attachCommandExtra([]string{redisFlagWrite}, 1, 1, 1)
 	registerCommand("XGroup", execXGroup, noPrepare, nil, -2, flagWrite).
 		attachCommandExtra([]string{redisFlagWrite}, 2, 2, 1)
+	registerCommand("XInfo", execXInfo, noPrepare, nil, -2, flagReadOnly).
+		attachCommandExtra([]string{redisFlagReadonly}, 0, 0, 0)
 }
