@@ -76,7 +76,10 @@ func TestSPop(t *testing.T) {
 	}
 
 	result := testDB.Exec(nil, utils.ToCmdLine("spop", key))
-	asserts.AssertMultiBulkReplySize(t, result, 1)
+	if _, ok := result.(*protocol.BulkReply); !ok {
+		t.Errorf("expected bulk reply for SPOP without count, got %T %s", result, result.ToBytes())
+		return
+	}
 
 	currentSize := size - 1
 	for currentSize > 0 {

@@ -153,4 +153,6 @@ func init() {
 		attachCommandExtra([]string{redisFlagNoScript, redisFlagSkipMonitor}, 0, 0, 0)
 	registerSpecialCommand("Watch", 1, 0).
 		attachCommandExtra([]string{redisFlagNoScript, redisFlagFast}, 1, -1, 1)
+	registerSpecialCommand("UnWatch", 1, 0).
+		attachCommandExtra([]string{redisFlagNoScript, redisFlagFast}, 0, 0, 0)
 }

@@ -129,57 +129,77 @@ func execSet(db *DB, args [][]byte) redis.Reply {
 	value := args[1]
 	policy := upsertPolicy
 	ttl := unlimitedTTL
+	keepTTL := false
+	getOld := false
+	var absExpire int64 = -1 // unix ms; -1 means unset
 
 	// parse options
 	if len(args) > 2 {
 		for i := 2; i < len(args); i++ {
 			arg := strings.ToUpper(string(args[i]))
-			if arg == "NX" { // insert
+			if arg == "NX" {
 				if policy == updatePolicy {
 					return &protocol.SyntaxErrReply{}
 				}
 				policy = insertPolicy
-			} else if arg == "XX" { // update policy
+			} else if arg == "XX" {
 				if policy == insertPolicy {
 					return &protocol.SyntaxErrReply{}
 				}
 				policy = updatePolicy
-			} else if arg == "EX" { // ttl in seconds
-				if ttl != unlimitedTTL {
-					// ttl has been set
+			} else if arg == "GET" {
+				getOld = true
+			} else if arg == "KEEPTTL" {
+				if ttl != unlimitedTTL || absExpire >= 0 {
+					return &protocol.SyntaxErrReply{}
+				}
+				keepTTL = true
+			} else if arg == "EX" || arg == "PX" || arg == "EXAT" || arg == "PXAT" {
+				if ttl != unlimitedTTL || absExpire >= 0 || keepTTL {
 					return &protocol.SyntaxErrReply{}
 				}
 				if i+1 >= len(args) {
 					return &protocol.SyntaxErrReply{}
 				}
-				ttlArg, err := strconv.ParseInt(string(args[i+1]), 10, 64)
+				n, err := strconv.ParseInt(string(args[i+1]), 10, 64)
 				if err != nil {
 					return &protocol.SyntaxErrReply{}
 				}
-				if ttlArg <= 0 {
-					return protocol.MakeErrReply("ERR invalid expire time in set")
+				switch arg {
+				case "EX":
+					if n <= 0 {
+						return protocol.MakeErrReply("ERR invalid expire time in set")
+					}
+					ttl = n * 1000
+				case "PX":
+					if n <= 0 {
+						return protocol.MakeErrReply("ERR invalid expire time in set")
+					}
+					ttl = n
+				case "EXAT":
+					if n <= 0 {
+						return protocol.MakeErrReply("ERR invalid expire time in set")
+					}
+					absExpire = n * 1000
+				case "PXAT":
+					if n <= 0 {
+						return protocol.MakeErrReply("ERR invalid expire time in set")
+					}
+					absExpire = n
 				}
-				ttl = ttlArg * 1000
-				i++ // skip next arg
-			} else if arg == "PX" { // ttl in milliseconds
-				if ttl != unlimitedTTL {
-					return &protocol.SyntaxErrReply{}
-				}
-				if i+1 >= len(args) {
-					return &protocol.SyntaxErrReply{}
-				}
-				ttlArg, err := strconv.ParseInt(string(args[i+1]), 10, 64)
-				if err != nil {
-					return &protocol.SyntaxErrReply{}
-				}
-				if ttlArg <= 0 {
-					return protocol.MakeErrReply("ERR invalid expire time in set")
-				}
-				ttl = ttlArg
-				i++ // skip next arg
+				i++
 			} else {
 				return &protocol.SyntaxErrReply{}
 			}
+		}
+	}
+
+	var oldVal []byte
+	if getOld {
+		if bytes, errReply := db.getAsString(key); errReply != nil {
+			return errReply
+		} else if bytes != nil {
+			oldVal = bytes
 		}
 	}
 
@@ -198,21 +218,30 @@ func execSet(db *DB, args [][]byte) redis.Reply {
 		result = db.PutIfExists(key, entity)
 	}
 	if result > 0 {
-		if ttl != unlimitedTTL {
+		if absExpire >= 0 {
+			expireTime := time.Unix(0, absExpire*int64(time.Millisecond))
+			db.Expire(key, expireTime)
+			db.addAof(CmdLine{[]byte("SET"), args[0], args[1]})
+			db.addAof(aof.MakeExpireCmd(key, expireTime).Args)
+		} else if ttl != unlimitedTTL {
 			expireTime := time.Now().Add(time.Duration(ttl) * time.Millisecond)
 			db.Expire(key, expireTime)
-			db.addAof(CmdLine{
-				[]byte("SET"),
-				args[0],
-				args[1],
-			})
+			db.addAof(CmdLine{[]byte("SET"), args[0], args[1]})
 			db.addAof(aof.MakeExpireCmd(key, expireTime).Args)
+		} else if !keepTTL {
+			db.Persist(key)
+			db.addAof(utils.ToCmdLine3("set", args...))
 		} else {
-			db.Persist(key) // override ttl
 			db.addAof(utils.ToCmdLine3("set", args...))
 		}
 	}
 
+	if getOld {
+		if oldVal == nil {
+			return &protocol.NullBulkReply{}
+		}
+		return protocol.MakeBulkReply(oldVal)
+	}
 	if result > 0 {
 		return &protocol.OkReply{}
 	}

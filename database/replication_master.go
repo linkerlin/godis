@@ -473,3 +473,50 @@ func (server *Server) stopMaster() {
 	server.masterStatus.onlineSlaves = make(map[*slaveClient]struct{})
 	server.masterStatus.bgSaveState = bgSaveIdle
 }
+
+// execWait WAIT numreplicas timeout — block until enough replicas ACK or timeout (ms).
+// Simplified: counts online slaves whose offset has reached master's backlog offset.
+func (server *Server) execWait(args [][]byte) redis.Reply {
+	if len(args) != 2 {
+		return protocol.MakeArgNumErrReply("wait")
+	}
+	numReplicas, err := strconv.ParseInt(string(args[0]), 10, 64)
+	if err != nil {
+		return protocol.MakeErrReply("ERR value is not an integer or out of range")
+	}
+	timeoutMs, err := strconv.ParseInt(string(args[1]), 10, 64)
+	if err != nil || timeoutMs < 0 {
+		return protocol.MakeErrReply("ERR timeout is not an integer or out of range")
+	}
+	if numReplicas <= 0 {
+		return protocol.MakeIntReply(server.countSyncedSlaves())
+	}
+
+	deadline := time.Now().Add(time.Duration(timeoutMs) * time.Millisecond)
+	for {
+		n := server.countSyncedSlaves()
+		if n >= numReplicas {
+			return protocol.MakeIntReply(n)
+		}
+		if timeoutMs == 0 || time.Now().After(deadline) {
+			return protocol.MakeIntReply(n)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func (server *Server) countSyncedSlaves() int64 {
+	if server.masterStatus == nil {
+		return 0
+	}
+	server.masterStatus.mu.RLock()
+	defer server.masterStatus.mu.RUnlock()
+	target := server.masterStatus.backlog.currentOffset
+	var n int64
+	for slave := range server.masterStatus.onlineSlaves {
+		if slave.offset >= target {
+			n++
+		}
+	}
+	return n
+}

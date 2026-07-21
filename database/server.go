@@ -302,6 +302,8 @@ func (server *Server) Exec(c redis.Connection, cmdLine [][]byte) (result redis.R
 		return SaveRDB(server, cmdLine[1:])
 	} else if cmdName == "bgsave" {
 		return BGSaveRDB(server, cmdLine[1:])
+	} else if cmdName == "wait" {
+		return server.execWait(cmdLine[1:])
 	} else if cmdName == "select" {
 		if c != nil && c.InMultiState() {
 			return protocol.MakeErrReply("cannot select database within multi")

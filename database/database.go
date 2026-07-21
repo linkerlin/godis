@@ -128,6 +128,11 @@ func (db *DB) Exec(c redis.Connection, cmdLine [][]byte) redis.Reply {
 			return protocol.MakeArgNumErrReply(cmdName)
 		}
 		return Watch(db, c, cmdLine[1:])
+	} else if cmdName == "unwatch" {
+		if len(cmdLine) != 1 {
+			return protocol.MakeArgNumErrReply(cmdName)
+		}
+		return UnWatch(c)
 	}
 	if c != nil && c.InMultiState() {
 		return EnqueueCmd(c, cmdLine)

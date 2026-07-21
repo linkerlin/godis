@@ -163,45 +163,105 @@ func execRenameNx(db *DB, args [][]byte) redis.Reply {
 	return protocol.MakeIntReply(1)
 }
 
-// execExpire sets a key's time to live in seconds
-func execExpire(db *DB, args [][]byte) redis.Reply {
-	key := string(args[0])
+type expireCondFlags struct {
+	nx, xx, gt, lt bool
+}
 
-	ttlArg, err := strconv.ParseInt(string(args[1]), 10, 64)
-	if err != nil {
-		return protocol.MakeErrReply("ERR value is not an integer or out of range")
+func parseExpireCondFlags(args [][]byte) (expireCondFlags, redis.Reply) {
+	var f expireCondFlags
+	for _, a := range args {
+		switch strings.ToUpper(string(a)) {
+		case "NX":
+			f.nx = true
+		case "XX":
+			f.xx = true
+		case "GT":
+			f.gt = true
+		case "LT":
+			f.lt = true
+		default:
+			return f, protocol.MakeSyntaxErrReply()
+		}
 	}
-	ttl := time.Duration(ttlArg) * time.Second
+	n := 0
+	if f.nx {
+		n++
+	}
+	if f.xx {
+		n++
+	}
+	if f.gt {
+		n++
+	}
+	if f.lt {
+		n++
+	}
+	if n > 1 {
+		return f, protocol.MakeErrReply("ERR NX XX GT and LT options at the same time are not compatible")
+	}
+	return f, nil
+}
 
+func expireCondAllows(db *DB, key string, newExpire time.Time, f expireCondFlags) bool {
+	raw, hasTTL := db.ttlMap.Get(key)
+	if f.nx && hasTTL {
+		return false
+	}
+	if f.xx && !hasTTL {
+		return false
+	}
+	if f.gt || f.lt {
+		if !hasTTL {
+			// no TTL ≈ +inf: GT ok, LT not
+			return f.gt
+		}
+		cur := raw.(time.Time)
+		if f.gt && !(newExpire.After(cur)) {
+			return false
+		}
+		if f.lt && !(newExpire.Before(cur)) {
+			return false
+		}
+	}
+	return true
+}
+
+func execExpireWithFlags(db *DB, key string, expireAt time.Time, flagArgs [][]byte) redis.Reply {
+	flags, errReply := parseExpireCondFlags(flagArgs)
+	if errReply != nil {
+		return errReply
+	}
 	_, exists := db.GetEntity(key)
 	if !exists {
 		return protocol.MakeIntReply(0)
 	}
-
-	expireAt := time.Now().Add(ttl)
+	if !expireCondAllows(db, key, expireAt, flags) {
+		return protocol.MakeIntReply(0)
+	}
 	db.Expire(key, expireAt)
 	db.addAof(aof.MakeExpireCmd(key, expireAt).Args)
 	return protocol.MakeIntReply(1)
 }
 
-// execExpireAt sets a key's expiration in unix timestamp
-func execExpireAt(db *DB, args [][]byte) redis.Reply {
-	key := string(args[0])
+// execExpire sets a key's time to live in seconds
+// EXPIRE key seconds [NX|XX|GT|LT]
+func execExpire(db *DB, args [][]byte) redis.Reply {
+	ttlArg, err := strconv.ParseInt(string(args[1]), 10, 64)
+	if err != nil {
+		return protocol.MakeErrReply("ERR value is not an integer or out of range")
+	}
+	expireAt := time.Now().Add(time.Duration(ttlArg) * time.Second)
+	return execExpireWithFlags(db, string(args[0]), expireAt, args[2:])
+}
 
+// execExpireAt sets a key's expiration in unix timestamp
+// EXPIREAT key timestamp [NX|XX|GT|LT]
+func execExpireAt(db *DB, args [][]byte) redis.Reply {
 	raw, err := strconv.ParseInt(string(args[1]), 10, 64)
 	if err != nil {
 		return protocol.MakeErrReply("ERR value is not an integer or out of range")
 	}
-	expireAt := time.Unix(raw, 0)
-
-	_, exists := db.GetEntity(key)
-	if !exists {
-		return protocol.MakeIntReply(0)
-	}
-
-	db.Expire(key, expireAt)
-	db.addAof(aof.MakeExpireCmd(key, expireAt).Args)
-	return protocol.MakeIntReply(1)
+	return execExpireWithFlags(db, string(args[0]), time.Unix(raw, 0), args[2:])
 }
 
 // execExpireTime returns the absolute Unix expiration timestamp in seconds at which the given key will expire.
@@ -222,45 +282,25 @@ func execExpireTime(db *DB, args [][]byte) redis.Reply {
 }
 
 // execPExpire sets a key's time to live in milliseconds
+// PEXPIRE key milliseconds [NX|XX|GT|LT]
 func execPExpire(db *DB, args [][]byte) redis.Reply {
-	key := string(args[0])
-
 	ttlArg, err := strconv.ParseInt(string(args[1]), 10, 64)
 	if err != nil {
 		return protocol.MakeErrReply("ERR value is not an integer or out of range")
 	}
-	ttl := time.Duration(ttlArg) * time.Millisecond
-
-	_, exists := db.GetEntity(key)
-	if !exists {
-		return protocol.MakeIntReply(0)
-	}
-
-	expireAt := time.Now().Add(ttl)
-	db.Expire(key, expireAt)
-	db.addAof(aof.MakeExpireCmd(key, expireAt).Args)
-	return protocol.MakeIntReply(1)
+	expireAt := time.Now().Add(time.Duration(ttlArg) * time.Millisecond)
+	return execExpireWithFlags(db, string(args[0]), expireAt, args[2:])
 }
 
 // execPExpireAt sets a key's expiration in unix timestamp specified in milliseconds
+// PEXPIREAT key milliseconds-timestamp [NX|XX|GT|LT]
 func execPExpireAt(db *DB, args [][]byte) redis.Reply {
-	key := string(args[0])
-
 	raw, err := strconv.ParseInt(string(args[1]), 10, 64)
 	if err != nil {
 		return protocol.MakeErrReply("ERR value is not an integer or out of range")
 	}
 	expireAt := time.Unix(0, raw*int64(time.Millisecond))
-
-	_, exists := db.GetEntity(key)
-	if !exists {
-		return protocol.MakeIntReply(0)
-	}
-
-	db.Expire(key, expireAt)
-
-	db.addAof(aof.MakeExpireCmd(key, expireAt).Args)
-	return protocol.MakeIntReply(1)
+	return execExpireWithFlags(db, string(args[0]), expireAt, args[2:])
 }
 
 // execPExpireTime returns the absolute Unix expiration timestamp in milliseconds at which the given key will expire.
@@ -561,15 +601,15 @@ func execScan(db *DB, args [][]byte) redis.Reply {
 func init() {
 	registerCommand("Del", execDel, writeAllKeys, undoDel, -2, flagWrite).
 		attachCommandExtra([]string{redisFlagWrite}, 1, -1, 1)
-	registerCommand("Expire", execExpire, writeFirstKey, undoExpire, 3, flagWrite).
+	registerCommand("Expire", execExpire, writeFirstKey, undoExpire, -3, flagWrite).
 		attachCommandExtra([]string{redisFlagWrite, redisFlagFast}, 1, 1, 1)
-	registerCommand("ExpireAt", execExpireAt, writeFirstKey, undoExpire, 3, flagWrite).
+	registerCommand("ExpireAt", execExpireAt, writeFirstKey, undoExpire, -3, flagWrite).
 		attachCommandExtra([]string{redisFlagWrite, redisFlagFast}, 1, 1, 1)
 	registerCommand("ExpireTime", execExpireTime, readFirstKey, nil, 2, flagReadOnly).
 		attachCommandExtra([]string{redisFlagWrite, redisFlagFast}, 1, 1, 1)
-	registerCommand("PExpire", execPExpire, writeFirstKey, undoExpire, 3, flagWrite).
+	registerCommand("PExpire", execPExpire, writeFirstKey, undoExpire, -3, flagWrite).
 		attachCommandExtra([]string{redisFlagWrite, redisFlagFast}, 1, 1, 1)
-	registerCommand("PExpireAt", execPExpireAt, writeFirstKey, undoExpire, 3, flagWrite).
+	registerCommand("PExpireAt", execPExpireAt, writeFirstKey, undoExpire, -3, flagWrite).
 		attachCommandExtra([]string{redisFlagWrite, redisFlagFast}, 1, 1, 1)
 	registerCommand("PExpireTime", execPExpireTime, readFirstKey, nil, 2, flagReadOnly).
 		attachCommandExtra([]string{redisFlagWrite, redisFlagFast}, 1, 1, 1)
