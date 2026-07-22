@@ -55,6 +55,8 @@ type Connection struct {
 	clientName      string
 	trackingID      string
 	protocolVersion int
+	libName         string
+	libVer          string
 }
 
 var connPool = sync.Pool{
@@ -150,6 +152,22 @@ func (c *Connection) SetTrackingID(id string) {
 
 func (c *Connection) GetTrackingID() string {
 	return c.trackingID
+}
+
+func (c *Connection) SetLibName(name string) {
+	c.libName = name
+}
+
+func (c *Connection) GetLibName() string {
+	return c.libName
+}
+
+func (c *Connection) SetLibVer(ver string) {
+	c.libVer = ver
+}
+
+func (c *Connection) GetLibVer() string {
+	return c.libVer
 }
 
 // SetProtocolVersion stores the RESP protocol version negotiated via HELLO.

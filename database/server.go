@@ -61,6 +61,11 @@ type Server struct {
 
 	// memory limiter for maxmemory management
 	memLimiter *memory.Limiter
+
+	// last successful SAVE/BGSAVE unix time (LASTSAVE)
+	lastSaveUnix atomic.Int64
+	bgsaveMu     sync.Mutex
+	bgsaveRunning bool
 }
 
 func fileExists(filename string) bool {
@@ -234,12 +239,12 @@ func (server *Server) Exec(c redis.Connection, cmdLine [][]byte) (result redis.R
 	if cmdName == "dbsize" {
 		return DbSize(c, server)
 	}
-	if cmdName == "slaveof" {
+	if cmdName == "slaveof" || cmdName == "replicaof" {
 		if c != nil && c.InMultiState() {
 			return protocol.MakeErrReply("cannot use slave of database within multi")
 		}
 		if len(cmdLine) != 3 {
-			return protocol.MakeArgNumErrReply("SLAVEOF")
+			return protocol.MakeArgNumErrReply(strings.ToUpper(cmdName))
 		}
 		return server.execSlaveOf(c, cmdLine[1:])
 	} else if cmdName == "command" {
@@ -247,7 +252,7 @@ func (server *Server) Exec(c redis.Connection, cmdLine [][]byte) (result redis.R
 	} else if cmdName == "config" {
 		return server.execConfig(cmdLine[1:])
 	} else if cmdName == "memory" {
-		return execMemory(cmdLine[1:])
+		return execMemory(server, c, cmdLine[1:])
 	} else if cmdName == "latency" {
 		return execLatency(cmdLine[1:])
 	} else if cmdName == "module" {
@@ -278,21 +283,29 @@ func (server *Server) Exec(c redis.Connection, cmdLine [][]byte) (result redis.R
 	} else if cmdName == "unsubscribe" {
 		return pubsub.UnSubscribe(server.hub, c, cmdLine[1:])
 	} else if cmdName == "bgrewriteaof" {
-		if !config.Properties.AppendOnly {
-			return protocol.MakeErrReply("AppendOnly is false, you can't rewrite aof file")
-		}
-		// aof.go imports router.go, router.go cannot import BGRewriteAOF from aof.go
 		return BGRewriteAOF(server, cmdLine[1:])
 	} else if cmdName == "rewriteaof" {
-		if !config.Properties.AppendOnly {
-			return protocol.MakeErrReply("AppendOnly is false, you can't rewrite aof file")
-		}
 		return RewriteAOF(server, cmdLine[1:])
 	} else if cmdName == "flushall" {
+		if len(cmdLine) > 2 {
+			return protocol.MakeArgNumErrReply(cmdName)
+		}
+		if len(cmdLine) == 2 {
+			opt := strings.ToUpper(string(cmdLine[1]))
+			if opt != "ASYNC" && opt != "SYNC" {
+				return protocol.MakeSyntaxErrReply()
+			}
+		}
 		return server.flushAll()
 	} else if cmdName == "flushdb" {
-		if !validateArity(1, cmdLine) {
+		if len(cmdLine) > 2 {
 			return protocol.MakeArgNumErrReply(cmdName)
+		}
+		if len(cmdLine) == 2 {
+			opt := strings.ToUpper(string(cmdLine[1]))
+			if opt != "ASYNC" && opt != "SYNC" {
+				return protocol.MakeSyntaxErrReply()
+			}
 		}
 		if c.InMultiState() {
 			return protocol.MakeErrReply("ERR command 'FlushDB' cannot be used in MULTI")
@@ -302,6 +315,8 @@ func (server *Server) Exec(c redis.Connection, cmdLine [][]byte) (result redis.R
 		return SaveRDB(server, cmdLine[1:])
 	} else if cmdName == "bgsave" {
 		return BGSaveRDB(server, cmdLine[1:])
+	} else if cmdName == "lastsave" {
+		return execLastSave(server, cmdLine[1:])
 	} else if cmdName == "wait" {
 		return server.execWait(cmdLine[1:])
 	} else if cmdName == "select" {
@@ -591,6 +606,10 @@ func (server *Server) ExecWithLock(conn redis.Connection, cmdLine [][]byte) redi
 
 // BGRewriteAOF asynchronously rewrites Append-Only-File
 func BGRewriteAOF(db *Server, args [][]byte) redis.Reply {
+	if db.persister == nil {
+		// Redis allows the command when AOF is off (no-op success status)
+		return protocol.MakeStatusReply("Background append only file rewriting started")
+	}
 	if err := db.persister.RunRewriteAsync(); err != nil {
 		return protocol.MakeErrReply("ERR " + err.Error())
 	}
@@ -599,6 +618,9 @@ func BGRewriteAOF(db *Server, args [][]byte) redis.Reply {
 
 // RewriteAOF start Append-Only-File rewriting and blocked until it finished
 func RewriteAOF(db *Server, args [][]byte) redis.Reply {
+	if db.persister == nil {
+		return protocol.MakeOkReply()
+	}
 	err := db.persister.Rewrite()
 	if err != nil {
 		return protocol.MakeErrReply("ERR " + err.Error())
@@ -608,33 +630,62 @@ func RewriteAOF(db *Server, args [][]byte) redis.Reply {
 
 // SaveRDB start RDB writing and blocked until it finished
 func SaveRDB(db *Server, args [][]byte) redis.Reply {
-	if db.persister == nil {
-		return protocol.MakeErrReply("please enable aof before using save")
-	}
 	rdbFilename := config.Properties.RDBFilename
 	if rdbFilename == "" {
 		rdbFilename = "dump.rdb"
 	}
-	err := db.persister.GenerateRDB(rdbFilename)
+	var err error
+	if db.persister != nil {
+		err = db.persister.GenerateRDB(rdbFilename)
+	} else {
+		err = aof.WriteRDBFromDB(rdbFilename, db)
+	}
 	if err != nil {
 		return protocol.MakeErrReply("ERR " + err.Error())
 	}
+	db.lastSaveUnix.Store(time.Now().Unix())
 	return protocol.MakeOkReply()
 }
 
 // BGSaveRDB asynchronously save RDB
 func BGSaveRDB(db *Server, args [][]byte) redis.Reply {
-	if db.persister == nil {
-		return protocol.MakeErrReply("please enable aof before using save")
-	}
 	rdbFilename := config.Properties.RDBFilename
 	if rdbFilename == "" {
 		rdbFilename = "dump.rdb"
 	}
-	if err := db.persister.RunGenerateRDBAsync(rdbFilename); err != nil {
-		return protocol.MakeErrReply("ERR " + err.Error())
+	if db.persister != nil {
+		if err := db.persister.RunGenerateRDBAsync(rdbFilename); err != nil {
+			return protocol.MakeErrReply("ERR " + err.Error())
+		}
+		// best-effort stamp; async completion may overwrite later when we hook it
+		db.lastSaveUnix.Store(time.Now().Unix())
+		return protocol.MakeStatusReply("Background saving started")
 	}
+	db.bgsaveMu.Lock()
+	if db.bgsaveRunning {
+		db.bgsaveMu.Unlock()
+		return protocol.MakeErrReply("ERR Background save already in progress")
+	}
+	db.bgsaveRunning = true
+	db.bgsaveMu.Unlock()
+	go func() {
+		defer func() {
+			db.bgsaveMu.Lock()
+			db.bgsaveRunning = false
+			db.bgsaveMu.Unlock()
+		}()
+		if err := aof.WriteRDBFromDB(rdbFilename, db); err != nil {
+			logger.Warn("BGSAVE failed: " + err.Error())
+			return
+		}
+		db.lastSaveUnix.Store(time.Now().Unix())
+	}()
 	return protocol.MakeStatusReply("Background saving started")
+}
+
+// execLastSave returns the unix time of the last successful SAVE/BGSAVE
+func execLastSave(server *Server, args [][]byte) redis.Reply {
+	return protocol.MakeIntReply(server.lastSaveUnix.Load())
 }
 
 // GetDBSize returns keys count and ttl key count

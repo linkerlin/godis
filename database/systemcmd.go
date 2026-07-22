@@ -92,6 +92,7 @@ func GenGodisInfoString(section string, db *Server) []byte {
 	switch section {
 	case "server":
 		s := fmt.Sprintf("# Server\r\n"+
+			"redis_version:%s\r\n"+
 			"godis_version:%s\r\n"+
 			"godis_mode:%s\r\n"+
 			"os:%s %s\r\n"+
@@ -106,6 +107,7 @@ func GenGodisInfoString(section string, db *Server) []byte {
 			"hz:%d\r\n"+
 			"lru_clock:%d\r\n"+
 			"config_file:%s\r\n",
+			godisVersion,
 			godisVersion,
 			getGodisRunningMode(),
 			runtime.GOOS, runtime.GOARCH,

@@ -143,6 +143,55 @@ func execTSAdd(db *DB, args [][]byte) redis.Reply {
 	return protocol.MakeIntReply(tsTimestamp)
 }
 
+// execTSMAdd adds multiple samples across keys
+// TS.MADD key timestamp value [key timestamp value ...]
+func execTSMAdd(db *DB, args [][]byte) redis.Reply {
+	if len(args) < 3 || len(args)%3 != 0 {
+		return protocol.MakeErrReply("ERR wrong number of arguments for 'ts.madd' command")
+	}
+	results := make([][]byte, 0, len(args)/3)
+	for i := 0; i < len(args); i += 3 {
+		key := string(args[i])
+		var timestamp int64
+		timestampStr := string(args[i+1])
+		if strings.ToUpper(timestampStr) == "*" {
+			timestamp = time.Now().UnixMilli()
+		} else {
+			var err error
+			timestamp, err = strconv.ParseInt(timestampStr, 10, 64)
+			if err != nil {
+				return protocol.MakeErrReply("ERR Timestamp must be an integer or *")
+			}
+		}
+		value, err := strconv.ParseFloat(string(args[i+2]), 64)
+		if err != nil {
+			return protocol.MakeErrReply("ERR Value must be a double")
+		}
+		entity, exists := db.GetEntity(key)
+		var ts *timeseries.TimeSeries
+		if !exists {
+			ts = timeseries.NewTimeSeries(key, 0)
+			db.PutEntity(key, &database.DataEntity{Data: ts})
+		} else {
+			var ok bool
+			ts, ok = entity.Data.(*timeseries.TimeSeries)
+			if !ok {
+				return &protocol.WrongTypeErrReply{}
+			}
+		}
+		tsTimestamp, err := ts.Add(timestamp, value)
+		if err != nil {
+			if err == timeseries.ErrTimestampTooOld {
+				return protocol.MakeErrReply("ERR Timestamp is older than retention")
+			}
+			return protocol.MakeErrReply(fmt.Sprintf("ERR %v", err))
+		}
+		results = append(results, []byte(strconv.FormatInt(tsTimestamp, 10)))
+	}
+	db.addAof(prependCmd("ts.madd", args))
+	return protocol.MakeMultiBulkReply(results)
+}
+
 // execTSGet gets the last sample
 // TS.GET key
 func execTSGet(db *DB, args [][]byte) redis.Reply {
@@ -469,7 +518,11 @@ func execTSIncrDecr(db *DB, args [][]byte, isIncr bool) redis.Reply {
 		return protocol.MakeErrReply(fmt.Sprintf("ERR %v", err))
 	}
 
-	db.addAof(prependCmd("ts.incrby", args))
+	aofCmd := "ts.decrby"
+	if isIncr {
+		aofCmd = "ts.incrby"
+	}
+	db.addAof(prependCmd(aofCmd, args))
 	return protocol.MakeIntReply(tsTimestamp)
 }
 
@@ -490,6 +543,8 @@ func init() {
 		attachCommandExtra([]string{redisFlagWrite, redisFlagDenyOOM}, 1, 1, 1)
 	registerCommand("TS.Add", execTSAdd, writeFirstKey, nil, -4, flagWrite).
 		attachCommandExtra([]string{redisFlagWrite, redisFlagDenyOOM}, 1, 1, 1)
+	registerCommand("TS.MAdd", execTSMAdd, prepareTSMAdd, nil, -4, flagWrite).
+		attachCommandExtra([]string{redisFlagWrite, redisFlagDenyOOM}, 1, -1, 3)
 	registerCommand("TS.Get", execTSGet, readFirstKey, nil, 2, flagReadOnly).
 		attachCommandExtra([]string{redisFlagReadonly, redisFlagFast}, 1, 1, 1)
 	registerCommand("TS.Range", execTSRange, readFirstKey, nil, -4, flagReadOnly).

@@ -340,6 +340,183 @@ parseStreams:
 	}
 }
 
+// execXClaim claims pending messages for a consumer
+// XCLAIM key group consumer min-idle-time id [id ...] [IDLE ms] [TIME ms-unix-time]
+//   [RETRYCOUNT count] [FORCE] [JUSTID]
+func execXClaim(db *DB, args [][]byte) redis.Reply {
+	if len(args) < 5 {
+		return protocol.MakeErrReply("ERR wrong number of arguments for 'xclaim' command")
+	}
+	key := string(args[0])
+	groupName := string(args[1])
+	consumerName := string(args[2])
+	minIdleMs, err := strconv.ParseInt(string(args[3]), 10, 64)
+	if err != nil || minIdleMs < 0 {
+		return protocol.MakeErrReply("ERR Invalid min-idle-time")
+	}
+
+	opts := &stream.ClaimOptions{}
+	ids := make([]stream.StreamID, 0)
+	i := 4
+	for i < len(args) {
+		arg := strings.ToUpper(string(args[i]))
+		switch arg {
+		case "IDLE":
+			if i+1 >= len(args) {
+				return protocol.MakeSyntaxErrReply()
+			}
+			ms, err := strconv.ParseInt(string(args[i+1]), 10, 64)
+			if err != nil || ms < 0 {
+				return protocol.MakeErrReply("ERR Invalid IDLE")
+			}
+			opts.Idle = time.Duration(ms) * time.Millisecond
+			i += 2
+		case "TIME":
+			if i+1 >= len(args) {
+				return protocol.MakeSyntaxErrReply()
+			}
+			ms, err := strconv.ParseInt(string(args[i+1]), 10, 64)
+			if err != nil || ms < 0 {
+				return protocol.MakeErrReply("ERR Invalid TIME")
+			}
+			opts.Time = time.UnixMilli(ms)
+			i += 2
+		case "RETRYCOUNT":
+			if i+1 >= len(args) {
+				return protocol.MakeSyntaxErrReply()
+			}
+			n, err := strconv.Atoi(string(args[i+1]))
+			if err != nil || n < 0 {
+				return protocol.MakeErrReply("ERR count must be a non-negative integer")
+			}
+			opts.RetryCount = n
+			i += 2
+		case "FORCE":
+			opts.Force = true
+			i++
+		case "JUSTID":
+			opts.JustID = true
+			i++
+		case "LASTID":
+			if i+1 >= len(args) {
+				return protocol.MakeSyntaxErrReply()
+			}
+			i += 2 // accepted but unused
+		default:
+			id, err := stream.ParseStreamID(string(args[i]), stream.StreamID{})
+			if err != nil {
+				return protocol.MakeErrReply("ERR Invalid stream ID specified as stream command argument")
+			}
+			ids = append(ids, id)
+			i++
+		}
+	}
+	if len(ids) == 0 {
+		return protocol.MakeErrReply("ERR wrong number of arguments for 'xclaim' command")
+	}
+
+	s, errReply := db.getAsStream(key)
+	if errReply != nil {
+		return errReply
+	}
+	if s == nil {
+		return protocol.MakeErrReply("ERR no such key")
+	}
+
+	claimed, err := s.Claim(groupName, consumerName, time.Duration(minIdleMs)*time.Millisecond, ids, opts)
+	if err != nil {
+		return protocol.MakeErrReply(err.Error())
+	}
+
+	db.addAof(utils.ToCmdLine3("xclaim", args...))
+
+	if opts.JustID {
+		idBytes := make([][]byte, len(claimed))
+		for i, e := range claimed {
+			idBytes[i] = []byte(e.ID.String())
+		}
+		return protocol.MakeMultiBulkReply(idBytes)
+	}
+	return streamEntriesToReply(claimed)
+}
+
+// execXAutoClaim claims idle pending messages starting from a cursor
+// XAUTOCLAIM key group consumer min-idle-time start [COUNT count] [JUSTID]
+func execXAutoClaim(db *DB, args [][]byte) redis.Reply {
+	if len(args) < 5 {
+		return protocol.MakeErrReply("ERR wrong number of arguments for 'xautoclaim' command")
+	}
+	key := string(args[0])
+	groupName := string(args[1])
+	consumerName := string(args[2])
+	minIdleMs, err := strconv.ParseInt(string(args[3]), 10, 64)
+	if err != nil || minIdleMs < 0 {
+		return protocol.MakeErrReply("ERR Invalid min-idle-time")
+	}
+	start, err := stream.ParseStreamID(string(args[4]), stream.StreamID{})
+	if err != nil {
+		return protocol.MakeErrReply("ERR Invalid stream ID specified as stream command argument")
+	}
+	count := 100
+	justID := false
+	for i := 5; i < len(args); {
+		opt := strings.ToUpper(string(args[i]))
+		switch opt {
+		case "COUNT":
+			if i+1 >= len(args) {
+				return protocol.MakeSyntaxErrReply()
+			}
+			c, err := strconv.Atoi(string(args[i+1]))
+			if err != nil || c <= 0 {
+				return protocol.MakeErrReply("ERR COUNT must be a positive integer")
+			}
+			count = c
+			i += 2
+		case "JUSTID":
+			justID = true
+			i++
+		default:
+			return protocol.MakeSyntaxErrReply()
+		}
+	}
+
+	s, errReply := db.getAsStream(key)
+	if errReply != nil {
+		return errReply
+	}
+	if s == nil {
+		return protocol.MakeErrReply("ERR no such key")
+	}
+
+	claimed, deleted, nextID, err := s.AutoClaim(groupName, consumerName,
+		time.Duration(minIdleMs)*time.Millisecond, start, count)
+	if err != nil {
+		return protocol.MakeErrReply(err.Error())
+	}
+
+	db.addAof(utils.ToCmdLine3("xautoclaim", args...))
+
+	var entriesReply redis.Reply
+	if justID {
+		ids := make([][]byte, len(claimed))
+		for i, e := range claimed {
+			ids[i] = []byte(e.ID.String())
+		}
+		entriesReply = protocol.MakeMultiBulkReply(ids)
+	} else {
+		entriesReply = streamEntriesToReply(claimed)
+	}
+	deletedBytes := make([][]byte, len(deleted))
+	for i, id := range deleted {
+		deletedBytes[i] = []byte(id.String())
+	}
+	return protocol.MakeMultiRawReply([]redis.Reply{
+		protocol.MakeBulkReply([]byte(nextID.String())),
+		entriesReply,
+		protocol.MakeMultiBulkReply(deletedBytes),
+	})
+}
+
 // execXAck 确认消息已处理
 // XACK key group id [id ...]
 func execXAck(db *DB, args [][]byte) redis.Reply {
@@ -684,6 +861,10 @@ func init() {
 		attachCommandExtra([]string{redisFlagReadonly, redisFlagBlocking}, 1, 1, 1)
 	registerCommand("XReadGroup", execXReadGroup, noPrepare, nil, -6, flagWrite).
 		attachCommandExtra([]string{redisFlagWrite, redisFlagBlocking}, 1, 1, 1)
+	registerCommand("XClaim", execXClaim, writeFirstKey, nil, -6, flagWrite).
+		attachCommandExtra([]string{redisFlagWrite, redisFlagFast}, 1, 1, 1)
+	registerCommand("XAutoClaim", execXAutoClaim, writeFirstKey, nil, -6, flagWrite).
+		attachCommandExtra([]string{redisFlagWrite, redisFlagFast}, 1, 1, 1)
 	registerCommand("XAck", execXAck, writeFirstKey, nil, -4, flagWrite).
 		attachCommandExtra([]string{redisFlagWrite, redisFlagFast}, 1, 1, 1)
 	registerCommand("XPending", execXPending, readFirstKey, nil, -3, flagReadOnly).

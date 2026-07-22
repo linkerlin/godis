@@ -1,23 +1,70 @@
-// RediSearch 同义词支持
+// RediSearch 同义词支持（按 index 隔离）
 package database
 
 import (
+	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 
 	"github.com/linkerlin/godis/interface/redis"
 	"github.com/linkerlin/godis/redis/protocol"
 )
 
-// 全局同义词映射表
-// groupID -> []terms
 type synonymGroups struct {
 	groups map[string]map[string]bool // groupID -> set of terms
 	terms  map[string]string          // term -> groupID
 }
 
-var synonymDB = &synonymGroups{
-	groups: make(map[string]map[string]bool),
-	terms:  make(map[string]string),
+var (
+	synonymDBs   = make(map[string]*synonymGroups)
+	synonymDBMu  sync.RWMutex
+	synGroupSeq  int64
+)
+
+func getOrCreateSynDB(index string) *synonymGroups {
+	synonymDBMu.Lock()
+	defer synonymDBMu.Unlock()
+	if db, ok := synonymDBs[index]; ok {
+		return db
+	}
+	db := &synonymGroups{
+		groups: make(map[string]map[string]bool),
+		terms:  make(map[string]string),
+	}
+	synonymDBs[index] = db
+	return db
+}
+
+func getSynDB(index string) *synonymGroups {
+	synonymDBMu.RLock()
+	defer synonymDBMu.RUnlock()
+	return synonymDBs[index]
+}
+
+func dropSynDB(index string) {
+	synonymDBMu.Lock()
+	defer synonymDBMu.Unlock()
+	delete(synonymDBs, index)
+}
+
+// execFTSynAdd creates a new synonym group (deprecated in Redis; returns group id)
+// FT.SYNADD index term [term ...]
+func execFTSynAdd(db *DB, args [][]byte) redis.Reply {
+	if len(args) < 2 {
+		return protocol.MakeErrReply("ERR wrong number of arguments for 'ft.synadd' command")
+	}
+	sdb := getOrCreateSynDB(string(args[0]))
+	id := atomic.AddInt64(&synGroupSeq, 1)
+	groupID := strconv.FormatInt(id, 10)
+	sdb.groups[groupID] = make(map[string]bool)
+	for i := 1; i < len(args); i++ {
+		term := string(args[i])
+		sdb.groups[groupID][term] = true
+		sdb.terms[term] = groupID
+	}
+	db.addAof(prependCmd("ft.synadd", args))
+	return protocol.MakeIntReply(id)
 }
 
 // execFTSynUpdate 更新同义词组
@@ -26,30 +73,30 @@ func execFTSynUpdate(db *DB, args [][]byte) redis.Reply {
 	if len(args) < 3 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'ft.synupdate' command")
 	}
-
-	indexName := string(args[0])
+	sdb := getOrCreateSynDB(string(args[0]))
 	groupID := string(args[1])
 
-	_ = indexName
-
-	// 查找SKIPINITIALSCAN选项
 	startIdx := 2
 	if strings.ToUpper(string(args[2])) == "SKIPINITIALSCAN" {
 		startIdx = 3
 	}
-
 	if len(args) <= startIdx {
 		return protocol.MakeErrReply("ERR wrong number of arguments")
 	}
 
-	// 创建或清空同义词组
-	synonymDB.groups[groupID] = make(map[string]bool)
-
-	// 添加同义词
+	// clear old term mappings for this group
+	if old, ok := sdb.groups[groupID]; ok {
+		for term := range old {
+			if sdb.terms[term] == groupID {
+				delete(sdb.terms, term)
+			}
+		}
+	}
+	sdb.groups[groupID] = make(map[string]bool)
 	for i := startIdx; i < len(args); i++ {
 		term := string(args[i])
-		synonymDB.groups[groupID][term] = true
-		synonymDB.terms[term] = groupID
+		sdb.groups[groupID][term] = true
+		sdb.terms[term] = groupID
 	}
 
 	db.addAof(prependCmd("ft.synupdate", args))
@@ -62,49 +109,47 @@ func execFTSynDump(db *DB, args [][]byte) redis.Reply {
 	if len(args) != 1 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'ft.syndump' command")
 	}
-
-	_ = string(args[0])
-
-	// 返回所有同义词组
+	sdb := getSynDB(string(args[0]))
+	if sdb == nil {
+		return protocol.MakeEmptyMultiBulkReply()
+	}
 	var result [][]byte
-
-	for groupID, terms := range synonymDB.groups {
-		var groupData [][]byte
-		groupData = append(groupData, []byte(groupID))
-
+	for groupID, terms := range sdb.groups {
+		groupData := [][]byte{[]byte(groupID)}
 		for term := range terms {
 			groupData = append(groupData, []byte(term))
 		}
-
 		result = append(result, protocol.MakeMultiBulkReply(groupData).ToBytes())
 	}
-
 	return protocol.MakeMultiBulkReply(result)
 }
 
-// getSynonyms 获取一个词的所有同义词
-func getSynonyms(term string) []string {
-	groupID, ok := synonymDB.terms[term]
+// getSynonyms 获取一个词在指定 index 下的同义词
+func getSynonyms(index, term string) []string {
+	sdb := getSynDB(index)
+	if sdb == nil {
+		return nil
+	}
+	groupID, ok := sdb.terms[term]
 	if !ok {
 		return nil
 	}
-
-	group, ok := synonymDB.groups[groupID]
+	group, ok := sdb.groups[groupID]
 	if !ok {
 		return nil
 	}
-
 	var synonyms []string
 	for t := range group {
 		if t != term {
 			synonyms = append(synonyms, t)
 		}
 	}
-
 	return synonyms
 }
 
 func init() {
+	registerCommand("FT.SynAdd", execFTSynAdd, writeFirstKey, nil, -3, flagWrite).
+		attachCommandExtra([]string{redisFlagWrite}, 1, 1, 1)
 	registerCommand("FT.SynUpdate", execFTSynUpdate, writeFirstKey, nil, -4, flagWrite).
 		attachCommandExtra([]string{redisFlagWrite}, 1, 1, 1)
 	registerCommand("FT.SynDump", execFTSynDump, readFirstKey, nil, 2, flagReadOnly).

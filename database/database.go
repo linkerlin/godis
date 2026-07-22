@@ -139,6 +139,11 @@ func (db *DB) Exec(c redis.Connection, cmdLine [][]byte) redis.Reply {
 			return protocol.MakeArgNumErrReply(cmdName)
 		}
 		return UnWatch(c)
+	} else if cmdName == "reset" {
+		if len(cmdLine) != 1 {
+			return protocol.MakeArgNumErrReply(cmdName)
+		}
+		return execReset(c, db)
 	}
 	if c != nil && c.InMultiState() {
 		return EnqueueCmd(c, cmdLine)
@@ -146,6 +151,9 @@ func (db *DB) Exec(c redis.Connection, cmdLine [][]byte) redis.Reply {
 
 	if cmdName == "client" {
 		return execClientConn(c, db, cmdLine[1:])
+	}
+	if cmdName == "acl" {
+		return execACLConn(c, db, cmdLine[1:])
 	}
 
 	// ponytail: handle pub/sub commands that may be called from Lua scripts

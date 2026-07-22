@@ -193,6 +193,32 @@ func (td *TDigest) Max() float64 {
 	return td.max
 }
 
+// Reset clears all samples from the digest
+func (td *TDigest) Reset() {
+	td.centroids = td.centroids[:0]
+	td.count = 0
+	td.sum = 0
+	td.sumSq = 0
+	td.min = math.Inf(1)
+	td.max = math.Inf(-1)
+}
+
+// Rank returns how many samples are strictly less than value (approx via CDF).
+func (td *TDigest) Rank(value float64) int64 {
+	if td.count == 0 {
+		return -2
+	}
+	return int64(td.CDF(value) * td.count)
+}
+
+// RevRank returns how many samples are strictly greater than value (approx).
+func (td *TDigest) RevRank(value float64) int64 {
+	if td.count == 0 {
+		return -2
+	}
+	return int64((1 - td.CDF(value)) * td.count)
+}
+
 // Mean returns the mean
 func (td *TDigest) Mean() float64 {
 	if td.count == 0 {

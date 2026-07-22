@@ -223,3 +223,124 @@ func (persister *Persister) generateRDB(ctx *RewriteCtx) error {
 	}
 	return nil
 }
+
+// WriteRDBFromDB writes an RDB snapshot from in-memory databases (no AOF required).
+func WriteRDBFromDB(rdbFilename string, db database.DBEngine) error {
+	tmpFile, err := os.CreateTemp("", "temp-*.rdb")
+	if err != nil {
+		return err
+	}
+	tmpName := tmpFile.Name()
+	success := false
+	defer func() {
+		_ = tmpFile.Close()
+		if !success {
+			_ = os.Remove(tmpName)
+		}
+	}()
+
+	if err := encodeEngineToRDB(tmpFile, db); err != nil {
+		return err
+	}
+	if err := tmpFile.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(tmpName, rdbFilename); err != nil {
+		return err
+	}
+	success = true
+	return nil
+}
+
+func encodeEngineToRDB(tmpFile *os.File, eng database.DBEngine) error {
+	encoder := rdb.NewEncoder(tmpFile).EnableCompress()
+	if err := encoder.WriteHeader(); err != nil {
+		return err
+	}
+	auxMap := map[string]string{
+		"redis-ver":    "8.0.0",
+		"redis-bits":   "64",
+		"aof-preamble": "0",
+		"ctime":        strconv.FormatInt(time.Now().Unix(), 10),
+	}
+	for k, v := range auxMap {
+		if err := encoder.WriteAux(k, v); err != nil {
+			return err
+		}
+	}
+	for i := 0; i < config.Properties.Databases; i++ {
+		keyCount, ttlCount, _ := eng.GetDBSize(i)
+		if keyCount == 0 {
+			continue
+		}
+		if err := encoder.WriteDBHeader(uint(i), uint64(keyCount), uint64(ttlCount)); err != nil {
+			return err
+		}
+		var err2 error
+		_ = eng.ForEach(i, func(key string, entity *database.DataEntity, expiration *time.Time) bool {
+			var opts []interface{}
+			if expiration != nil {
+				opts = append(opts, rdb.WithTTL(uint64(expiration.UnixNano()/1e6)))
+			}
+			var err error
+			switch obj := entity.Data.(type) {
+			case []byte:
+				err = encoder.WriteStringObject(key, obj, opts...)
+			case List.List:
+				vals := make([][]byte, 0, obj.Len())
+				obj.ForEach(func(i int, v interface{}) bool {
+					bytes, _ := v.([]byte)
+					vals = append(vals, bytes)
+					return true
+				})
+				err = encoder.WriteListObject(key, vals, opts...)
+			case *set.Set:
+				vals := make([][]byte, 0, obj.Len())
+				obj.ForEach(func(m string) bool {
+					vals = append(vals, []byte(m))
+					return true
+				})
+				err = encoder.WriteSetObject(key, vals, opts...)
+			case *dict.ExpireDict:
+				hash := make(map[string][]byte)
+				obj.ForEach(func(field string, val interface{}) bool {
+					bytes, _ := val.([]byte)
+					hash[field] = bytes
+					return true
+				})
+				err = encoder.WriteHashMapObject(key, hash, opts...)
+			case dict.Dict:
+				hash := make(map[string][]byte)
+				obj.ForEach(func(field string, val interface{}) bool {
+					bytes, _ := val.([]byte)
+					hash[field] = bytes
+					return true
+				})
+				err = encoder.WriteHashMapObject(key, hash, opts...)
+			case *SortedSet.SortedSet:
+				var entries []*model.ZSetEntry
+				obj.ForEachByRank(int64(0), obj.Len(), true, func(element *SortedSet.Element) bool {
+					entries = append(entries, &model.ZSetEntry{
+						Member: element.Member,
+						Score:  element.Score,
+					})
+					return true
+				})
+				err = encoder.WriteZSetObject(key, entries, opts...)
+			default:
+				if payload, ok := EncodeOpaque(entity); ok {
+					err = encoder.WriteStringObject(key, payload, opts...)
+				}
+			}
+			if err != nil {
+				err2 = err
+				return false
+			}
+			return true
+		})
+		if err2 != nil {
+			return err2
+		}
+	}
+	return encoder.WriteEnd()
+}

@@ -74,17 +74,23 @@ func (cms *CountMinSketch) Query(item []byte) uint64 {
 
 // Merge merges another CMS into this one
 func (cms *CountMinSketch) Merge(other *CountMinSketch) error {
+	return cms.MergeWeighted(other, 1)
+}
+
+// MergeWeighted merges other * weight into this CMS
+func (cms *CountMinSketch) MergeWeighted(other *CountMinSketch, weight uint64) error {
 	if cms.width != other.width || cms.depth != other.depth {
 		return ErrCMSDimensionMismatch
 	}
-	
+	if weight == 0 {
+		return nil
+	}
 	for i := uint(0); i < cms.depth; i++ {
 		for j := uint(0); j < cms.width; j++ {
-			cms.table[i][j] += other.table[i][j]
+			cms.table[i][j] += other.table[i][j] * weight
 		}
 	}
-	
-	cms.count += other.count
+	cms.count += other.count * weight
 	return nil
 }
 

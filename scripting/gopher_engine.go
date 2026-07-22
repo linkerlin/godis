@@ -380,16 +380,15 @@ func (e *GopherEngine) luaRedisPCall(L *lua.LState) int {
 	// Execute Redis command
 	result, err := e.dbExec(cmd, args...)
 
-	// Create result table
-	tbl := L.NewTable()
-
 	if err != nil {
+		tbl := L.NewTable()
 		L.SetField(tbl, "err", lua.LString(err.Error()))
-	} else if result != nil {
-		L.SetField(tbl, "ok", goValueToLua(L, result))
+		L.Push(tbl)
+		return 1
 	}
 
-	L.Push(tbl)
+	// Redis: successful pcall returns the value directly (same as call)
+	pushGoValue(L, result)
 	return 1
 }
 

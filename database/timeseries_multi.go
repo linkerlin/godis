@@ -16,8 +16,21 @@ import (
 //
 //	[WITHLABELS] [FILTER filter...]
 func execTSMRange(db *DB, args [][]byte) redis.Reply {
+	return execTSMRangeInternal(db, args, false)
+}
+
+// execTSMRevRange is TS.MRANGE with samples in reverse order
+func execTSMRevRange(db *DB, args [][]byte) redis.Reply {
+	return execTSMRangeInternal(db, args, true)
+}
+
+func execTSMRangeInternal(db *DB, args [][]byte, reverse bool) redis.Reply {
 	if len(args) < 3 {
-		return protocol.MakeErrReply("ERR wrong number of arguments for 'ts.mrange' command")
+		cmd := "ts.mrange"
+		if reverse {
+			cmd = "ts.mrevrange"
+		}
+		return protocol.MakeErrReply("ERR wrong number of arguments for '" + cmd + "' command")
 	}
 
 	// Parse timestamps
@@ -109,6 +122,11 @@ func execTSMRange(db *DB, args [][]byte) redis.Reply {
 
 		if count > 0 && len(samples) > count {
 			samples = samples[:count]
+		}
+		if reverse {
+			for i, j := 0, len(samples)-1; i < j; i, j = i+1, j-1 {
+				samples[i], samples[j] = samples[j], samples[i]
+			}
 		}
 
 		// Build result for this series
@@ -276,8 +294,18 @@ func matchFilters(ts *timeseries.TimeSeries, filters []string) bool {
 	return true
 }
 
+func prepareTSMAdd(args [][]byte) ([]string, []string) {
+	keys := make([]string, 0, len(args)/3)
+	for i := 0; i+2 < len(args); i += 3 {
+		keys = append(keys, string(args[i]))
+	}
+	return keys, nil
+}
+
 func init() {
 	registerCommand("TS.MRange", execTSMRange, prepareNoKeys, nil, -4, flagReadOnly).
+		attachCommandExtra([]string{redisFlagReadonly}, 0, 0, 0)
+	registerCommand("TS.MRevRange", execTSMRevRange, prepareNoKeys, nil, -4, flagReadOnly).
 		attachCommandExtra([]string{redisFlagReadonly}, 0, 0, 0)
 	registerCommand("TS.MGet", execTSMGet, prepareNoKeys, nil, -2, flagReadOnly).
 		attachCommandExtra([]string{redisFlagReadonly}, 0, 0, 0)

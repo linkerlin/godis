@@ -396,6 +396,111 @@ func execXDel(db *DB, args [][]byte) redis.Reply {
 	return protocol.MakeIntReply(int64(deleted))
 }
 
+// parseStreamRefModeAndIDs parses [KEEPREF|DELREF|ACKED] IDS numids id...
+func parseStreamRefModeAndIDs(args [][]byte, cmd string) (mode string, ids []stream.StreamID, errReply redis.Reply) {
+	mode = "KEEPREF"
+	i := 0
+	if i < len(args) {
+		opt := strings.ToUpper(string(args[i]))
+		if opt == "KEEPREF" || opt == "DELREF" || opt == "ACKED" {
+			mode = opt
+			i++
+		}
+	}
+	if i >= len(args) || strings.ToUpper(string(args[i])) != "IDS" {
+		return "", nil, protocol.MakeSyntaxErrReply()
+	}
+	i++
+	if i >= len(args) {
+		return "", nil, protocol.MakeErrReply("ERR wrong number of arguments for '" + cmd + "' command")
+	}
+	n, err := strconv.Atoi(string(args[i]))
+	if err != nil || n < 0 {
+		return "", nil, protocol.MakeErrReply("ERR Number of IDs must be a non-negative integer")
+	}
+	i++
+	if len(args[i:]) != n {
+		return "", nil, protocol.MakeErrReply("ERR The IDS argument must be followed by the correct number of IDs")
+	}
+	ids = make([]stream.StreamID, n)
+	for j := 0; j < n; j++ {
+		id, err := stream.ParseStreamID(string(args[i+j]), stream.StreamID{})
+		if err != nil {
+			return "", nil, protocol.MakeErrReply("ERR Invalid stream ID")
+		}
+		ids[j] = id
+	}
+	return mode, ids, nil
+}
+
+// execXDelex deletes stream entries with PEL policy (Redis 8.2)
+// XDELEX key [KEEPREF|DELREF|ACKED] IDS numids id [id ...]
+func execXDelex(db *DB, args [][]byte) redis.Reply {
+	if len(args) < 3 {
+		return protocol.MakeErrReply("ERR wrong number of arguments for 'xdelex' command")
+	}
+	key := string(args[0])
+	mode, ids, errReply := parseStreamRefModeAndIDs(args[1:], "xdelex")
+	if errReply != nil {
+		return errReply
+	}
+	s, errReply := db.getAsStream(key)
+	if errReply != nil {
+		return errReply
+	}
+	if s == nil {
+		return protocol.MakeIntReply(0)
+	}
+	deleted := s.DeleteEx(ids, mode)
+	if deleted > 0 {
+		db.addAof(utils.ToCmdLine3("xdelex", args...))
+	}
+	return protocol.MakeIntReply(int64(deleted))
+}
+
+// execXAckDel acknowledges then deletes with PEL policy (Redis 8.2)
+// XACKDEL key group [KEEPREF|DELREF|ACKED] IDS numids id [id ...]
+func execXAckDel(db *DB, args [][]byte) redis.Reply {
+	if len(args) < 4 {
+		return protocol.MakeErrReply("ERR wrong number of arguments for 'xackdel' command")
+	}
+	key := string(args[0])
+	groupName := string(args[1])
+	mode, ids, errReply := parseStreamRefModeAndIDs(args[2:], "xackdel")
+	if errReply != nil {
+		return errReply
+	}
+	s, errReply := db.getAsStream(key)
+	if errReply != nil {
+		return errReply
+	}
+	if s == nil {
+		return protocol.MakeIntReply(0)
+	}
+	group, err := s.GetGroup(groupName)
+	if err != nil {
+		return protocol.MakeIntReply(0)
+	}
+	acked := 0
+	for _, id := range ids {
+		if _, ok := group.Pending[id]; ok {
+			delete(group.Pending, id)
+			group.Consumers.ForEach(func(_ string, val interface{}) bool {
+				c := val.(*stream.Consumer)
+				delete(c.Pending, id)
+				return true
+			})
+			acked++
+		}
+	}
+	_ = acked
+	deleted := s.DeleteEx(ids, mode)
+	if deleted > 0 || acked > 0 {
+		db.addAof(utils.ToCmdLine3("xackdel", args...))
+	}
+	return protocol.MakeIntReply(int64(deleted))
+}
+
 // execXGroupCreate 创建消费者组
 // XGROUP CREATE key groupname id|$ [MKSTREAM] [ENTRIESREAD entries-read]
 func execXGroupCreate(db *DB, args [][]byte) redis.Reply {
@@ -784,6 +889,62 @@ func execXGroupSetID(db *DB, args [][]byte) redis.Reply {
 	return protocol.MakeOkReply()
 }
 
+// execXSetID sets the last ID of a stream (top-level XSETID)
+// XSETID key last-id [ENTRIESADDED entries-added] [MAXDELETEDID max-deleted-id]
+func execXSetID(db *DB, args [][]byte) redis.Reply {
+	if len(args) < 2 {
+		return protocol.MakeErrReply("ERR wrong number of arguments for 'xsetid' command")
+	}
+	key := string(args[0])
+	s, errReply := db.getAsStream(key)
+	if errReply != nil {
+		return errReply
+	}
+	if s == nil {
+		return protocol.MakeErrReply("ERR no such key")
+	}
+	newID, err := stream.ParseStreamID(string(args[1]), stream.StreamID{})
+	if err != nil {
+		return protocol.MakeErrReply("ERR Invalid stream ID")
+	}
+	if newID.Compare(s.GetLastID()) < 0 {
+		return protocol.MakeErrReply("ERR The ID specified in XSETID is smaller than the current top-level ID")
+	}
+	entriesAdded := int64(-1)
+	for i := 2; i < len(args); {
+		opt := strings.ToUpper(string(args[i]))
+		switch opt {
+		case "ENTRIESADDED":
+			if i+1 >= len(args) {
+				return protocol.MakeSyntaxErrReply()
+			}
+			n, err := strconv.ParseInt(string(args[i+1]), 10, 64)
+			if err != nil || n < 0 {
+				return protocol.MakeErrReply("ERR value is not an integer or out of range")
+			}
+			entriesAdded = n
+			i += 2
+		case "MAXDELETEDID":
+			if i+1 >= len(args) {
+				return protocol.MakeSyntaxErrReply()
+			}
+			// accepted for compatibility; not persisted yet
+			if _, err := stream.ParseStreamID(string(args[i+1]), stream.StreamID{}); err != nil {
+				return protocol.MakeErrReply("ERR Invalid stream ID")
+			}
+			i += 2
+		default:
+			return protocol.MakeSyntaxErrReply()
+		}
+	}
+	s.SetLastID(newID)
+	if entriesAdded >= 0 {
+		s.SetEntriesAdded(entriesAdded)
+	}
+	db.addAof(utils.ToCmdLine3("xsetid", args...))
+	return protocol.MakeOkReply()
+}
+
 // execXGroupHelp returns help information
 func execXGroupHelp() redis.Reply {
 	help := []string{
@@ -864,10 +1025,16 @@ func init() {
 		attachCommandExtra([]string{redisFlagReadonly, redisFlagFast}, 1, 1, 1)
 	registerCommand("XDel", execXDel, writeFirstKey, nil, -3, flagWrite).
 		attachCommandExtra([]string{redisFlagWrite, redisFlagFast}, 1, 1, 1)
+	registerCommand("XDelEx", execXDelex, writeFirstKey, nil, -4, flagWrite).
+		attachCommandExtra([]string{redisFlagWrite, redisFlagFast}, 1, 1, 1)
+	registerCommand("XAckDel", execXAckDel, writeFirstKey, nil, -5, flagWrite).
+		attachCommandExtra([]string{redisFlagWrite, redisFlagFast}, 1, 1, 1)
 	registerCommand("XTrim", execXTrim, writeFirstKey, nil, -4, flagWrite).
 		attachCommandExtra([]string{redisFlagWrite}, 1, 1, 1)
 	registerCommand("XGroup", execXGroup, noPrepare, nil, -2, flagWrite).
 		attachCommandExtra([]string{redisFlagWrite}, 2, 2, 1)
+	registerCommand("XSetID", execXSetID, writeFirstKey, nil, -3, flagWrite).
+		attachCommandExtra([]string{redisFlagWrite, redisFlagFast}, 1, 1, 1)
 	registerCommand("XInfo", execXInfo, noPrepare, nil, -2, flagReadOnly).
 		attachCommandExtra([]string{redisFlagReadonly}, 0, 0, 0)
 }

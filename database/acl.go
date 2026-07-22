@@ -154,6 +154,11 @@ func (server *Server) InitACLEngine() {
 
 // execACL handles ACL subcommands
 func execACL(db *DB, args [][]byte) redis.Reply {
+	return execACLConn(nil, db, args)
+}
+
+// execACLConn handles ACL with optional connection context (for WHOAMI)
+func execACLConn(c redis.Connection, db *DB, args [][]byte) redis.Reply {
 	if len(args) < 1 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'acl' command")
 	}
@@ -162,7 +167,10 @@ func execACL(db *DB, args [][]byte) redis.Reply {
 
 	switch subCmd {
 	case "WHOAMI":
-		return execACLWhoami(args[1:])
+		if len(args) != 1 {
+			return protocol.MakeErrReply("ERR wrong number of arguments for 'acl|whoami' command")
+		}
+		return formatACLWhoami(c)
 	case "LIST":
 		return execACLList(args[1:])
 	case "USERS":
@@ -194,12 +202,7 @@ func execACL(db *DB, args [][]byte) redis.Reply {
 
 // execACLWhoami returns current username
 func execACLWhoami(args [][]byte) redis.Reply {
-	if len(args) != 0 {
-		return protocol.MakeErrReply("ERR wrong number of arguments for 'acl|whoami' command")
-	}
-
-	// For now, return default user
-	return protocol.MakeBulkReply([]byte("default"))
+	return formatACLWhoami(nil)
 }
 
 // execACLList lists all users

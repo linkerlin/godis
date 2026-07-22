@@ -324,6 +324,7 @@ func execFTDropIndex(db *DB, args [][]byte) redis.Reply {
 	searchIndexMetaMu.Unlock()
 
 	db.Remove(indexName)
+	dropSynDB(indexName)
 
 	db.addAof(utils.ToCmdLine3("ft.dropindex", args...))
 	return protocol.MakeOkReply()

@@ -177,6 +177,104 @@ func execTDigestInfo(db *DB, args [][]byte) redis.Reply {
 	return protocol.MakeMultiBulkReply(reply)
 }
 
+// execTDigestMin returns the minimum observed value
+// TDIGEST.MIN key
+func execTDigestMin(db *DB, args [][]byte) redis.Reply {
+	if len(args) != 1 {
+		return protocol.MakeErrReply("ERR wrong number of arguments for 'tdigest.min' command")
+	}
+	entity, exists := db.GetEntity(string(args[0]))
+	if !exists {
+		return protocol.MakeErrReply("ERR key does not exist")
+	}
+	td, ok := entity.Data.(*probabilistic.TDigest)
+	if !ok {
+		return &protocol.WrongTypeErrReply{}
+	}
+	return protocol.MakeBulkReply([]byte(strconv.FormatFloat(td.Min(), 'f', -1, 64)))
+}
+
+// execTDigestMax returns the maximum observed value
+// TDIGEST.MAX key
+func execTDigestMax(db *DB, args [][]byte) redis.Reply {
+	if len(args) != 1 {
+		return protocol.MakeErrReply("ERR wrong number of arguments for 'tdigest.max' command")
+	}
+	entity, exists := db.GetEntity(string(args[0]))
+	if !exists {
+		return protocol.MakeErrReply("ERR key does not exist")
+	}
+	td, ok := entity.Data.(*probabilistic.TDigest)
+	if !ok {
+		return &protocol.WrongTypeErrReply{}
+	}
+	return protocol.MakeBulkReply([]byte(strconv.FormatFloat(td.Max(), 'f', -1, 64)))
+}
+
+// execTDigestReset clears a T-Digest
+// TDIGEST.RESET key
+func execTDigestReset(db *DB, args [][]byte) redis.Reply {
+	if len(args) != 1 {
+		return protocol.MakeErrReply("ERR wrong number of arguments for 'tdigest.reset' command")
+	}
+	entity, exists := db.GetEntity(string(args[0]))
+	if !exists {
+		return protocol.MakeErrReply("ERR key does not exist")
+	}
+	td, ok := entity.Data.(*probabilistic.TDigest)
+	if !ok {
+		return &protocol.WrongTypeErrReply{}
+	}
+	td.Reset()
+	db.addAof(prependCmd("tdigest.reset", args))
+	return protocol.MakeOkReply()
+}
+
+// execTDigestRank returns ranks for values
+// TDIGEST.RANK key value [value ...]
+func execTDigestRank(db *DB, args [][]byte) redis.Reply {
+	return execTDigestRankInternal(db, args, false)
+}
+
+// execTDigestRevRank returns reverse ranks for values
+// TDIGEST.REVRANK key value [value ...]
+func execTDigestRevRank(db *DB, args [][]byte) redis.Reply {
+	return execTDigestRankInternal(db, args, true)
+}
+
+func execTDigestRankInternal(db *DB, args [][]byte, rev bool) redis.Reply {
+	cmd := "tdigest.rank"
+	if rev {
+		cmd = "tdigest.revrank"
+	}
+	if len(args) < 2 {
+		return protocol.MakeErrReply("ERR wrong number of arguments for '" + cmd + "' command")
+	}
+	entity, exists := db.GetEntity(string(args[0]))
+	if !exists {
+		return protocol.MakeErrReply("ERR key does not exist")
+	}
+	td, ok := entity.Data.(*probabilistic.TDigest)
+	if !ok {
+		return &protocol.WrongTypeErrReply{}
+	}
+	results := make([][]byte, len(args)-1)
+	for i := 1; i < len(args); i++ {
+		v, err := strconv.ParseFloat(string(args[i]), 64)
+		if err != nil {
+			return protocol.MakeErrReply("ERR value is not a valid float")
+		}
+		var rank int64
+		if rev {
+			rank = td.RevRank(v)
+		} else {
+			rank = td.Rank(v)
+		}
+		results[i-1] = []byte(strconv.FormatInt(rank, 10))
+	}
+	return protocol.MakeMultiBulkReply(results)
+}
+
 func init() {
 	registerCommand("TDigest.Create", execTDigestCreate, writeFirstKey, nil, -2, flagWrite).
 		attachCommandExtra([]string{redisFlagWrite, redisFlagDenyOOM}, 1, 1, 1)
@@ -185,6 +283,16 @@ func init() {
 	registerCommand("TDigest.Quantile", execTDigestQuantile, readFirstKey, nil, -3, flagReadOnly).
 		attachCommandExtra([]string{redisFlagReadonly}, 1, 1, 1)
 	registerCommand("TDigest.CDF", execTDigestCDF, readFirstKey, nil, -3, flagReadOnly).
+		attachCommandExtra([]string{redisFlagReadonly}, 1, 1, 1)
+	registerCommand("TDigest.Min", execTDigestMin, readFirstKey, nil, 2, flagReadOnly).
+		attachCommandExtra([]string{redisFlagReadonly, redisFlagFast}, 1, 1, 1)
+	registerCommand("TDigest.Max", execTDigestMax, readFirstKey, nil, 2, flagReadOnly).
+		attachCommandExtra([]string{redisFlagReadonly, redisFlagFast}, 1, 1, 1)
+	registerCommand("TDigest.Reset", execTDigestReset, writeFirstKey, nil, 2, flagWrite).
+		attachCommandExtra([]string{redisFlagWrite}, 1, 1, 1)
+	registerCommand("TDigest.Rank", execTDigestRank, readFirstKey, nil, -3, flagReadOnly).
+		attachCommandExtra([]string{redisFlagReadonly}, 1, 1, 1)
+	registerCommand("TDigest.RevRank", execTDigestRevRank, readFirstKey, nil, -3, flagReadOnly).
 		attachCommandExtra([]string{redisFlagReadonly}, 1, 1, 1)
 	registerCommand("TDigest.Info", execTDigestInfo, readFirstKey, nil, 2, flagReadOnly).
 		attachCommandExtra([]string{redisFlagReadonly}, 1, 1, 1)

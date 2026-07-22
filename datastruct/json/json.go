@@ -203,6 +203,163 @@ func (jv *JSONValue) StrLen(path string) (int, error) {
 	return len(str), nil
 }
 
+// Clear resets a container/scalar at path to empty ({} / [] / "" / 0 / false).
+// Returns 1 if a value was cleared, 0 if already empty / missing.
+func (jv *JSONValue) Clear(path string) (int, error) {
+	jv.mu.Lock()
+	defer jv.mu.Unlock()
+
+	val, err := jv.getPath(path)
+	if err != nil {
+		return 0, nil
+	}
+	switch v := val.(type) {
+	case map[string]interface{}:
+		if len(v) == 0 {
+			return 0, nil
+		}
+		jv.setPath(path, map[string]interface{}{}, false, false)
+		return 1, nil
+	case []interface{}:
+		if len(v) == 0 {
+			return 0, nil
+		}
+		jv.setPath(path, []interface{}{}, false, false)
+		return 1, nil
+	case string:
+		if v == "" {
+			return 0, nil
+		}
+		jv.setPath(path, "", false, false)
+		return 1, nil
+	case float64, float32, int, int64:
+		jv.setPath(path, float64(0), false, false)
+		return 1, nil
+	case bool:
+		if !v {
+			return 0, nil
+		}
+		jv.setPath(path, false, false, false)
+		return 1, nil
+	case nil:
+		return 0, nil
+	default:
+		return 0, nil
+	}
+}
+
+// Toggle flips a boolean at path and returns the new value.
+func (jv *JSONValue) Toggle(path string) (bool, error) {
+	jv.mu.Lock()
+	defer jv.mu.Unlock()
+
+	val, err := jv.getPath(path)
+	if err != nil {
+		return false, err
+	}
+	b, ok := val.(bool)
+	if !ok {
+		return false, fmt.Errorf("path value is not a bool")
+	}
+	newVal := !b
+	jv.setPath(path, newVal, false, false)
+	return newVal, nil
+}
+
+// Merge applies RFC7396 JSON Merge Patch at path.
+func (jv *JSONValue) Merge(path string, patch interface{}) error {
+	jv.mu.Lock()
+	defer jv.mu.Unlock()
+
+	if path == "$" || path == "." || path == "" {
+		jv.data = mergeJSON(jv.data, patch)
+		return nil
+	}
+	cur, err := jv.getPath(path)
+	if err != nil {
+		// create path with patch
+		_, err2 := jv.setPath(path, patch, false, false)
+		return err2
+	}
+	merged := mergeJSON(cur, patch)
+	_, err = jv.setPath(path, merged, false, false)
+	return err
+}
+
+func mergeJSON(target, patch interface{}) interface{} {
+	if patch == nil {
+		return nil
+	}
+	patchObj, patchIsObj := patch.(map[string]interface{})
+	if !patchIsObj {
+		return patch
+	}
+	targetObj, targetIsObj := target.(map[string]interface{})
+	if !targetIsObj || target == nil {
+		targetObj = make(map[string]interface{})
+	} else {
+		// shallow copy to avoid mutating shared maps unexpectedly
+		cp := make(map[string]interface{}, len(targetObj))
+		for k, v := range targetObj {
+			cp[k] = v
+		}
+		targetObj = cp
+	}
+	for k, v := range patchObj {
+		if v == nil {
+			delete(targetObj, k)
+			continue
+		}
+		targetObj[k] = mergeJSON(targetObj[k], v)
+	}
+	return targetObj
+}
+
+// DebugMemory returns approximate serialized byte size at path.
+func (jv *JSONValue) DebugMemory(path string) (int, error) {
+	jv.mu.RLock()
+	defer jv.mu.RUnlock()
+	val, err := jv.getPath(path)
+	if err != nil {
+		return 0, err
+	}
+	b, err := json.Marshal(val)
+	if err != nil {
+		return 0, err
+	}
+	return len(b), nil
+}
+
+// DebugFields counts scalar leaf values under path.
+func (jv *JSONValue) DebugFields(path string) (int, error) {
+	jv.mu.RLock()
+	defer jv.mu.RUnlock()
+	val, err := jv.getPath(path)
+	if err != nil {
+		return 0, err
+	}
+	return countJSONFields(val), nil
+}
+
+func countJSONFields(v interface{}) int {
+	switch val := v.(type) {
+	case map[string]interface{}:
+		n := 0
+		for _, child := range val {
+			n += countJSONFields(child)
+		}
+		return n
+	case []interface{}:
+		n := 0
+		for _, child := range val {
+			n += countJSONFields(child)
+		}
+		return n
+	default:
+		return 1
+	}
+}
+
 // StrAppend appends a string to the value at the given path
 func (jv *JSONValue) StrAppend(path string, appendStr string) (int, error) {
 	jv.mu.Lock()

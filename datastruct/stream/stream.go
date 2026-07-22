@@ -362,19 +362,90 @@ func (s *Stream) GetLastID() StreamID {
 	return s.lastID
 }
 
+// SetLastID sets the stream's last generated ID (XSETID)
+func (s *Stream) SetLastID(id StreamID) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.lastID = id
+}
+
+// SetEntriesAdded sets the entries-added counter (XSETID ENTRIESADDED)
+func (s *Stream) SetEntriesAdded(n int64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.entriesAdded = n
+}
+
+// GetEntriesAdded returns entries-added counter
+func (s *Stream) GetEntriesAdded() int64 {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.entriesAdded
+}
+
 // Delete 删除条目
 func (s *Stream) Delete(ids []StreamID) int {
+	return s.DeleteEx(ids, "KEEPREF")
+}
+
+// DeleteEx deletes entries with PEL reference policy:
+// KEEPREF (default): delete stream entries, leave PEL untouched
+// DELREF: delete stream entries and remove from all PELs
+// ACKED: delete only if not present in any PEL
+func (s *Stream) DeleteEx(ids []StreamID, mode string) int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	mode = strings.ToUpper(mode)
 	deleted := 0
 	for _, id := range ids {
+		inPEL := s.idInAnyPEL(id)
+		if mode == "ACKED" && inPEL {
+			continue
+		}
 		_, result := s.entries.Remove(id.String())
 		if result > 0 {
 			deleted++
 		}
+		if mode == "DELREF" {
+			s.removeIDFromAllPELs(id)
+		}
 	}
 	return deleted
+}
+
+func (s *Stream) idInAnyPEL(id StreamID) bool {
+	found := false
+	s.groups.ForEach(func(_ string, val interface{}) bool {
+		group := val.(*ConsumerGroup)
+		if _, ok := group.Pending[id]; ok {
+			found = true
+			return false
+		}
+		group.Consumers.ForEach(func(_ string, cval interface{}) bool {
+			c := cval.(*Consumer)
+			if _, ok := c.Pending[id]; ok {
+				found = true
+				return false
+			}
+			return true
+		})
+		return !found
+	})
+	return found
+}
+
+func (s *Stream) removeIDFromAllPELs(id StreamID) {
+	s.groups.ForEach(func(_ string, val interface{}) bool {
+		group := val.(*ConsumerGroup)
+		delete(group.Pending, id)
+		group.Consumers.ForEach(func(_ string, cval interface{}) bool {
+			c := cval.(*Consumer)
+			delete(c.Pending, id)
+			return true
+		})
+		return true
+	})
 }
 
 // CreateGroup 创建消费者组
@@ -453,6 +524,9 @@ type ClaimOptions struct {
 
 // Claim 认领待处理条目
 func (s *Stream) Claim(groupName, consumerName string, minIdleTime time.Duration, ids []StreamID, opts *ClaimOptions) ([]*StreamEntry, error) {
+	if opts == nil {
+		opts = &ClaimOptions{}
+	}
 	group, err := s.GetGroup(groupName)
 	if err != nil {
 		return nil, err
@@ -465,108 +539,128 @@ func (s *Stream) Claim(groupName, consumerName string, minIdleTime time.Duration
 	now := time.Now()
 
 	for _, id := range ids {
-		// 查找待处理条目
 		pending, ok := group.Pending[id]
 		if !ok {
-			// 检查是否在其他消费者那里
 			found := false
 			group.Consumers.ForEach(func(name string, val interface{}) bool {
 				c := val.(*Consumer)
 				if p, ok := c.Pending[id]; ok {
 					pending = p
-					// 从原消费者移除
 					delete(c.Pending, id)
 					found = true
 					return false
 				}
 				return true
 			})
-
 			if !found && !opts.Force {
 				continue
 			}
-
 			if !found {
-				// 创建新的pending条目
-				pending = &PendingEntry{
-					ID: id,
-				}
+				pending = &PendingEntry{ID: id}
+			}
+		} else if pending.Consumer != "" && pending.Consumer != consumerName {
+			if raw, exists := group.Consumers.Get(pending.Consumer); exists {
+				delete(raw.(*Consumer).Pending, id)
 			}
 		}
 
-		// 检查空闲时间
-		if opts.Force || now.Sub(pending.DeliveryTime) >= minIdleTime {
-			// 更新条目
-			pending.Consumer = consumerName
+		if !opts.Force && !pending.DeliveryTime.IsZero() && now.Sub(pending.DeliveryTime) < minIdleTime {
+			continue
+		}
+
+		pending.Consumer = consumerName
+		if !opts.Time.IsZero() {
+			pending.DeliveryTime = opts.Time
+		} else if opts.Idle > 0 {
+			pending.DeliveryTime = now.Add(-opts.Idle)
+		} else {
 			pending.DeliveryTime = now
-			if opts.Time.IsZero() {
-				pending.DeliveryTime = opts.Time
-			}
-			if opts.RetryCount > 0 {
-				pending.DeliveryCount = opts.RetryCount
-			} else {
-				pending.DeliveryCount++
-			}
+		}
+		if opts.RetryCount > 0 {
+			pending.DeliveryCount = opts.RetryCount
+		} else {
+			pending.DeliveryCount++
+		}
 
-			// 添加到消费者的pending
-			consumer.Pending[id] = pending
+		consumer.Pending[id] = pending
+		group.Pending[id] = pending
 
-			// 获取条目内容
-			if !opts.JustID {
-				if raw, ok := s.entries.Get(id.String()); ok {
-					result = append(result, raw.(*StreamEntry))
-				}
-			}
+		if opts.JustID {
+			result = append(result, &StreamEntry{ID: id})
+		} else if raw, ok := s.entries.Get(id.String()); ok {
+			result = append(result, raw.(*StreamEntry))
 		}
 	}
 
 	return result, nil
 }
 
-// AutoClaim 自动认领待处理条目
-func (s *Stream) AutoClaim(groupName, consumerName string, minIdleTime time.Duration, start StreamID, count int) ([]*StreamEntry, StreamID, error) {
+// AutoClaim 自动认领待处理条目（按 ID 升序）
+// 返回：认领到的条目、PEL 中已删消息的 ID、下一游标（无更多则为 0-0）
+func (s *Stream) AutoClaim(groupName, consumerName string, minIdleTime time.Duration, start StreamID, count int) ([]*StreamEntry, []StreamID, StreamID, error) {
 	group, err := s.GetGroup(groupName)
 	if err != nil {
-		return nil, StreamID{}, err
+		return nil, nil, StreamID{}, err
+	}
+	if count <= 0 {
+		count = 100
 	}
 
 	consumer := group.GetConsumer(consumerName)
 	consumer.SeenTime = time.Now()
-
-	var result []*StreamEntry
-	var nextID StreamID
 	now := time.Now()
-	claimed := 0
 
-	// 遍历组的pending条目
+	type cand struct {
+		id      StreamID
+		pending *PendingEntry
+	}
+	candidates := make([]cand, 0)
 	for id, pending := range group.Pending {
 		if id.Compare(start) < 0 {
 			continue
 		}
-
-		if claimed >= count {
-			nextID = id
-			break
+		if now.Sub(pending.DeliveryTime) < minIdleTime {
+			continue
 		}
-
-		if now.Sub(pending.DeliveryTime) >= minIdleTime {
-			// 认领条目
-			pending.Consumer = consumerName
-			pending.DeliveryTime = now
-			pending.DeliveryCount++
-
-			consumer.Pending[id] = pending
-			delete(group.Pending, id)
-
-			if raw, ok := s.entries.Get(id.String()); ok {
-				result = append(result, raw.(*StreamEntry))
+		candidates = append(candidates, cand{id: id, pending: pending})
+	}
+	for i := 0; i < len(candidates); i++ {
+		for j := i + 1; j < len(candidates); j++ {
+			if candidates[i].id.Compare(candidates[j].id) > 0 {
+				candidates[i], candidates[j] = candidates[j], candidates[i]
 			}
-
-			claimed++
 		}
 	}
 
-	return result, nextID, nil
+	var result []*StreamEntry
+	var deleted []StreamID
+	nextID := StreamID{}
+	claimed := 0
+	for _, c := range candidates {
+		if claimed >= count {
+			nextID = c.id
+			break
+		}
+		pending := c.pending
+		if pending.Consumer != "" && pending.Consumer != consumerName {
+			if raw, ok := group.Consumers.Get(pending.Consumer); ok {
+				delete(raw.(*Consumer).Pending, c.id)
+			}
+		}
+		pending.Consumer = consumerName
+		pending.DeliveryTime = now
+		pending.DeliveryCount++
+		consumer.Pending[c.id] = pending
+		group.Pending[c.id] = pending
+
+		if raw, ok := s.entries.Get(c.id.String()); ok {
+			result = append(result, raw.(*StreamEntry))
+		} else {
+			deleted = append(deleted, c.id)
+		}
+		claimed++
+	}
+	return result, deleted, nextID, nil
 }
 
 // sortEntriesByID 按ID排序条目 (简单冒泡排序，实际应该用更高效的算法)

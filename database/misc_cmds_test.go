@@ -21,7 +21,12 @@ func TestMiscServerCommands(t *testing.T) {
 		t.Fatalf("MEMORY STATS: got %T", memStats)
 	}
 	asserts.AssertStatusReply(t, server.Exec(c, utils.ToCmdLine("MEMORY", "PURGE")), "OK")
-	asserts.AssertIntReply(t, server.Exec(c, utils.ToCmdLine("MEMORY", "USAGE", "mem-k")), 0)
+	usage := server.Exec(c, utils.ToCmdLine("MEMORY", "USAGE", "mem-k"))
+	ir, ok := usage.(*protocol.IntReply)
+	if !ok || ir.Code <= 0 {
+		t.Fatalf("MEMORY USAGE expected >0, got %T %s", usage, usage.ToBytes())
+	}
+	asserts.AssertNullBulk(t, server.Exec(c, utils.ToCmdLine("MEMORY", "USAGE", "no-such-key")))
 
 	timeReply := server.Exec(c, utils.ToCmdLine("TIME"))
 	if _, ok := timeReply.(*protocol.MultiBulkReply); !ok {

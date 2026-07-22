@@ -14,16 +14,43 @@ import (
 )
 
 // execGeoAdd add a location into SortedSet
+// GEOADD key [NX|XX] [CH] longitude latitude member [longitude latitude member ...]
 func execGeoAdd(db *DB, args [][]byte) redis.Reply {
-	if len(args) < 4 || len(args)%3 != 1 {
+	if len(args) < 4 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'geoadd' command")
 	}
 	key := string(args[0])
-	size := (len(args) - 1) / 3
-	elements := make([]*sortedset.Element, size)
-	for i := 0; i < size; i++ {
-		lngStr := string(args[3*i+1])
-		latStr := string(args[3*i+2])
+	nx, xx, ch := false, false, false
+	i := 1
+	for i < len(args) {
+		opt := strings.ToUpper(string(args[i]))
+		switch opt {
+		case "NX":
+			nx = true
+			i++
+		case "XX":
+			xx = true
+			i++
+		case "CH":
+			ch = true
+			i++
+		default:
+			goto parseMembers
+		}
+	}
+parseMembers:
+	if nx && xx {
+		return protocol.MakeErrReply("ERR NX and XX options at the same time are not compatible")
+	}
+	remaining := args[i:]
+	if len(remaining) < 3 || len(remaining)%3 != 0 {
+		return protocol.MakeErrReply("ERR wrong number of arguments for 'geoadd' command")
+	}
+	size := len(remaining) / 3
+	elements := make([]*sortedset.Element, 0, size)
+	for j := 0; j < size; j++ {
+		lngStr := string(remaining[3*j])
+		latStr := string(remaining[3*j+1])
 		lng, err := strconv.ParseFloat(lngStr, 64)
 		if err != nil {
 			return protocol.MakeErrReply("ERR value is not a valid float")
@@ -33,37 +60,58 @@ func execGeoAdd(db *DB, args [][]byte) redis.Reply {
 			return protocol.MakeErrReply("ERR value is not a valid float")
 		}
 		if lat < -90 || lat > 90 || lng < -180 || lng > 180 {
-			return protocol.MakeErrReply(fmt.Sprintf("ERR invalid longitude,latitude pair %s,%s", latStr, lngStr))
+			return protocol.MakeErrReply(fmt.Sprintf("ERR invalid longitude,latitude pair %s,%s", lngStr, latStr))
 		}
 		code := float64(geohash.Encode(lat, lng))
-		elements[i] = &sortedset.Element{
-			Member: string(args[3*i+3]),
+		elements = append(elements, &sortedset.Element{
+			Member: string(remaining[3*j+2]),
 			Score:  code,
-		}
+		})
 	}
 
-	// get or init entity
 	sortedSet, _, errReply := db.getOrInitSortedSet(key)
 	if errReply != nil {
 		return errReply
 	}
 
-	i := 0
+	changed := int64(0)
 	for _, e := range elements {
-		if sortedSet.Add(e.Member, e.Score) {
-			i++
+		old, exists := sortedSet.Get(e.Member)
+		if nx && exists {
+			continue
+		}
+		if xx && !exists {
+			continue
+		}
+		isNew := sortedSet.Add(e.Member, e.Score)
+		if ch {
+			if isNew || (exists && old.Score != e.Score) {
+				changed++
+			}
+		} else if isNew {
+			changed++
 		}
 	}
 	db.addAof(utils.ToCmdLine3("geoadd", args...))
-	return protocol.MakeIntReply(int64(i))
+	return protocol.MakeIntReply(changed)
 }
 
 func undoGeoAdd(db *DB, args [][]byte) []CmdLine {
 	key := string(args[0])
-	size := (len(args) - 1) / 3
-	fields := make([]string, size)
-	for i := 0; i < size; i++ {
-		fields[i] = string(args[3*i+3])
+	i := 1
+	for i < len(args) {
+		opt := strings.ToUpper(string(args[i]))
+		if opt == "NX" || opt == "XX" || opt == "CH" {
+			i++
+			continue
+		}
+		break
+	}
+	remaining := args[i:]
+	size := len(remaining) / 3
+	fields := make([]string, 0, size)
+	for j := 0; j < size; j++ {
+		fields = append(fields, string(remaining[3*j+2]))
 	}
 	return rollbackZSetFields(db, key, fields...)
 }

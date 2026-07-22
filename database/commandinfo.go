@@ -126,6 +126,8 @@ func init() {
 		attachCommandExtra([]string{redisFlagRandom, redisFlagLoading, redisFlagStale}, 0, 0, 0)
 	registerSpecialCommand("SlaveOf", 3, 0).
 		attachCommandExtra([]string{redisFlagAdmin, redisFlagNoScript, redisFlagStale}, 0, 0, 0)
+	registerSpecialCommand("ReplicaOf", 3, 0).
+		attachCommandExtra([]string{redisFlagAdmin, redisFlagNoScript, redisFlagStale}, 0, 0, 0)
 	registerSpecialCommand("Subscribe", -2, 0).
 		attachCommandExtra([]string{redisFlagPubSub, redisFlagNoScript, redisFlagLoading, redisFlagStale}, 0, 0, 0)
 	registerSpecialCommand("Publish", 3, 0).
@@ -138,6 +140,8 @@ func init() {
 		attachCommandExtra([]string{redisFlagAdmin, redisFlagNoScript}, 0, 0, 0)
 	registerSpecialCommand("BgSave", 1, 0).
 		attachCommandExtra([]string{redisFlagAdmin, redisFlagNoScript}, 0, 0, 0)
+	registerSpecialCommand("LastSave", 1, 0).
+		attachCommandExtra([]string{redisFlagAdmin, redisFlagLoading, redisFlagStale, redisFlagFast}, 0, 0, 0)
 	registerSpecialCommand("Select", 2, 0).
 		attachCommandExtra([]string{redisFlagLoading, redisFlagFast}, 0, 0, 0)
 	registerSpecialCommand("ReplConf", -1, 0).
@@ -155,4 +159,6 @@ func init() {
 		attachCommandExtra([]string{redisFlagNoScript, redisFlagFast}, 1, -1, 1)
 	registerSpecialCommand("UnWatch", 1, 0).
 		attachCommandExtra([]string{redisFlagNoScript, redisFlagFast}, 0, 0, 0)
+	registerSpecialCommand("Reset", 1, 0).
+		attachCommandExtra([]string{redisFlagNoScript, redisFlagLoading, redisFlagStale, redisFlagFast}, 0, 0, 0)
 }

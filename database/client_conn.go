@@ -19,11 +19,13 @@ func execClientConn(c redis.Connection, db *DB, args [][]byte) redis.Reply {
 	case "LIST":
 		return execClientList(args[1:])
 	case "INFO":
-		return execClientInfo(args[1:])
+		return execClientInfoConn(c, args[1:])
 	case "SETNAME":
 		return execClientSetNameConn(c, args[1:])
 	case "GETNAME":
 		return execClientGetNameConn(c, args[1:])
+	case "SETINFO":
+		return execClientSetInfoConn(c, args[1:])
 	case "KILL":
 		return execClientKill(args[1:])
 	case "PAUSE":

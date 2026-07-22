@@ -2,6 +2,7 @@ package scripting
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -31,7 +32,7 @@ func mockDBExec(cmd string, args ...string) (interface{}, error) {
 	case "DEL":
 		return int64(1), nil
 	default:
-		return "OK", nil
+		return nil, fmt.Errorf("ERR unknown command '%s'", cmd)
 	}
 }
 
@@ -151,14 +152,10 @@ func TestGopherEnginePCall(t *testing.T) {
 	engine := NewEngineWithType(mockDBExec, EngineTypeGopherLua)
 	defer engine.Close()
 
-	// Test pcall
+	// Test pcall: success returns value directly (Redis semantics)
 	script := `
 		local result = redis.pcall("GET", "key")
-		if result.ok then
-			return result.ok
-		else
-			return "error: " .. (result.err or "unknown")
-		end
+		return result
 	`
 	result, err := engine.Eval(script, []string{}, []string{})
 	if err != nil {
@@ -166,6 +163,22 @@ func TestGopherEnginePCall(t *testing.T) {
 	}
 	if result != "value" {
 		t.Errorf("Expected 'value', got %v", result)
+	}
+
+	// Test pcall error returns {err=...}
+	scriptErr := `
+		local result = redis.pcall("NOSUCHCMD")
+		if type(result) == "table" and result.err then
+			return "goterr"
+		end
+		return "noerr"
+	`
+	result, err = engine.Eval(scriptErr, []string{}, []string{})
+	if err != nil {
+		t.Fatalf("Eval err-case failed: %v", err)
+	}
+	if result != "goterr" {
+		t.Errorf("Expected 'goterr', got %v", result)
 	}
 }
 

@@ -119,6 +119,20 @@ func (cf *CuckooFilter) Delete(data []byte) bool {
 	return false
 }
 
+// CountItem returns how many times item's fingerprint appears in the filter.
+func (cf *CuckooFilter) CountItem(data []byte) int {
+	fp := cf.fingerprint(data)
+	count := 0
+	for _, bucket := range cf.buckets {
+		for _, f := range bucket {
+			if f == fp {
+				count++
+			}
+		}
+	}
+	return count
+}
+
 // Count returns the number of elements
 func (cf *CuckooFilter) Count() uint {
 	return cf.count
