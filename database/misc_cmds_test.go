@@ -77,7 +77,7 @@ func TestCFAndCMSBasic(t *testing.T) {
 	asserts.AssertStatusReply(t, db.Exec(nil, utils.ToCmdLine(
 		"CMS.INITBYDIM", "cms:1", "1000", "5",
 	)), "OK")
-	asserts.AssertStatusReply(t, db.Exec(nil, utils.ToCmdLine("CMS.INCRBY", "cms:1", "a", "3")), "OK")
+	asserts.AssertMultiBulkReply(t, db.Exec(nil, utils.ToCmdLine("CMS.INCRBY", "cms:1", "a", "3")), []string{"3"})
 	asserts.AssertMultiBulkReply(t, db.Exec(nil, utils.ToCmdLine("CMS.QUERY", "cms:1", "a")), []string{"3"})
 }
 

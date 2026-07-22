@@ -70,10 +70,13 @@ func execBFAdd(db *DB, args [][]byte) redis.Reply {
 		}
 	}
 
-	bf.Add(item)
+	added := bf.Add(item)
 
 	db.addAof(prependCmd("bf.add", args))
-	return protocol.MakeIntReply(1)
+	if added {
+		return protocol.MakeIntReply(1)
+	}
+	return protocol.MakeIntReply(0)
 }
 
 // execBFMAdd adds multiple elements
@@ -99,17 +102,16 @@ func execBFMAdd(db *DB, args [][]byte) redis.Reply {
 		}
 	}
 
+	results := make([][]byte, len(args)-1)
 	for i := 1; i < len(args); i++ {
-		bf.Add(args[i])
+		if bf.Add(args[i]) {
+			results[i-1] = []byte("1")
+		} else {
+			results[i-1] = []byte("0")
+		}
 	}
 
 	db.addAof(prependCmd("bf.madd", args))
-
-	// Return array of 1s (all added)
-	results := make([][]byte, len(args)-1)
-	for i := range results {
-		results[i] = []byte("1")
-	}
 	return protocol.MakeMultiBulkReply(results)
 }
 
@@ -403,6 +405,7 @@ func execCMSIncrBy(db *DB, args [][]byte) redis.Reply {
 		}
 	}
 
+	results := make([][]byte, 0, (len(args)-1)/2)
 	for i := 1; i < len(args); i += 2 {
 		item := args[i]
 		increment, err := strconv.ParseUint(string(args[i+1]), 10, 64)
@@ -410,10 +413,11 @@ func execCMSIncrBy(db *DB, args [][]byte) redis.Reply {
 			return protocol.MakeErrReply("ERR Increment must be an integer")
 		}
 		cms.IncrBy(item, increment)
+		results = append(results, []byte(strconv.FormatUint(cms.Query(item), 10)))
 	}
 
 	db.addAof(prependCmd("cms.incrby", args))
-	return protocol.MakeOkReply()
+	return protocol.MakeMultiBulkReply(results)
 }
 
 // execCMSQuery queries item counts
@@ -501,14 +505,14 @@ func execTopKAdd(db *DB, args [][]byte) redis.Reply {
 		}
 	}
 
-	// Return items that were dropped (if any)
-	var dropped [][]byte
-
+	// Return items that were dropped (null if none)
+	dropped := make([][]byte, len(args)-1)
 	for i := 1; i < len(args); i++ {
-		item := topk.Add(args[i])
-		// Check if this item caused another to be dropped
-		// Simplified: just add the item
-		_ = item
+		if name, ok := topk.Add(args[i]); ok {
+			dropped[i-1] = []byte(name)
+		} else {
+			dropped[i-1] = nil // RESP null bulk
+		}
 	}
 
 	db.addAof(prependCmd("topk.add", args))

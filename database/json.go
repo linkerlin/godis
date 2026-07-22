@@ -469,6 +469,8 @@ func init() {
 		attachCommandExtra([]string{redisFlagReadonly}, 1, 1, 1)
 	registerCommand("JSON.Del", execJSONDel, prepareJSONKey, nil, -2, flagWrite).
 		attachCommandExtra([]string{redisFlagWrite}, 1, 1, 1)
+	registerCommand("JSON.Forget", execJSONDel, prepareJSONKey, nil, -2, flagWrite).
+		attachCommandExtra([]string{redisFlagWrite}, 1, 1, 1)
 	registerCommand("JSON.Type", execJSONType, prepareJSONKey, nil, -2, flagReadOnly).
 		attachCommandExtra([]string{redisFlagReadonly, redisFlagFast}, 1, 1, 1)
 	registerCommand("JSON.NumIncrBy", execJSONNumIncrBy, prepareJSONKey, nil, 4, flagWrite).

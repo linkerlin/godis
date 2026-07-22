@@ -124,11 +124,17 @@ func (db *DB) Exec(c redis.Connection, cmdLine [][]byte) redis.Reply {
 		}
 		return execMulti(db, c)
 	} else if cmdName == "watch" {
+		if c != nil && c.InMultiState() {
+			return protocol.MakeErrReply("ERR WATCH inside MULTI is not allowed")
+		}
 		if !validateArity(-2, cmdLine) {
 			return protocol.MakeArgNumErrReply(cmdName)
 		}
 		return Watch(db, c, cmdLine[1:])
 	} else if cmdName == "unwatch" {
+		if c != nil && c.InMultiState() {
+			return protocol.MakeErrReply("ERR WATCH inside MULTI is not allowed")
+		}
 		if len(cmdLine) != 1 {
 			return protocol.MakeArgNumErrReply(cmdName)
 		}

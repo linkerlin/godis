@@ -255,7 +255,7 @@ func (server *Server) Exec(c redis.Connection, cmdLine [][]byte) (result redis.R
 	} else if cmdName == "time" {
 		return execTime(cmdLine[1:])
 	} else if cmdName == "pubsub" {
-		return execPubsub(cmdLine[1:])
+		return execPubsub(server.hub, cmdLine[1:])
 	}
 
 	// read only slave

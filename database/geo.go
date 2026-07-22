@@ -80,7 +80,11 @@ func execGeoPos(db *DB, args [][]byte) redis.Reply {
 		return errReply
 	}
 	if sortedSet == nil {
-		return &protocol.NullBulkReply{}
+		positions := make([]redis.Reply, len(args)-1)
+		for i := range positions {
+			positions[i] = protocol.MakeNullBulkReply()
+		}
+		return protocol.MakeMultiRawReply(positions)
 	}
 
 	positions := make([]redis.Reply, len(args)-1)
@@ -88,7 +92,7 @@ func execGeoPos(db *DB, args [][]byte) redis.Reply {
 		member := string(args[i+1])
 		elem, exists := sortedSet.Get(member)
 		if !exists {
-			positions[i] = &protocol.EmptyMultiBulkReply{}
+			positions[i] = protocol.MakeNullBulkReply()
 			continue
 		}
 		lat, lng := geohash.Decode(uint64(elem.Score))
@@ -138,8 +142,14 @@ func execGeoDist(db *DB, args [][]byte) redis.Reply {
 	case "km":
 		disStr := strconv.FormatFloat(dis/1000, 'f', -1, 64)
 		return protocol.MakeBulkReply([]byte(disStr))
+	case "mi":
+		disStr := strconv.FormatFloat(dis/1609.34, 'f', -1, 64)
+		return protocol.MakeBulkReply([]byte(disStr))
+	case "ft":
+		disStr := strconv.FormatFloat(dis/0.3048, 'f', -1, 64)
+		return protocol.MakeBulkReply([]byte(disStr))
 	}
-	return protocol.MakeErrReply("ERR unsupported unit provided. please use m, km")
+	return protocol.MakeErrReply("ERR unsupported unit provided. please use m, km, ft, mi")
 }
 
 // execGeoHash return geo-hash-code of given position

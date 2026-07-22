@@ -79,6 +79,8 @@ func execEval(db *DB, args [][]byte) redis.Reply {
 	if err != nil {
 		return protocol.MakeErrReply(err.Error())
 	}
+	// Redis caches EVAL scripts so EVALSHA works afterwards
+	scriptEngine.LoadScript(script)
 
 	return scripting.ConvertToRedisReply(result)
 }

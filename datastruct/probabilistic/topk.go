@@ -29,19 +29,20 @@ func NewTopK(k int) *TopK {
 	}
 }
 
-// Add adds an item
-func (tk *TopK) Add(item []byte) *TopKItem {
+// Add adds an item. If another item was dropped from the top-k to make room,
+// dropped is that item's name and ok is true.
+func (tk *TopK) Add(item []byte) (dropped string, ok bool) {
 	itemStr := string(item)
-	
+
 	// Check if item already exists
-	if existing, ok := tk.items[itemStr]; ok {
+	if existing, found := tk.items[itemStr]; found {
 		existing.Count++
 		if existing.index >= 0 {
 			tk.minHeap.Fix(existing.index)
 		}
-		return existing
+		return "", false
 	}
-	
+
 	// New item
 	newItem := &TopKItem{
 		Item:  itemStr,
@@ -49,29 +50,29 @@ func (tk *TopK) Add(item []byte) *TopKItem {
 		Error: 0,
 		index: -1,
 	}
-	
+
 	// If we haven't reached k items, just add
 	if tk.minHeap.Len() < tk.k {
 		tk.items[itemStr] = newItem
 		heap.Push(tk.minHeap, newItem)
-		return newItem
+		return "", false
 	}
-	
+
 	// Check if this item should replace the minimum
 	minItem := (*tk.minHeap)[0]
 	if 1 > minItem.Count {
-		// Remove min and add new
+		droppedName := minItem.Item
 		delete(tk.items, minItem.Item)
 		tk.items[itemStr] = newItem
 		newItem.Error = minItem.Count
 		heap.Pop(tk.minHeap)
 		heap.Push(tk.minHeap, newItem)
-		return newItem
+		return droppedName, true
 	}
-	
+
 	// Item not in top-k, just track it
 	tk.items[itemStr] = newItem
-	return newItem
+	return "", false
 }
 
 // Query returns the count for an item

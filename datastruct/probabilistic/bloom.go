@@ -38,13 +38,18 @@ func NewBloomFilter(capacity uint, errorRate float64) *BloomFilter {
 	}
 }
 
-// Add adds an element to the filter
-func (bf *BloomFilter) Add(data []byte) {
+// Add adds an element to the filter.
+// Returns true if the item was not already present (newly added).
+func (bf *BloomFilter) Add(data []byte) bool {
+	existed := bf.Exists(data)
 	positions := bf.getPositions(data)
 	for _, pos := range positions {
 		bf.bits[pos] = true
 	}
-	bf.count++
+	if !existed {
+		bf.count++
+	}
+	return !existed
 }
 
 // Exists checks if an element might exist in the filter

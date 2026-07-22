@@ -56,7 +56,7 @@ func TestGeoPos(t *testing.T) {
 		"13.361389", "38.115556", pos1,
 	))
 	result := execGeoPos(testDB, utils.ToCmdLine(key, pos1, pos2))
-	expected := "*2\r\n*2\r\n$18\r\n13.361386698670685\r\n$17\r\n38.11555536696687\r\n*0\r\n"
+	expected := "*2\r\n*2\r\n$18\r\n13.361386698670685\r\n$17\r\n38.11555536696687\r\n$-1\r\n"
 	if string(result.ToBytes()) != expected {
 		t.Error("test failed")
 	}
