@@ -155,6 +155,12 @@ func (db *DB) Exec(c redis.Connection, cmdLine [][]byte) redis.Reply {
 	if cmdName == "acl" {
 		return execACLConn(c, db, cmdLine[1:])
 	}
+	if cmdName == "monitor" {
+		if c != nil {
+			AddMonitorClient(c)
+		}
+		return protocol.MakeOkReply()
+	}
 
 	// ponytail: handle pub/sub commands that may be called from Lua scripts
 	if cmdName == "publish" {
@@ -196,6 +202,10 @@ func (db *DB) execNormalCommand(c redis.Connection, cmdLine [][]byte) redis.Repl
 	db.addVersion(write...)
 	db.RWLocks(write, read)
 	defer db.RWUnLocks(write, read)
+	if c != nil {
+		BindBlockingClientID(c.GetClientID())
+		defer ClearBlockingClientID()
+	}
 	fun := cmd.executor
 	result := fun(db, cmdLine[1:])
 

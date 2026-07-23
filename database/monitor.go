@@ -19,19 +19,15 @@ var monitorManager = &MonitorManager{
 	clients: make(map[redis.Connection]bool),
 }
 
-// execMonitor starts monitoring commands
-// MONITOR
-func execMonitor(db *DB, args [][]byte) redis.Reply {
+// execMonitor is handled in DB.Exec (needs connection); kept for COMMAND table.
+func execMonitor(_ *DB, args [][]byte) redis.Reply {
 	if len(args) != 0 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'monitor' command")
 	}
-
-	// Note: In real implementation, this would add the connection to monitor clients
-	// and start streaming commands. Simplified: return OK.
 	return protocol.MakeOkReply()
 }
 
-// BroadcastMonitor broadcasts a command to all monitor clients
+// BroadcastMonitor broadcasts a command to all monitor clients.
 func BroadcastMonitor(cmd string, args [][]byte, client redis.Connection) {
 	monitorManager.mu.RLock()
 	defer monitorManager.mu.RUnlock()
@@ -40,25 +36,35 @@ func BroadcastMonitor(cmd string, args [][]byte, client redis.Connection) {
 		return
 	}
 
-	// Format: timestamp [db client_ip:port] "command" "arg1" "arg2" ...
-	timestamp := float64(time.Now().UnixMicro()) / 1000000
+	timestamp := float64(time.Now().UnixMicro()) / 1_000_000
+	dbIdx := 0
+	addr := "127.0.0.1:0"
+	if client != nil {
+		dbIdx = client.GetDBIndex()
+		if a := client.RemoteAddr(); a != "" {
+			addr = a
+		}
+	}
 
-	// Build command string
 	cmdLine := fmt.Sprintf("\"%s\"", cmd)
 	for _, arg := range args {
 		cmdLine += fmt.Sprintf(" \"%s\"", string(arg))
 	}
+	msg := fmt.Sprintf("%.6f [%d %s] %s\r\n", timestamp, dbIdx, addr, cmdLine)
 
-	msg := fmt.Sprintf("%.6f %s\r\n", timestamp, cmdLine)
-
-	// Send to all monitor clients
 	for conn := range monitorManager.clients {
-		conn.Write([]byte(msg))
+		if client != nil && conn == client {
+			continue // do not echo to the originator
+		}
+		_, _ = conn.Write([]byte(msg))
 	}
 }
 
 // AddMonitorClient adds a client to monitor list
 func AddMonitorClient(conn redis.Connection) {
+	if conn == nil {
+		return
+	}
 	monitorManager.mu.Lock()
 	defer monitorManager.mu.Unlock()
 	monitorManager.clients[conn] = true
@@ -66,6 +72,9 @@ func AddMonitorClient(conn redis.Connection) {
 
 // RemoveMonitorClient removes a client from monitor list
 func RemoveMonitorClient(conn redis.Connection) {
+	if conn == nil {
+		return
+	}
 	monitorManager.mu.Lock()
 	defer monitorManager.mu.Unlock()
 	delete(monitorManager.clients, conn)

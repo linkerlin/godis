@@ -1196,8 +1196,8 @@ func execBlockingZPop(db *DB, args [][]byte, min bool) redis.Reply {
 		w := registerZSetWaiter(keys)
 		signaled := waitOrTimeout(w.ch, timeout)
 		unregisterZSetWaiter(w)
-		if !signaled {
-			return protocol.MakeNullBulkReply()
+		if r := replyAfterWait(w, signaled); r != nil {
+			return r
 		}
 	}
 }
@@ -1647,8 +1647,8 @@ func execBZMPop(db *DB, args [][]byte) redis.Reply {
 		w := registerZSetWaiter(keys)
 		signaled := waitOrTimeout(w.ch, timeout)
 		unregisterZSetWaiter(w)
-		if !signaled {
-			return protocol.MakeNullBulkReply()
+		if r := replyAfterWait(w, signaled); r != nil {
+			return r
 		}
 	}
 }

@@ -226,6 +226,26 @@ func (server *Server) Exec(c redis.Connection, cmdLine [][]byte) (result redis.R
 	if reply := checkACLPermission(c, cmdName); reply != nil {
 		return reply
 	}
+
+	// Pub/Sub subscribed state: only allow a small command set (Redis PS-3).
+	if c != nil && c.SubsCount() > 0 {
+		switch cmdName {
+		case "subscribe", "unsubscribe", "psubscribe", "punsubscribe",
+			"ping", "quit", "reset":
+			// allowed
+		default:
+			return protocol.MakeErrReply(
+				"ERR Can't execute '" + strings.ToUpper(cmdName) +
+					"': only (P)SUBSCRIBE / (P)UNSUBSCRIBE / PING / QUIT / RESET are allowed in this context",
+			)
+		}
+	}
+
+	// MONITOR stream (other clients); skip auth handshake noise.
+	if cmdName != "auth" && cmdName != "hello" && cmdName != "monitor" {
+		BroadcastMonitor(cmdName, cmdLine[1:], c)
+	}
+
 	// info
 	if cmdName == "info" {
 		return Info(server, cmdLine[1:])
@@ -293,6 +313,8 @@ func (server *Server) Exec(c redis.Connection, cmdLine [][]byte) (result redis.R
 		return pubsub.PUnSubscribe(server.hub, c, cmdLine[1:])
 	} else if cmdName == "shutdown" {
 		return execShutdown(server, cmdLine[1:])
+	} else if cmdName == "failover" {
+		return execFailover(server, cmdLine[1:])
 	} else if cmdName == "bgrewriteaof" {
 		return BGRewriteAOF(server, cmdLine[1:])
 	} else if cmdName == "rewriteaof" {
@@ -406,6 +428,7 @@ func (server *Server) AfterClientClose(c redis.Connection) {
 		DisableTracking(id)
 		c.SetTrackingID("")
 	}
+	RemoveMonitorClient(c)
 	pubsub.UnsubscribeAll(server.hub, c)
 }
 

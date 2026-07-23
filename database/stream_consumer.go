@@ -74,7 +74,26 @@ parseStreams:
 		return reply
 	}
 
-	// 执行读取
+	// Resolve "$" once at command start (Redis BLOCK+$ semantics).
+	resolvedIDs := make([]stream.StreamID, numStreams)
+	for j, key := range keys {
+		if ids[j] == "$" {
+			s, errReply := db.getAsStream(key)
+			if errReply != nil {
+				return errReply
+			}
+			if s != nil {
+				resolvedIDs[j] = s.GetLastID()
+			}
+		} else {
+			id, err := stream.ParseStreamID(ids[j], stream.StreamID{})
+			if err != nil {
+				return protocol.MakeErrReply("ERR Invalid stream ID")
+			}
+			resolvedIDs[j] = id
+		}
+	}
+
 	startTime := time.Now()
 	for {
 		var result [][]byte
@@ -89,23 +108,9 @@ parseStreams:
 				continue
 			}
 
-			// 解析起始ID
-			var startID stream.StreamID
-			if ids[j] == "$" {
-				// 使用最后一个ID，只读取新数据
-				startID = s.GetLastID()
-			} else {
-				var err error
-				startID, err = stream.ParseStreamID(ids[j], stream.StreamID{})
-				if err != nil {
-					return protocol.MakeErrReply("ERR Invalid stream ID")
-				}
-			}
-
-			// 读取数据（不包含startID本身）
+			startID := resolvedIDs[j]
 			entries := s.Range(startID, stream.StreamID{Timestamp: 1<<63 - 1, Sequence: 1<<63 - 1})
 
-			// 过滤掉startID本身
 			var filtered []*stream.StreamEntry
 			for _, entry := range entries {
 				if entry.ID.Compare(startID) > 0 {
@@ -113,14 +118,12 @@ parseStreams:
 				}
 			}
 
-			// 应用count限制
 			if count > 0 && len(filtered) > count {
 				filtered = filtered[:count]
 			}
 
 			if len(filtered) > 0 {
 				hasData = true
-				// 构建该stream的回复
 				streamResult := streamEntriesToMultiBulk(filtered)
 				result = append(result, []byte(key))
 				result = append(result, streamResult...)
@@ -131,22 +134,23 @@ parseStreams:
 			return protocol.MakeMultiBulkReply(result)
 		}
 
-		// 没有数据
-		if blockTimeout == 0 {
-			// BLOCK 0 表示无限阻塞直到有数据
-			time.Sleep(100 * time.Millisecond)
-			continue
-		} else if blockTimeout > 0 {
-			// 检查是否超时
-			if time.Since(startTime) >= blockTimeout {
+		if blockTimeout < 0 {
+			return &protocol.NullBulkReply{}
+		}
+		waitDur := blockTimeout
+		if blockTimeout > 0 {
+			elapsed := time.Since(startTime)
+			if elapsed >= blockTimeout {
 				return &protocol.NullBulkReply{}
 			}
-			time.Sleep(10 * time.Millisecond)
-			continue
+			waitDur = blockTimeout - elapsed
 		}
-
-		// 非阻塞模式
-		return &protocol.NullBulkReply{}
+		w := registerStreamWaiter(keys)
+		signaled := waitOrTimeout(w.ch, waitDur)
+		unregisterStreamWaiter(w)
+		if r := replyAfterWait(w, signaled); r != nil {
+			return r
+		}
 	}
 }
 
@@ -340,18 +344,34 @@ parseStreams:
 			return protocol.MakeMultiBulkReply(result)
 		}
 
-		if blockTimeout == 0 {
-			time.Sleep(100 * time.Millisecond)
-			continue
-		} else if blockTimeout > 0 {
-			if time.Since(startTime) >= blockTimeout {
+		if blockTimeout < 0 {
+			return &protocol.NullBulkReply{}
+		}
+		// History pending reads (id != ">") do not wait for XADD.
+		onlyHistory := true
+		for _, id := range ids {
+			if id == ">" || id == "$" {
+				onlyHistory = false
+				break
+			}
+		}
+		if onlyHistory {
+			return &protocol.NullBulkReply{}
+		}
+		waitDur := blockTimeout
+		if blockTimeout > 0 {
+			elapsed := time.Since(startTime)
+			if elapsed >= blockTimeout {
 				return &protocol.NullBulkReply{}
 			}
-			time.Sleep(10 * time.Millisecond)
-			continue
+			waitDur = blockTimeout - elapsed
 		}
-
-		return &protocol.NullBulkReply{}
+		w := registerStreamWaiter(keys)
+		signaled := waitOrTimeout(w.ch, waitDur)
+		unregisterStreamWaiter(w)
+		if r := replyAfterWait(w, signaled); r != nil {
+			return r
+		}
 	}
 }
 

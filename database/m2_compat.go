@@ -195,8 +195,8 @@ func execBRPopLPush(db *DB, args [][]byte) redis.Reply {
 		w := registerListWaiter([]string{source})
 		signaled := waitOrTimeout(w.ch, timeout)
 		unregisterListWaiter(w)
-		if !signaled {
-			return protocol.MakeNullBulkReply()
+		if r := replyAfterWait(w, signaled); r != nil {
+			return r
 		}
 	}
 }

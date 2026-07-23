@@ -1,59 +1,52 @@
 # Godis 与 Redis 8.x 兼容性说明
 
 > 本文档描述 Godis **当前实现**与 Redis 8.x 的差异，避免「100% 兼容」的误导性表述。  
-> 命令级覆盖约 **70–85%**（因模块而异）；RESP 协议与经典数据类型覆盖较高。  
-> 完整命令列表见 [`commands.md`](../commands.md)（部分条目尚未与代码同步）。
+> 详细分项与里程碑见仓库根目录 [`兼容性改进计划.md`](../兼容性改进计划.md)（含 2026-07-24 进度更新）。  
+> 完整命令列表见 [`commands.md`](../commands.md)（部分条目可能尚未与代码同步）。
 
 ## 评估维度
 
 | 维度 | 大致覆盖 | 说明 |
 |------|----------|------|
-| RESP2/RESP3 协议 | 高 | HELLO 3、Push、客户端缓存失效推送 |
-| String/List/Hash/Set/ZSet | 高 | 常用命令齐全，部分边缘命令缺失 |
-| Stream / Bitmap / Geo | 中–高 | 核心命令有，XCLAIM/WAIT 等缺失 |
-| JSON / Vector / Time Series | 中 | 子集实现，与 Redis Stack/8.x 有差距 |
-| RediSearch (FT.*) | 中 | 搜索/聚合有，Sug*、部分 Syn 命令名不一致 |
-| 集群 (CLUSTER *) | 低–中 | 仅 NODES/INFO/SLOTS/KEYSLOT/HELP 等子集 |
-| ACL / 安全 | 中 | ACL 引擎已集成；`aclfile` 配置项尚未实现 |
+| RESP2/RESP3 协议 | 高 | HELLO 3、Push、客户端缓存、blob error `!` |
+| String/List/Hash/Set/ZSet | 高 | 常用命令齐全；List/ZSet **阻塞命令真阻塞** |
+| Stream / Bitmap / Geo | 中–高 | XCLAIM/XAUTOCLAIM/BITOP/BITFIELD；**XREAD BLOCK 真阻塞** |
+| FAILOVER | 最小子集 | 选项解析 + 无副本错误；完整协调切换仍缺 |
+| JSON / Vector / Time Series | 中–高 | 子集 + 持续补全；Vector 保留 VS* 与 Redis 名双名 |
+| RediSearch (FT.*) | 中–高 | SEARCH/AGGREGATE/ALIAS/ALTER/EXPLAIN/CONFIG/PROFILE 等 |
+| 集群 (CLUSTER *) | 低–中 | 槽位算法与官方不兼容（**延期**）；子集命令 |
+| ACL / 安全 | 中–高 | ACL 引擎；`aclfile` 配置项尚未实现 |
 | 概率数据结构 (BF/CF/CMS…) | 中–高 | 见 `database/probabilistic.go` |
 
-## 已知命令差异（抽样）
+## 已知差异（抽样，以代码为准）
 
-### commands.md 与代码不一致
+| 主题 | 说明 |
+|------|------|
+| 默认端口 | Redis 6379；Godis **6399** |
+| 集群 | 1024+CRC32 vs 官方 16384+CRC16；无 MOVED/ASK |
+| HLL | 算法/编码与 Redis **不互通**（延期对齐） |
+| EXEC | 已按 Redis：出错继续、不整事务回滚 |
+| BLPOP / XREAD BLOCK | 真阻塞（等待队列 + 写路径唤醒） |
+| 订阅态 | ✅ 仅 (P)SUBSCRIBE/(P)UNSUBSCRIBE/PING/QUIT/RESET |
+| MONITOR | ✅ 流式广播（`BroadcastMonitor`） |
+| FAILOVER | ✅ 最小子集（ABORT/FORCE/TO/TIMEOUT）；完整协调切换仍缺 |
+| CLIENT UNBLOCK | ✅ 可唤醒 BLPOP/BZPOP/XREAD 等 |
 
-| 文档/Redis 惯例 | Godis 实际 |
-|-----------------|------------|
-| HEXPIRE 族 | **HGETEX / HSETEX / HGETDEL**（`database/hash_expire.go`） |
-| FT.SYNADD | **FT.SynUpdate / FT.SynDump** |
-| VS.DROPINDEX | **未实现** |
-| CLUSTER MEET / ADDSLOTS 等 15+ 子命令 | **未实现**（见 `cluster/commands/`） |
-| SLOWLOG 不支持（旧文档） | **已实现**（`database/slowlog.go`） |
-| UNWATCH | ACL 分类有，**无执行路径** |
-| BITOP / SMOVE / XCLAIM / WAIT | **未实现** |
+### 曾误标为「未实现」、现已有（勿再当缺口）
 
-### 代码已实现但 commands.md 未列
+UNWATCH、WAIT（简版）、BITOP、BITFIELD、SMOVE、LPOS、XCLAIM、SHUTDOWN、RESET、PSUBSCRIBE、LOLWUT、LASTSAVE、ZRANGESTORE 等。
 
-GETEX/GETDEL、COPY/MOVE/SWAPDB、LMPop/BLMPop/ZMPop、GEOSEARCH、FT.Sug*、SCRIPT DEBUG 系列等。
-
-## 语义与运维差异
+## 语义与运维
 
 | 主题 | Redis | Godis |
 |------|-------|-------|
-| 默认端口 | 6379 | **6399**（`main.go` / `example.conf`） |
-| 多 DB 事务 | 不支持跨 DB 原子 | 同 Redis；`MULTI/EXEC` 仅单 DB |
-| Lua 引擎 | Redis 内置 | 默认 **gopher-lua**（`GODIS_LUA_ENGINE`） |
-| 优雅关闭 | SIGTERM 等待命令完成 | std 服务器已实现 in-flight 等待；gnet 路径较简 |
-| AOF rewrite | 单实例互斥 | 已加 rewrite 互斥锁 |
+| Lua 引擎 | 内置 | 默认 **gopher-lua**（`GODIS_LUA_ENGINE`） |
+| 优雅关闭 | SIGTERM | std 路径 in-flight 等待；`SHUTDOWN` + hook |
 
-## 测试与质量
+## 测试
 
-- `go test ./...` 全绿；部分包无测试或覆盖率偏低（见 [`改进意见_2026-06.md`](../改进意见_2026-06.md) §4）。
-- `redis/parser` 提供 Fuzz 测试；CI 含 `go vet` 与选定包的 `-race`。
-
-## 历史报告
-
-2026 年兼容性过程报告已归档至 [`docs/history/`](history/)，仅供查阅，**以本文与代码为准**。
+- `go test ./...`；兼容批次测试见 `database/m2*_compat_test.go`、`m1_block_tx_bitmap_test.go` 等。
 
 ---
 
-**最后更新：** 2026-06-20
+**最后更新：** 2026-07-24

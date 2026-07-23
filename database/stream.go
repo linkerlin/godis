@@ -199,6 +199,7 @@ func execXAdd(db *DB, args [][]byte) redis.Reply {
 		db.addAof(utils.ToCmdLine3("xadd", args...))
 	}
 
+	signalStreamWaiters(key)
 	return protocol.MakeBulkReply([]byte(id.String()))
 }
 

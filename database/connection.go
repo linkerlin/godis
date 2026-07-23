@@ -283,19 +283,22 @@ func execClientUnblock(args [][]byte) redis.Reply {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'client|unblock' command")
 	}
 
-	_, err := strconv.Atoi(string(args[0]))
+	id, err := strconv.ParseInt(string(args[0]), 10, 64)
 	if err != nil {
 		return protocol.MakeErrReply("ERR value is not an integer or out of range")
 	}
 
+	mode := ""
 	if len(args) == 2 {
-		mode := strings.ToUpper(string(args[1]))
+		mode = strings.ToUpper(string(args[1]))
 		if mode != "TIMEOUT" && mode != "ERROR" {
 			return protocol.MakeErrReply("ERR syntax error")
 		}
 	}
 
-	// Simplified: return 0 (no clients unblocked)
+	if UnblockClientByID(id, mode) {
+		return protocol.MakeIntReply(1)
+	}
 	return protocol.MakeIntReply(0)
 }
 

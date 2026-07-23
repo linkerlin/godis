@@ -1,9 +1,11 @@
 package database
 
 import (
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/linkerlin/godis/interface/redis"
@@ -13,15 +15,104 @@ import (
 
 // Blocking waiters: signal + retry. Commands manage their own key locks (noPrepare).
 var (
-	listWaitMu   sync.Mutex
-	listWaiters  = make(map[string][]*blockWaiter) // key -> waiters
-	zsetWaitMu   sync.Mutex
-	zsetWaiters  = make(map[string][]*blockWaiter)
+	listWaitMu  sync.Mutex
+	listWaiters = make(map[string][]*blockWaiter) // key -> waiters
+	zsetWaitMu  sync.Mutex
+	zsetWaiters = make(map[string][]*blockWaiter)
+
+	// goroutine id -> client id (set around blocking command execution)
+	boundBlockingClient sync.Map
+	// client id -> active waiter (for CLIENT UNBLOCK)
+	activeBlockers sync.Map
+)
+
+const (
+	unblockNone    int32 = 0
+	unblockTimeout int32 = 1
+	unblockError   int32 = 2
 )
 
 type blockWaiter struct {
-	keys []string
-	ch   chan struct{}
+	keys     []string
+	ch       chan struct{}
+	clientID int64
+	reason   int32
+}
+
+func goid() int64 {
+	var buf [64]byte
+	n := runtime.Stack(buf[:], false)
+	s := string(buf[:n])
+	s = strings.TrimPrefix(s, "goroutine ")
+	i := strings.IndexByte(s, ' ')
+	if i <= 0 {
+		return 0
+	}
+	id, _ := strconv.ParseInt(s[:i], 10, 64)
+	return id
+}
+
+// BindBlockingClientID associates the current goroutine with a client for waiter registration.
+func BindBlockingClientID(id int64) {
+	if id == 0 {
+		return
+	}
+	boundBlockingClient.Store(goid(), id)
+}
+
+// ClearBlockingClientID clears the goroutine binding.
+func ClearBlockingClientID() {
+	boundBlockingClient.Delete(goid())
+}
+
+func peekBlockingClientID() int64 {
+	if v, ok := boundBlockingClient.Load(goid()); ok {
+		return v.(int64)
+	}
+	return 0
+}
+
+// UnblockClientByID wakes a client blocked on BLPOP/BZPOP/… (CLIENT UNBLOCK).
+// mode: ""|"TIMEOUT" → null reply; "ERROR" → UNBLOCKED error.
+func UnblockClientByID(clientID int64, mode string) bool {
+	v, ok := activeBlockers.Load(clientID)
+	if !ok {
+		return false
+	}
+	w := v.(*blockWaiter)
+	if strings.EqualFold(mode, "ERROR") {
+		atomic.StoreInt32(&w.reason, unblockError)
+	} else {
+		atomic.StoreInt32(&w.reason, unblockTimeout)
+	}
+	select {
+	case w.ch <- struct{}{}:
+	default:
+	}
+	return true
+}
+
+func trackBlocker(w *blockWaiter) {
+	if w.clientID != 0 {
+		activeBlockers.Store(w.clientID, w)
+	}
+}
+
+func untrackBlocker(w *blockWaiter) {
+	if w.clientID != 0 {
+		activeBlockers.Delete(w.clientID)
+	}
+}
+
+func replyAfterWait(w *blockWaiter, signaled bool) redis.Reply {
+	reason := atomic.LoadInt32(&w.reason)
+	if reason == unblockError {
+		return protocol.MakeErrReply("UNBLOCKED client unblocked via CLIENT UNBLOCK")
+	}
+	if !signaled || reason == unblockTimeout {
+		return protocol.MakeNullBulkReply()
+	}
+	return nil // retry
 }
 
 // GetBlockedListClientsCount counts clients blocked on list wait queues.
@@ -38,16 +129,22 @@ func GetBlockedListClientsCount() int64 {
 }
 
 func registerListWaiter(keys []string) *blockWaiter {
-	w := &blockWaiter{keys: append([]string(nil), keys...), ch: make(chan struct{}, 1)}
+	w := &blockWaiter{
+		keys:     append([]string(nil), keys...),
+		ch:       make(chan struct{}, 1),
+		clientID: peekBlockingClientID(),
+	}
 	listWaitMu.Lock()
 	for _, k := range keys {
 		listWaiters[k] = append(listWaiters[k], w)
 	}
 	listWaitMu.Unlock()
+	trackBlocker(w)
 	return w
 }
 
 func unregisterListWaiter(w *blockWaiter) {
+	untrackBlocker(w)
 	listWaitMu.Lock()
 	defer listWaitMu.Unlock()
 	for _, k := range w.keys {
@@ -78,16 +175,22 @@ func signalListWaiters(key string) {
 }
 
 func registerZSetWaiter(keys []string) *blockWaiter {
-	w := &blockWaiter{keys: append([]string(nil), keys...), ch: make(chan struct{}, 1)}
+	w := &blockWaiter{
+		keys:     append([]string(nil), keys...),
+		ch:       make(chan struct{}, 1),
+		clientID: peekBlockingClientID(),
+	}
 	zsetWaitMu.Lock()
 	for _, k := range keys {
 		zsetWaiters[k] = append(zsetWaiters[k], w)
 	}
 	zsetWaitMu.Unlock()
+	trackBlocker(w)
 	return w
 }
 
 func unregisterZSetWaiter(w *blockWaiter) {
+	untrackBlocker(w)
 	zsetWaitMu.Lock()
 	defer zsetWaitMu.Unlock()
 	for _, k := range w.keys {
@@ -202,8 +305,8 @@ func execBlockingListPop(db *DB, args [][]byte, left bool) redis.Reply {
 		w := registerListWaiter(keys)
 		signaled := waitOrTimeout(w.ch, timeout)
 		unregisterListWaiter(w)
-		if !signaled {
-			return protocol.MakeNullBulkReply()
+		if r := replyAfterWait(w, signaled); r != nil {
+			return r
 		}
 		// signaled: retry pop
 	}
@@ -240,8 +343,8 @@ func execBLMove(db *DB, args [][]byte) redis.Reply {
 		w := registerListWaiter([]string{source})
 		signaled := waitOrTimeout(w.ch, timeout)
 		unregisterListWaiter(w)
-		if !signaled {
-			return protocol.MakeNullBulkReply()
+		if r := replyAfterWait(w, signaled); r != nil {
+			return r
 		}
 	}
 }
@@ -404,8 +507,8 @@ func execBLMPop(db *DB, args [][]byte) redis.Reply {
 		w := registerListWaiter(keys)
 		signaled := waitOrTimeout(w.ch, timeout)
 		unregisterListWaiter(w)
-		if !signaled {
-			return protocol.MakeNullBulkReply()
+		if r := replyAfterWait(w, signaled); r != nil {
+			return r
 		}
 	}
 }
