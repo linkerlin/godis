@@ -1,6 +1,8 @@
 package pubsub
 
 import (
+	"sync"
+
 	"github.com/linkerlin/godis/datastruct/dict"
 	"github.com/linkerlin/godis/datastruct/list"
 	"github.com/linkerlin/godis/datastruct/lock"
@@ -12,6 +14,10 @@ type Hub struct {
 	subs dict.Dict
 	// lock channel
 	subsLocker *lock.Locks
+
+	// pattern -> list(*Client)
+	psubs   map[string]*list.LinkedList
+	psubsMu sync.RWMutex
 }
 
 // MakeHub creates new hub
@@ -19,6 +25,7 @@ func MakeHub() *Hub {
 	return &Hub{
 		subs:       dict.MakeConcurrent(4),
 		subsLocker: lock.Make(16),
+		psubs:      make(map[string]*list.LinkedList),
 	}
 }
 
@@ -33,6 +40,13 @@ func (hub *Hub) NumSub(channel string) int {
 		return 0
 	}
 	return subscribers.Len()
+}
+
+// NumPat returns the number of unique pattern subscriptions.
+func (hub *Hub) NumPat() int {
+	hub.psubsMu.RLock()
+	defer hub.psubsMu.RUnlock()
+	return len(hub.psubs)
 }
 
 // ForEachChannel visits each channel and its subscriber count.

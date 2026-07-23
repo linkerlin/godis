@@ -22,7 +22,18 @@ func execTime(args [][]byte) redis.Reply {
 	return protocol.MakeMultiBulkReply(result)
 }
 
+// execLolwut returns a short Redis-compatible easter-egg banner.
+func execLolwut(args [][]byte) redis.Reply {
+	_ = args
+	msg := "Godis ver. redis-compat\n" +
+		"A Go Redis-compatible server.\n" +
+		"For more information visit https://github.com/linkerlin/godis\n"
+	return protocol.MakeBulkReply([]byte(msg))
+}
+
 func init() {
 	registerSpecialCommand("Time", 1, 0).
 		attachCommandExtra([]string{redisFlagRandom, redisFlagLoading, redisFlagStale}, 0, 0, 0)
+	registerSpecialCommand("Lolwut", -1, 0).
+		attachCommandExtra([]string{redisFlagReadonly, redisFlagLoading, redisFlagStale}, 0, 0, 0)
 }

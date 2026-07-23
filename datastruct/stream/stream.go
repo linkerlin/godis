@@ -145,6 +145,13 @@ func NewConsumerGroup(name string, lastID StreamID) *ConsumerGroup {
 	}
 }
 
+// SetEntriesRead sets the entries-read counter (XGROUP CREATE ENTRIESREAD).
+func (cg *ConsumerGroup) SetEntriesRead(n int64) {
+	cg.mu.Lock()
+	defer cg.mu.Unlock()
+	cg.EntriesRead = n
+}
+
 // GetConsumer 获取或创建消费者
 func (cg *ConsumerGroup) GetConsumer(name string) *Consumer {
 	cg.mu.Lock()
@@ -353,6 +360,16 @@ func (s *Stream) ReverseRange(start, end StreamID, count int) []*StreamEntry {
 // Len 返回Stream中的条目数
 func (s *Stream) Len() int {
 	return s.entries.Len()
+}
+
+// GetEntry returns the stream entry for id, or nil if missing.
+func (s *Stream) GetEntry(id StreamID) *StreamEntry {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if raw, ok := s.entries.Get(id.String()); ok {
+		return raw.(*StreamEntry)
+	}
+	return nil
 }
 
 // GetLastID 返回最后生成的ID

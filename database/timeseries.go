@@ -23,6 +23,7 @@ func execTSCreate(db *DB, args [][]byte) redis.Reply {
 
 	// Default options
 	retention := time.Duration(0) // Unlimited
+	chunkSize := 0
 	labels := make(map[string]string)
 
 	// Parse options
@@ -46,7 +47,8 @@ func execTSCreate(db *DB, args [][]byte) redis.Reply {
 			for i+1 < len(args) {
 				// Check if next arg is a keyword
 				nextArg := strings.ToUpper(string(args[i]))
-				if nextArg == "RETENTION" || nextArg == "CHUNK_SIZE" {
+				if nextArg == "RETENTION" || nextArg == "CHUNK_SIZE" ||
+					nextArg == "ENCODING" || nextArg == "DUPLICATE_POLICY" {
 					break
 				}
 				label := string(args[i])
@@ -55,13 +57,38 @@ func execTSCreate(db *DB, args [][]byte) redis.Reply {
 				i += 2
 			}
 
-		case "CHUNK_SIZE", "ENCODING", "DUPLICATE_POLICY":
-			// Skip for now
-			if i+1 < len(args) {
-				i += 2
-			} else {
-				i++
+		case "CHUNK_SIZE":
+			if i+1 >= len(args) {
+				return protocol.MakeSyntaxErrReply()
 			}
+			size, err := strconv.Atoi(string(args[i+1]))
+			if err != nil || size <= 0 {
+				return protocol.MakeErrReply("ERR CHUNK_SIZE must be a positive integer")
+			}
+			chunkSize = size
+			i += 2
+
+		case "ENCODING":
+			if i+1 >= len(args) {
+				return protocol.MakeSyntaxErrReply()
+			}
+			enc := strings.ToUpper(string(args[i+1]))
+			if enc != "COMPRESSED" && enc != "UNCOMPRESSED" {
+				return protocol.MakeErrReply("ERR unknown ENCODING type")
+			}
+			i += 2
+
+		case "DUPLICATE_POLICY":
+			if i+1 >= len(args) {
+				return protocol.MakeSyntaxErrReply()
+			}
+			pol := strings.ToUpper(string(args[i+1]))
+			switch pol {
+			case "BLOCK", "FIRST", "LAST", "MIN", "MAX", "SUM":
+			default:
+				return protocol.MakeErrReply("ERR Unknown DUPLICATE_POLICY '" + string(args[i+1]) + "'")
+			}
+			i += 2
 
 		default:
 			i++
@@ -76,6 +103,9 @@ func execTSCreate(db *DB, args [][]byte) redis.Reply {
 
 	// Create time series
 	ts := timeseries.NewTimeSeries(key, retention)
+	if chunkSize > 0 {
+		ts.ChunkSize = chunkSize
+	}
 	for k, v := range labels {
 		ts.AddLabel(k, v)
 	}
@@ -112,6 +142,41 @@ func execTSAdd(db *DB, args [][]byte) redis.Reply {
 	value, err := strconv.ParseFloat(string(args[2]), 64)
 	if err != nil {
 		return protocol.MakeErrReply("ERR Value must be a double")
+	}
+
+	// Parse optional trailing options (validated; policies stored later when supported).
+	for i := 3; i < len(args); {
+		opt := strings.ToUpper(string(args[i]))
+		switch opt {
+		case "ON_DUPLICATE", "DUPLICATE_POLICY":
+			if i+1 >= len(args) {
+				return protocol.MakeSyntaxErrReply()
+			}
+			pol := strings.ToUpper(string(args[i+1]))
+			switch pol {
+			case "BLOCK", "FIRST", "LAST", "MIN", "MAX", "SUM":
+			default:
+				return protocol.MakeErrReply("ERR Unknown DUPLICATE_POLICY '" + string(args[i+1]) + "'")
+			}
+			i += 2
+		case "RETENTION", "ENCODING", "CHUNK_SIZE":
+			if i+1 >= len(args) {
+				return protocol.MakeSyntaxErrReply()
+			}
+			i += 2
+		case "LABELS":
+			i++
+			for i+1 < len(args) {
+				next := strings.ToUpper(string(args[i]))
+				if next == "RETENTION" || next == "ENCODING" || next == "CHUNK_SIZE" ||
+					next == "ON_DUPLICATE" || next == "DUPLICATE_POLICY" {
+					break
+				}
+				i += 2
+			}
+		default:
+			return protocol.MakeSyntaxErrReply()
+		}
 	}
 
 	// Get or create time series

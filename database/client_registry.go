@@ -1,0 +1,183 @@
+package database
+
+import (
+	"fmt"
+	"strconv"
+	"strings"
+	"sync"
+
+	"github.com/linkerlin/godis/interface/redis"
+	"github.com/linkerlin/godis/redis/protocol"
+)
+
+// clientRegistry tracks live connections for CLIENT LIST / KILL.
+var clientRegistry sync.Map // redis.Connection -> struct{}
+
+// RegisterClient adds a connection to the global client table.
+func RegisterClient(c redis.Connection) {
+	if c != nil {
+		clientRegistry.Store(c, struct{}{})
+	}
+}
+
+// UnregisterClient removes a connection from the global client table.
+func UnregisterClient(c redis.Connection) {
+	if c != nil {
+		clientRegistry.Delete(c)
+	}
+}
+
+// RangeClients invokes fn for each registered connection.
+func RangeClients(fn func(redis.Connection) bool) {
+	clientRegistry.Range(func(key, _ interface{}) bool {
+		c, ok := key.(redis.Connection)
+		if !ok || c == nil {
+			return true
+		}
+		return fn(c)
+	})
+}
+
+func clientAddr(c redis.Connection) string {
+	addr := c.RemoteAddr()
+	if addr == "" {
+		return "127.0.0.1:0"
+	}
+	return addr
+}
+
+func formatClientListLine(c redis.Connection) string {
+	flags := "N"
+	if c.InMultiState() {
+		flags = "x"
+	}
+	libName, libVer := clientLibInfo(c)
+	return fmt.Sprintf(
+		"id=%d addr=%s fd=0 name=%s age=0 idle=0 flags=%s db=%d sub=%d psub=0 multi=-1 qbuf=0 qbuf-free=0 obl=0 oll=0 omem=0 events=r cmd=client lib-name=%s lib-ver=%s",
+		c.GetClientID(), clientAddr(c), c.GetClientName(), flags, c.GetDBIndex(), c.SubsCount(), libName, libVer,
+	)
+}
+
+// execClientListConn lists registered clients (CLIENT LIST).
+func execClientListConn(c redis.Connection, args [][]byte) redis.Reply {
+	// Optional TYPE filter is accepted but not filtered (all clients are "normal").
+	if len(args) == 2 && strings.EqualFold(string(args[0]), "TYPE") {
+		_ = args[1]
+	} else if len(args) != 0 {
+		return protocol.MakeErrReply("ERR syntax error")
+	}
+
+	var b strings.Builder
+	RangeClients(func(other redis.Connection) bool {
+		b.WriteString(formatClientListLine(other))
+		b.WriteByte('\n')
+		return true
+	})
+	return protocol.MakeBulkReply([]byte(b.String()))
+}
+
+// execClientKillConn kills matching clients (CLIENT KILL).
+func execClientKillConn(c redis.Connection, args [][]byte) redis.Reply {
+	if len(args) == 0 {
+		return protocol.MakeErrReply("ERR wrong number of arguments for 'client|kill' command")
+	}
+
+	skipMe := true
+	filterID := int64(-1)
+	filterAddr := ""
+	oldStyle := false
+
+	if len(args) == 1 {
+		oldStyle = true
+		filterAddr = string(args[0])
+	} else {
+		for i := 0; i < len(args); {
+			opt := strings.ToUpper(string(args[i]))
+			switch opt {
+			case "ID":
+				if i+1 >= len(args) {
+					return protocol.MakeSyntaxErrReply()
+				}
+				id, err := strconv.ParseInt(string(args[i+1]), 10, 64)
+				if err != nil {
+					return protocol.MakeErrReply("ERR Invalid client ID")
+				}
+				filterID = id
+				i += 2
+			case "ADDR":
+				if i+1 >= len(args) {
+					return protocol.MakeSyntaxErrReply()
+				}
+				filterAddr = string(args[i+1])
+				i += 2
+			case "SKIPME":
+				if i+1 >= len(args) {
+					return protocol.MakeSyntaxErrReply()
+				}
+				v := strings.ToUpper(string(args[i+1]))
+				if v == "YES" {
+					skipMe = true
+				} else if v == "NO" {
+					skipMe = false
+				} else {
+					return protocol.MakeSyntaxErrReply()
+				}
+				i += 2
+			case "TYPE", "USER", "LADDR", "MAXAGE":
+				// Accepted for compatibility; not applied.
+				if i+1 >= len(args) {
+					return protocol.MakeSyntaxErrReply()
+				}
+				i += 2
+			default:
+				return protocol.MakeSyntaxErrReply()
+			}
+		}
+	}
+
+	killed := 0
+	RangeClients(func(other redis.Connection) bool {
+		if skipMe && c != nil && other == c {
+			return true
+		}
+		if filterID >= 0 && other.GetClientID() != filterID {
+			return true
+		}
+		if filterAddr != "" && clientAddr(other) != filterAddr {
+			return true
+		}
+		_ = other.Close()
+		UnregisterClient(other)
+		killed++
+		return true
+	})
+
+	if oldStyle {
+		if killed == 0 {
+			return protocol.MakeErrReply("ERR No such client")
+		}
+		return protocol.MakeOkReply()
+	}
+	return protocol.MakeIntReply(int64(killed))
+}
+
+// execClientNoEvictConn handles CLIENT NO-EVICT ON|OFF (flag only; no eviction engine yet).
+func execClientNoEvictConn(c redis.Connection, args [][]byte) redis.Reply {
+	if len(args) != 1 {
+		return protocol.MakeErrReply("ERR wrong number of arguments for 'client|no-evict' command")
+	}
+	mode := strings.ToUpper(string(args[0]))
+	setter, ok := c.(interface{ SetNoEvict(bool) })
+	if !ok {
+		return protocol.MakeOkReply()
+	}
+	switch mode {
+	case "ON":
+		setter.SetNoEvict(true)
+	case "OFF":
+		setter.SetNoEvict(false)
+	default:
+		return protocol.MakeSyntaxErrReply()
+	}
+	return protocol.MakeOkReply()
+}

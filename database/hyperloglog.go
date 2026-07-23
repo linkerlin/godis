@@ -1,8 +1,11 @@
 package database
 
 import (
+	"fmt"
 	"math"
 	"math/bits"
+	"strconv"
+	"strings"
 
 	"github.com/linkerlin/godis/interface/database"
 	"github.com/linkerlin/godis/interface/redis"
@@ -207,6 +210,55 @@ func init() {
 		attachCommandExtra([]string{redisFlagReadonly, redisFlagFast}, 1, 1, 1)
 	registerCommand("PFMerge", execPFMerge, preparePFMerge, undoPFMerge, -2, flagWrite).
 		attachCommandExtra([]string{redisFlagWrite, redisFlagDenyOOM}, 1, -1, 1)
+	registerCommand("PFDebug", execPFDebug, preparePFDebug, nil, -3, flagReadOnly).
+		attachCommandExtra([]string{redisFlagReadonly, redisFlagAdmin}, 2, 1, 1)
+}
+
+func preparePFDebug(args [][]byte) ([]string, []string) {
+	if len(args) < 2 {
+		return nil, nil
+	}
+	return nil, []string{string(args[1])}
+}
+
+// execPFDebug handles PFDEBUG subcommands (GETREG for now).
+// PFDEBUG GETREG key
+func execPFDebug(db *DB, args [][]byte) redis.Reply {
+	if len(args) < 2 {
+		return protocol.MakeErrReply("ERR wrong number of arguments for 'pfdebug' command")
+	}
+	sub := strings.ToUpper(string(args[0]))
+	key := string(args[1])
+	switch sub {
+	case "GETREG":
+		entity, exists := db.GetEntity(key)
+		if !exists {
+			return protocol.MakeErrReply("ERR key does not exist")
+		}
+		hll, ok := entity.Data.(*HLL)
+		if !ok {
+			return &protocol.WrongTypeErrReply{}
+		}
+		regs := make([][]byte, len(hll.registers))
+		for i, v := range hll.registers {
+			regs[i] = []byte(strconv.Itoa(int(v)))
+		}
+		return protocol.MakeMultiBulkReply(regs)
+	case "DECODE":
+		entity, exists := db.GetEntity(key)
+		if !exists {
+			return protocol.MakeErrReply("ERR key does not exist")
+		}
+		hll, ok := entity.Data.(*HLL)
+		if !ok {
+			return &protocol.WrongTypeErrReply{}
+		}
+		// Simplified dense encoding summary (godis HLL is always dense registers).
+		msg := fmt.Sprintf("encoding:dense registers:%d", len(hll.registers))
+		return protocol.MakeBulkReply([]byte(msg))
+	default:
+		return protocol.MakeErrReply("ERR Unknown PFDEBUG subcommand '" + string(args[0]) + "'")
+	}
 }
 
 // preparePFMerge prepares keys for PFMERGE

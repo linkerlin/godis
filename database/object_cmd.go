@@ -6,10 +6,13 @@ import (
 	"time"
 
 	"github.com/linkerlin/godis/datastruct/dict"
+	"github.com/linkerlin/godis/datastruct/json"
 	"github.com/linkerlin/godis/datastruct/list"
+	"github.com/linkerlin/godis/datastruct/probabilistic"
 	"github.com/linkerlin/godis/datastruct/set"
 	"github.com/linkerlin/godis/datastruct/sortedset"
 	"github.com/linkerlin/godis/datastruct/stream"
+	"github.com/linkerlin/godis/datastruct/timeseries"
 	"github.com/linkerlin/godis/interface/redis"
 	"github.com/linkerlin/godis/redis/protocol"
 )
@@ -77,6 +80,20 @@ func getObjectEncoding(data interface{}) string {
 		return "skiplist"
 	case *stream.Stream:
 		return "stream"
+	case *json.JSONValue:
+		return "json"
+	case *probabilistic.BloomFilter:
+		return "bloomflate"
+	case *probabilistic.CuckooFilter:
+		return "cuckoo"
+	case *probabilistic.CountMinSketch:
+		return "cms"
+	case *probabilistic.TopK:
+		return "topk"
+	case *probabilistic.TDigest:
+		return "tdigest"
+	case *timeseries.TimeSeries:
+		return "timeseries"
 	default:
 		return "unknown"
 	}

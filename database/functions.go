@@ -63,11 +63,9 @@ func execFunctionLoad(db *DB, args [][]byte) redis.Reply {
 		return reply
 	}
 
-	// Extract library name from code
-	// Format: #!lua name=mylib
-	libName := extractLibraryName(code)
-	if libName == "" {
-		return protocol.MakeErrReply("ERR Library name not specified (use '#!lua name=libname' shebang)")
+	libName, errReply := parseFunctionShebang(code)
+	if errReply != nil {
+		return errReply
 	}
 
 	// Load library
@@ -393,21 +391,47 @@ func prepareFirstKey(args [][]byte) ([]string, []string) {
 }
 
 func extractLibraryName(code string) string {
-	// Parse shebang: #!lua name=libname
+	name, err := parseFunctionShebang(code)
+	if err != nil {
+		return ""
+	}
+	return name
+}
+
+// parseFunctionShebang parses #!lua name=... [api_version=1.0]
+func parseFunctionShebang(code string) (string, redis.Reply) {
 	lines := strings.Split(code, "\n")
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "#!lua") {
-			// Parse name= value
-			parts := strings.Fields(line)
-			for _, part := range parts {
-				if strings.HasPrefix(part, "name=") {
-					return strings.TrimPrefix(part, "name=")
-				}
+		if !strings.HasPrefix(line, "#!") {
+			continue
+		}
+		// Expect #!lua ...
+		rest := strings.TrimSpace(strings.TrimPrefix(line, "#!"))
+		fields := strings.Fields(rest)
+		if len(fields) == 0 || !strings.EqualFold(fields[0], "lua") {
+			return "", protocol.MakeErrReply("ERR Unknown library engine")
+		}
+		libName := ""
+		apiVersion := "1.0"
+		hasAPI := false
+		for _, part := range fields[1:] {
+			if strings.HasPrefix(part, "name=") {
+				libName = strings.TrimPrefix(part, "name=")
+			} else if strings.HasPrefix(part, "api_version=") {
+				apiVersion = strings.TrimPrefix(part, "api_version=")
+				hasAPI = true
 			}
 		}
+		if libName == "" {
+			return "", protocol.MakeErrReply("ERR Library name not specified (use '#!lua name=libname' shebang)")
+		}
+		if hasAPI && apiVersion != "1.0" {
+			return "", protocol.MakeErrReply("ERR Invalid API version in shebang")
+		}
+		return libName, nil
 	}
-	return ""
+	return "", protocol.MakeErrReply("ERR Library name not specified (use '#!lua name=libname' shebang)")
 }
 
 func formatLibraryInfo(lib *functions.Library, withCode bool) [][]byte {

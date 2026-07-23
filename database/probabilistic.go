@@ -32,13 +32,37 @@ func execBFReserve(db *DB, args [][]byte) redis.Reply {
 		return protocol.MakeErrReply("ERR Capacity must be an integer")
 	}
 
-	// Check if key exists
+	expansion := uint(2)
+	nonScaling := false
+	for i := 3; i < len(args); {
+		opt := strings.ToUpper(string(args[i]))
+		switch opt {
+		case "EXPANSION":
+			if i+1 >= len(args) {
+				return protocol.MakeSyntaxErrReply()
+			}
+			v, err := strconv.ParseUint(string(args[i+1]), 10, 64)
+			if err != nil || v == 0 {
+				return protocol.MakeErrReply("ERR EXPANSION must be a positive integer")
+			}
+			expansion = uint(v)
+			i += 2
+		case "NONSCALING":
+			nonScaling = true
+			i++
+		default:
+			return protocol.MakeSyntaxErrReply()
+		}
+	}
+
 	_, exists := db.GetEntity(key)
 	if exists {
 		return protocol.MakeErrReply("ERR key already exists")
 	}
 
 	bf := probabilistic.NewBloomFilter(uint(capacity), errorRate)
+	bf.SetExpansion(expansion)
+	bf.SetNonScaling(nonScaling)
 	db.PutEntity(key, &database.DataEntity{Data: bf})
 
 	db.addAof(prependCmd("bf.reserve", args))
@@ -317,12 +341,51 @@ func execCFReserve(db *DB, args [][]byte) redis.Reply {
 		return protocol.MakeErrReply("ERR Capacity must be an integer")
 	}
 
+	bucketSize := uint(4)
+	maxIter := uint(500)
+	for i := 2; i < len(args); {
+		opt := strings.ToUpper(string(args[i]))
+		switch opt {
+		case "BUCKETSIZE":
+			if i+1 >= len(args) {
+				return protocol.MakeSyntaxErrReply()
+			}
+			v, err := strconv.ParseUint(string(args[i+1]), 10, 64)
+			if err != nil || v == 0 {
+				return protocol.MakeErrReply("ERR BUCKETSIZE must be a positive integer")
+			}
+			bucketSize = uint(v)
+			i += 2
+		case "MAXITERATIONS":
+			if i+1 >= len(args) {
+				return protocol.MakeSyntaxErrReply()
+			}
+			v, err := strconv.ParseUint(string(args[i+1]), 10, 64)
+			if err != nil || v == 0 {
+				return protocol.MakeErrReply("ERR MAXITERATIONS must be a positive integer")
+			}
+			maxIter = uint(v)
+			i += 2
+		case "EXPANSION":
+			// Accepted for compatibility; auto-expansion not implemented yet.
+			if i+1 >= len(args) {
+				return protocol.MakeSyntaxErrReply()
+			}
+			if _, err := strconv.ParseUint(string(args[i+1]), 10, 64); err != nil {
+				return protocol.MakeErrReply("ERR EXPANSION must be an integer")
+			}
+			i += 2
+		default:
+			return protocol.MakeSyntaxErrReply()
+		}
+	}
+
 	_, exists := db.GetEntity(key)
 	if exists {
 		return protocol.MakeErrReply("ERR key already exists")
 	}
 
-	cf := probabilistic.NewCuckooFilter(uint(capacity))
+	cf := probabilistic.NewCuckooFilterOpts(uint(capacity), bucketSize, maxIter)
 	db.PutEntity(key, &database.DataEntity{Data: cf})
 
 	db.addAof(prependCmd("cf.reserve", args))
@@ -844,12 +907,31 @@ func execTopKReserve(db *DB, args [][]byte) redis.Reply {
 		return protocol.MakeErrReply("ERR K must be an integer")
 	}
 
+	width, depth := 8, 7
+	decay := 0.9
+	if len(args) >= 5 {
+		width, err = strconv.Atoi(string(args[2]))
+		if err != nil || width <= 0 {
+			return protocol.MakeErrReply("ERR width must be a positive integer")
+		}
+		depth, err = strconv.Atoi(string(args[3]))
+		if err != nil || depth <= 0 {
+			return protocol.MakeErrReply("ERR depth must be a positive integer")
+		}
+		decay, err = strconv.ParseFloat(string(args[4]), 64)
+		if err != nil || decay <= 0 || decay > 1 {
+			return protocol.MakeErrReply("ERR decay must be a float in (0,1]")
+		}
+	} else if len(args) != 2 {
+		return protocol.MakeErrReply("ERR wrong number of arguments for 'topk.reserve' command")
+	}
+
 	_, exists := db.GetEntity(key)
 	if exists {
 		return protocol.MakeErrReply("ERR key already exists")
 	}
 
-	topk := probabilistic.NewTopK(k)
+	topk := probabilistic.NewTopKOpts(k, width, depth, decay)
 	db.PutEntity(key, &database.DataEntity{Data: topk})
 
 	db.addAof(prependCmd("topk.reserve", args))
@@ -1080,7 +1162,7 @@ func prepareCMSMerge(args [][]byte) ([]string, []string) {
 
 func init() {
 	// Bloom Filter
-	registerCommand("BF.Reserve", execBFReserve, writeFirstKey, nil, 4, flagWrite).
+	registerCommand("BF.Reserve", execBFReserve, writeFirstKey, nil, -4, flagWrite).
 		attachCommandExtra([]string{redisFlagWrite, redisFlagDenyOOM}, 1, 1, 1)
 	registerCommand("BF.Add", execBFAdd, writeFirstKey, nil, 3, flagWrite).
 		attachCommandExtra([]string{redisFlagWrite, redisFlagDenyOOM}, 1, 1, 1)

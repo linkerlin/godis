@@ -13,13 +13,13 @@ type Centroid struct {
 
 // TDigest is a T-Digest data structure for accurate quantile estimation
 type TDigest struct {
-	centroids []Centroid
+	centroids   []Centroid
 	compression float64
-	count     float64
-	sum       float64
-	sumSq     float64
-	min       float64
-	max       float64
+	count       float64
+	sum         float64
+	sumSq       float64
+	min         float64
+	max         float64
 }
 
 // NewTDigest creates a new T-Digest
@@ -27,7 +27,7 @@ func NewTDigest(compression float64) *TDigest {
 	if compression <= 0 {
 		compression = 100
 	}
-	
+
 	return &TDigest{
 		centroids:   make([]Centroid, 0),
 		compression: compression,
@@ -41,22 +41,22 @@ func (td *TDigest) Add(value float64, weight float64) {
 	if weight <= 0 {
 		weight = 1
 	}
-	
+
 	td.centroids = append(td.centroids, Centroid{Mean: value, Weight: weight})
-	
+
 	td.count += weight
 	td.sum += value * weight
 	td.sumSq += value * value * weight
-	
+
 	if value < td.min {
 		td.min = value
 	}
 	if value > td.max {
 		td.max = value
 	}
-	
+
 	// Compress if too many centroids
-	if len(td.centroids) > int(10 * td.compression) {
+	if len(td.centroids) > int(10*td.compression) {
 		td.Compress()
 	}
 }
@@ -66,29 +66,29 @@ func (td *TDigest) Quantile(q float64) float64 {
 	if q < 0 || q > 1 {
 		return math.NaN()
 	}
-	
+
 	if len(td.centroids) == 0 {
 		return math.NaN()
 	}
-	
+
 	if q == 0 {
 		return td.min
 	}
 	if q == 1 {
 		return td.max
 	}
-	
+
 	// Sort centroids by mean
 	sorted := make([]Centroid, len(td.centroids))
 	copy(sorted, td.centroids)
 	sort.Slice(sorted, func(i, j int) bool {
 		return sorted[i].Mean < sorted[j].Mean
 	})
-	
+
 	// Find the quantile
 	target := q * td.count
 	cumSum := 0.0
-	
+
 	for i, c := range sorted {
 		cumSum += c.Weight
 		if cumSum >= target {
@@ -102,7 +102,7 @@ func (td *TDigest) Quantile(q float64) float64 {
 			return prev.Mean + t*(c.Mean-prev.Mean)
 		}
 	}
-	
+
 	return sorted[len(sorted)-1].Mean
 }
 
@@ -111,21 +111,21 @@ func (td *TDigest) CDF(value float64) float64 {
 	if len(td.centroids) == 0 {
 		return math.NaN()
 	}
-	
+
 	if value <= td.min {
 		return 0
 	}
 	if value >= td.max {
 		return 1
 	}
-	
+
 	// Sort centroids
 	sorted := make([]Centroid, len(td.centroids))
 	copy(sorted, td.centroids)
 	sort.Slice(sorted, func(i, j int) bool {
 		return sorted[i].Mean < sorted[j].Mean
 	})
-	
+
 	// Find CDF
 	cumSum := 0.0
 	for i, c := range sorted {
@@ -140,7 +140,7 @@ func (td *TDigest) CDF(value float64) float64 {
 		}
 		cumSum += c.Weight
 	}
-	
+
 	return 1
 }
 
@@ -149,24 +149,24 @@ func (td *TDigest) Compress() {
 	if len(td.centroids) < 2 {
 		return
 	}
-	
+
 	// Sort centroids
 	sort.Slice(td.centroids, func(i, j int) bool {
 		return td.centroids[i].Mean < td.centroids[j].Mean
 	})
-	
+
 	// Merge close centroids
 	newCentroids := make([]Centroid, 0, len(td.centroids))
 	current := td.centroids[0]
-	
+
 	for i := 1; i < len(td.centroids); i++ {
 		next := td.centroids[i]
-		
+
 		// Check if we can merge
 		// Use k-size limit: max weight for a centroid at position i
 		q := (float64(len(newCentroids)) + 0.5) / float64(len(td.centroids))
 		k := 4 * td.compression * q * (1 - q)
-		
+
 		if current.Weight+next.Weight <= k {
 			// Merge
 			current = Centroid{
@@ -179,7 +179,7 @@ func (td *TDigest) Compress() {
 		}
 	}
 	newCentroids = append(newCentroids, current)
-	
+
 	td.centroids = newCentroids
 }
 
@@ -217,6 +217,62 @@ func (td *TDigest) RevRank(value float64) int64 {
 		return -2
 	}
 	return int64((1 - td.CDF(value)) * td.count)
+}
+
+// ByRank returns the value at the given 0-based rank (approx via quantile).
+func (td *TDigest) ByRank(rank int64) float64 {
+	if td.count == 0 || rank < 0 {
+		return math.NaN()
+	}
+	if float64(rank) >= td.count {
+		return td.max
+	}
+	if td.count == 1 {
+		return td.min
+	}
+	q := float64(rank) / (td.count - 1)
+	return td.Quantile(q)
+}
+
+// ByRevRank returns the value at reverse rank (0 = max).
+func (td *TDigest) ByRevRank(rank int64) float64 {
+	if td.count == 0 || rank < 0 {
+		return math.NaN()
+	}
+	if float64(rank) >= td.count {
+		return td.min
+	}
+	return td.ByRank(int64(td.count) - 1 - rank)
+}
+
+// TrimmedMean returns mean of values between lowCut and highCut quantiles (0..1).
+func (td *TDigest) TrimmedMean(lowCut, highCut float64) float64 {
+	if td.count == 0 || lowCut < 0 || highCut > 1 || lowCut >= highCut {
+		return math.NaN()
+	}
+	lo := td.Quantile(lowCut)
+	hi := td.Quantile(highCut)
+	var sum, w float64
+	for _, c := range td.centroids {
+		if c.Mean >= lo && c.Mean <= hi {
+			sum += c.Mean * c.Weight
+			w += c.Weight
+		}
+	}
+	if w == 0 {
+		return math.NaN()
+	}
+	return sum / w
+}
+
+// MergeFrom merges another digest into this one.
+func (td *TDigest) MergeFrom(other *TDigest) {
+	if other == nil {
+		return
+	}
+	for _, c := range other.centroids {
+		td.Add(c.Mean, c.Weight)
+	}
 }
 
 // Mean returns the mean

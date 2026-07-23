@@ -561,9 +561,10 @@ func execXGroupCreate(db *DB, args [][]byte) redis.Reply {
 		return protocol.MakeErrReply(err.Error())
 	}
 
-	// 设置entriesRead (简化处理)
 	if entriesRead >= 0 {
-		// 实际应该更新组的EntriesRead字段
+		if group, gerr := s.GetGroup(groupName); gerr == nil && group != nil {
+			group.SetEntriesRead(entriesRead)
+		}
 	}
 
 	db.addAof(utils.ToCmdLine3("xgroup", append([][]byte{[]byte("create")}, args...)...))

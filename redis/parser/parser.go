@@ -130,6 +130,13 @@ func parse0(rawReader io.Reader, ch chan<- *Payload) {
 				closeCh()
 				return
 			}
+		case '!':
+			err = parseBlobError(line, reader, ch)
+			if err != nil {
+				ch <- &Payload{Err: err}
+				closeCh()
+				return
+			}
 		case '*':
 			err = parseArray(line, reader, ch)
 			if err != nil {
@@ -216,6 +223,27 @@ func parseBulkString(header []byte, reader *bufio.Reader, ch chan<- *Payload) er
 	}
 	ch <- &Payload{
 		Data: protocol.MakeBulkReply(body[:len(body)-2]),
+	}
+	return nil
+}
+
+// parseBlobError parses RESP3 blob error: !<len>\r\n<body>\r\n
+func parseBlobError(header []byte, reader *bufio.Reader, ch chan<- *Payload) error {
+	strLen, err := strconv.ParseInt(string(header[1:]), 10, 64)
+	if err != nil || strLen < 0 {
+		protocolError(ch, "illegal blob error header: "+string(header))
+		return nil
+	} else if strLen > maxBulkStringLen {
+		protocolError(ch, "blob error too long")
+		return nil
+	}
+	body := make([]byte, strLen+2)
+	_, err = io.ReadFull(reader, body)
+	if err != nil {
+		return err
+	}
+	ch <- &Payload{
+		Data: protocol.MakeErrReply(string(body[:len(body)-2])),
 	}
 	return nil
 }
@@ -354,6 +382,8 @@ func parseRESP3Value(reader *bufio.Reader, ch byte) (redis.Reply, error) {
 		return protocol.MakeBigNumberReply(string(line)), nil
 	case '$':
 		return parseBulkStringFull(reader)
+	case '!':
+		return parseBlobErrorFull(reader)
 	case '=':
 		return parseVerbatimFull(reader)
 	case '*':
@@ -403,6 +433,26 @@ func parseBulkStringFull(reader *bufio.Reader) (redis.Reply, error) {
 		return nil, err
 	}
 	return protocol.MakeBulkReply(body[:len(body)-2]), nil
+}
+
+func parseBlobErrorFull(reader *bufio.Reader) (redis.Reply, error) {
+	header, err := readCRLFLine(reader)
+	if err != nil {
+		return nil, err
+	}
+	strLen, err := strconv.ParseInt(string(header), 10, 64)
+	if err != nil || strLen < 0 {
+		return nil, errors.New("illegal blob error header")
+	}
+	if strLen > maxBulkStringLen {
+		return nil, errors.New("blob error too long")
+	}
+	body := make([]byte, strLen+2)
+	_, err = io.ReadFull(reader, body)
+	if err != nil {
+		return nil, err
+	}
+	return protocol.MakeErrReply(string(body[:len(body)-2])), nil
 }
 
 func parseVerbatim(header []byte, reader *bufio.Reader, ch chan<- *Payload) error {

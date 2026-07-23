@@ -24,7 +24,7 @@ func execPubsub(hub *pubsub.Hub, args [][]byte) redis.Reply {
 	case "NUMSUB":
 		return execPubsubNumsub(hub, args[1:])
 	case "NUMPAT":
-		return execPubsubNumpat()
+		return execPubsubNumpat(hub)
 	case "HELP":
 		return execPubsubHelp()
 	default:
@@ -68,8 +68,12 @@ func execPubsubNumsub(hub *pubsub.Hub, args [][]byte) redis.Reply {
 	return protocol.MakeMultiBulkReply(result)
 }
 
-func execPubsubNumpat() redis.Reply {
-	return protocol.MakeIntReply(0)
+func execPubsubNumpat(hub *pubsub.Hub) redis.Reply {
+	n := 0
+	if hub != nil {
+		n = hub.NumPat()
+	}
+	return protocol.MakeIntReply(int64(n))
 }
 
 func execPubsubHelp() redis.Reply {

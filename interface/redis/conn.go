@@ -15,6 +15,12 @@ type Connection interface {
 	SubsCount() int
 	GetChannels() []string
 
+	// pattern subscriptions (PSUBSCRIBE)
+	PSubscribe(pattern string)
+	PUnSubscribe(pattern string)
+	PSubsCount() int
+	GetPatterns() []string
+
 	InMultiState() bool
 	SetMultiState(bool)
 	GetQueuedCmdLine() [][][]byte

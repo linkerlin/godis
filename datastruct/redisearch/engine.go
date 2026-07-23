@@ -14,18 +14,18 @@ type RediSearchEngine struct {
 	name   string
 	index  *InvertedIndex
 	schema map[string]*Field
-	
+
 	// Geo indices for each geo field
 	geoIndices map[string]*GeoIndex // field name -> geo index
-	
+
 	// Autocomplete for suggestions
 	autocomplete *Autocomplete
-	
+
 	// Options
 	defaultLanguage string
 	scoreField      string
 	payloadField    string
-	
+
 	mu sync.RWMutex
 }
 
@@ -60,12 +60,25 @@ func (e *RediSearchEngine) Name() string {
 func (e *RediSearchEngine) CreateIndex(fields []*Field) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	
+
 	for _, field := range fields {
 		e.schema[field.Name] = field
 		e.index.AddField(field)
 	}
-	
+	return nil
+}
+
+// AlterAddFields adds fields to an existing index schema.
+func (e *RediSearchEngine) AlterAddFields(fields []*Field) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	for _, field := range fields {
+		if _, exists := e.schema[field.Name]; exists {
+			return fmt.Errorf("Duplicate field in schema - %s", field.Name)
+		}
+		e.schema[field.Name] = field
+		e.index.AddField(field)
+	}
 	return nil
 }
 
@@ -73,11 +86,11 @@ func (e *RediSearchEngine) CreateIndex(fields []*Field) error {
 func (e *RediSearchEngine) DropIndex(deleteDocs bool) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	
+
 	if deleteDocs {
 		e.index.Clear()
 	}
-	
+
 	e.schema = make(map[string]*Field)
 	return nil
 }
@@ -86,14 +99,14 @@ func (e *RediSearchEngine) DropIndex(deleteDocs bool) error {
 func (e *RediSearchEngine) AddDocument(docID string, fields map[string]interface{}, score float64, payload []byte) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	
+
 	doc := &Document{
 		ID:      docID,
 		Fields:  fields,
 		Score:   score,
 		Payload: payload,
 	}
-	
+
 	return e.index.IndexDocument(doc)
 }
 
@@ -101,7 +114,7 @@ func (e *RediSearchEngine) AddDocument(docID string, fields map[string]interface
 func (e *RediSearchEngine) DeleteDocument(docID string) bool {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	
+
 	return e.index.DeleteDocument(docID)
 }
 
@@ -109,8 +122,16 @@ func (e *RediSearchEngine) DeleteDocument(docID string) bool {
 func (e *RediSearchEngine) GetDocument(docID string) (*Document, bool) {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
-	
+
 	return e.index.GetDocument(docID)
+}
+
+// TagVals returns distinct values for a TAG field.
+func (e *RediSearchEngine) TagVals(field string) []string {
+	if e.index == nil {
+		return nil
+	}
+	return e.index.TagVals(field)
 }
 
 // SearchResult represents a search result
@@ -125,7 +146,7 @@ type SearchResult struct {
 func (e *RediSearchEngine) Search(query string, opts *SearchOptions) (*SearchResults, error) {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
-	
+
 	// Parse query
 	parser := NewExpressionParser(query)
 	node, err := parser.Parse()
@@ -137,15 +158,15 @@ func (e *RediSearchEngine) Search(query string, opts *SearchOptions) (*SearchRes
 			return nil, err
 		}
 	}
-	
+
 	// Execute query
 	docIDs := node.Evaluate(e.index)
-	
+
 	// Apply geo filter if specified
 	if opts != nil && opts.GeoFilter != nil {
 		docIDs = e.applyGeoFilter(docIDs, opts.GeoFilter)
 	}
-	
+
 	// Fetch documents and calculate scores
 	results := make([]*SearchResult, 0, len(docIDs))
 	for _, docID := range docIDs {
@@ -153,23 +174,23 @@ func (e *RediSearchEngine) Search(query string, opts *SearchOptions) (*SearchRes
 		if !ok {
 			continue
 		}
-		
+
 		score := e.calculateScore(doc, query)
-		
+
 		result := &SearchResult{
 			Document: doc,
 			Score:    score,
 			Fields:   doc.Fields,
 		}
-		
+
 		// Apply highlighting if requested
 		if opts != nil && opts.Highlight {
 			result.Highlights = e.highlightFields(doc, query, opts)
 		}
-		
+
 		results = append(results, result)
 	}
-	
+
 	// Sort results. When SORTBY is requested, sort by that field's numeric
 	// value (RediSearch SORTBY on a NUMERIC field); otherwise sort by relevance.
 	// A deterministic tiebreaker (document ID) keeps paginated queries stable.
@@ -211,7 +232,7 @@ func (e *RediSearchEngine) Search(query string, opts *SearchOptions) (*SearchRes
 		}
 		return results[i].Document.ID < results[j].Document.ID
 	})
-	
+
 	// Apply pagination
 	total := len(results)
 	if opts != nil {
@@ -227,7 +248,7 @@ func (e *RediSearchEngine) Search(query string, opts *SearchOptions) (*SearchRes
 			results = results[start:end]
 		}
 	}
-	
+
 	return &SearchResults{
 		Total:   total,
 		Results: results,
@@ -258,14 +279,14 @@ func numField(r *SearchResult, field string) (float64, bool) {
 
 // SearchOptions holds search options (legacy alias kept for callers).
 type SearchOptions struct {
-	Offset     int
-	Limit      int
-	SortBy     string
-	SortDesc   bool
-	WithScores bool
+	Offset       int
+	Limit        int
+	SortBy       string
+	SortDesc     bool
+	WithScores   bool
 	WithPayloads bool
-	GeoFilter  *GeoFilterOptions
-	Filters   []FieldFilter
+	GeoFilter    *GeoFilterOptions
+	Filters      []FieldFilter
 	// Highlight options
 	Highlight         bool
 	HighlightFields   []string
@@ -290,27 +311,27 @@ type SearchResults struct {
 func (e *RediSearchEngine) calculateScore(doc *Document, query string) float64 {
 	// Simple BM25-like scoring
 	score := doc.Score // Base score
-	
+
 	// Tokenize query
 	tokens := e.index.tokenizer.Tokenize(query)
 	tokens = e.index.stopFilter.Filter(tokens)
-	
+
 	docCount := float64(e.index.DocCount())
-	
+
 	for _, token := range tokens {
 		// Get term frequency in document
 		tf := e.getTermFrequency(doc.ID, token)
-		
+
 		// Get document frequency
 		df := float64(len(e.index.terms[token]))
-		
+
 		// IDF calculation
-		idf := math.Log((docCount - df + 0.5) / (df + 0.5) + 1)
-		
+		idf := math.Log((docCount-df+0.5)/(df+0.5) + 1)
+
 		// TF-IDF
 		score += tf * idf
 	}
-	
+
 	return score
 }
 
@@ -327,9 +348,9 @@ func (e *RediSearchEngine) getTermFrequency(docID, term string) float64 {
 func (e *RediSearchEngine) Aggregate(req *AggregationRequest) (*AggregationResult, error) {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
-	
+
 	var docs []*Document
-	
+
 	// Handle wildcard query
 	if req.Query == "*" {
 		// Get all documents
@@ -341,9 +362,9 @@ func (e *RediSearchEngine) Aggregate(req *AggregationRequest) (*AggregationResul
 		if err != nil {
 			return nil, err
 		}
-		
+
 		docIDs := node.Evaluate(e.index)
-		
+
 		// Fetch documents
 		docs = make([]*Document, 0, len(docIDs))
 		for _, docID := range docIDs {
@@ -353,30 +374,30 @@ func (e *RediSearchEngine) Aggregate(req *AggregationRequest) (*AggregationResul
 			}
 		}
 	}
-	
+
 	// Apply LOAD
 	for _, load := range req.Load {
 		_ = load // Fields already loaded in documents
 	}
-	
+
 	// Apply GROUPBY
 	groups := e.groupBy(docs, req.GroupBy, req.Reduce)
-	
+
 	// Apply HAVING clause
 	if req.Having != nil {
 		groups = e.applyHaving(groups, req.Having)
 	}
-	
+
 	// Apply FILTER
 	if req.Filter != "" {
 		groups = e.filterGroups(groups, req.Filter)
 	}
-	
+
 	// Apply SORTBY
 	if req.SortBy != "" {
 		groups = e.sortGroups(groups, req.SortBy, req.SortDesc)
 	}
-	
+
 	// Apply LIMIT
 	total := len(groups)
 	if req.Limit > 0 {
@@ -390,7 +411,7 @@ func (e *RediSearchEngine) Aggregate(req *AggregationRequest) (*AggregationResul
 		}
 		groups = groups[start:end]
 	}
-	
+
 	return &AggregationResult{
 		Total:  total,
 		Groups: groups,
@@ -399,16 +420,16 @@ func (e *RediSearchEngine) Aggregate(req *AggregationRequest) (*AggregationResul
 
 // AggregationRequest represents an aggregation request
 type AggregationRequest struct {
-	Query   string
-	Load    []string
-	GroupBy []string          // Support multiple group by fields
-	Having  *HavingClause     // HAVING clause for group filtering
-	Reduce  []Reducer
-	SortBy  string
+	Query    string
+	Load     []string
+	GroupBy  []string      // Support multiple group by fields
+	Having   *HavingClause // HAVING clause for group filtering
+	Reduce   []Reducer
+	SortBy   string
 	SortDesc bool
-	Offset  int
-	Limit   int
-	Filter  string // FILTER expression
+	Offset   int
+	Limit    int
+	Filter   string // FILTER expression
 }
 
 // HavingClause represents a HAVING clause for group filtering
@@ -439,7 +460,7 @@ type Group struct {
 
 func (e *RediSearchEngine) groupBy(docs []*Document, groupByFields []string, reducers []Reducer) []*Group {
 	groupMap := make(map[string][]*Document)
-	
+
 	for _, doc := range docs {
 		// Build composite key from multiple group by fields
 		var keyParts []string
@@ -449,14 +470,14 @@ func (e *RediSearchEngine) groupBy(docs []*Document, groupByFields []string, red
 		key := strings.Join(keyParts, "|$")
 		groupMap[key] = append(groupMap[key], doc)
 	}
-	
+
 	var groups []*Group
 	for key, groupDocs := range groupMap {
 		group := &Group{
 			By:     key,
 			Fields: make(map[string]interface{}),
 		}
-		
+
 		// Store individual group by field values
 		keyParts := strings.Split(key, "|$")
 		for i, field := range groupByFields {
@@ -464,7 +485,7 @@ func (e *RediSearchEngine) groupBy(docs []*Document, groupByFields []string, red
 				group.Fields[field] = keyParts[i]
 			}
 		}
-		
+
 		// Apply reducers
 		for _, r := range reducers {
 			value := e.applyReducer(groupDocs, r)
@@ -474,29 +495,29 @@ func (e *RediSearchEngine) groupBy(docs []*Document, groupByFields []string, red
 				group.Fields[r.Field] = value
 			}
 		}
-		
+
 		groups = append(groups, group)
 	}
-	
+
 	return groups
 }
 
 // applyHaving filters groups based on HAVING clause
 func (e *RediSearchEngine) applyHaving(groups []*Group, having *HavingClause) []*Group {
 	var result []*Group
-	
+
 	for _, group := range groups {
 		leftValue, exists := group.Fields[having.Left]
 		if !exists {
 			continue
 		}
-		
+
 		// Compare values
 		if e.compareHaving(leftValue, having.Operator, having.Right) {
 			result = append(result, group)
 		}
 	}
-	
+
 	return result
 }
 
@@ -505,7 +526,7 @@ func (e *RediSearchEngine) compareHaving(left interface{}, op string, right inte
 	// Convert to float64 for numeric comparison
 	leftFloat, leftOk := toFloat64(left)
 	rightFloat, rightOk := toFloat64(right)
-	
+
 	if leftOk && rightOk {
 		switch op {
 		case "=":
@@ -522,11 +543,11 @@ func (e *RediSearchEngine) compareHaving(left interface{}, op string, right inte
 			return leftFloat <= rightFloat
 		}
 	}
-	
+
 	// String comparison
 	leftStr := fmt.Sprintf("%v", left)
 	rightStr := fmt.Sprintf("%v", right)
-	
+
 	switch op {
 	case "=":
 		return leftStr == rightStr
@@ -541,7 +562,7 @@ func (e *RediSearchEngine) compareHaving(left interface{}, op string, right inte
 	case "<=":
 		return leftStr <= rightStr
 	}
-	
+
 	return false
 }
 
@@ -632,7 +653,7 @@ func (e *RediSearchEngine) sortGroups(groups []*Group, field string, desc bool) 
 	sort.Slice(groups, func(i, j int) bool {
 		vi := groups[i].Fields[field]
 		vj := groups[j].Fields[field]
-		
+
 		// Try numeric comparison
 		fi, oki := vi.(float64)
 		fj, okj := vj.(float64)
@@ -642,7 +663,7 @@ func (e *RediSearchEngine) sortGroups(groups []*Group, field string, desc bool) 
 			}
 			return fi < fj
 		}
-		
+
 		// String comparison
 		si := fmt.Sprintf("%v", vi)
 		sj := fmt.Sprintf("%v", vj)
@@ -651,7 +672,7 @@ func (e *RediSearchEngine) sortGroups(groups []*Group, field string, desc bool) 
 		}
 		return si < sj
 	})
-	
+
 	return groups
 }
 
@@ -660,14 +681,14 @@ func (e *RediSearchEngine) sortGroups(groups []*Group, field string, desc bool) 
 func (e *RediSearchEngine) filterGroups(groups []*Group, filter string) []*Group {
 	// Parse simple filter expression
 	// Support: field > value, field < value, field = value, field >= value, field <= value
-	
+
 	filter = strings.TrimSpace(filter)
-	
+
 	// Find operator
 	operators := []string{">=", "<=", "=", ">", "<"}
 	var op string
 	var parts []string
-	
+
 	for _, candidate := range operators {
 		if strings.Contains(filter, candidate) {
 			parts = strings.SplitN(filter, candidate, 2)
@@ -677,15 +698,15 @@ func (e *RediSearchEngine) filterGroups(groups []*Group, filter string) []*Group
 			}
 		}
 	}
-	
+
 	if op == "" {
 		// No valid operator found, return all groups
 		return groups
 	}
-	
+
 	field := strings.TrimSpace(parts[0])
 	valueStr := strings.TrimSpace(parts[1])
-	
+
 	// Try to parse as number
 	var numValue float64
 	var isNum bool
@@ -693,7 +714,7 @@ func (e *RediSearchEngine) filterGroups(groups []*Group, filter string) []*Group
 		numValue = n
 		isNum = true
 	}
-	
+
 	var result []*Group
 	for _, group := range groups {
 		fieldValue, ok := group.Fields[field]
@@ -705,12 +726,12 @@ func (e *RediSearchEngine) filterGroups(groups []*Group, filter string) []*Group
 				continue
 			}
 		}
-		
+
 		if e.matchesFilter(fieldValue, op, numValue, valueStr, isNum) {
 			result = append(result, group)
 		}
 	}
-	
+
 	return result
 }
 
@@ -730,7 +751,7 @@ func (e *RediSearchEngine) matchesFilter(fieldValue interface{}, op string, numV
 			return fv <= numValue
 		}
 	}
-	
+
 	// String comparison
 	fv := fmt.Sprintf("%v", fieldValue)
 	switch op {
@@ -745,7 +766,7 @@ func (e *RediSearchEngine) matchesFilter(fieldValue interface{}, op string, numV
 	case "<=":
 		return fv <= strValue
 	}
-	
+
 	return false
 }
 
@@ -753,30 +774,30 @@ func (e *RediSearchEngine) matchesFilter(fieldValue interface{}, op string, numV
 func (e *RediSearchEngine) Info() map[string]interface{} {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
-	
+
 	return map[string]interface{}{
 		"index_name":    e.name,
 		"index_options": []string{},
 		"index_definition": map[string]interface{}{
-			"key_type":      "HASH",
-			"prefixes":      []string{},
+			"key_type":       "HASH",
+			"prefixes":       []string{},
 			"language_field": e.defaultLanguage,
-			"score_field":   e.scoreField,
-			"payload_field": e.payloadField,
+			"score_field":    e.scoreField,
+			"payload_field":  e.payloadField,
 		},
-		"attributes":      e.getAttributesInfo(),
-		"num_docs":        e.index.DocCount(),
-		"max_doc_id":      e.index.DocCount(),
-		"num_terms":       e.index.TermCount(),
-		"num_records":     e.index.TermCount() * 2, // Approximation
-		"inverted_sz_mb":  0.1,
+		"attributes":                  e.getAttributesInfo(),
+		"num_docs":                    e.index.DocCount(),
+		"max_doc_id":                  e.index.DocCount(),
+		"num_terms":                   e.index.TermCount(),
+		"num_records":                 e.index.TermCount() * 2, // Approximation
+		"inverted_sz_mb":              0.1,
 		"total_inverted_index_blocks": 1,
 	}
 }
 
 func (e *RediSearchEngine) getAttributesInfo() []map[string]interface{} {
 	var attrs []map[string]interface{}
-	
+
 	for name, field := range e.schema {
 		attr := map[string]interface{}{
 			"identifier": name,
@@ -788,7 +809,7 @@ func (e *RediSearchEngine) getAttributesInfo() []map[string]interface{} {
 		}
 		attrs = append(attrs, attr)
 	}
-	
+
 	return attrs
 }
 
@@ -821,11 +842,11 @@ func (e *RediSearchEngine) Suggest(prefix string, max int, fuzzy bool) []*Sugges
 func (e *RediSearchEngine) AddSuggestion(term string, score float64, payload string, incr bool) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	
+
 	if e.autocomplete == nil {
 		return
 	}
-	
+
 	if incr {
 		e.autocomplete.AddIncr(term, score, payload)
 	} else {
@@ -833,11 +854,31 @@ func (e *RediSearchEngine) AddSuggestion(term string, score float64, payload str
 	}
 }
 
+// DelSuggestion deletes a suggestion; returns true if removed.
+func (e *RediSearchEngine) DelSuggestion(term string) bool {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.autocomplete == nil {
+		return false
+	}
+	return e.autocomplete.Del(term)
+}
+
+// SuggestionCount returns the number of autocomplete suggestions.
+func (e *RediSearchEngine) SuggestionCount() int {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	if e.autocomplete == nil {
+		return 0
+	}
+	return e.autocomplete.Len()
+}
+
 // SpellCheck provides spelling corrections
 func (e *RediSearchEngine) SpellCheck(term string, maxDist int) []string {
 	// Simple Levenshtein distance based spell check
 	var corrections []string
-	
+
 	for dictTerm := range e.index.terms {
 		if !strings.Contains(dictTerm, ":") {
 			dist := levenshteinDistance(term, dictTerm)
@@ -846,7 +887,7 @@ func (e *RediSearchEngine) SpellCheck(term string, maxDist int) []string {
 			}
 		}
 	}
-	
+
 	return corrections
 }
 
@@ -857,21 +898,21 @@ func levenshteinDistance(s1, s2 string) int {
 	if len(s2) == 0 {
 		return len(s1)
 	}
-	
+
 	// Dynamic programming
 	m, n := len(s1), len(s2)
 	dp := make([][]int, m+1)
 	for i := range dp {
 		dp[i] = make([]int, n+1)
 	}
-	
+
 	for i := 0; i <= m; i++ {
 		dp[i][0] = i
 	}
 	for j := 0; j <= n; j++ {
 		dp[0][j] = j
 	}
-	
+
 	for i := 1; i <= m; i++ {
 		for j := 1; j <= n; j++ {
 			cost := 0
@@ -881,7 +922,7 @@ func levenshteinDistance(s1, s2 string) int {
 			dp[i][j] = min(dp[i-1][j]+1, min(dp[i][j-1]+1, dp[i-1][j-1]+cost))
 		}
 	}
-	
+
 	return dp[m][n]
 }
 
@@ -892,20 +933,19 @@ func min(a, b int) int {
 	return b
 }
 
-
 // applyGeoFilter filters documents by geo location
 func (e *RediSearchEngine) applyGeoFilter(docIDs []string, opts *GeoFilterOptions) []string {
 	e.mu.RLock()
 	geoIndex, ok := e.geoIndices[opts.Field]
 	e.mu.RUnlock()
-	
+
 	if !ok {
 		// No geo index for this field, return empty
 		return nil
 	}
-	
+
 	center := GeoPoint{Lat: opts.Lat, Lon: opts.Lon}
-	
+
 	var results []string
 	for _, docID := range docIDs {
 		// Check if doc is in geo index
@@ -920,7 +960,7 @@ func (e *RediSearchEngine) applyGeoFilter(docIDs []string, opts *GeoFilterOption
 			}
 		}
 	}
-	
+
 	return results
 }
 
@@ -928,37 +968,33 @@ func (e *RediSearchEngine) applyGeoFilter(docIDs []string, opts *GeoFilterOption
 func (e *RediSearchEngine) AddGeoPoint(docID string, field string, lat, lon float64) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	
+
 	if e.geoIndices[field] == nil {
 		e.geoIndices[field] = NewGeoIndex()
 	}
-	
+
 	e.geoIndices[field].Add(docID, GeoPoint{Lat: lat, Lon: lon})
 }
-
-
 
 // TermExists checks if a term exists in the index
 func (e *RediSearchEngine) TermExists(term string) bool {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
-	
+
 	term = strings.ToLower(term)
-	
+
 	// Check in index terms
 	if _, ok := e.index.terms[term]; ok {
 		return true
 	}
-	
+
 	return false
 }
-
-
 
 // highlightFields generates highlighted versions of field values
 func (e *RediSearchEngine) highlightFields(doc *Document, query string, opts *SearchOptions) map[string]string {
 	highlights := make(map[string]string)
-	
+
 	// Default tags
 	openTag := opts.HighlightOpenTag
 	closeTag := opts.HighlightCloseTag
@@ -968,7 +1004,7 @@ func (e *RediSearchEngine) highlightFields(doc *Document, query string, opts *Se
 	if closeTag == "" {
 		closeTag = "</b>"
 	}
-	
+
 	// Determine which fields to highlight
 	fieldsToHighlight := opts.HighlightFields
 	if len(fieldsToHighlight) == 0 {
@@ -977,10 +1013,10 @@ func (e *RediSearchEngine) highlightFields(doc *Document, query string, opts *Se
 			fieldsToHighlight = append(fieldsToHighlight, fieldName)
 		}
 	}
-	
+
 	// Extract query terms (simplified)
 	queryTerms := extractQueryTerms(query)
-	
+
 	// Highlight each field
 	for _, fieldName := range fieldsToHighlight {
 		if value, ok := doc.Fields[fieldName]; ok {
@@ -989,7 +1025,7 @@ func (e *RediSearchEngine) highlightFields(doc *Document, query string, opts *Se
 			highlights[fieldName] = highlighted
 		}
 	}
-	
+
 	return highlights
 }
 
@@ -1013,30 +1049,30 @@ func highlightText(text string, terms []string, openTag, closeTag string) string
 	if len(terms) == 0 {
 		return text
 	}
-	
+
 	// Simple case-insensitive replacement
 	result := text
 	lowerText := strings.ToLower(text)
-	
+
 	for _, term := range terms {
 		if term == "" {
 			continue
 		}
-		
+
 		// Find all occurrences
 		idx := strings.Index(lowerText, term)
 		for idx != -1 {
 			// Check if already highlighted
 			before := result[:idx]
 			after := result[idx+len(term):]
-			
+
 			// Wrap the match
 			match := result[idx : idx+len(term)]
 			result = before + openTag + match + closeTag + after
-			
+
 			// Update lowerText for next search
 			lowerText = strings.ToLower(result)
-			
+
 			// Find next occurrence after this highlight
 			nextIdx := strings.Index(lowerText[idx+len(openTag)+len(term)+len(closeTag):], term)
 			if nextIdx != -1 {
@@ -1046,6 +1082,6 @@ func highlightText(text string, terms []string, openTag, closeTag string) string
 			}
 		}
 	}
-	
+
 	return result
 }

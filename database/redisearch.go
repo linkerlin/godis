@@ -227,15 +227,15 @@ func execFTCreate(db *DB, args [][]byte) redis.Reply {
 			case "NOINDEX":
 				field.NoIndex = true
 				i++
-		case "NOSTEM":
-			field.Stemming = false
-			i++
-		case "SEPARATOR":
-			if i+1 >= len(args) {
-				return protocol.MakeSyntaxErrReply()
-			}
-			field.Separator = string(args[i+1])
-			i += 2
+			case "NOSTEM":
+				field.Stemming = false
+				i++
+			case "SEPARATOR":
+				if i+1 >= len(args) {
+					return protocol.MakeSyntaxErrReply()
+				}
+				field.Separator = string(args[i+1])
+				i += 2
 			case "WEIGHT":
 				if i+1 >= len(args) {
 					return protocol.MakeSyntaxErrReply()
@@ -296,7 +296,7 @@ func execFTDropIndex(db *DB, args [][]byte) redis.Reply {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'ft.dropindex' command")
 	}
 
-	indexName := string(args[0])
+	indexName := resolveSearchIndex(string(args[0]))
 	deleteDocs := false
 
 	if len(args) == 2 && strings.ToUpper(string(args[1])) == "DD" {
@@ -308,7 +308,7 @@ func execFTDropIndex(db *DB, args [][]byte) redis.Reply {
 	searchEnginesMu.Unlock()
 
 	if !ok {
-		return protocol.MakeErrReply(fmt.Sprintf("ERR Index '%s' does not exist", indexName))
+		return protocol.MakeErrReply(fmt.Sprintf("ERR Index '%s' does not exist", string(args[0])))
 	}
 
 	if err := engine.DropIndex(deleteDocs); err != nil {
@@ -322,6 +322,8 @@ func execFTDropIndex(db *DB, args [][]byte) redis.Reply {
 	searchIndexMetaMu.Lock()
 	delete(searchIndexMeta, indexName)
 	searchIndexMetaMu.Unlock()
+
+	clearAliasesForIndex(indexName)
 
 	db.Remove(indexName)
 	dropSynDB(indexName)
@@ -340,7 +342,7 @@ func execFTAdd(db *DB, args [][]byte) redis.Reply {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'ft.add' command")
 	}
 
-	indexName := string(args[0])
+	indexName := resolveSearchIndex(string(args[0]))
 	docID := string(args[1])
 	if reply := validateBulkBytes(args[0]); reply != nil {
 		return reply
@@ -445,7 +447,7 @@ func execFTDel(db *DB, args [][]byte) redis.Reply {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'ft.del' command")
 	}
 
-	indexName := string(args[0])
+	indexName := resolveSearchIndex(string(args[0]))
 	docID := string(args[1])
 
 	searchEnginesMu.RLock()
@@ -482,7 +484,7 @@ func execFTSearch(db *DB, args [][]byte) redis.Reply {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'ft.search' command")
 	}
 
-	indexName := string(args[0])
+	indexName := resolveSearchIndex(string(args[0]))
 	query := string(args[1])
 
 	searchEnginesMu.RLock()
@@ -670,7 +672,7 @@ func execFTAggregate(db *DB, args [][]byte) redis.Reply {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'ft.aggregate' command")
 	}
 
-	indexName := string(args[0])
+	indexName := resolveSearchIndex(string(args[0]))
 	query := string(args[1])
 
 	searchEnginesMu.RLock()
@@ -900,14 +902,14 @@ func execFTInfo(db *DB, args [][]byte) redis.Reply {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'ft.info' command")
 	}
 
-	indexName := string(args[0])
+	indexName := resolveSearchIndex(string(args[0]))
 
 	searchEnginesMu.RLock()
 	engine, ok := searchEngines[indexName]
 	searchEnginesMu.RUnlock()
 
 	if !ok {
-		return protocol.MakeErrReply(fmt.Sprintf("ERR Index '%s' does not exist", indexName))
+		return protocol.MakeErrReply(fmt.Sprintf("ERR Index '%s' does not exist", string(args[0])))
 	}
 
 	info := engine.Info()
@@ -1073,9 +1075,9 @@ func execFTSugDel(db *DB, args [][]byte) redis.Reply {
 		return protocol.MakeIntReply(0)
 	}
 
-	// Note: Need to add Del method to Autocomplete
-	// For now, just return success
-	_ = str
+	if !engine.DelSuggestion(str) {
+		return protocol.MakeIntReply(0)
+	}
 
 	db.addAof(utils.ToCmdLine3("ft.sugdel", args...))
 	return protocol.MakeIntReply(1)
@@ -1098,14 +1100,7 @@ func execFTSugLen(db *DB, args [][]byte) redis.Reply {
 		return protocol.MakeIntReply(0)
 	}
 
-	// Get count from autocomplete
-	count := 0
-	if engine != nil {
-		// This would need a method to get count from autocomplete
-		// For now return 0
-	}
-
-	return protocol.MakeIntReply(int64(count))
+	return protocol.MakeIntReply(int64(engine.SuggestionCount()))
 }
 
 func isFTFieldType(token string) bool {

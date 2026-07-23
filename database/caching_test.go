@@ -35,6 +35,10 @@ func (c *trackingTestConn) Subscribe(string)               {}
 func (c *trackingTestConn) UnSubscribe(string)             {}
 func (c *trackingTestConn) SubsCount() int                 { return 0 }
 func (c *trackingTestConn) GetChannels() []string          { return nil }
+func (c *trackingTestConn) PSubscribe(string)              {}
+func (c *trackingTestConn) PUnSubscribe(string)            {}
+func (c *trackingTestConn) PSubsCount() int                { return 0 }
+func (c *trackingTestConn) GetPatterns() []string          { return nil }
 func (c *trackingTestConn) InMultiState() bool             { return false }
 func (c *trackingTestConn) SetMultiState(bool)             {}
 func (c *trackingTestConn) GetQueuedCmdLine() [][][]byte   { return nil }

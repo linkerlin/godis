@@ -63,8 +63,8 @@ type Server struct {
 	memLimiter *memory.Limiter
 
 	// last successful SAVE/BGSAVE unix time (LASTSAVE)
-	lastSaveUnix atomic.Int64
-	bgsaveMu     sync.Mutex
+	lastSaveUnix  atomic.Int64
+	bgsaveMu      sync.Mutex
 	bgsaveRunning bool
 }
 
@@ -259,6 +259,8 @@ func (server *Server) Exec(c redis.Connection, cmdLine [][]byte) (result redis.R
 		return execModule(cmdLine[1:])
 	} else if cmdName == "time" {
 		return execTime(cmdLine[1:])
+	} else if cmdName == "lolwut" {
+		return execLolwut(cmdLine[1:])
 	} else if cmdName == "pubsub" {
 		return execPubsub(server.hub, cmdLine[1:])
 	}
@@ -278,10 +280,19 @@ func (server *Server) Exec(c redis.Connection, cmdLine [][]byte) (result redis.R
 			return protocol.MakeArgNumErrReply("subscribe")
 		}
 		return pubsub.Subscribe(server.hub, c, cmdLine[1:])
+	} else if cmdName == "psubscribe" {
+		if len(cmdLine) < 2 {
+			return protocol.MakeArgNumErrReply("psubscribe")
+		}
+		return pubsub.PSubscribe(server.hub, c, cmdLine[1:])
 	} else if cmdName == "publish" {
 		return pubsub.Publish(server.hub, cmdLine[1:])
 	} else if cmdName == "unsubscribe" {
 		return pubsub.UnSubscribe(server.hub, c, cmdLine[1:])
+	} else if cmdName == "punsubscribe" {
+		return pubsub.PUnSubscribe(server.hub, c, cmdLine[1:])
+	} else if cmdName == "shutdown" {
+		return execShutdown(server, cmdLine[1:])
 	} else if cmdName == "bgrewriteaof" {
 		return BGRewriteAOF(server, cmdLine[1:])
 	} else if cmdName == "rewriteaof" {

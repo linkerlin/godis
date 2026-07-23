@@ -6,7 +6,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/linkerlin/godis/interface/database"
+	"github.com/linkerlin/godis/database"
+	idatabase "github.com/linkerlin/godis/interface/database"
 	"github.com/linkerlin/godis/interface/redis"
 	"github.com/linkerlin/godis/lib/logger"
 	"github.com/linkerlin/godis/lib/stats"
@@ -24,12 +25,12 @@ type GnetServer struct {
 	gnet.BuiltinEventEngine
 	eng      gnet.Engine
 	booted   atomic.Bool
-	db       database.DB
+	db       idatabase.DB
 	closing  gatomic.Boolean
 	inFlight sync.WaitGroup
 }
 
-func NewGnetServer(db database.DB) *GnetServer {
+func NewGnetServer(db idatabase.DB) *GnetServer {
 	return &GnetServer{
 		db: db,
 	}
@@ -54,6 +55,7 @@ func (s *GnetServer) OnOpen(c gnet.Conn) (out []byte, action gnet.Action) {
 	}
 	client := connection.NewConn(c)
 	c.SetContext(client)
+	database.RegisterClient(client)
 	return
 }
 
@@ -64,6 +66,7 @@ func (s *GnetServer) OnClose(c gnet.Conn, err error) (action gnet.Action) {
 	if ctx := c.Context(); ctx != nil {
 		tcp.ReleaseClient()
 		conn := ctx.(redis.Connection)
+		database.UnregisterClient(conn)
 		s.db.AfterClientClose(conn)
 	}
 	return

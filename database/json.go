@@ -1,6 +1,7 @@
 package database
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"strconv"
@@ -86,7 +87,7 @@ func execJSONSet(db *DB, args [][]byte) redis.Reply {
 }
 
 // execJSONGet gets a JSON value at the specified path
-// JSON.GET key [path ...]
+// JSON.GET key [INDENT indent] [NEWLINE newline] [SPACE space] [NOESCAPE] [path ...]
 func execJSONGet(db *DB, args [][]byte) redis.Reply {
 	if len(args) < 1 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'json.get' command")
@@ -94,7 +95,6 @@ func execJSONGet(db *DB, args [][]byte) redis.Reply {
 
 	key := string(args[0])
 
-	// Get JSON value
 	entity, exists := db.GetEntity(key)
 	if !exists {
 		return &protocol.NullBulkReply{}
@@ -105,43 +105,145 @@ func execJSONGet(db *DB, args [][]byte) redis.Reply {
 		return &protocol.WrongTypeErrReply{}
 	}
 
-	// Default path is root
-	paths := []string{"$"}
-	if len(args) > 1 {
-		paths = make([]string, len(args)-1)
-		for i := 1; i < len(args); i++ {
-			paths[i-1] = string(args[i])
-		}
+	opts, paths, errReply := parseJSONGetArgs(args[1:])
+	if errReply != nil {
+		return errReply
+	}
+	if len(paths) == 0 {
+		paths = []string{"$"}
 	}
 
-	// Get values for all paths
 	if len(paths) == 1 {
 		val, err := jv.Get(paths[0])
 		if err != nil {
 			return &protocol.NullBulkReply{}
 		}
-
-		result, err := json.Marshal(val)
+		result, err := marshalJSONGet(val, opts)
 		if err != nil {
 			return protocol.MakeErrReply(fmt.Sprintf("ERR %v", err))
 		}
 		return protocol.MakeBulkReply(result)
 	}
 
-	// Multiple paths - return as object
-	result := make(map[string]interface{})
+	// Multiple paths — preserve argument order (not Go map iteration order).
+	var b strings.Builder
+	b.WriteByte('{')
+	first := true
 	for _, path := range paths {
 		val, err := jv.Get(path)
-		if err == nil {
-			result[path] = val
+		if err != nil {
+			continue
+		}
+		if !first {
+			b.WriteByte(',')
+		}
+		first = false
+		keyBytes, err := marshalJSONRaw(path, opts.noEscape)
+		if err != nil {
+			return protocol.MakeErrReply(fmt.Sprintf("ERR %v", err))
+		}
+		valBytes, err := marshalJSONRaw(val, opts.noEscape)
+		if err != nil {
+			return protocol.MakeErrReply(fmt.Sprintf("ERR %v", err))
+		}
+		b.Write(keyBytes)
+		b.WriteByte(':')
+		b.Write(valBytes)
+	}
+	b.WriteByte('}')
+	result := []byte(b.String())
+	if opts.pretty {
+		var err error
+		result, err = formatJSONPretty(result, opts)
+		if err != nil {
+			return protocol.MakeErrReply(fmt.Sprintf("ERR %v", err))
 		}
 	}
+	return protocol.MakeBulkReply(result)
+}
 
-	data, err := json.Marshal(result)
-	if err != nil {
-		return protocol.MakeErrReply(fmt.Sprintf("ERR %v", err))
+type jsonGetFormatOpts struct {
+	indent   string
+	newline  string
+	space    string
+	noEscape bool
+	pretty   bool
+}
+
+func parseJSONGetArgs(args [][]byte) (jsonGetFormatOpts, []string, redis.Reply) {
+	opts := jsonGetFormatOpts{newline: "\n", space: " "}
+	var paths []string
+	for i := 0; i < len(args); i++ {
+		arg := string(args[i])
+		upper := strings.ToUpper(arg)
+		switch upper {
+		case "INDENT":
+			if i+1 >= len(args) {
+				return opts, nil, protocol.MakeSyntaxErrReply()
+			}
+			opts.indent = string(args[i+1])
+			opts.pretty = true
+			i++
+		case "NEWLINE":
+			if i+1 >= len(args) {
+				return opts, nil, protocol.MakeSyntaxErrReply()
+			}
+			opts.newline = string(args[i+1])
+			opts.pretty = true
+			i++
+		case "SPACE":
+			if i+1 >= len(args) {
+				return opts, nil, protocol.MakeSyntaxErrReply()
+			}
+			opts.space = string(args[i+1])
+			opts.pretty = true
+			i++
+		case "NOESCAPE":
+			opts.noEscape = true
+		default:
+			paths = append(paths, arg)
+		}
 	}
-	return protocol.MakeBulkReply(data)
+	return opts, paths, nil
+}
+
+func marshalJSONRaw(v interface{}, noEscape bool) ([]byte, error) {
+	if !noEscape {
+		return json.Marshal(v)
+	}
+	var buf strings.Builder
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(v); err != nil {
+		return nil, err
+	}
+	return []byte(strings.TrimSuffix(buf.String(), "\n")), nil
+}
+
+func marshalJSONGet(v interface{}, opts jsonGetFormatOpts) ([]byte, error) {
+	raw, err := marshalJSONRaw(v, opts.noEscape)
+	if err != nil {
+		return nil, err
+	}
+	if !opts.pretty {
+		return raw, nil
+	}
+	return formatJSONPretty(raw, opts)
+}
+
+func formatJSONPretty(raw []byte, opts jsonGetFormatOpts) ([]byte, error) {
+	var indented bytes.Buffer
+	if err := json.Indent(&indented, raw, "", opts.indent); err != nil {
+		return raw, nil
+	}
+	s := indented.String()
+	if opts.space != " " {
+		s = strings.ReplaceAll(s, ": ", ":"+opts.space)
+	}
+	if opts.newline != "\n" {
+		s = strings.ReplaceAll(s, "\n", opts.newline)
+	}
+	return []byte(s), nil
 }
 
 // execJSONDel deletes JSON values at the specified path

@@ -253,7 +253,7 @@ func bitfieldIncr(cur, incr int64, bits int, signed bool, overflow int) (int64, 
 			return next, true
 		}
 		// Bring into [min, max] with wrap
-		mod := ((next - min) % rangeSize + rangeSize) % rangeSize
+		mod := ((next-min)%rangeSize + rangeSize) % rangeSize
 		return min + mod, true
 	}
 }
@@ -261,4 +261,28 @@ func bitfieldIncr(cur, incr int64, bits int, signed bool, overflow int) (int64, 
 func init() {
 	registerCommand("BitField", execBitField, writeFirstKey, rollbackFirstKey, -2, flagWrite).
 		attachCommandExtra([]string{redisFlagWrite, redisFlagDenyOOM}, 1, 1, 1)
+	registerCommand("BitField_Ro", execBitFieldRo, readFirstKey, nil, -2, flagReadOnly).
+		attachCommandExtra([]string{redisFlagReadonly, redisFlagFast}, 1, 1, 1)
+}
+
+// execBitFieldRo is BITFIELD_RO — only GET subcommands are allowed.
+func execBitFieldRo(db *DB, args [][]byte) redis.Reply {
+	if len(args) < 1 {
+		return protocol.MakeErrReply("ERR wrong number of arguments for 'bitfield_ro' command")
+	}
+	for i := 1; i < len(args); {
+		op := strings.ToUpper(string(args[i]))
+		switch op {
+		case "GET":
+			if i+2 >= len(args) {
+				return protocol.MakeSyntaxErrReply()
+			}
+			i += 3
+		case "SET", "INCRBY", "OVERFLOW":
+			return protocol.MakeErrReply("ERR BITFIELD_RO only supports the GET subcommand")
+		default:
+			return protocol.MakeSyntaxErrReply()
+		}
+	}
+	return execBitField(db, args)
 }

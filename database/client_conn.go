@@ -17,7 +17,7 @@ func execClientConn(c redis.Connection, db *DB, args [][]byte) redis.Reply {
 	subCmd := strings.ToUpper(string(args[0]))
 	switch subCmd {
 	case "LIST":
-		return execClientList(args[1:])
+		return execClientListConn(c, args[1:])
 	case "INFO":
 		return execClientInfoConn(c, args[1:])
 	case "SETNAME":
@@ -27,7 +27,7 @@ func execClientConn(c redis.Connection, db *DB, args [][]byte) redis.Reply {
 	case "SETINFO":
 		return execClientSetInfoConn(c, args[1:])
 	case "KILL":
-		return execClientKill(args[1:])
+		return execClientKillConn(c, args[1:])
 	case "PAUSE":
 		return execClientPause(db, args[1:])
 	case "UNPAUSE":
@@ -44,6 +44,8 @@ func execClientConn(c redis.Connection, db *DB, args [][]byte) redis.Reply {
 		return execClientGetRedir(args[1:])
 	case "TRACKINGINFO":
 		return execClientTrackingInfoConn(c, args[1:])
+	case "NO-EVICT":
+		return execClientNoEvictConn(c, args[1:])
 	case "UNBLOCK":
 		return execClientUnblock(args[1:])
 	case "HELP":

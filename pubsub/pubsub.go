@@ -6,14 +6,19 @@ import (
 	"github.com/linkerlin/godis/datastruct/list"
 	"github.com/linkerlin/godis/interface/redis"
 	"github.com/linkerlin/godis/lib/utils"
+	"github.com/linkerlin/godis/lib/wildcard"
 	"github.com/linkerlin/godis/redis/protocol"
 )
 
 var (
 	_subscribe         = "subscribe"
 	_unsubscribe       = "unsubscribe"
+	_psubscribe        = "psubscribe"
+	_punsubscribe      = "punsubscribe"
 	messageBytes       = []byte("message")
+	pmessageBytes      = []byte("pmessage")
 	unSubscribeNothing = []byte("*3\r\n$11\r\nunsubscribe\r\n$-1\r\n:0\r\n")
+	pUnSubNothing      = []byte("*3\r\n$12\r\npunsubscribe\r\n$-1\r\n:0\r\n")
 )
 
 func makeMsg(t string, channel string, code int64) []byte {
@@ -29,7 +34,6 @@ func makeMsg(t string, channel string, code int64) []byte {
 func subscribe0(hub *Hub, channel string, client redis.Connection) bool {
 	client.Subscribe(channel)
 
-	// add into hub.subs
 	raw, ok := hub.subs.Get(channel)
 	var subscribers *list.LinkedList
 	if ok {
@@ -54,7 +58,6 @@ func subscribe0(hub *Hub, channel string, client redis.Connection) bool {
 func unsubscribe0(hub *Hub, channel string, client redis.Connection) bool {
 	client.UnSubscribe(channel)
 
-	// remove from hub.subs
 	raw, ok := hub.subs.Get(channel)
 	if ok {
 		subscribers, _ := raw.(*list.LinkedList)
@@ -63,7 +66,6 @@ func unsubscribe0(hub *Hub, channel string, client redis.Connection) bool {
 		})
 
 		if subscribers.Len() == 0 {
-			// clean
 			hub.subs.Remove(channel)
 		}
 		return true
@@ -82,24 +84,25 @@ func Subscribe(hub *Hub, c redis.Connection, args [][]byte) redis.Reply {
 	defer hub.subsLocker.UnLocks(channels...)
 
 	for _, channel := range channels {
-		if subscribe0(hub, channel, c) {
-			_, _ = c.Write(makeMsg(_subscribe, channel, int64(c.SubsCount())))
-		}
+		subscribe0(hub, channel, c)
+		_, _ = c.Write(makeMsg(_subscribe, channel, int64(c.SubsCount())))
 	}
 	return &protocol.NoReply{}
 }
 
-// UnsubscribeAll removes the given connection from all subscribing channel
+// UnsubscribeAll removes the given connection from all channels and patterns
 func UnsubscribeAll(hub *Hub, c redis.Connection) {
 	channels := c.GetChannels()
 
 	hub.subsLocker.Locks(channels...)
-	defer hub.subsLocker.UnLocks(channels...)
-
 	for _, channel := range channels {
 		unsubscribe0(hub, channel, c)
 	}
+	hub.subsLocker.UnLocks(channels...)
 
+	for _, p := range c.GetPatterns() {
+		punsubscribe0(hub, p, c)
+	}
 }
 
 // UnSubscribe removes the given connection from the given channel
@@ -123,9 +126,78 @@ func UnSubscribe(db *Hub, c redis.Connection, args [][]byte) redis.Reply {
 	}
 
 	for _, channel := range channels {
-		if unsubscribe0(db, channel, c) {
-			_, _ = c.Write(makeMsg(_unsubscribe, channel, int64(c.SubsCount())))
+		unsubscribe0(db, channel, c)
+		_, _ = c.Write(makeMsg(_unsubscribe, channel, int64(c.SubsCount())))
+	}
+	return &protocol.NoReply{}
+}
+
+func psubscribe0(hub *Hub, pattern string, client redis.Connection) bool {
+	client.PSubscribe(pattern)
+	hub.psubsMu.Lock()
+	defer hub.psubsMu.Unlock()
+	subscribers, ok := hub.psubs[pattern]
+	if !ok {
+		subscribers = list.Make()
+		hub.psubs[pattern] = subscribers
+	}
+	if subscribers.Contains(func(a interface{}) bool {
+		return a == client
+	}) {
+		return false
+	}
+	subscribers.Add(client)
+	return true
+}
+
+func punsubscribe0(hub *Hub, pattern string, client redis.Connection) bool {
+	client.PUnSubscribe(pattern)
+	hub.psubsMu.Lock()
+	defer hub.psubsMu.Unlock()
+	subscribers, ok := hub.psubs[pattern]
+	if !ok {
+		return false
+	}
+	subscribers.RemoveAllByVal(func(a interface{}) bool {
+		return utils.Equals(a, client)
+	})
+	if subscribers.Len() == 0 {
+		delete(hub.psubs, pattern)
+	}
+	return true
+}
+
+// PSubscribe subscribes the connection to glob patterns.
+func PSubscribe(hub *Hub, c redis.Connection, args [][]byte) redis.Reply {
+	if len(args) == 0 {
+		return &protocol.ArgNumErrReply{Cmd: "psubscribe"}
+	}
+	for _, b := range args {
+		pattern := string(b)
+		psubscribe0(hub, pattern, c)
+		_, _ = c.Write(makeMsg(_psubscribe, pattern, int64(c.SubsCount())))
+	}
+	return &protocol.NoReply{}
+}
+
+// PUnSubscribe unsubscribes from patterns; empty args means all patterns.
+func PUnSubscribe(hub *Hub, c redis.Connection, args [][]byte) redis.Reply {
+	var patterns []string
+	if len(args) > 0 {
+		patterns = make([]string, len(args))
+		for i, b := range args {
+			patterns[i] = string(b)
 		}
+	} else {
+		patterns = c.GetPatterns()
+	}
+	if len(patterns) == 0 {
+		_, _ = c.Write(pUnSubNothing)
+		return &protocol.NoReply{}
+	}
+	for _, pattern := range patterns {
+		punsubscribe0(hub, pattern, c)
+		_, _ = c.Write(makeMsg(_punsubscribe, pattern, int64(c.SubsCount())))
 	}
 	return &protocol.NoReply{}
 }
@@ -139,21 +211,39 @@ func Publish(hub *Hub, args [][]byte) redis.Reply {
 	message := args[1]
 
 	hub.subsLocker.Lock(channel)
-	defer hub.subsLocker.UnLock(channel)
-
+	var channelReceivers int64
 	raw, ok := hub.subs.Get(channel)
-	if !ok {
-		return protocol.MakeIntReply(0)
+	if ok {
+		subscribers, _ := raw.(*list.LinkedList)
+		subscribers.ForEach(func(i int, c interface{}) bool {
+			client, _ := c.(redis.Connection)
+			replyArgs := make([][]byte, 3)
+			replyArgs[0] = messageBytes
+			replyArgs[1] = []byte(channel)
+			replyArgs[2] = message
+			_, _ = client.Write(protocol.MakeMultiBulkReply(replyArgs).ToBytes())
+			return true
+		})
+		channelReceivers = int64(subscribers.Len())
 	}
-	subscribers, _ := raw.(*list.LinkedList)
-	subscribers.ForEach(func(i int, c interface{}) bool {
-		client, _ := c.(redis.Connection)
-		replyArgs := make([][]byte, 3)
-		replyArgs[0] = messageBytes
-		replyArgs[1] = []byte(channel)
-		replyArgs[2] = message
-		_, _ = client.Write(protocol.MakeMultiBulkReply(replyArgs).ToBytes())
-		return true
-	})
-	return protocol.MakeIntReply(int64(subscribers.Len()))
+	hub.subsLocker.UnLock(channel)
+
+	var patternReceivers int64
+	hub.psubsMu.RLock()
+	for pattern, subscribers := range hub.psubs {
+		match, err := wildcard.CompilePattern(pattern)
+		if err != nil || !match.IsMatch(channel) {
+			continue
+		}
+		subscribers.ForEach(func(i int, c interface{}) bool {
+			client, _ := c.(redis.Connection)
+			replyArgs := [][]byte{pmessageBytes, []byte(pattern), []byte(channel), message}
+			_, _ = client.Write(protocol.MakeMultiBulkReply(replyArgs).ToBytes())
+			patternReceivers++
+			return true
+		})
+	}
+	hub.psubsMu.RUnlock()
+
+	return protocol.MakeIntReply(channelReceivers + patternReceivers)
 }

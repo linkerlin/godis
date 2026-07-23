@@ -259,13 +259,11 @@ func execGeoRadius(db *DB, args [][]byte) redis.Reply {
 		return protocol.MakeErrReply("ERR value is not a valid float")
 	}
 	unit := strings.ToLower(string(args[4]))
-	if unit == "m" {
-	} else if unit == "km" {
-		radius *= 1000
-	} else {
-		return protocol.MakeErrReply("ERR unsupported unit provided. please use m, km")
+	meters, unitErr := geoUnitToMeters(radius, unit)
+	if unitErr != nil {
+		return unitErr
 	}
-	return geoRadius0(sortedSet, lat, lng, radius)
+	return geoRadius0(sortedSet, lat, lng, meters)
 }
 
 // execGeoRadiusByMember returns members within max distance of given member's location
@@ -297,12 +295,11 @@ func execGeoRadiusByMember(db *DB, args [][]byte) redis.Reply {
 	}
 	if len(args) > 3 {
 		unit := strings.ToLower(string(args[3]))
-		if unit == "m" {
-		} else if unit == "km" {
-			radius *= 1000
-		} else {
-			return protocol.MakeErrReply("ERR unsupported unit provided. please use m, km")
+		meters, unitErr := geoUnitToMeters(radius, unit)
+		if unitErr != nil {
+			return unitErr
 		}
+		radius = meters
 	}
 	return geoRadius0(sortedSet, lat, lng, radius)
 }
@@ -347,6 +344,7 @@ func execGeoSearch(db *DB, args [][]byte) redis.Reply {
 	useRadius, useBox := false, false
 	asc := true
 	count := -1
+	anyCount := false
 	withCoord, withDist, withHash := false, false, false
 
 	i := 1
@@ -419,6 +417,13 @@ func execGeoSearch(db *DB, args [][]byte) redis.Reply {
 				return protocol.MakeErrReply("ERR value is not an integer or out of range")
 			}
 			i += 2
+			if i < len(args) && strings.EqualFold(string(args[i]), "ANY") {
+				anyCount = true
+				i++
+			}
+		case "ANY":
+			anyCount = true
+			i++
 		case "WITHCOORD":
 			withCoord = true
 			i++
@@ -500,20 +505,22 @@ func execGeoSearch(db *DB, args [][]byte) redis.Reply {
 		}
 	}
 
-	// Sort results
-	if asc {
-		for i := 0; i < len(results)-1; i++ {
-			for j := i + 1; j < len(results); j++ {
-				if results[i].dist > results[j].dist {
-					results[i], results[j] = results[j], results[i]
+	// Sort results (ANY skips distance ordering once enough matches exist)
+	if !anyCount {
+		if asc {
+			for i := 0; i < len(results)-1; i++ {
+				for j := i + 1; j < len(results); j++ {
+					if results[i].dist > results[j].dist {
+						results[i], results[j] = results[j], results[i]
+					}
 				}
 			}
-		}
-	} else {
-		for i := 0; i < len(results)-1; i++ {
-			for j := i + 1; j < len(results); j++ {
-				if results[i].dist < results[j].dist {
-					results[i], results[j] = results[j], results[i]
+		} else {
+			for i := 0; i < len(results)-1; i++ {
+				for j := i + 1; j < len(results); j++ {
+					if results[i].dist < results[j].dist {
+						results[i], results[j] = results[j], results[i]
+					}
 				}
 			}
 		}
@@ -637,6 +644,21 @@ func extractGeoHash(score float64) (float64, float64) {
 	return geohash.Decode(uint64(score))
 }
 
+func geoUnitToMeters(radius float64, unit string) (float64, redis.Reply) {
+	switch strings.ToLower(unit) {
+	case "m":
+		return radius, nil
+	case "km":
+		return radius * 1000, nil
+	case "mi":
+		return radius * 1609.34, nil
+	case "ft":
+		return radius * 0.3048, nil
+	default:
+		return 0, protocol.MakeErrReply("ERR unsupported unit provided. please use m, km, ft, mi")
+	}
+}
+
 // prepareWriteKeys prepares write keys for commands
 func prepareWriteKeys(args [][]byte) ([]string, []string) {
 	return []string{string(args[0])}, nil
@@ -657,6 +679,14 @@ func init() {
 		attachCommandExtra([]string{redisFlagWrite, redisFlagMovableKeys}, 1, 1, 1)
 	registerCommand("GeoSearch", execGeoSearch, readFirstKey, nil, -2, flagReadOnly).
 		attachCommandExtra([]string{redisFlagReadonly}, 1, 1, 1)
-	registerCommand("GeoSearchStore", execGeoSearchStore, prepareWriteKeys, rollbackFirstKey, -3, flagWrite).
+	registerCommand("GeoSearchStore", execGeoSearchStore, prepareGeoSearchStore, rollbackFirstKey, -3, flagWrite).
 		attachCommandExtra([]string{redisFlagWrite, redisFlagDenyOOM}, 1, 1, 1)
+}
+
+// prepareGeoSearchStore write-locks destination and read-locks source.
+func prepareGeoSearchStore(args [][]byte) ([]string, []string) {
+	if len(args) < 2 {
+		return nil, nil
+	}
+	return []string{string(args[0])}, []string{string(args[1])}
 }

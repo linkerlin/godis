@@ -1,6 +1,7 @@
 package database
 
 import (
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -278,18 +279,32 @@ parseStreams:
 					}
 				}
 			} else {
-				// 从历史pending中读取（用于重新读取已递送但未确认的消息）
+				// 从历史 pending 中读取（重新读取已递送但未确认的消息）
 				startID, err := stream.ParseStreamID(id, stream.StreamID{})
 				if err != nil {
 					return protocol.MakeErrReply("ERR Invalid stream ID")
 				}
 
-				// 从消费者的pending中查找
-				for pid, pending := range consumer.Pending {
-					if pid.Compare(startID) >= 0 {
-						// 简化处理
-						_ = pending
+				type pendItem struct {
+					id    stream.StreamID
+					entry *stream.StreamEntry
+				}
+				var items []pendItem
+				for pid := range consumer.Pending {
+					if pid.Compare(startID) < 0 {
+						continue
 					}
+					entry := s.GetEntry(pid)
+					if entry == nil {
+						continue
+					}
+					items = append(items, pendItem{id: pid, entry: entry})
+				}
+				sort.Slice(items, func(i, j int) bool {
+					return items[i].id.Compare(items[j].id) < 0
+				})
+				for _, it := range items {
+					entries = append(entries, it.entry)
 				}
 			}
 
@@ -342,7 +357,8 @@ parseStreams:
 
 // execXClaim claims pending messages for a consumer
 // XCLAIM key group consumer min-idle-time id [id ...] [IDLE ms] [TIME ms-unix-time]
-//   [RETRYCOUNT count] [FORCE] [JUSTID]
+//
+//	[RETRYCOUNT count] [FORCE] [JUSTID]
 func execXClaim(db *DB, args [][]byte) redis.Reply {
 	if len(args) < 5 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'xclaim' command")
@@ -638,55 +654,85 @@ func execXPending(db *DB, args [][]byte) redis.Reply {
 		})
 	}
 
-	// 详细模式：返回具体条目
+	// 详细模式：XPENDING key group [IDLE min-idle-time] start end [count] [consumer]
 	if len(args) < 5 {
 		return protocol.MakeSyntaxErrReply()
 	}
 
-	startID, err := stream.ParseStreamID(string(args[2]), stream.StreamID{})
+	rest := args[2:]
+	minIdleMs := int64(-1)
+	idx := 0
+	if len(rest) >= 2 && strings.EqualFold(string(rest[0]), "IDLE") {
+		idle, err := strconv.ParseInt(string(rest[1]), 10, 64)
+		if err != nil || idle < 0 {
+			return protocol.MakeErrReply("ERR Invalid min-idle-time")
+		}
+		minIdleMs = idle
+		idx = 2
+	}
+	if len(rest)-idx < 3 {
+		return protocol.MakeSyntaxErrReply()
+	}
+
+	startID, err := stream.ParseStreamID(string(rest[idx]), stream.StreamID{})
 	if err != nil {
 		return protocol.MakeErrReply("ERR Invalid stream ID")
 	}
 
-	endID, err := stream.ParseStreamID(string(args[3]), stream.StreamID{})
+	endID, err := stream.ParseStreamID(string(rest[idx+1]), stream.StreamID{})
 	if err != nil {
 		return protocol.MakeErrReply("ERR Invalid stream ID")
 	}
 
-	count, err := strconv.Atoi(string(args[4]))
+	count, err := strconv.Atoi(string(rest[idx+2]))
 	if err != nil || count < 0 {
 		return protocol.MakeErrReply("ERR value is not an integer or out of range")
 	}
 
 	var consumerFilter string
-	if len(args) >= 6 {
-		consumerFilter = string(args[5])
+	if len(rest) > idx+3 {
+		consumerFilter = string(rest[idx+3])
 	}
 
-	// 收集pending条目
-	var result [][]byte
-	collected := 0
-
+	now := time.Now()
+	type pendRow struct {
+		id      stream.StreamID
+		pending *stream.PendingEntry
+	}
+	var rows []pendRow
 	for id, pending := range group.Pending {
 		if id.Compare(startID) < 0 || id.Compare(endID) > 0 {
 			continue
 		}
-
 		if consumerFilter != "" && pending.Consumer != consumerFilter {
 			continue
 		}
+		idleMs := now.Sub(pending.DeliveryTime).Milliseconds()
+		if idleMs < 0 {
+			idleMs = 0
+		}
+		if minIdleMs >= 0 && idleMs < minIdleMs {
+			continue
+		}
+		rows = append(rows, pendRow{id: id, pending: pending})
+	}
+	sort.Slice(rows, func(i, j int) bool {
+		return rows[i].id.Compare(rows[j].id) < 0
+	})
 
-		if collected >= count {
+	var result [][]byte
+	for i, row := range rows {
+		if i >= count {
 			break
 		}
-
-		deliveryTimeMs := pending.DeliveryTime.UnixMilli()
-		result = append(result, []byte(id.String()))
-		result = append(result, []byte(pending.Consumer))
-		result = append(result, []byte(strconv.FormatInt(deliveryTimeMs, 10)))
-		result = append(result, []byte(strconv.Itoa(pending.DeliveryCount)))
-
-		collected++
+		idleMs := now.Sub(row.pending.DeliveryTime).Milliseconds()
+		if idleMs < 0 {
+			idleMs = 0
+		}
+		result = append(result, []byte(row.id.String()))
+		result = append(result, []byte(row.pending.Consumer))
+		result = append(result, []byte(strconv.FormatInt(idleMs, 10)))
+		result = append(result, []byte(strconv.Itoa(row.pending.DeliveryCount)))
 	}
 
 	return protocol.MakeMultiBulkReply(result)

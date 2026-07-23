@@ -3,7 +3,6 @@ package database
 
 import (
 	"encoding/base64"
-	"fmt"
 	"strconv"
 
 	"github.com/linkerlin/godis/datastruct/probabilistic"
@@ -140,30 +139,29 @@ func execCFLoadChunk(db *DB, args [][]byte) redis.Reply {
 	return protocol.MakeOkReply()
 }
 
-// Serialization helpers (simplified)
+// Serialization helpers
 func serializeBloomFilter(bf *probabilistic.BloomFilter) []byte {
-	info := bf.Info()
-	// Simple format: size,count,hashNum,bits...
-	size := info["size"].(uint)
-	count := info["count"].(uint)
-	hashNum := info["hashNum"].(uint)
-
-	data := fmt.Sprintf("%d,%d,%d", size, count, hashNum)
-	return []byte(data)
+	return bf.MarshalBinary()
 }
 
 func deserializeBloomFilter(data []byte) *probabilistic.BloomFilter {
-	// Simplified deserialization
-	return probabilistic.NewBloomFilter(1000, 0.001)
+	bf, err := probabilistic.UnmarshalBloomFilter(data)
+	if err != nil {
+		return nil
+	}
+	return bf
 }
 
 func serializeCuckooFilter(cf *probabilistic.CuckooFilter) []byte {
-	info := cf.Info()
-	return []byte(fmt.Sprintf("%v", info))
+	return cf.MarshalBinary()
 }
 
 func deserializeCuckooFilter(data []byte) *probabilistic.CuckooFilter {
-	return probabilistic.NewCuckooFilter(1000)
+	cf, err := probabilistic.UnmarshalCuckooFilter(data)
+	if err != nil {
+		return nil
+	}
+	return cf
 }
 
 func init() {

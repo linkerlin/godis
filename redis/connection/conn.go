@@ -34,6 +34,8 @@ type Connection struct {
 
 	// subscribing channels
 	subs map[string]bool
+	// pattern subscriptions (PSUBSCRIBE)
+	psubs map[string]bool
 
 	// password may be changed by CONFIG command during runtime, so store the password
 	password string
@@ -57,6 +59,7 @@ type Connection struct {
 	protocolVersion int
 	libName         string
 	libVer          string
+	noEvict         bool
 }
 
 var connPool = sync.Pool{
@@ -77,6 +80,7 @@ func (c *Connection) Close() error {
 		_ = c.conn.Close()
 	}
 	c.subs = nil
+	c.psubs = nil
 	c.password = ""
 	c.aclUser = ""
 	c.aclAuthed = false
@@ -87,6 +91,9 @@ func (c *Connection) Close() error {
 	c.clientName = ""
 	c.trackingID = ""
 	c.protocolVersion = 0
+	c.libName = ""
+	c.libVer = ""
+	c.noEvict = false
 	c.clientID = 0
 	connPool.Put(c)
 	return nil
@@ -170,6 +177,16 @@ func (c *Connection) GetLibVer() string {
 	return c.libVer
 }
 
+// SetNoEvict sets CLIENT NO-EVICT flag (eviction engine may ignore for now).
+func (c *Connection) SetNoEvict(v bool) {
+	c.noEvict = v
+}
+
+// GetNoEvict returns whether CLIENT NO-EVICT is enabled.
+func (c *Connection) GetNoEvict() bool {
+	return c.noEvict
+}
+
 // SetProtocolVersion stores the RESP protocol version negotiated via HELLO.
 func (c *Connection) SetProtocolVersion(v int) {
 	c.protocolVersion = v
@@ -205,9 +222,34 @@ func (c *Connection) UnSubscribe(channel string) {
 	delete(c.subs, channel)
 }
 
-// SubsCount returns the number of subscribing channels
+// PSubscribe adds a glob pattern subscription.
+func (c *Connection) PSubscribe(pattern string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.psubs == nil {
+		c.psubs = make(map[string]bool)
+	}
+	c.psubs[pattern] = true
+}
+
+// PUnSubscribe removes a glob pattern subscription.
+func (c *Connection) PUnSubscribe(pattern string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if len(c.psubs) == 0 {
+		return
+	}
+	delete(c.psubs, pattern)
+}
+
+// SubsCount returns channel + pattern subscription count.
 func (c *Connection) SubsCount() int {
-	return len(c.subs)
+	return len(c.subs) + len(c.psubs)
+}
+
+// PSubsCount returns pattern subscription count.
+func (c *Connection) PSubsCount() int {
+	return len(c.psubs)
 }
 
 // GetChannels returns all subscribing channels
@@ -215,13 +257,23 @@ func (c *Connection) GetChannels() []string {
 	if c.subs == nil {
 		return make([]string, 0)
 	}
-	channels := make([]string, len(c.subs))
-	i := 0
-	for channel := range c.subs {
-		channels[i] = channel
-		i++
+	channels := make([]string, 0, len(c.subs))
+	for ch := range c.subs {
+		channels = append(channels, ch)
 	}
 	return channels
+}
+
+// GetPatterns returns all pattern subscriptions.
+func (c *Connection) GetPatterns() []string {
+	if c.psubs == nil {
+		return make([]string, 0)
+	}
+	out := make([]string, 0, len(c.psubs))
+	for p := range c.psubs {
+		out = append(out, p)
+	}
+	return out
 }
 
 // SetPassword stores password for authentication

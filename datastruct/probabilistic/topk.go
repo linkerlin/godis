@@ -7,9 +7,12 @@ import (
 
 // TopK maintains the top-k frequent items
 type TopK struct {
-	k         int
-	items     map[string]*TopKItem
-	minHeap   *topKHeap
+	k      int
+	width  int
+	depth  int
+	decay  float64
+	items  map[string]*TopKItem
+	minHeap *topKHeap
 }
 
 // TopKItem represents an item in Top-K
@@ -22,8 +25,25 @@ type TopKItem struct {
 
 // NewTopK creates a new Top-K structure
 func NewTopK(k int) *TopK {
+	return NewTopKOpts(k, 8, 7, 0.9)
+}
+
+// NewTopKOpts creates Top-K with RedisBloom width/depth/decay parameters.
+func NewTopKOpts(k, width, depth int, decay float64) *TopK {
+	if width <= 0 {
+		width = 8
+	}
+	if depth <= 0 {
+		depth = 7
+	}
+	if decay <= 0 || decay > 1 {
+		decay = 0.9
+	}
 	return &TopK{
 		k:       k,
+		width:   width,
+		depth:   depth,
+		decay:   decay,
 		items:   make(map[string]*TopKItem),
 		minHeap: &topKHeap{},
 	}
@@ -101,6 +121,9 @@ func (tk *TopK) List() []*TopKItem {
 func (tk *TopK) Info() map[string]interface{} {
 	return map[string]interface{}{
 		"k":     tk.k,
+		"width": tk.width,
+		"depth": tk.depth,
+		"decay": tk.decay,
 		"size":  len(tk.items),
 		"added": tk.minHeap.Len(),
 	}

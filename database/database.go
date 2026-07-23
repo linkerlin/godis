@@ -163,7 +163,8 @@ func (db *DB) Exec(c redis.Connection, cmdLine [][]byte) redis.Reply {
 		}
 		return protocol.MakeIntReply(0)
 	}
-	if cmdName == "subscribe" || cmdName == "unsubscribe" {
+	if cmdName == "subscribe" || cmdName == "unsubscribe" ||
+		cmdName == "psubscribe" || cmdName == "punsubscribe" {
 		return protocol.MakeErrReply("ERR " + cmdName + " is not allowed from Lua scripts")
 	}
 

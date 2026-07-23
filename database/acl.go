@@ -514,6 +514,14 @@ func formatACLUser(user *acl.User) []byte {
 		parts = append(parts, "+@all")
 	}
 
+	for _, kp := range user.KeyPatterns {
+		if kp.Allowed {
+			parts = append(parts, "~"+kp.Pattern)
+		} else {
+			parts = append(parts, "-~"+kp.Pattern)
+		}
+	}
+
 	return []byte(strings.Join(parts, " "))
 }
 

@@ -54,9 +54,17 @@ func MakeHandler() (*Handler, error) {
 			return nil, errors.Wrap(err, "create standalone server failed")
 		}
 	}
-	return &Handler{
+	h := &Handler{
 		db: db,
-	}, nil
+	}
+	wireShutdown(h)
+	return h, nil
+}
+
+func wireShutdown(h *Handler) {
+	database.SetShutdownHook(func() {
+		_ = h.Close()
+	})
 }
 
 func Serve(addr string, handler *Handler) error {
@@ -69,6 +77,7 @@ func (h *Handler) closeClient(client *connection.Connection) {
 	_ = client.Close()
 	h.db.AfterClientClose(client)
 	h.activeConn.Delete(client)
+	database.UnregisterClient(client)
 }
 
 // Handle receives and executes redis commands
@@ -83,6 +92,7 @@ func (h *Handler) Handle(ctx context.Context, conn net.Conn) {
 
 	client := connection.NewConn(conn)
 	h.activeConn.Store(client, struct{}{})
+	database.RegisterClient(client)
 
 	ch := parser.ParseStream(conn)
 	for payload := range ch {
