@@ -265,6 +265,22 @@ func execClientCaching(args [][]byte) redis.Reply {
 	return protocol.MakeStatusReply("OK")
 }
 
+func execClientCachingConn(c redis.Connection, args [][]byte) redis.Reply {
+	if len(args) != 1 {
+		return protocol.MakeErrReply("ERR wrong number of arguments for 'client|caching' command")
+	}
+	val := strings.ToUpper(string(args[0]))
+	if val != "YES" && val != "NO" {
+		return protocol.MakeErrReply("ERR syntax error")
+	}
+	id := c.GetTrackingID()
+	if id == "" {
+		return protocol.MakeErrReply("ERR CLIENT CACHING can be issued only after CLIENT TRACKING ON")
+	}
+	SetCachingDirective(id, val == "YES")
+	return protocol.MakeStatusReply("OK")
+}
+
 // execClientGetRedir returns tracking redirection target
 // CLIENT GETREDIR
 func execClientGetRedir(args [][]byte) redis.Reply {

@@ -71,6 +71,8 @@ func getConfigMatches(pattern string) []configPair {
 		{"appendfsync", config.Properties.AppendFsync},
 		{"rdbfilename", config.Properties.RDBFilename},
 		{"maxclients", strconv.Itoa(config.Properties.MaxClients)},
+		{"maxmemory", strconv.FormatInt(config.Properties.Maxmemory, 10)},
+		{"maxmemory-policy", config.Properties.MaxmemoryPolicy},
 		{"slowlog-log-slower-than", strconv.FormatInt(config.Properties.SlowLogSlowerThan, 10)},
 		{"slowlog-max-len", strconv.Itoa(config.Properties.SlowLogMaxLen)},
 		{"acllog-max-len", strconv.Itoa(config.Properties.AclLogMaxLen)},
@@ -113,6 +115,32 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 		switch key {
 		case "requirepass":
 			config.Properties.RequirePass = value
+		case "appendonly":
+			ok, b := config.ParseConfigBool(value)
+			if !ok {
+				return protocol.MakeErrReply("ERR invalid appendonly value")
+			}
+			config.Properties.AppendOnly = b
+		case "appendfsync":
+			v := strings.ToLower(value)
+			if v != "always" && v != "everysec" && v != "no" {
+				return protocol.MakeErrReply("ERR Invalid argument '" + value + "' for CONFIG SET 'appendfsync'")
+			}
+			config.Properties.AppendFsync = v
+		case "maxclients":
+			n, err := strconv.Atoi(value)
+			if err != nil || n < 0 {
+				return protocol.MakeErrReply(fmt.Sprintf("ERR Invalid value for '%s'", key))
+			}
+			config.Properties.MaxClients = n
+		case "maxmemory":
+			n, err := strconv.ParseInt(value, 10, 64)
+			if err != nil || n < 0 {
+				return protocol.MakeErrReply(fmt.Sprintf("ERR Invalid value for '%s'", key))
+			}
+			config.Properties.Maxmemory = n
+		case "maxmemory-policy":
+			config.Properties.MaxmemoryPolicy = value
 		case "slowlog-log-slower-than":
 			n, err := strconv.ParseInt(value, 10, 64)
 			if err != nil {

@@ -495,6 +495,7 @@ func execXAutoClaim(db *DB, args [][]byte) redis.Reply {
 	}
 	count := 100
 	justID := false
+	var minID *stream.StreamID
 	for i := 5; i < len(args); {
 		opt := strings.ToUpper(string(args[i]))
 		switch opt {
@@ -511,6 +512,16 @@ func execXAutoClaim(db *DB, args [][]byte) redis.Reply {
 		case "JUSTID":
 			justID = true
 			i++
+		case "MINID":
+			if i+1 >= len(args) {
+				return protocol.MakeSyntaxErrReply()
+			}
+			id, err := stream.ParseStreamID(string(args[i+1]), stream.StreamID{})
+			if err != nil {
+				return protocol.MakeErrReply("ERR Invalid stream ID specified as stream command argument")
+			}
+			minID = &id
+			i += 2
 		default:
 			return protocol.MakeSyntaxErrReply()
 		}
@@ -525,7 +536,7 @@ func execXAutoClaim(db *DB, args [][]byte) redis.Reply {
 	}
 
 	claimed, deleted, nextID, err := s.AutoClaim(groupName, consumerName,
-		time.Duration(minIdleMs)*time.Millisecond, start, count)
+		time.Duration(minIdleMs)*time.Millisecond, start, count, minID)
 	if err != nil {
 		return protocol.MakeErrReply(err.Error())
 	}

@@ -688,11 +688,13 @@ func BGSaveRDB(db *Server, args [][]byte) redis.Reply {
 		rdbFilename = "dump.rdb"
 	}
 	if db.persister != nil {
-		if err := db.persister.RunGenerateRDBAsync(rdbFilename); err != nil {
+		if err := db.persister.RunGenerateRDBAsync(rdbFilename, func(err error) {
+			if err == nil {
+				db.lastSaveUnix.Store(time.Now().Unix())
+			}
+		}); err != nil {
 			return protocol.MakeErrReply("ERR " + err.Error())
 		}
-		// best-effort stamp; async completion may overwrite later when we hook it
-		db.lastSaveUnix.Store(time.Now().Unix())
 		return protocol.MakeStatusReply("Background saving started")
 	}
 	db.bgsaveMu.Lock()

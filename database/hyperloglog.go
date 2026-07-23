@@ -256,10 +256,22 @@ func execPFDebug(db *DB, args [][]byte) redis.Reply {
 		// Simplified dense encoding summary (godis HLL is always dense registers).
 		msg := fmt.Sprintf("encoding:dense registers:%d", len(hll.registers))
 		return protocol.MakeBulkReply([]byte(msg))
+	case "PERIOD":
+		// Redis PFDEBUG PERIOD sets sparse→dense conversion threshold.
+		// Godis HLL is always dense; accept and store for compatibility.
+		n, err := strconv.Atoi(key) // args[1] reused as period value
+		if err != nil {
+			return protocol.MakeErrReply("ERR value is not an integer or out of range")
+		}
+		hllDebugPeriod = n
+		return protocol.MakeOkReply()
 	default:
 		return protocol.MakeErrReply("ERR Unknown PFDEBUG subcommand '" + string(args[0]) + "'")
 	}
 }
+
+// hllDebugPeriod is accepted by PFDEBUG PERIOD (compat stub; dense HLL ignores it).
+var hllDebugPeriod = 0
 
 // preparePFMerge prepares keys for PFMERGE
 func preparePFMerge(args [][]byte) ([]string, []string) {

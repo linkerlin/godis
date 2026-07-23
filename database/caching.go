@@ -37,6 +37,10 @@ type ClientCache struct {
 	// No-loop flags per client
 	noLoop map[string]bool
 
+	// OPTIN/OPTOUT one-shot directives from CLIENT CACHING YES|NO
+	cachingOptInNext  map[string]bool
+	cachingOptOutNext map[string]bool
+
 	// Stats
 	trackingClientsCount int
 	invalidationMsgsSent uint64
@@ -55,6 +59,8 @@ var clientCache = &ClientCache{
 	connections:          make(map[string]redis.Connection),
 	redirects:            make(map[string]string),
 	noLoop:               make(map[string]bool),
+	cachingOptInNext:     make(map[string]bool),
+	cachingOptOutNext:    make(map[string]bool),
 	trackingClientsCount: 0,
 	invalidationMsgsSent: 0,
 }
@@ -114,6 +120,8 @@ func DisableTracking(clientID string) {
 	delete(clientCache.connections, clientID)
 	delete(clientCache.redirects, clientID)
 	delete(clientCache.noLoop, clientID)
+	delete(clientCache.cachingOptInNext, clientID)
+	delete(clientCache.cachingOptOutNext, clientID)
 
 	// Update stats
 	clientCache.trackingClientsCount--
@@ -122,6 +130,19 @@ func DisableTracking(clientID string) {
 	if queue, ok := clientCache.invalidationQueues[clientID]; ok {
 		close(queue)
 		delete(clientCache.invalidationQueues, clientID)
+	}
+}
+
+// SetCachingDirective records CLIENT CACHING YES|NO for OPTIN/OPTOUT modes.
+func SetCachingDirective(clientID string, yes bool) {
+	clientCache.mu.Lock()
+	defer clientCache.mu.Unlock()
+	if yes {
+		clientCache.cachingOptInNext[clientID] = true
+		delete(clientCache.cachingOptOutNext, clientID)
+	} else {
+		clientCache.cachingOptOutNext[clientID] = true
+		delete(clientCache.cachingOptInNext, clientID)
 	}
 }
 
@@ -136,9 +157,17 @@ func TrackKey(clientID string, key string) {
 
 	mode := clientCache.trackingMode[clientID]
 
-	// OPTIN requires explicit CLIENT CACHING YES; without it, don't track.
+	// OPTIN requires CLIENT CACHING YES for the next command.
 	if mode == "optin" {
-		return
+		if !clientCache.cachingOptInNext[clientID] {
+			return
+		}
+	}
+	// OPTOUT: CLIENT CACHING NO skips tracking for the next command.
+	if mode == "optout" {
+		if clientCache.cachingOptOutNext[clientID] {
+			return
+		}
 	}
 
 	// Check prefix match for BCAST mode
@@ -170,6 +199,11 @@ func TrackKey(clientID string, key string) {
 
 // InvalidateKey invalidates a key for all tracking clients
 func InvalidateKey(key string) {
+	InvalidateKeyFrom(key, "")
+}
+
+// InvalidateKeyFrom invalidates a key; writerID with NOLOOP skips self-invalidation.
+func InvalidateKeyFrom(key string, writerID string) {
 	clientCache.mu.RLock()
 	clients := clientCache.keyClients[key]
 	clientCache.mu.RUnlock()
@@ -183,7 +217,12 @@ func InvalidateKey(key string) {
 		clientCache.mu.RLock()
 		queue, ok := clientCache.invalidationQueues[clientID]
 		mode := clientCache.trackingMode[clientID]
+		noloop := clientCache.noLoop[clientID]
 		clientCache.mu.RUnlock()
+
+		if writerID != "" && noloop && clientID == writerID {
+			continue
+		}
 
 		if ok {
 			select {
@@ -205,6 +244,9 @@ func InvalidateKey(key string) {
 	clientCache.mu.Lock()
 	if keyClients := clientCache.keyClients[key]; keyClients != nil {
 		for clientID := range keyClients {
+			if writerID != "" && clientCache.noLoop[clientID] && clientID == writerID {
+				continue
+			}
 			if clientCache.trackingMode[clientID] != "bcast" {
 				delete(keyClients, clientID)
 			}
@@ -218,8 +260,13 @@ func InvalidateKey(key string) {
 
 // InvalidateKeysOnWrite invalidates multiple keys after write
 func InvalidateKeysOnWrite(keys []string) {
+	InvalidateKeysOnWriteFrom(keys, "")
+}
+
+// InvalidateKeysOnWriteFrom invalidates keys after a write by writerID.
+func InvalidateKeysOnWriteFrom(keys []string, writerID string) {
 	for _, key := range keys {
-		InvalidateKey(key)
+		InvalidateKeyFrom(key, writerID)
 	}
 }
 
@@ -292,6 +339,12 @@ func TrackKeysOnRead(clientID string, keys []string) {
 	for _, key := range keys {
 		TrackKey(clientID, key)
 	}
+
+	// Consume one-shot CACHING YES/NO after this command.
+	clientCache.mu.Lock()
+	delete(clientCache.cachingOptInNext, clientID)
+	delete(clientCache.cachingOptOutNext, clientID)
+	clientCache.mu.Unlock()
 }
 
 // generateClientID generates a unique client ID
@@ -310,12 +363,12 @@ func GetTrackingInfo(clientID string) map[string]interface{} {
 	}
 
 	return map[string]interface{}{
-		"enabled":   clientCache.trackingEnabled[clientID],
-		"mode":      clientCache.trackingMode[clientID],
-		"prefixes":  clientCache.prefixes[clientID],
-		"keys":      len(clientCache.trackedKeys[clientID]),
-		"redirect":  redirect,
-		"noloop":    clientCache.noLoop[clientID],
+		"enabled":  clientCache.trackingEnabled[clientID],
+		"mode":     clientCache.trackingMode[clientID],
+		"prefixes": clientCache.prefixes[clientID],
+		"keys":     len(clientCache.trackedKeys[clientID]),
+		"redirect": redirect,
+		"noloop":   clientCache.noLoop[clientID],
 	}
 }
 

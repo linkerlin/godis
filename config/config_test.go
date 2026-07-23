@@ -8,7 +8,7 @@ import (
 func TestParse(t *testing.T) {
 	src := "bind 0.0.0.0\n" +
 		"port 6399\n" +
-		"appendonly yes\n" +
+		"appendonly true\n" +
 		"search-backend sqlite\n" +
 		"vector-backend sqlite\n" +
 		"peers a,b"

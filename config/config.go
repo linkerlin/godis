@@ -101,12 +101,12 @@ func init() {
 
 	// default config
 	Properties = &ServerProperties{
-		Bind:       "127.0.0.1",
-		Port:       6379,
-		AppendOnly: false,
+		Bind:          "127.0.0.1",
+		Port:          6379,
+		AppendOnly:    false,
 		SearchBackend: "native",
 		VectorBackend: "native",
-		RunID:      utils.RandString(40),
+		RunID:         utils.RandString(40),
 	}
 }
 
@@ -160,8 +160,10 @@ func parse(src io.Reader) (*ServerProperties, error) {
 					fieldVal.SetInt(intValue)
 				}
 			case reflect.Bool:
-				boolValue := "yes" == value
-				fieldVal.SetBool(boolValue)
+				ok, boolValue := ParseConfigBool(value)
+				if ok {
+					fieldVal.SetBool(boolValue)
+				}
 			case reflect.Slice:
 				if field.Type.Elem().Kind() == reflect.String {
 					slice := strings.Split(value, ",")
@@ -200,4 +202,17 @@ func SetupConfig(configFilename string) error {
 
 func GetTmpDir() string {
 	return Properties.Dir + "/tmp"
+}
+
+// ParseConfigBool parses Redis-style config booleans.
+// Accepts yes/on/true/1 and no/off/false/0 (case-insensitive).
+func ParseConfigBool(value string) (ok bool, result bool) {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "yes", "on", "true", "1":
+		return true, true
+	case "no", "off", "false", "0":
+		return true, false
+	default:
+		return false, false
+	}
 }

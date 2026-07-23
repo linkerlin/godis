@@ -39,7 +39,7 @@ func execClientConn(c redis.Connection, db *DB, args [][]byte) redis.Reply {
 	case "TRACKING":
 		return execClientTrackingConn(c, args[1:])
 	case "CACHING":
-		return execClientCaching(args[1:])
+		return execClientCachingConn(c, args[1:])
 	case "GETREDIR":
 		return execClientGetRedir(args[1:])
 	case "TRACKINGINFO":
@@ -205,7 +205,11 @@ func applyCacheHooks(c redis.Connection, cmdName string, write, read []string, f
 		return
 	}
 	if len(write) > 0 && !isReadOnlyCommand(cmdName) {
-		InvalidateKeysOnWrite(write)
+		writerID := ""
+		if c != nil {
+			writerID = c.GetTrackingID()
+		}
+		InvalidateKeysOnWriteFrom(write, writerID)
 	}
 	if c == nil || len(read) == 0 || !isReadOnlyCommand(cmdName) {
 		return

@@ -16,6 +16,7 @@
 | RediSearch (FT.*) | 中–高 | SEARCH/AGGREGATE/ALIAS/ALTER/EXPLAIN/CONFIG/PROFILE 等 |
 | 集群 (CLUSTER *) | 低–中 | 槽位算法与官方不兼容（**延期**）；子集命令 |
 | ACL / 安全 | 中–高 | ACL 引擎；`aclfile` 配置项尚未实现 |
+| 配置 | 中–高 | 布尔 yes/true/1…；CONFIG SET 含 appendonly/maxmemory 等；eviction 未实现 |
 | 概率数据结构 (BF/CF/CMS…) | 中–高 | 见 `database/probabilistic.go` |
 
 ## 已知差异（抽样，以代码为准）

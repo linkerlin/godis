@@ -41,14 +41,19 @@ func (p *Persister) RunRewriteAsync() error {
 }
 
 // RunGenerateRDBAsync generates an RDB snapshot in the background.
-func (p *Persister) RunGenerateRDBAsync(rdbFilename string) error {
+// onDone is called with the error result (nil on success) after the job finishes.
+func (p *Persister) RunGenerateRDBAsync(rdbFilename string, onDone func(error)) error {
 	if err := p.acquireRewriteSlot(); err != nil {
 		return err
 	}
 	go func() {
 		defer p.releaseRewriteSlot()
-		if err := p.generateRDBToFile(rdbFilename); err != nil {
+		err := p.generateRDBToFile(rdbFilename)
+		if err != nil {
 			logger.Errorf("background RDB save failed: %v", err)
+		}
+		if onDone != nil {
+			onDone(err)
 		}
 	}()
 	return nil

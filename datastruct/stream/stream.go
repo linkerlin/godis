@@ -613,8 +613,9 @@ func (s *Stream) Claim(groupName, consumerName string, minIdleTime time.Duration
 }
 
 // AutoClaim 自动认领待处理条目（按 ID 升序）
+// minID 非 nil 时：将 PEL 中 ID < *minID 的条目直接清除并记入 deleted。
 // 返回：认领到的条目、PEL 中已删消息的 ID、下一游标（无更多则为 0-0）
-func (s *Stream) AutoClaim(groupName, consumerName string, minIdleTime time.Duration, start StreamID, count int) ([]*StreamEntry, []StreamID, StreamID, error) {
+func (s *Stream) AutoClaim(groupName, consumerName string, minIdleTime time.Duration, start StreamID, count int, minID *StreamID) ([]*StreamEntry, []StreamID, StreamID, error) {
 	group, err := s.GetGroup(groupName)
 	if err != nil {
 		return nil, nil, StreamID{}, err
@@ -626,6 +627,22 @@ func (s *Stream) AutoClaim(groupName, consumerName string, minIdleTime time.Dura
 	consumer := group.GetConsumer(consumerName)
 	consumer.SeenTime = time.Now()
 	now := time.Now()
+
+	var deleted []StreamID
+	if minID != nil {
+		for id, pending := range group.Pending {
+			if id.Compare(*minID) >= 0 {
+				continue
+			}
+			if pending.Consumer != "" {
+				if raw, ok := group.Consumers.Get(pending.Consumer); ok {
+					delete(raw.(*Consumer).Pending, id)
+				}
+			}
+			delete(group.Pending, id)
+			deleted = append(deleted, id)
+		}
+	}
 
 	type cand struct {
 		id      StreamID
@@ -650,7 +667,6 @@ func (s *Stream) AutoClaim(groupName, consumerName string, minIdleTime time.Dura
 	}
 
 	var result []*StreamEntry
-	var deleted []StreamID
 	nextID := StreamID{}
 	claimed := 0
 	for _, c := range candidates {
