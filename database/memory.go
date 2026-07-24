@@ -36,7 +36,7 @@ func execMemory(server *Server, c redis.Connection, args [][]byte) redis.Reply {
 	case "MALLOC-STATS":
 		return protocol.MakeBulkReply([]byte("Stats not available in Go runtime"))
 	default:
-		return protocol.MakeErrReply(fmt.Sprintf("ERR Unknown subcommand '%s'", subCmd))
+		return protocol.MakeErrReply(fmt.Sprintf("ERR Unknown subcommand or wrong number of arguments for '%s'", subCmd))
 	}
 }
 

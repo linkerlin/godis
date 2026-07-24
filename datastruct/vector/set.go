@@ -23,6 +23,7 @@ type SearchResult struct {
 	Score      float32 // Similarity score (higher is more similar for cosine)
 	Distance   float32 // For distance-based metrics
 	Metadata   map[string]string
+	Attributes string // Redis VSETATTR JSON
 }
 
 // VectorSet is a collection of vectors supporting similarity search
@@ -190,11 +191,12 @@ func (vs *VectorSet) SearchWithMetric(query *Vector, k int, metric SearchMetric)
 		}
 		
 		result := &SearchResult{
-			ID:       id,
-			Vector:   item.Vector,
-			Score:    score,
-			Distance: distance,
-			Metadata: item.Metadata,
+			ID:         id,
+			Vector:     item.Vector,
+			Score:      score,
+			Distance:   distance,
+			Metadata:   item.Metadata,
+			Attributes: item.Attributes,
 		}
 		
 		if h.Len() < k {

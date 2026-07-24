@@ -226,6 +226,18 @@ func appendDumpFooter(obj []byte) []byte {
 	return out
 }
 
+// cloneDataEntity returns an independent copy of entity (for COPY/MOVE).
+func cloneDataEntity(entity *database.DataEntity) (*database.DataEntity, error) {
+	if entity == nil {
+		return nil, errDumpUnsupported("nil entity")
+	}
+	payload, err := encodeDumpPayload(entity)
+	if err != nil {
+		return nil, err
+	}
+	return decodeDumpPayload(payload)
+}
+
 func writeEntityToRDB(enc *rdbenc.Encoder, key string, entity *database.DataEntity) error {
 	switch val := entity.Data.(type) {
 	case []byte:

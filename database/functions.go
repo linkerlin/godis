@@ -14,25 +14,39 @@ var funcEngine *functions.Engine
 
 // InitFunctionsEngine initializes the functions engine
 func InitFunctionsEngine(db *DB) {
-	funcEngine = functions.NewEngine(10)
-
-	// Set up database execution function for Lua scripts
-	if db != nil {
-		dbExec := func(cmd string, args ...string) (interface{}, error) {
-			cmdLine := make([][]byte, 0, len(args)+1)
-			cmdLine = append(cmdLine, []byte(cmd))
-			for _, arg := range args {
-				cmdLine = append(cmdLine, []byte(arg))
-			}
-
-			result := db.Exec(nil, cmdLine)
-			if errReply, ok := result.(*protocol.StandardErrReply); ok {
-				return nil, fmt.Errorf("%s", errReply.Status)
-			}
-			return redisReplyToGo(result), nil
+	funcDB = db
+	if funcEngine != nil {
+		if db != nil {
+			funcEngine.SetDBExec(makeFuncDBExec())
 		}
+		return
+	}
+	funcEngine = functions.NewEngine(10)
+	if db != nil {
+		funcEngine.SetDBExec(makeFuncDBExec())
+	}
+}
 
-		funcEngine.SetDBExec(dbExec)
+// funcDB is the DB currently executing FCALL (redis.call target).
+var funcDB *DB
+
+func makeFuncDBExec() func(cmd string, args ...string) (interface{}, error) {
+	return func(cmd string, args ...string) (interface{}, error) {
+		cmdLine := make([][]byte, 0, len(args)+1)
+		cmdLine = append(cmdLine, []byte(cmd))
+		for _, arg := range args {
+			cmdLine = append(cmdLine, []byte(arg))
+		}
+		target := funcDB
+		if target == nil {
+			return nil, fmt.Errorf("ERR functions engine not bound to a database")
+		}
+		// Nested redis.call must not re-lock (FCALL holds keys via prepare).
+		result := target.execWithLock(nil, cmdLine)
+		if errReply, ok := result.(*protocol.StandardErrReply); ok {
+			return nil, fmt.Errorf("%s", errReply.Status)
+		}
+		return redisReplyToGo(result), nil
 	}
 }
 
@@ -323,6 +337,10 @@ func execFCallInternal(db *DB, args [][]byte, readonly bool) redis.Reply {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'fcall' command")
 	}
 
+	funcDB = db
+	if funcEngine == nil {
+		InitFunctionsEngine(db)
+	}
 	if funcEngine == nil {
 		return protocol.MakeErrReply("ERR Redis Functions not enabled")
 	}

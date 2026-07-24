@@ -195,12 +195,13 @@ func (cg *ConsumerGroup) DeleteConsumer(name string) (int, error) {
 
 // Stream 流数据结构
 type Stream struct {
-	mu           sync.RWMutex
-	entries      *dict.ConcurrentDict // StreamID.String() -> *StreamEntry
-	groups       *dict.ConcurrentDict // group name -> *ConsumerGroup
-	lastID       StreamID
-	maxlen       int64 // 最大长度限制
-	entriesAdded int64 // 总添加条目数 (用于 XINFO)
+	mu             sync.RWMutex
+	entries        *dict.ConcurrentDict // StreamID.String() -> *StreamEntry
+	groups         *dict.ConcurrentDict // group name -> *ConsumerGroup
+	lastID         StreamID
+	maxlen         int64    // 最大长度限制
+	entriesAdded   int64    // 总添加条目数 (用于 XINFO)
+	maxDeletedID   StreamID // XSETID MAXDELETEDID
 }
 
 // NewStream 创建新的Stream
@@ -391,6 +392,20 @@ func (s *Stream) SetEntriesAdded(n int64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.entriesAdded = n
+}
+
+// SetMaxDeletedID sets max-deleted-entry-id (XSETID MAXDELETEDID)
+func (s *Stream) SetMaxDeletedID(id StreamID) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.maxDeletedID = id
+}
+
+// GetMaxDeletedID returns max-deleted-entry-id
+func (s *Stream) GetMaxDeletedID() StreamID {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.maxDeletedID
 }
 
 // GetEntriesAdded returns entries-added counter
@@ -718,7 +733,7 @@ func (s *Stream) GetInfo() map[string]interface{} {
 	info["radix-tree-keys"] = s.entries.Len()      // 简化
 	info["radix-tree-nodes"] = s.entries.Len() * 2 // 简化
 	info["last-generated-id"] = s.lastID.String()
-	info["max-deleted-entry-id"] = "0-0" // 简化
+	info["max-deleted-entry-id"] = s.maxDeletedID.String()
 	info["entries-added"] = s.entriesAdded
 	info["recorded-first-entry-id"] = s.lastID.String() // 简化
 

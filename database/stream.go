@@ -913,6 +913,7 @@ func execXSetID(db *DB, args [][]byte) redis.Reply {
 		return protocol.MakeErrReply("ERR The ID specified in XSETID is smaller than the current top-level ID")
 	}
 	entriesAdded := int64(-1)
+	var maxDeleted *stream.StreamID
 	for i := 2; i < len(args); {
 		opt := strings.ToUpper(string(args[i]))
 		switch opt {
@@ -930,10 +931,11 @@ func execXSetID(db *DB, args [][]byte) redis.Reply {
 			if i+1 >= len(args) {
 				return protocol.MakeSyntaxErrReply()
 			}
-			// accepted for compatibility; not persisted yet
-			if _, err := stream.ParseStreamID(string(args[i+1]), stream.StreamID{}); err != nil {
+			id, err := stream.ParseStreamID(string(args[i+1]), stream.StreamID{})
+			if err != nil {
 				return protocol.MakeErrReply("ERR Invalid stream ID")
 			}
+			maxDeleted = &id
 			i += 2
 		default:
 			return protocol.MakeSyntaxErrReply()
@@ -942,6 +944,9 @@ func execXSetID(db *DB, args [][]byte) redis.Reply {
 	s.SetLastID(newID)
 	if entriesAdded >= 0 {
 		s.SetEntriesAdded(entriesAdded)
+	}
+	if maxDeleted != nil {
+		s.SetMaxDeletedID(*maxDeleted)
 	}
 	db.addAof(utils.ToCmdLine3("xsetid", args...))
 	return protocol.MakeOkReply()

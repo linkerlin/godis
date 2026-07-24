@@ -476,7 +476,11 @@ func execCopy(mdb *Server, conn redis.Connection, args [][]byte) redis.Reply {
 		}
 	}
 
-	destDB.PutEntity(destKey, src)
+	cloned, err := cloneDataEntity(src)
+	if err != nil {
+		return protocol.MakeErrReply("ERR COPY failed: " + err.Error())
+	}
+	destDB.PutEntity(destKey, cloned)
 	raw, exists := db.ttlMap.Get(srcKey)
 	if exists {
 		expire := raw.(time.Time)
@@ -530,8 +534,12 @@ func (mdb *Server) execMove(conn redis.Connection, args [][]byte) redis.Reply {
 		return protocol.MakeIntReply(0)
 	}
 
-	// Move the key
-	destDB.PutEntity(srcKey, entity)
+	// Move the key (deep copy then delete source)
+	cloned, cloneErr := cloneDataEntity(entity)
+	if cloneErr != nil {
+		return protocol.MakeErrReply("ERR MOVE failed: " + cloneErr.Error())
+	}
+	destDB.PutEntity(srcKey, cloned)
 	raw, hasTTL := srcDB.ttlMap.Get(srcKey)
 	if hasTTL {
 		expire := raw.(time.Time)

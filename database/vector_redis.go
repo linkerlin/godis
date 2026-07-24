@@ -82,6 +82,7 @@ func execVSim(db *DB, args [][]byte) redis.Reply {
 	key := string(args[0])
 	count := 10
 	withScores := false
+	withAttribs := false
 	var floats []float64
 	var ele string
 	i := 1
@@ -127,6 +128,9 @@ func execVSim(db *DB, args [][]byte) redis.Reply {
 		case "WITHSCORES":
 			withScores = true
 			i++
+		case "WITHATTRIBS":
+			withAttribs = true
+			i++
 		case "EPSILON", "EF", "FILTER":
 			if i+1 >= len(args) {
 				return protocol.MakeSyntaxErrReply()
@@ -160,26 +164,28 @@ func execVSim(db *DB, args [][]byte) redis.Reply {
 	} else {
 		return protocol.MakeErrReply("ERR VSIM requires VALUES or ELE")
 	}
-	return formatVSimResults(results, withScores)
+	return formatVSimResults(results, withScores, withAttribs)
 }
 
-func formatVSimResults(results []*vector.SearchResult, withScores bool) redis.Reply {
+func formatVSimResults(results []*vector.SearchResult, withScores, withAttribs bool) redis.Reply {
 	if len(results) == 0 {
 		return protocol.MakeEmptyMultiBulkReply()
 	}
-	if withScores {
-		out := make([][]byte, 0, len(results)*2)
-		for _, r := range results {
-			out = append(out, []byte(r.ID))
+	out := make([][]byte, 0, len(results)*3)
+	for _, r := range results {
+		out = append(out, []byte(r.ID))
+		if withScores {
 			out = append(out, []byte(strconv.FormatFloat(float64(r.Score), 'f', -1, 32)))
 		}
-		return protocol.MakeMultiBulkReply(out)
+		if withAttribs {
+			if r.Attributes != "" {
+				out = append(out, []byte(r.Attributes))
+			} else {
+				out = append(out, nil) // null bulk in MultiBulkReply
+			}
+		}
 	}
-	ids := make([][]byte, 0, len(results))
-	for _, r := range results {
-		ids = append(ids, []byte(r.ID))
-	}
-	return protocol.MakeMultiBulkReply(ids)
+	return protocol.MakeMultiBulkReply(out)
 }
 
 func execVRem(db *DB, args [][]byte) redis.Reply {

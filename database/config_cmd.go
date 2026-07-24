@@ -35,7 +35,7 @@ func (server *Server) execConfig(args [][]byte) redis.Reply {
 	case "REWRITE":
 		return protocol.MakeOkReply()
 	default:
-		return protocol.MakeErrReply(fmt.Sprintf("ERR Unknown subcommand '%s'", subCmd))
+		return protocol.MakeErrReply(fmt.Sprintf("ERR Unknown subcommand or wrong number of arguments for '%s'", subCmd))
 	}
 }
 
