@@ -28,7 +28,7 @@ import (
 )
 
 var (
-	unknownErrReplyBytes = []byte("-ERR unknown\r\n")
+	unknownErrReplyBytes = []byte("-ERR unknown error\r\n")
 )
 
 // Handler implements tcp.Handler and serves as a redis server

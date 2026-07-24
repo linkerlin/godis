@@ -373,6 +373,27 @@ func (server *Server) execReplConf(c redis.Connection, args [][]byte) redis.Repl
 				slave.lastAckTime = time.Now()
 			}
 			return &protocol.NoReply{}
+		case "listening-port":
+			if slave != nil {
+				port, err := strconv.Atoi(value)
+				if err != nil {
+					return protocol.MakeErrReply("ERR value is not an integer or out of range")
+				}
+				slave.announcePort = port
+			}
+		case "ip-address":
+			if slave != nil {
+				slave.announceIp = value
+			}
+		case "capa":
+			if slave != nil {
+				switch strings.ToLower(value) {
+				case "eof":
+					slave.capacity |= slaveCapacityEOF
+				case "psync2":
+					slave.capacity |= slaveCapacityPsync2
+				}
+			}
 		}
 	}
 	return protocol.MakeOkReply()

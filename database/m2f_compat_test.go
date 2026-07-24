@@ -75,7 +75,7 @@ func TestM2fEasyCompatFixes(t *testing.T) {
 	if godisVersion != "8.0.0" {
 		t.Fatalf("godisVersion=%s want 8.0.0", godisVersion)
 	}
-	if (&protocol.UnknownErrReply{}).Error() != "ERR unknown" {
+	if (&protocol.UnknownErrReply{}).Error() != "ERR unknown error" {
 		t.Fatalf("UnknownErrReply: %s", (&protocol.UnknownErrReply{}).Error())
 	}
 }

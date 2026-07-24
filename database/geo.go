@@ -213,7 +213,9 @@ func execGeoHash(db *DB, args [][]byte) redis.Reply {
 		return errReply
 	}
 	if sortedSet == nil {
-		return &protocol.NullBulkReply{}
+		// Missing key: one nil per requested member (Redis GEOHASH).
+		strs := make([][]byte, len(args)-1)
+		return protocol.MakeMultiBulkReply(strs)
 	}
 
 	strs := make([][]byte, len(args)-1)
@@ -221,7 +223,7 @@ func execGeoHash(db *DB, args [][]byte) redis.Reply {
 		member := string(args[i+1])
 		elem, exists := sortedSet.Get(member)
 		if !exists {
-			strs[i] = (&protocol.EmptyMultiBulkReply{}).ToBytes()
+			strs[i] = nil
 			continue
 		}
 		str := geohash.ToString(geohash.FromInt(uint64(elem.Score)))
@@ -243,7 +245,7 @@ func execGeoRadius(db *DB, args [][]byte) redis.Reply {
 		return errReply
 	}
 	if sortedSet == nil {
-		return &protocol.NullBulkReply{}
+		return protocol.MakeEmptyMultiBulkReply()
 	}
 
 	lng, err := strconv.ParseFloat(string(args[1]), 64)
@@ -279,7 +281,7 @@ func execGeoRadiusByMember(db *DB, args [][]byte) redis.Reply {
 		return errReply
 	}
 	if sortedSet == nil {
-		return &protocol.NullBulkReply{}
+		return protocol.MakeEmptyMultiBulkReply()
 	}
 
 	member := string(args[1])
@@ -469,10 +471,6 @@ func execGeoSearch(db *DB, args [][]byte) redis.Reply {
 	allMembers := sortedSet.RangeByRank(0, sortedSet.Len(), false)
 
 	for _, elem := range allMembers {
-		if elem.Member == member && useMember {
-			continue
-		}
-
 		mLat, mLon := extractGeoHash(elem.Score)
 
 		var include bool

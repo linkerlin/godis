@@ -112,20 +112,24 @@ func TestM2mXReadGroupHistoryAndXPendingIdle(t *testing.T) {
 
 	time.Sleep(5 * time.Millisecond)
 	detail := db.Exec(nil, utils.ToCmdLine("XPENDING", key, "g", "IDLE", "0", "0-0", entryID, "10"))
-	dm, ok := detail.(*protocol.MultiBulkReply)
-	if !ok || len(dm.Args) < 4 {
+	dm, ok := detail.(*protocol.MultiRawReply)
+	if !ok || len(dm.Replies) < 1 {
 		t.Fatalf("XPENDING IDLE: %s", detail.ToBytes())
 	}
-	if string(dm.Args[0]) != entryID {
-		t.Fatalf("XPENDING id: got %q want %q", dm.Args[0], entryID)
+	row, ok := dm.Replies[0].(*protocol.MultiBulkReply)
+	if !ok || len(row.Args) < 4 {
+		t.Fatalf("XPENDING IDLE row: %s", detail.ToBytes())
+	}
+	if string(row.Args[0]) != entryID {
+		t.Fatalf("XPENDING id: got %q want %q", row.Args[0], entryID)
 	}
 
 	filtered := db.Exec(nil, utils.ToCmdLine("XPENDING", key, "g", "IDLE", "999999999", "0-0", entryID, "10"))
-	fm, ok := filtered.(*protocol.MultiBulkReply)
+	fm, ok := filtered.(*protocol.MultiRawReply)
 	if !ok {
 		t.Fatalf("XPENDING high IDLE: %T", filtered)
 	}
-	if len(fm.Args) != 0 {
+	if len(fm.Replies) != 0 {
 		t.Fatalf("expected empty pending for high IDLE, got %s", filtered.ToBytes())
 	}
 }

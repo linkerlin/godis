@@ -40,7 +40,7 @@ func TestStreamConsumerGroupWorkflow(t *testing.T) {
 	}
 
 	detail := db.Exec(nil, utils.ToCmdLine("XPENDING", key, "g1", "0-0", entryID, "10"))
-	if _, ok := detail.(*protocol.MultiBulkReply); !ok {
+	if _, ok := detail.(*protocol.MultiRawReply); !ok {
 		t.Fatalf("XPENDING detail: got %s", detail.ToBytes())
 	}
 

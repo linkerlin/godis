@@ -320,10 +320,19 @@ parseStreams:
 			if len(entries) > 0 {
 				hasData = true
 
-				// 添加到pending（除非NOACK）
+				// 添加到pending（除非NOACK）；历史重读递增 DeliveryCount
 				if !noAck {
 					now := time.Now()
+					historyReread := id != ">" && id != "$"
 					for _, entry := range entries {
+						if historyReread {
+							if pe, ok := consumer.Pending[entry.ID]; ok {
+								pe.DeliveryCount++
+								pe.DeliveryTime = now
+								group.Pending[entry.ID] = pe
+								continue
+							}
+						}
 						consumer.Pending[entry.ID] = &stream.PendingEntry{
 							ID:            entry.ID,
 							Consumer:      consumerName,
@@ -705,12 +714,12 @@ func execXPending(db *DB, args [][]byte) redis.Reply {
 		return protocol.MakeSyntaxErrReply()
 	}
 
-	startID, err := stream.ParseStreamID(string(rest[idx]), stream.StreamID{})
+	startID, err := parseStreamRangeBound(string(rest[idx]))
 	if err != nil {
 		return protocol.MakeErrReply("ERR Invalid stream ID")
 	}
 
-	endID, err := stream.ParseStreamID(string(rest[idx+1]), stream.StreamID{})
+	endID, err := parseStreamRangeBound(string(rest[idx+1]))
 	if err != nil {
 		return protocol.MakeErrReply("ERR Invalid stream ID")
 	}
@@ -751,7 +760,7 @@ func execXPending(db *DB, args [][]byte) redis.Reply {
 		return rows[i].id.Compare(rows[j].id) < 0
 	})
 
-	var result [][]byte
+	replies := make([]redis.Reply, 0, len(rows))
 	for i, row := range rows {
 		if i >= count {
 			break
@@ -760,13 +769,27 @@ func execXPending(db *DB, args [][]byte) redis.Reply {
 		if idleMs < 0 {
 			idleMs = 0
 		}
-		result = append(result, []byte(row.id.String()))
-		result = append(result, []byte(row.pending.Consumer))
-		result = append(result, []byte(strconv.FormatInt(idleMs, 10)))
-		result = append(result, []byte(strconv.Itoa(row.pending.DeliveryCount)))
+		replies = append(replies, protocol.MakeMultiBulkReply([][]byte{
+			[]byte(row.id.String()),
+			[]byte(row.pending.Consumer),
+			[]byte(strconv.FormatInt(idleMs, 10)),
+			[]byte(strconv.Itoa(row.pending.DeliveryCount)),
+		}))
 	}
 
-	return protocol.MakeMultiBulkReply(result)
+	return protocol.MakeMultiRawReply(replies)
+}
+
+// parseStreamRangeBound accepts Redis exclusive range markers "-" / "+" or full stream IDs.
+func parseStreamRangeBound(s string) (stream.StreamID, error) {
+	switch s {
+	case "-":
+		return stream.StreamID{}, nil
+	case "+":
+		return stream.StreamID{Timestamp: 1<<63 - 1, Sequence: 1<<63 - 1}, nil
+	default:
+		return stream.ParseStreamID(s, stream.StreamID{})
+	}
 }
 
 // execXGroupCreateConsumer 创建消费者
