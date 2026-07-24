@@ -836,7 +836,7 @@ func execXTrim(db *DB, args [][]byte) redis.Reply {
 // execXGroup handles XGROUP subcommands
 // XGROUP [CREATE key groupname id|$ [MKSTREAM] [ENTRIESREAD entries-read]]
 //
-//	[DESTROY key groupname] [SETID key groupname id|$]
+//	[DESTROY key groupname] [SETID key groupname id|$ [ENTRIESREAD entries-read]]
 func execXGroup(db *DB, args [][]byte) redis.Reply {
 	if len(args) < 1 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'xgroup' command")
@@ -856,7 +856,7 @@ func execXGroup(db *DB, args [][]byte) redis.Reply {
 		}
 		return execXGroupDestroy(db, args[1:])
 	case "SETID":
-		if len(args) != 4 {
+		if len(args) < 4 {
 			return protocol.MakeErrReply("ERR wrong number of arguments for 'xgroup|setid' command")
 		}
 		return execXGroupSetID(db, args[1:])
@@ -878,14 +878,37 @@ func execXGroup(db *DB, args [][]byte) redis.Reply {
 }
 
 // execXGroupSetID sets the ID of a consumer group
-// XGROUP SETID key groupname id|$
+// XGROUP SETID key groupname id|$ [ENTRIESREAD entries-read]
+// Does not clear the PEL (Redis-compatible).
 func execXGroupSetID(db *DB, args [][]byte) redis.Reply {
+	if len(args) < 3 {
+		return protocol.MakeErrReply("ERR wrong number of arguments for 'xgroup' command")
+	}
 	if reply := validateKeyBytes(args[0]); reply != nil {
 		return reply
 	}
 	key := string(args[0])
 	groupName := string(args[1])
 	newID := string(args[2])
+
+	entriesRead := int64(-1)
+	for i := 3; i < len(args); i++ {
+		arg := strings.ToUpper(string(args[i]))
+		switch arg {
+		case "ENTRIESREAD":
+			if i+1 >= len(args) {
+				return protocol.MakeSyntaxErrReply()
+			}
+			er, err := strconv.ParseInt(string(args[i+1]), 10, 64)
+			if err != nil {
+				return protocol.MakeErrReply("ERR value is not an integer or out of range")
+			}
+			entriesRead = er
+			i++
+		default:
+			return protocol.MakeSyntaxErrReply()
+		}
+	}
 
 	s, errReply := db.getAsStream(key)
 	if errReply != nil {
@@ -895,16 +918,13 @@ func execXGroupSetID(db *DB, args [][]byte) redis.Reply {
 		return protocol.MakeErrReply("ERR no such key")
 	}
 
-	// Get the group
 	group, err := s.GetGroup(groupName)
 	if err != nil {
 		return protocol.MakeErrReply("ERR No such consumer group '" + groupName + "' for key name '" + key + "'")
 	}
 
-	// Parse new ID
 	var newStreamID stream.StreamID
 	if newID == "$" {
-		// Use last entry ID
 		newStreamID = s.GetLastID()
 	} else {
 		newStreamID, err = stream.ParseStreamID(newID, stream.StreamID{})
@@ -913,8 +933,10 @@ func execXGroupSetID(db *DB, args [][]byte) redis.Reply {
 		}
 	}
 
-	// Set new ID
 	group.LastID = newStreamID
+	if entriesRead >= 0 {
+		group.SetEntriesRead(entriesRead)
+	}
 
 	db.addAof(utils.ToCmdLine3("xgroup", append([][]byte{[]byte("setid")}, args...)...))
 	return protocol.MakeOkReply()
@@ -993,8 +1015,8 @@ func execXGroupHelp() redis.Reply {
 		"    Remove a consumer from the group.",
 		"DESTROY key groupname",
 		"    Remove a consumer group.",
-		"SETID key groupname id|$",
-		"    Set the current group ID.",
+		"SETID key groupname id|$ [ENTRIESREAD entries-read]",
+		"    Set the current group ID (does not clear PEL).",
 		"HELP",
 		"    Print this help.",
 	}

@@ -1,7 +1,10 @@
 package database
 
 import (
+	"encoding/json"
+	"errors"
 	"math/rand"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -83,6 +86,7 @@ func execVSim(db *DB, args [][]byte) redis.Reply {
 	count := 10
 	withScores := false
 	withAttribs := false
+	var filterExpr string
 	var floats []float64
 	var ele string
 	i := 1
@@ -131,7 +135,13 @@ func execVSim(db *DB, args [][]byte) redis.Reply {
 		case "WITHATTRIBS":
 			withAttribs = true
 			i++
-		case "EPSILON", "EF", "FILTER":
+		case "FILTER":
+			if i+1 >= len(args) {
+				return protocol.MakeSyntaxErrReply()
+			}
+			filterExpr = string(args[i+1])
+			i += 2
+		case "EPSILON", "EF":
 			if i+1 >= len(args) {
 				return protocol.MakeSyntaxErrReply()
 			}
@@ -152,20 +162,97 @@ func execVSim(db *DB, args [][]byte) redis.Reply {
 		return &protocol.WrongTypeErrReply{}
 	}
 
+	searchLimit := count
+	if filterExpr != "" {
+		// Over-fetch then filter so COUNT still refers to matching hits.
+		searchLimit = vs.Len()
+		if searchLimit < count {
+			searchLimit = count
+		}
+	}
+
 	var results []*vector.SearchResult
 	if ele != "" {
 		item, found := vs.Get(ele)
 		if !found {
 			return protocol.MakeEmptyMultiBulkReply()
 		}
-		results = vs.SearchWithMetric(item.Vector, count, vector.CosineSimilarity)
+		results = vs.SearchWithMetric(item.Vector, searchLimit, vector.CosineSimilarity)
 	} else if floats != nil {
-		results = vs.SearchWithMetric(vector.NewVectorFromFloat64(floats), count, vector.CosineSimilarity)
+		results = vs.SearchWithMetric(vector.NewVectorFromFloat64(floats), searchLimit, vector.CosineSimilarity)
 	} else {
 		return protocol.MakeErrReply("ERR VSIM requires VALUES or ELE")
 	}
+
+	if filterExpr != "" {
+		filtered := make([]*vector.SearchResult, 0, len(results))
+		for _, r := range results {
+			ok, err := matchVSimAttrFilter(r.Attributes, filterExpr)
+			if err != nil {
+				return protocol.MakeErrReply("ERR invalid FILTER expression")
+			}
+			if ok {
+				filtered = append(filtered, r)
+			}
+		}
+		results = filtered
+		if len(results) > count {
+			results = results[:count]
+		}
+	}
 	return formatVSimResults(results, withScores, withAttribs)
 }
+
+var vsimFilterRE = regexp.MustCompile(`(?i)^\s*\.([A-Za-z_][\w]*)\s*(==|!=)\s*(.+?)\s*$`)
+
+// matchVSimAttrFilter supports a minimal Redis-like FILTER: `.field == "value"` / `.field == 1` / `!=`.
+func matchVSimAttrFilter(attrs, expr string) (bool, error) {
+	expr = strings.TrimSpace(expr)
+	if expr == "" {
+		return true, nil
+	}
+	m := vsimFilterRE.FindStringSubmatch(expr)
+	if m == nil {
+		return false, errInvalidVSimFilter
+	}
+	field, op, raw := m[1], m[2], strings.TrimSpace(m[3])
+	want := strings.Trim(raw, `"'`)
+
+	var obj map[string]interface{}
+	if attrs != "" {
+		if err := json.Unmarshal([]byte(attrs), &obj); err != nil {
+			return false, nil
+		}
+	}
+	got, exists := obj[field]
+	if !exists {
+		return op == "!=", nil
+	}
+	equal := false
+	switch v := got.(type) {
+	case string:
+		equal = v == want
+	case float64:
+		wf, err := strconv.ParseFloat(want, 64)
+		if err == nil {
+			equal = v == wf
+		} else {
+			equal = strconv.FormatFloat(v, 'f', -1, 64) == want
+		}
+	case bool:
+		equal = strings.EqualFold(strconv.FormatBool(v), want) ||
+			(want == "1" && v) || (want == "0" && !v)
+	default:
+		b, _ := json.Marshal(v)
+		equal = strings.Trim(string(b), `"`) == want
+	}
+	if op == "==" {
+		return equal, nil
+	}
+	return !equal, nil
+}
+
+var errInvalidVSimFilter = errors.New("invalid FILTER expression")
 
 func formatVSimResults(results []*vector.SearchResult, withScores, withAttribs bool) redis.Reply {
 	if len(results) == 0 {

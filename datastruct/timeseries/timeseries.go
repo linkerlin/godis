@@ -17,17 +17,53 @@ type Sample struct {
 
 // TimeSeries represents a time series with samples and retention
 type TimeSeries struct {
-	Key        string
-	Samples    []Sample
-	Retention  time.Duration // Retention period (0 = unlimited)
-	ChunkSize  int           // Number of samples per chunk
-	Labels     map[string]string
-	
+	Key       string
+	Samples   []Sample
+	Retention time.Duration // Retention period (0 = unlimited)
+	ChunkSize int           // Number of samples per chunk
+	Labels    map[string]string
+
+	// DuplicatePolicy controls same-timestamp inserts (Redis TS DUPLICATE_POLICY).
+	// Default is Block.
+	DuplicatePolicy DuplicatePolicy
+
 	// Aggregation rules
 	DownsampleRules []DownsampleRule
-	
-	mu         sync.RWMutex
+
+	mu            sync.RWMutex
 	lastTimestamp int64
+}
+
+// DuplicatePolicy is RedisTimeSeries duplicate timestamp policy.
+type DuplicatePolicy int
+
+const (
+	DupBlock DuplicatePolicy = iota // reject duplicate timestamps
+	DupFirst                        // keep existing
+	DupLast                         // overwrite with new
+	DupMin
+	DupMax
+	DupSum
+)
+
+// ParseDuplicatePolicy parses BLOCK/FIRST/LAST/MIN/MAX/SUM.
+func ParseDuplicatePolicy(s string) (DuplicatePolicy, error) {
+	switch strings.ToUpper(strings.TrimSpace(s)) {
+	case "BLOCK":
+		return DupBlock, nil
+	case "FIRST":
+		return DupFirst, nil
+	case "LAST":
+		return DupLast, nil
+	case "MIN":
+		return DupMin, nil
+	case "MAX":
+		return DupMax, nil
+	case "SUM":
+		return DupSum, nil
+	default:
+		return DupBlock, fmt.Errorf("unknown duplicate policy")
+	}
 }
 
 // DownsampleRule defines a downsample aggregation rule
@@ -67,17 +103,21 @@ func NewTimeSeries(key string, retention time.Duration) *TimeSeries {
 	}
 }
 
-// Add adds a sample to the time series
-// Returns the added timestamp
+// Add adds a sample using the series DuplicatePolicy.
 func (ts *TimeSeries) Add(timestamp int64, value float64) (int64, error) {
+	return ts.AddWithPolicy(timestamp, value, ts.DuplicatePolicy)
+}
+
+// AddWithPolicy adds a sample with an explicit duplicate policy (ON_DUPLICATE override).
+func (ts *TimeSeries) AddWithPolicy(timestamp int64, value float64, policy DuplicatePolicy) (int64, error) {
 	ts.mu.Lock()
 	defer ts.mu.Unlock()
-	
+
 	// If timestamp is 0, use current time
 	if timestamp == 0 {
 		timestamp = time.Now().UnixMilli()
 	}
-	
+
 	// Check if timestamp is in the past (before retention)
 	if ts.Retention > 0 {
 		cutoff := time.Now().Add(-ts.Retention).UnixMilli()
@@ -85,36 +125,58 @@ func (ts *TimeSeries) Add(timestamp int64, value float64) (int64, error) {
 			return 0, ErrTimestampTooOld
 		}
 	}
-	
+
 	// Insert sample maintaining sorted order
-	// For efficiency, assume mostly in-order insertions
-	if len(ts.Samples) == 0 || timestamp >= ts.lastTimestamp {
-		// Append at end
+	if len(ts.Samples) == 0 || timestamp > ts.lastTimestamp {
 		ts.Samples = append(ts.Samples, Sample{Timestamp: timestamp, Value: value})
 		ts.lastTimestamp = timestamp
+	} else if timestamp == ts.lastTimestamp {
+		if err := applyDuplicatePolicy(&ts.Samples[len(ts.Samples)-1], value, policy); err != nil {
+			return 0, err
+		}
 	} else {
-		// Binary search for insertion point
 		idx := sort.Search(len(ts.Samples), func(i int) bool {
 			return ts.Samples[i].Timestamp >= timestamp
 		})
-		
-		// Check for duplicate timestamp
+
 		if idx < len(ts.Samples) && ts.Samples[idx].Timestamp == timestamp {
-			// Update existing value
-			ts.Samples[idx].Value = value
+			if err := applyDuplicatePolicy(&ts.Samples[idx], value, policy); err != nil {
+				return 0, err
+			}
 			return timestamp, nil
 		}
-		
-		// Insert at idx
+
 		ts.Samples = append(ts.Samples, Sample{})
 		copy(ts.Samples[idx+1:], ts.Samples[idx:])
 		ts.Samples[idx] = Sample{Timestamp: timestamp, Value: value}
 	}
-	
-	// Apply retention policy
+
 	ts.applyRetention()
-	
 	return timestamp, nil
+}
+
+func applyDuplicatePolicy(sample *Sample, newVal float64, policy DuplicatePolicy) error {
+	switch policy {
+	case DupBlock:
+		return ErrDuplicateTimestamp
+	case DupFirst:
+		return nil
+	case DupLast:
+		sample.Value = newVal
+	case DupMin:
+		if newVal < sample.Value {
+			sample.Value = newVal
+		}
+	case DupMax:
+		if newVal > sample.Value {
+			sample.Value = newVal
+		}
+	case DupSum:
+		sample.Value += newVal
+	default:
+		return ErrDuplicateTimestamp
+	}
+	return nil
 }
 
 // Get gets a sample at exact timestamp
@@ -532,8 +594,9 @@ func ParseAggregationType(s string) (AggregationType, error) {
 
 // Errors
 var (
-	ErrTimestampTooOld   = fmt.Errorf("timestamp is older than retention")
-	ErrUnknownAggregation = fmt.Errorf("unknown aggregation type")
+	ErrTimestampTooOld     = fmt.Errorf("timestamp is older than retention")
+	ErrUnknownAggregation  = fmt.Errorf("unknown aggregation type")
+	ErrDuplicateTimestamp  = fmt.Errorf("duplicate timestamp")
 )
 
 

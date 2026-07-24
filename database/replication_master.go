@@ -62,24 +62,80 @@ type slaveClient struct {
 }
 
 // aofListener is currently only responsible for updating the backlog
+// Ring buffer: capacity is fixed at maxBacklogSize; oldest bytes are dropped (RP-3).
 type replBacklog struct {
-	buf           []byte
+	buf           []byte // physical ring storage (len == cap when full-grown)
+	cap           int
+	start         int // physical index of beginOffset
+	length        int // bytes currently retained
 	beginOffset   int64
 	currentOffset int64
 }
 
-func (backlog *replBacklog) appendBytes(bin []byte) {
-	backlog.buf = append(backlog.buf, bin...)
-	backlog.currentOffset += int64(len(bin))
+func newReplBacklog(capacity int) *replBacklog {
+	if capacity <= 0 {
+		capacity = maxBacklogSize
+	}
+	return &replBacklog{cap: capacity}
 }
 
+func (backlog *replBacklog) appendBytes(bin []byte) {
+	if backlog.cap <= 0 {
+		backlog.cap = maxBacklogSize
+	}
+	for _, b := range bin {
+		if backlog.length < backlog.cap {
+			if len(backlog.buf) < backlog.cap {
+				backlog.buf = append(backlog.buf, b)
+			} else {
+				idx := (backlog.start + backlog.length) % backlog.cap
+				backlog.buf[idx] = b
+			}
+			backlog.length++
+		} else {
+			// overwrite oldest
+			backlog.buf[backlog.start] = b
+			backlog.start = (backlog.start + 1) % backlog.cap
+			backlog.beginOffset++
+		}
+		backlog.currentOffset++
+	}
+}
+
+func (backlog *replBacklog) histLen() int64 {
+	return backlog.currentOffset - backlog.beginOffset
+}
+
+func (backlog *replBacklog) capacity() int {
+	if backlog.cap <= 0 {
+		return maxBacklogSize
+	}
+	return backlog.cap
+}
+
+// getSnapshot returns a contiguous copy of retained backlog and the next offset.
 func (backlog *replBacklog) getSnapshot() ([]byte, int64) {
-	return backlog.buf[:], backlog.currentOffset
+	out := make([]byte, backlog.length)
+	for i := 0; i < backlog.length; i++ {
+		out[i] = backlog.buf[(backlog.start+i)%backlog.cap]
+	}
+	return out, backlog.currentOffset
 }
 
 func (backlog *replBacklog) getSnapshotAfter(beginOffset int64) ([]byte, int64) {
-	beg := beginOffset - backlog.beginOffset
-	return backlog.buf[beg:], backlog.currentOffset
+	if beginOffset < backlog.beginOffset || beginOffset > backlog.currentOffset {
+		return nil, backlog.currentOffset
+	}
+	skip := int(beginOffset - backlog.beginOffset)
+	n := backlog.length - skip
+	if n <= 0 {
+		return []byte{}, backlog.currentOffset
+	}
+	out := make([]byte, n)
+	for i := 0; i < n; i++ {
+		out[i] = backlog.buf[(backlog.start+skip+i)%backlog.cap]
+	}
+	return out, backlog.currentOffset
 }
 
 func (backlog *replBacklog) isValidOffset(offset int64) bool {
@@ -165,7 +221,7 @@ func (server *Server) rewriteRDB() error {
 		return fmt.Errorf("create temp rdb failed: %v", err)
 	}
 	rdbFilename := rdbFile.Name()
-	newBacklog := &replBacklog{}
+	newBacklog := newReplBacklog(maxBacklogSize)
 	aofListener := &replAofListener{
 		backlog: newBacklog,
 		mdb:     server,
@@ -175,7 +231,9 @@ func (server *Server) rewriteRDB() error {
 		// use the same order as replAofListener to avoid dead lock
 		server.masterStatus.mu.Lock()
 		defer server.masterStatus.mu.Unlock()
-		newBacklog.beginOffset = server.masterStatus.backlog.currentOffset
+		off := server.masterStatus.backlog.currentOffset
+		newBacklog.beginOffset = off
+		newBacklog.currentOffset = off
 	}
 	err = server.persister.GenerateRDBForReplication(rdbFilename, aofListener, hook)
 	if err != nil { // wait rdb result
@@ -432,20 +490,9 @@ func (server *Server) masterCron() {
 		server.masterStatus.backlog.appendBytes(pingBytes)
 		server.masterStatus.backlog.appendBytes(getAckBytes)
 	}
-	backlogSize := len(server.masterStatus.backlog.buf)
 	server.masterStatus.mu.Unlock()
 	if err := server.masterSendUpdatesToSlave(); err != nil {
 		logger.Errorf("masterSendUpdatesToSlave error: %v", err)
-	}
-	if backlogSize > maxBacklogSize && !server.masterStatus.rewriting.Get() {
-		go func() {
-			server.masterStatus.rewriting.Set(true)
-			defer server.masterStatus.rewriting.Set(false)
-			if err := server.rewriteRDB(); err != nil {
-				server.masterStatus.rewriting.Set(false)
-				logger.Errorf("rewrite error: %v", err)
-			}
-		}()
 	}
 }
 
@@ -476,7 +523,7 @@ func (server *Server) initMasterStatus() {
 	server.masterStatus = &masterStatus{
 		mu:           sync.RWMutex{},
 		replId:       utils.RandHexString(40),
-		backlog:      &replBacklog{},
+		backlog:      newReplBacklog(maxBacklogSize),
 		slaveMap:     make(map[redis.Connection]*slaveClient),
 		waitSlaves:   make(map[*slaveClient]struct{}),
 		onlineSlaves: make(map[*slaveClient]struct{}),
@@ -504,7 +551,7 @@ func (server *Server) stopMaster() {
 	_ = os.Remove(server.masterStatus.rdbFilename)
 	server.masterStatus.rdbFilename = ""
 	server.masterStatus.replId = ""
-	server.masterStatus.backlog = &replBacklog{}
+	server.masterStatus.backlog = newReplBacklog(maxBacklogSize)
 	server.masterStatus.slaveMap = make(map[redis.Connection]*slaveClient)
 	server.masterStatus.waitSlaves = make(map[*slaveClient]struct{})
 	server.masterStatus.onlineSlaves = make(map[*slaveClient]struct{})

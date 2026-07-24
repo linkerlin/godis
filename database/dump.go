@@ -10,6 +10,7 @@ import (
 	rdbenc "github.com/hdt3213/rdb/encoder"
 	"github.com/hdt3213/rdb/model"
 	rdb "github.com/hdt3213/rdb/parser"
+	"github.com/linkerlin/godis/aof"
 	Dict "github.com/linkerlin/godis/datastruct/dict"
 	List "github.com/linkerlin/godis/datastruct/list"
 	HashSet "github.com/linkerlin/godis/datastruct/set"
@@ -178,7 +179,11 @@ func decodeDumpPayload(payload []byte) (*database.DataEntity, error) {
 		switch o.GetType() {
 		case rdb.StringType:
 			str := o.(*rdb.StringObject)
-			entity = &database.DataEntity{Data: str.Value}
+			if restored, ok := aof.DecodeOpaque(str.Value); ok {
+				entity = restored
+			} else {
+				entity = &database.DataEntity{Data: str.Value}
+			}
 		case rdb.ListType:
 			listObj := o.(*rdb.ListObject)
 			list := List.NewQuickList()
@@ -265,15 +270,11 @@ func writeEntityToRDB(enc *rdbenc.Encoder, key string, entity *database.DataEnti
 		}
 		return enc.WriteZSetObject(key, entries)
 	case *Dict.ExpireDict:
-		hash := make(map[string][]byte)
-		val.ForEach(func(field string, v interface{}) bool {
-			b, ok := v.([]byte)
-			if ok {
-				hash[field] = b
-			}
-			return true
-		})
-		return enc.WriteHashMapObject(key, hash)
+		payload, ok := aof.EncodeOpaque(entity)
+		if !ok {
+			return errDumpUnsupported("ExpireDict opaque encode failed")
+		}
+		return enc.WriteStringObject(key, payload)
 	case Dict.Dict:
 		hash := make(map[string][]byte)
 		val.ForEach(func(field string, v interface{}) bool {

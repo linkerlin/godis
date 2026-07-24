@@ -25,6 +25,7 @@ func execTSCreate(db *DB, args [][]byte) redis.Reply {
 	retention := time.Duration(0) // Unlimited
 	chunkSize := 0
 	labels := make(map[string]string)
+	dupPolicy := timeseries.DupBlock
 
 	// Parse options
 	for i := 1; i < len(args); {
@@ -82,12 +83,11 @@ func execTSCreate(db *DB, args [][]byte) redis.Reply {
 			if i+1 >= len(args) {
 				return protocol.MakeSyntaxErrReply()
 			}
-			pol := strings.ToUpper(string(args[i+1]))
-			switch pol {
-			case "BLOCK", "FIRST", "LAST", "MIN", "MAX", "SUM":
-			default:
+			pol, err := timeseries.ParseDuplicatePolicy(string(args[i+1]))
+			if err != nil {
 				return protocol.MakeErrReply("ERR Unknown DUPLICATE_POLICY '" + string(args[i+1]) + "'")
 			}
+			dupPolicy = pol
 			i += 2
 
 		default:
@@ -103,6 +103,7 @@ func execTSCreate(db *DB, args [][]byte) redis.Reply {
 
 	// Create time series
 	ts := timeseries.NewTimeSeries(key, retention)
+	ts.DuplicatePolicy = dupPolicy
 	if chunkSize > 0 {
 		ts.ChunkSize = chunkSize
 	}
@@ -144,7 +145,8 @@ func execTSAdd(db *DB, args [][]byte) redis.Reply {
 		return protocol.MakeErrReply("ERR Value must be a double")
 	}
 
-	// Parse optional trailing options (validated; policies stored later when supported).
+	// Parse optional trailing options.
+	onDup := (*timeseries.DuplicatePolicy)(nil)
 	for i := 3; i < len(args); {
 		opt := strings.ToUpper(string(args[i]))
 		switch opt {
@@ -152,12 +154,11 @@ func execTSAdd(db *DB, args [][]byte) redis.Reply {
 			if i+1 >= len(args) {
 				return protocol.MakeSyntaxErrReply()
 			}
-			pol := strings.ToUpper(string(args[i+1]))
-			switch pol {
-			case "BLOCK", "FIRST", "LAST", "MIN", "MAX", "SUM":
-			default:
+			pol, err := timeseries.ParseDuplicatePolicy(string(args[i+1]))
+			if err != nil {
 				return protocol.MakeErrReply("ERR Unknown DUPLICATE_POLICY '" + string(args[i+1]) + "'")
 			}
+			onDup = &pol
 			i += 2
 		case "RETENTION", "ENCODING", "CHUNK_SIZE":
 			if i+1 >= len(args) {
@@ -196,10 +197,18 @@ func execTSAdd(db *DB, args [][]byte) redis.Reply {
 	}
 
 	// Add sample
-	tsTimestamp, err := ts.Add(timestamp, value)
+	var tsTimestamp int64
+	if onDup != nil {
+		tsTimestamp, err = ts.AddWithPolicy(timestamp, value, *onDup)
+	} else {
+		tsTimestamp, err = ts.Add(timestamp, value)
+	}
 	if err != nil {
 		if err == timeseries.ErrTimestampTooOld {
 			return protocol.MakeErrReply("ERR Timestamp is older than retention")
+		}
+		if err == timeseries.ErrDuplicateTimestamp {
+			return protocol.MakeErrReply("ERR TSDB: Error at TEMPADD, update is not supported when DUPLICATE_POLICY is set to BLOCK policy.")
 		}
 		return protocol.MakeErrReply(fmt.Sprintf("ERR %v", err))
 	}

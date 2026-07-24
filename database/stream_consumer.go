@@ -694,21 +694,33 @@ func execXPending(db *DB, args [][]byte) redis.Reply {
 		})
 	}
 
-	// 详细模式：XPENDING key group [IDLE min-idle-time] start end [count] [consumer]
+	// 详细模式：XPENDING key group [IDLE min-idle-time | TIME start-time] start end count [consumer]
 	if len(args) < 5 {
 		return protocol.MakeSyntaxErrReply()
 	}
 
 	rest := args[2:]
 	minIdleMs := int64(-1)
+	minDeliveryUnixMs := int64(-1)
 	idx := 0
-	if len(rest) >= 2 && strings.EqualFold(string(rest[0]), "IDLE") {
-		idle, err := strconv.ParseInt(string(rest[1]), 10, 64)
-		if err != nil || idle < 0 {
-			return protocol.MakeErrReply("ERR Invalid min-idle-time")
+	if len(rest) >= 2 {
+		opt := strings.ToUpper(string(rest[0]))
+		switch opt {
+		case "IDLE":
+			idle, err := strconv.ParseInt(string(rest[1]), 10, 64)
+			if err != nil || idle < 0 {
+				return protocol.MakeErrReply("ERR Invalid min-idle-time")
+			}
+			minIdleMs = idle
+			idx = 2
+		case "TIME":
+			ts, err := strconv.ParseInt(string(rest[1]), 10, 64)
+			if err != nil || ts < 0 {
+				return protocol.MakeErrReply("ERR Invalid start-time")
+			}
+			minDeliveryUnixMs = ts
+			idx = 2
 		}
-		minIdleMs = idle
-		idx = 2
 	}
 	if len(rest)-idx < 3 {
 		return protocol.MakeSyntaxErrReply()
@@ -752,6 +764,9 @@ func execXPending(db *DB, args [][]byte) redis.Reply {
 			idleMs = 0
 		}
 		if minIdleMs >= 0 && idleMs < minIdleMs {
+			continue
+		}
+		if minDeliveryUnixMs >= 0 && pending.DeliveryTime.UnixMilli() < minDeliveryUnixMs {
 			continue
 		}
 		rows = append(rows, pendRow{id: id, pending: pending})

@@ -16,7 +16,7 @@ func TestGeoHash(t *testing.T) {
 	result := execGeoAdd(testDB, utils.ToCmdLine(key, "13.361389", "38.115556", pos))
 	asserts.AssertIntReply(t, result, 1)
 	result = execGeoHash(testDB, utils.ToCmdLine(key, pos))
-	asserts.AssertMultiBulkReply(t, result, []string{"sqc8b49rnys00"})
+	asserts.AssertMultiBulkReply(t, result, []string{"sqc8b49rnys0"})
 }
 
 func TestGeoRadius(t *testing.T) {
@@ -56,9 +56,27 @@ func TestGeoPos(t *testing.T) {
 		"13.361389", "38.115556", pos1,
 	))
 	result := execGeoPos(testDB, utils.ToCmdLine(key, pos1, pos2))
-	expected := "*2\r\n*2\r\n$18\r\n13.361386698670685\r\n$17\r\n38.11555536696687\r\n$-1\r\n"
-	if string(result.ToBytes()) != expected {
-		t.Error("test failed")
+	mr, ok := result.(*protocol.MultiRawReply)
+	if !ok || len(mr.Replies) != 2 {
+		t.Fatalf("GEOPOS shape: %s", result.ToBytes())
+	}
+	coord, ok := mr.Replies[0].(*protocol.MultiBulkReply)
+	if !ok || len(coord.Args) != 2 {
+		t.Fatalf("member coords: %s", result.ToBytes())
+	}
+	lng, err1 := strconv.ParseFloat(string(coord.Args[0]), 64)
+	lat, err2 := strconv.ParseFloat(string(coord.Args[1]), 64)
+	if err1 != nil || err2 != nil {
+		t.Fatal(err1, err2)
+	}
+	if lng < 13.361 || lng > 13.362 || lat < 38.115 || lat > 38.116 {
+		t.Fatalf("coords out of range: %f %f", lng, lat)
+	}
+	if _, ok := mr.Replies[1].(*protocol.NullBulkReply); !ok {
+		// Null bulk may also appear as MultiBulk nil-style
+		if string(mr.Replies[1].ToBytes()) != "$-1\r\n" {
+			t.Fatalf("missing member should be null: %s", mr.Replies[1].ToBytes())
+		}
 	}
 }
 

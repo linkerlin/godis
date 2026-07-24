@@ -64,6 +64,7 @@ type Server struct {
 
 	// last successful SAVE/BGSAVE unix time (LASTSAVE)
 	lastSaveUnix  atomic.Int64
+	dirty         atomic.Int64 // changes since last successful SAVE/BGSAVE (PE-4)
 	bgsaveMu      sync.Mutex
 	bgsaveRunning bool
 }
@@ -128,6 +129,7 @@ func newServerWithSize(dictSize int) (*Server, error) {
 	}
 	server.slaveStatus = initReplSlaveStatus()
 	server.initMasterStatus()
+	server.lastSaveUnix.Store(time.Now().Unix())
 	server.startReplCron()
 	server.role = masterRole // The initialization process does not require atomicity
 
@@ -690,7 +692,7 @@ func SaveRDB(db *Server, args [][]byte) redis.Reply {
 	if err != nil {
 		return protocol.MakeErrReply("ERR " + err.Error())
 	}
-	db.lastSaveUnix.Store(time.Now().Unix())
+	db.resetDirtyAfterSave()
 	return protocol.MakeOkReply()
 }
 
@@ -703,7 +705,7 @@ func BGSaveRDB(db *Server, args [][]byte) redis.Reply {
 	if db.persister != nil {
 		if err := db.persister.RunGenerateRDBAsync(rdbFilename, func(err error) {
 			if err == nil {
-				db.lastSaveUnix.Store(time.Now().Unix())
+				db.resetDirtyAfterSave()
 			}
 		}); err != nil {
 			return protocol.MakeErrReply("ERR " + err.Error())
@@ -727,7 +729,7 @@ func BGSaveRDB(db *Server, args [][]byte) redis.Reply {
 			logger.Warn("BGSAVE failed: " + err.Error())
 			return
 		}
-		db.lastSaveUnix.Store(time.Now().Unix())
+		db.resetDirtyAfterSave()
 	}()
 	return protocol.MakeStatusReply("Background saving started")
 }
@@ -748,10 +750,18 @@ func (server *Server) GetDBSize(dbIndex int) (int, int, error) {
 
 func (server *Server) startReplCron() {
 	go func(mdb *Server) {
-		ticker := time.Tick(time.Second * 10)
-		for range ticker {
-			mdb.slaveCron()
-			mdb.masterCron()
+		replTicker := time.NewTicker(time.Second * 10)
+		saveTicker := time.NewTicker(time.Second)
+		defer replTicker.Stop()
+		defer saveTicker.Stop()
+		for {
+			select {
+			case <-replTicker.C:
+				mdb.slaveCron()
+				mdb.masterCron()
+			case <-saveTicker.C:
+				mdb.checkSavePoints()
+			}
 		}
 	}(server)
 }

@@ -5,6 +5,7 @@ import (
 	"math"
 	"time"
 
+	"github.com/linkerlin/godis/datastruct/dict"
 	godisjson "github.com/linkerlin/godis/datastruct/json"
 	"github.com/linkerlin/godis/datastruct/stream"
 	"github.com/linkerlin/godis/datastruct/timeseries"
@@ -22,6 +23,7 @@ const (
 	opaqueJSON       = "json"
 	opaqueVector     = "vector"
 	opaqueTimeSeries = "ts"
+	opaqueExpireDict = "hexpire"
 )
 
 type opaqueEnvelope struct {
@@ -68,6 +70,12 @@ type tsSampleDump struct {
 	Value     float64 `json:"v"`
 }
 
+// expireDictDump preserves hash field values + absolute expire times (unix ms).
+type expireDictDump struct {
+	Fields map[string][]byte `json:"f"`
+	Expire map[string]int64  `json:"e,omitempty"` // field -> expire-at unix ms
+}
+
 // EncodeOpaque serializes Godis-specific types into a magic-prefixed blob.
 // Returns ok=false for types that should use standard Redis encoding.
 func EncodeOpaque(entity *database.DataEntity) (payload []byte, ok bool) {
@@ -90,6 +98,9 @@ func EncodeOpaque(entity *database.DataEntity) (payload []byte, ok bool) {
 	case *timeseries.TimeSeries:
 		typ = opaqueTimeSeries
 		raw, err = json.Marshal(dumpTimeSeries(v))
+	case *dict.ExpireDict:
+		typ = opaqueExpireDict
+		raw, err = json.Marshal(dumpExpireDict(v))
 	default:
 		return nil, false
 	}
@@ -140,6 +151,12 @@ func DecodeOpaque(payload []byte) (entity *database.DataEntity, ok bool) {
 			return nil, false
 		}
 		return &database.DataEntity{Data: ts}, true
+	case opaqueExpireDict:
+		ed, err := loadExpireDict(env.Data)
+		if err != nil {
+			return nil, false
+		}
+		return &database.DataEntity{Data: ed}, true
 	default:
 		return nil, false
 	}
@@ -244,6 +261,50 @@ func loadTimeSeries(raw []byte) (*timeseries.TimeSeries, error) {
 		}
 	}
 	return ts, nil
+}
+
+func dumpExpireDict(ed *dict.ExpireDict) expireDictDump {
+	d := expireDictDump{
+		Fields: make(map[string][]byte),
+		Expire: make(map[string]int64),
+	}
+	ed.ForEach(func(field string, val interface{}) bool {
+		b, ok := val.([]byte)
+		if !ok {
+			return true
+		}
+		d.Fields[field] = b
+		if exp, has := ed.GetExpireTime(field); has {
+			d.Expire[field] = exp.UnixMilli()
+		}
+		return true
+	})
+	if len(d.Expire) == 0 {
+		d.Expire = nil
+	}
+	return d
+}
+
+func loadExpireDict(raw []byte) (*dict.ExpireDict, error) {
+	var d expireDictDump
+	if err := json.Unmarshal(raw, &d); err != nil {
+		return nil, err
+	}
+	ed := dict.NewExpireDict(16)
+	for field, val := range d.Fields {
+		ed.Put(field, val)
+	}
+	now := time.Now()
+	for field, ms := range d.Expire {
+		exp := time.UnixMilli(ms)
+		if exp.After(now) {
+			ed.Expire(field, exp)
+		} else {
+			// already expired at dump time — drop field
+			ed.Delete(field)
+		}
+	}
+	return ed, nil
 }
 
 var godisRestoreCmd = []byte("godis.restore")

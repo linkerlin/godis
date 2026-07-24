@@ -75,7 +75,7 @@ func execGetEX(db *DB, args [][]byte) redis.Reply {
 			}
 			n, err := strconv.ParseInt(string(args[i+1]), 10, 64)
 			if err != nil || n <= 0 {
-				return protocol.MakeErrReply("ERR invalid expire time in getex")
+				return protocol.MakeErrReply("ERR invalid expire time in 'getex' command")
 			}
 			switch arg {
 			case "EX":
@@ -161,22 +161,22 @@ func execSet(db *DB, args [][]byte) redis.Reply {
 				switch arg {
 				case "EX":
 					if n <= 0 {
-						return protocol.MakeErrReply("ERR invalid expire time in set")
+						return protocol.MakeErrReply("ERR invalid expire time in 'set' command")
 					}
 					ttl = n * 1000
 				case "PX":
 					if n <= 0 {
-						return protocol.MakeErrReply("ERR invalid expire time in set")
+						return protocol.MakeErrReply("ERR invalid expire time in 'set' command")
 					}
 					ttl = n
 				case "EXAT":
 					if n <= 0 {
-						return protocol.MakeErrReply("ERR invalid expire time in set")
+						return protocol.MakeErrReply("ERR invalid expire time in 'set' command")
 					}
 					absExpire = n * 1000
 				case "PXAT":
 					if n <= 0 {
-						return protocol.MakeErrReply("ERR invalid expire time in set")
+						return protocol.MakeErrReply("ERR invalid expire time in 'set' command")
 					}
 					absExpire = n
 				}

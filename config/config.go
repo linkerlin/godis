@@ -66,7 +66,7 @@ type ServerProperties struct {
 	LazyfreeLazyEviction bool   `cfg:"lazyfree-lazy-eviction"`
 	ProtoMaxBulkLen      int64  `cfg:"proto-max-bulk-len"`
 	// Save is Redis "save <sec> <changes> ..." as a single CONFIG string (e.g. "3600 1 300 100").
-	// Automatic snapshot scheduling is not fully wired; value is stored/returned for compatibility.
+	// Autosave is driven by checkSavePoints (PE-4).
 	Save       string `cfg:"save"`
 	TCPBacklog int    `cfg:"tcp-backlog"`
 

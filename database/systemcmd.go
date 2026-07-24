@@ -29,6 +29,20 @@ type ServerStats struct {
 
 var serverStats = &ServerStats{}
 
+// resetServerStats clears INFO stats counters (CONFIG RESETSTAT).
+func resetServerStats() {
+	atomic.StoreUint64(&serverStats.TotalCommandsProcessed, 0)
+	atomic.StoreUint64(&serverStats.TotalConnectionsReceived, 0)
+	atomic.StoreUint64(&serverStats.ExpiredKeys, 0)
+	atomic.StoreUint64(&serverStats.EvictedKeys, 0)
+	atomic.StoreUint64(&serverStats.KeyspaceHits, 0)
+	atomic.StoreUint64(&serverStats.KeyspaceMisses, 0)
+	serverStats.ExpiredStale = 0
+	ResetCommandStats()
+	stats.Reset()
+	atomic.StoreUint64(&tcp.RejectedConnections, 0)
+}
+
 // Ping the server
 func Ping(c redis.Connection, args [][]byte) redis.Reply {
 	if len(args) == 0 {
@@ -310,7 +324,7 @@ func genPersistenceInfo(db *Server) string {
 		"aof_current_size:%d\r\n"+
 		"aof_base_size:%d\r\n",
 		0,
-		0,
+		db.DirtyChanges(),
 		rdbBgsaveInProgress,
 		rdbLastSaveTime,
 		"ok",
@@ -347,8 +361,8 @@ func genReplicationInfo(db *Server) string {
 			bl := db.masterStatus.backlog
 			replOffset = bl.currentOffset
 			backlogFirstOffset = bl.beginOffset
-			backlogHistLen = bl.currentOffset - bl.beginOffset
-			backlogSize = int64(len(bl.buf))
+			backlogHistLen = bl.histLen()
+			backlogSize = int64(bl.capacity())
 			replBacklogActive = 1
 		}
 		db.masterStatus.mu.RUnlock()

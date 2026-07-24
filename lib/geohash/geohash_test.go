@@ -24,12 +24,22 @@ func TestEncode(t *testing.T) {
 	lng0 := -4.32913
 	hash := Encode(lat0, lng0)
 	str := ToString(FromInt(hash))
-	if str != "gbsuv7zt7zntw" {
+	if str != "gbsuv7zt7zh0" {
 		t.Error("encode error")
 	}
 	lat, lng := Decode(hash)
 	if math.Abs(lat-lat0) > 1e-6 || math.Abs(lng-lng0) > 1e-6 {
 		t.Error("decode error")
+	}
+}
+
+func TestEncodeFloat64Exact(t *testing.T) {
+	h := Encode(48.669, -4.32913)
+	if float64(h) != float64(uint64(float64(h))) {
+		t.Fatalf("52-bit geohash must round-trip via float64: %d", h)
+	}
+	if h>>52 != 0 {
+		t.Fatalf("hash should fit in 52 bits: %d", h)
 	}
 }
 

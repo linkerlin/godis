@@ -42,7 +42,14 @@
 | GEORADIUS | ✅ WITH*/COUNT/ASC/DESC/STORE 经 GEOSEARCH 路径 |
 | XREADGROUP / XPENDING | ✅ 历史重读递增 DeliveryCount；`-`/`+` 范围 |
 | TS 聚合 | ✅ 含 **twa**（时间加权平均） |
+| TS DUPLICATE_POLICY | ✅ BLOCK/FIRST/LAST/MIN/MAX/SUM + ON_DUPLICATE |
 | SINTERCARD | ✅ LIMIT 提前终止 |
+| VSIM FILTER | ✅ 最小 `.field==value` / `!=` 属性过滤 |
+| save 自动快照 | ✅ `CONFIG save` 点位 + dirty 计数触发 BGSAVE |
+| GEO geohash | ✅ 52-bit（float64 无损，对齐 Redis） |
+| 复制 backlog | ✅ 固定容量环形缓冲 |
+| Hash field TTL 持久化 | ✅ RDB/DUMP 经 Godis opaque（非 Redis 互通） |
+| CONFIG RESETSTAT | ✅ 清零 INFO/cmd/net/rejected 计数 |
 | MONITOR | ✅ 流式广播（`BroadcastMonitor`） |
 | FAILOVER | ✅ 最小子集（ABORT/FORCE/TO/TIMEOUT）；完整协调切换仍缺 |
 | CLIENT UNBLOCK | ✅ 可唤醒 BLPOP/BZPOP/XREAD 等 |

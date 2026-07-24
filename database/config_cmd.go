@@ -31,6 +31,7 @@ func (server *Server) execConfig(args [][]byte) redis.Reply {
 		}
 		return server.execConfigSet(args[1:])
 	case "RESETSTAT":
+		resetServerStats()
 		return protocol.MakeOkReply()
 	case "REWRITE":
 		return protocol.MakeOkReply()

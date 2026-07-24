@@ -221,12 +221,12 @@ func (db *DB) execNormalCommand(c redis.Connection, cmdLine [][]byte) redis.Repl
 
 	// Record command stats
 	usec := uint64(time.Since(start).Microseconds())
-	failed := false
-	if errReply, ok := result.(*protocol.StandardErrReply); ok && errReply != nil {
-		failed = true
-	}
+	failed := protocol.IsErrorReply(result)
 	RecordCommand(cmdName, usec, failed)
 	applyCacheHooks(c, cmdName, write, read, failed)
+	if !failed && (cmd.flags&flagReadOnly) == 0 && db.server != nil {
+		db.server.incrDirty()
+	}
 
 	return result
 }

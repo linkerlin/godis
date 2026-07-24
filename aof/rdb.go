@@ -170,16 +170,12 @@ func (persister *Persister) generateRDB(ctx *RewriteCtx) error {
 				})
 				err = encoder.WriteSetObject(key, vals, opts...)
 			case *dict.ExpireDict:
-				// Redis 8 hash field TTL is not supported by the RDB encoder used here.
-				// Fall back to a plain hash and log the limitation.
-				logger.Warn("RDB preamble does not preserve hash field TTLs; set aof-use-rdb-preamble=no to keep them")
-				hash := make(map[string][]byte)
-				obj.ForEach(func(field string, val interface{}) bool {
-					bytes, _ := val.([]byte)
-					hash[field] = bytes
-					return true
-				})
-				err = encoder.WriteHashMapObject(key, hash, opts...)
+				// Preserve hash field TTLs via Godis opaque encoding (PE-5).
+				if payload, ok := EncodeOpaque(entity); ok {
+					err = encoder.WriteStringObject(key, payload, opts...)
+				} else {
+					logger.Warn("RDB skip ExpireDict encode failure for key: " + key)
+				}
 			case dict.Dict:
 				hash := make(map[string][]byte)
 				obj.ForEach(func(key string, val interface{}) bool {
@@ -302,13 +298,9 @@ func encodeEngineToRDB(tmpFile *os.File, eng database.DBEngine) error {
 				})
 				err = encoder.WriteSetObject(key, vals, opts...)
 			case *dict.ExpireDict:
-				hash := make(map[string][]byte)
-				obj.ForEach(func(field string, val interface{}) bool {
-					bytes, _ := val.([]byte)
-					hash[field] = bytes
-					return true
-				})
-				err = encoder.WriteHashMapObject(key, hash, opts...)
+				if payload, ok := EncodeOpaque(entity); ok {
+					err = encoder.WriteStringObject(key, payload, opts...)
+				}
 			case dict.Dict:
 				hash := make(map[string][]byte)
 				obj.ForEach(func(field string, val interface{}) bool {
