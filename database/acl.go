@@ -444,7 +444,26 @@ func execACLDryRun(db *DB, args [][]byte) redis.Reply {
 	}
 
 	if !user.CheckCommand(command) {
-		return protocol.MakeErrReply("ERR User '" + username + "' cannot execute command '" + command + "'")
+		return protocol.MakeErrReply("ERR this user has no permissions to run the '" + command + "' command")
+	}
+
+	// Check key permissions using command prepare keys (Redis ACL DRYRUN).
+	cmdArgs := args[1:] // command + args
+	if len(cmdArgs) >= 1 {
+		cmdName := strings.ToLower(string(cmdArgs[0]))
+		if cmd, ok := cmdTable[cmdName]; ok && cmd.prepare != nil {
+			writeKeys, readKeys := cmd.prepare(cmdArgs[1:])
+			for _, k := range writeKeys {
+				if !user.CheckKey(k) {
+					return protocol.MakeErrReply("ERR this user has no permissions to access '" + k + "'")
+				}
+			}
+			for _, k := range readKeys {
+				if !user.CheckKey(k) {
+					return protocol.MakeErrReply("ERR this user has no permissions to access '" + k + "'")
+				}
+			}
+		}
 	}
 
 	return protocol.MakeOkReply()

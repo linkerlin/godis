@@ -63,6 +63,8 @@ type Connection struct {
 	noEvict         bool
 	noTouch         bool
 	replyMode       int // 0=ON, 1=OFF, 2=SKIP (suppress next)
+	createdAt       time.Time
+	lastActive      time.Time
 }
 
 var connPool = sync.Pool{
@@ -99,6 +101,8 @@ func (c *Connection) Close() error {
 	c.noEvict = false
 	c.noTouch = false
 	c.replyMode = 0
+	c.createdAt = time.Time{}
+	c.lastActive = time.Time{}
 	c.clientID = 0
 	connPool.Put(c)
 	return nil
@@ -114,10 +118,35 @@ func NewConn(conn net.Conn) *Connection {
 		}
 	}
 	c.conn = conn
+	now := time.Now()
+	c.createdAt = now
+	c.lastActive = now
 	if c.clientID == 0 {
 		c.clientID = globalClientID.Add(1)
 	}
 	return c
+}
+
+// SetClientTimesForTest sets age/idle clocks (tests only).
+func (c *Connection) SetClientTimesForTest(created, lastActive time.Time) {
+	c.createdAt = created
+	c.lastActive = lastActive
+}
+
+// AgeSeconds returns seconds since connection creation.
+func (c *Connection) AgeSeconds() int64 {
+	if c.createdAt.IsZero() {
+		return 0
+	}
+	return int64(time.Since(c.createdAt).Seconds())
+}
+
+// IdleSeconds returns seconds since last activity.
+func (c *Connection) IdleSeconds() int64 {
+	if c.lastActive.IsZero() {
+		return 0
+	}
+	return int64(time.Since(c.lastActive).Seconds())
 }
 
 // Write sends response to client over tcp connection

@@ -206,7 +206,7 @@ func (db *DB) getAsHLL(key string) (*HLL, protocol.ErrorReply) {
 func init() {
 	registerCommand("PFAdd", execPFAdd, writeFirstKey, rollbackFirstKey, -2, flagWrite).
 		attachCommandExtra([]string{redisFlagWrite, redisFlagDenyOOM, redisFlagFast}, 1, 1, 1)
-	registerCommand("PFCount", execPFCount, readFirstKey, nil, -2, flagReadOnly).
+	registerCommand("PFCount", execPFCount, readAllKeys, nil, -2, flagReadOnly).
 		attachCommandExtra([]string{redisFlagReadonly, redisFlagFast}, 1, 1, 1)
 	registerCommand("PFMerge", execPFMerge, preparePFMerge, undoPFMerge, -2, flagWrite).
 		attachCommandExtra([]string{redisFlagWrite, redisFlagDenyOOM}, 1, -1, 1)

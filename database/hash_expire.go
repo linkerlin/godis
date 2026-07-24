@@ -54,17 +54,150 @@ func (db *DB) getOrInitExpireDict(key string) (*dict.ExpireDict, bool, protocol.
 	return ed, false, nil
 }
 
-// execHGetEx 获取字段值并可选择设置过期时间
-// HGETEX key field [EX seconds|PX milliseconds|EXAT timestamp|PXAT milliseconds-timestamp|PERSIST]
+// parseHashFieldsBlock parses "FIELDS numfields field [field ...]" starting at args[i].
+// Returns fields and next index after the block.
+func parseHashFieldsBlock(args [][]byte, i int) (fields []string, next int, errReply redis.Reply) {
+	if i >= len(args) || strings.ToUpper(string(args[i])) != "FIELDS" {
+		return nil, i, protocol.MakeSyntaxErrReply()
+	}
+	if i+1 >= len(args) {
+		return nil, i, protocol.MakeErrReply("ERR wrong number of arguments")
+	}
+	n, err := strconv.Atoi(string(args[i+1]))
+	if err != nil || n < 1 {
+		return nil, i, protocol.MakeErrReply("ERR Number of fields can't be negative or zero")
+	}
+	if i+2+n > len(args) {
+		return nil, i, protocol.MakeErrReply("ERR wrong number of arguments")
+	}
+	fields = make([]string, n)
+	for j := 0; j < n; j++ {
+		fields[j] = string(args[i+2+j])
+	}
+	return fields, i + 2 + n, nil
+}
+
+func parseHashExpireOpt(args [][]byte, start int) (expireAt time.Time, persist, keepTTL bool, next int, err redis.Reply) {
+	now := time.Now()
+	i := start
+	for i < len(args) {
+		arg := strings.ToUpper(string(args[i]))
+		if arg == "FIELDS" {
+			break
+		}
+		switch arg {
+		case "EX":
+			if i+1 >= len(args) {
+				return time.Time{}, false, false, i, protocol.MakeSyntaxErrReply()
+			}
+			seconds, e := strconv.ParseInt(string(args[i+1]), 10, 64)
+			if e != nil || seconds <= 0 {
+				return time.Time{}, false, false, i, protocol.MakeErrReply("ERR value is not an integer or out of range")
+			}
+			expireAt = now.Add(time.Duration(seconds) * time.Second)
+			i += 2
+		case "PX":
+			if i+1 >= len(args) {
+				return time.Time{}, false, false, i, protocol.MakeSyntaxErrReply()
+			}
+			ms, e := strconv.ParseInt(string(args[i+1]), 10, 64)
+			if e != nil || ms <= 0 {
+				return time.Time{}, false, false, i, protocol.MakeErrReply("ERR value is not an integer or out of range")
+			}
+			expireAt = now.Add(time.Duration(ms) * time.Millisecond)
+			i += 2
+		case "EXAT":
+			if i+1 >= len(args) {
+				return time.Time{}, false, false, i, protocol.MakeSyntaxErrReply()
+			}
+			ts, e := strconv.ParseInt(string(args[i+1]), 10, 64)
+			if e != nil || ts <= 0 {
+				return time.Time{}, false, false, i, protocol.MakeErrReply("ERR value is not an integer or out of range")
+			}
+			expireAt = time.Unix(ts, 0)
+			i += 2
+		case "PXAT":
+			if i+1 >= len(args) {
+				return time.Time{}, false, false, i, protocol.MakeSyntaxErrReply()
+			}
+			ms, e := strconv.ParseInt(string(args[i+1]), 10, 64)
+			if e != nil || ms <= 0 {
+				return time.Time{}, false, false, i, protocol.MakeErrReply("ERR value is not an integer or out of range")
+			}
+			expireAt = time.Unix(0, ms*int64(time.Millisecond))
+			i += 2
+		case "PERSIST":
+			persist = true
+			i++
+		case "KEEPTTL":
+			keepTTL = true
+			i++
+		default:
+			return time.Time{}, false, false, i, protocol.MakeSyntaxErrReply()
+		}
+	}
+	return expireAt, persist, keepTTL, i, nil
+}
+
+// execHGetEx Redis 8: HGETEX key [EX|PX|EXAT|PXAT|PERSIST] FIELDS numfields field [field ...]
+// Legacy: HGETEX key field [opts...] (single field, bulk reply)
 func execHGetEx(db *DB, args [][]byte) redis.Reply {
 	if len(args) < 2 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'hgetex' command")
 	}
-
 	key := string(args[0])
-	field := string(args[1])
 
-	// 获取hash
+	// Redis 8 FIELDS form
+	hasFields := false
+	for _, a := range args[1:] {
+		if strings.ToUpper(string(a)) == "FIELDS" {
+			hasFields = true
+			break
+		}
+	}
+	if hasFields {
+		expireAt, persist, _, i, optErr := parseHashExpireOpt(args, 1)
+		if optErr != nil {
+			return optErr
+		}
+		fields, _, fieldErr := parseHashFieldsBlock(args, i)
+		if fieldErr != nil {
+			return fieldErr
+		}
+		ed, typeErr := db.getAsExpireDict(key)
+		if typeErr != nil {
+			return typeErr
+		}
+		out := make([][]byte, len(fields))
+		changed := false
+		for fi, field := range fields {
+			if ed == nil {
+				out[fi] = nil
+				continue
+			}
+			val, _, exists := ed.GetWithExpire(field)
+			if !exists {
+				out[fi] = nil
+				continue
+			}
+			b, _ := val.([]byte)
+			out[fi] = b
+			if persist {
+				ed.Persist(field)
+				changed = true
+			} else if !expireAt.IsZero() {
+				ed.Expire(field, expireAt)
+				changed = true
+			}
+		}
+		if changed {
+			db.addAof(utils.ToCmdLine3("hgetex", args...))
+		}
+		return protocol.MakeMultiBulkReply(out)
+	}
+
+	// Legacy single-field form
+	field := string(args[1])
 	ed, errReply := db.getAsExpireDict(key)
 	if errReply != nil {
 		return errReply
@@ -72,69 +205,14 @@ func execHGetEx(db *DB, args [][]byte) redis.Reply {
 	if ed == nil {
 		return &protocol.NullBulkReply{}
 	}
-
-	// 获取字段值
 	val, _, exists := ed.GetWithExpire(field)
 	if !exists {
 		return &protocol.NullBulkReply{}
 	}
-
-	// 解析过期选项
-	now := time.Now()
-	expireAt := time.Time{} // 零值表示不设置过期
-	persist := false
-
-	for i := 2; i < len(args); i++ {
-		arg := strings.ToUpper(string(args[i]))
-		switch arg {
-		case "EX":
-			if i+1 >= len(args) {
-				return protocol.MakeSyntaxErrReply()
-			}
-			seconds, err := strconv.ParseInt(string(args[i+1]), 10, 64)
-			if err != nil || seconds <= 0 {
-				return protocol.MakeErrReply("ERR value is not an integer or out of range")
-			}
-			expireAt = now.Add(time.Duration(seconds) * time.Second)
-			i++
-		case "PX":
-			if i+1 >= len(args) {
-				return protocol.MakeSyntaxErrReply()
-			}
-			ms, err := strconv.ParseInt(string(args[i+1]), 10, 64)
-			if err != nil || ms <= 0 {
-				return protocol.MakeErrReply("ERR value is not an integer or out of range")
-			}
-			expireAt = now.Add(time.Duration(ms) * time.Millisecond)
-			i++
-		case "EXAT":
-			if i+1 >= len(args) {
-				return protocol.MakeSyntaxErrReply()
-			}
-			ts, err := strconv.ParseInt(string(args[i+1]), 10, 64)
-			if err != nil || ts <= 0 {
-				return protocol.MakeErrReply("ERR value is not an integer or out of range")
-			}
-			expireAt = time.Unix(ts, 0)
-			i++
-		case "PXAT":
-			if i+1 >= len(args) {
-				return protocol.MakeSyntaxErrReply()
-			}
-			ms, err := strconv.ParseInt(string(args[i+1]), 10, 64)
-			if err != nil || ms <= 0 {
-				return protocol.MakeErrReply("ERR value is not an integer or out of range")
-			}
-			expireAt = time.Unix(0, ms*int64(time.Millisecond))
-			i++
-		case "PERSIST":
-			persist = true
-		default:
-			return protocol.MakeSyntaxErrReply()
-		}
+	expireAt, persist, _, _, optErr := parseHashExpireOpt(args, 2)
+	if optErr != nil {
+		return optErr
 	}
-
-	// 应用过期设置
 	if persist {
 		ed.Persist(field)
 		db.addAof(utils.ToCmdLine3("hgetex", args...))
@@ -142,152 +220,173 @@ func execHGetEx(db *DB, args [][]byte) redis.Reply {
 		ed.Expire(field, expireAt)
 		db.addAof(utils.ToCmdLine3("hgetex", args...))
 	}
-
-	// 返回字段值
 	value, _ := val.([]byte)
 	return protocol.MakeBulkReply(value)
 }
 
-// execHSetEx 设置字段值并可选择设置过期时间
-// HSETEX key field value [EX seconds|PX milliseconds|EXAT timestamp|PXAT milliseconds-timestamp|KEEPTTL]
+// execHSetEx Redis 8: HSETEX key [FNX|FXX] [EX|PX|EXAT|PXAT|KEEPTTL] FIELDS numfields field value ...
+// Legacy: HSETEX key field value [opts...]
 func execHSetEx(db *DB, args [][]byte) redis.Reply {
 	if len(args) < 3 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'hsetex' command")
 	}
-
 	key := string(args[0])
+
+	hasFields := false
+	for _, a := range args[1:] {
+		if strings.ToUpper(string(a)) == "FIELDS" {
+			hasFields = true
+			break
+		}
+	}
+	if hasFields {
+		fnx, fxx := false, false
+		i := 1
+		for i < len(args) {
+			tok := strings.ToUpper(string(args[i]))
+			if tok == "FNX" {
+				fnx = true
+				i++
+			} else if tok == "FXX" {
+				fxx = true
+				i++
+			} else {
+				break
+			}
+		}
+		if fnx && fxx {
+			return protocol.MakeSyntaxErrReply()
+		}
+		expireAt, _, keepTTL, i2, optErr := parseHashExpireOpt(args, i)
+		if optErr != nil {
+			return optErr
+		}
+		i = i2
+		if i >= len(args) || strings.ToUpper(string(args[i])) != "FIELDS" {
+			return protocol.MakeSyntaxErrReply()
+		}
+		if i+1 >= len(args) {
+			return protocol.MakeErrReply("ERR wrong number of arguments")
+		}
+		n, err := strconv.Atoi(string(args[i+1]))
+		if err != nil || n < 1 {
+			return protocol.MakeErrReply("ERR Number of fields can't be negative or zero")
+		}
+		// each field has a value → 2*n tokens after numfields
+		if i+2+2*n > len(args) {
+			return protocol.MakeErrReply("ERR wrong number of arguments")
+		}
+		pairs := make([][2][]byte, n)
+		for j := 0; j < n; j++ {
+			pairs[j][0] = args[i+2+2*j]
+			pairs[j][1] = args[i+2+2*j+1]
+		}
+
+		ed, _, errReply := db.getOrInitExpireDict(key)
+		if errReply != nil {
+			return errReply
+		}
+		if fnx || fxx {
+			for _, p := range pairs {
+				_, exists := ed.Get(string(p[0]))
+				if fnx && exists {
+					return protocol.MakeIntReply(0)
+				}
+				if fxx && !exists {
+					return protocol.MakeIntReply(0)
+				}
+			}
+		}
+		now := time.Now()
+		for _, p := range pairs {
+			field := string(p[0])
+			exp := expireAt
+			if keepTTL {
+				_, ttl, exists := ed.GetWithExpire(field)
+				if exists && ttl > 0 {
+					exp = now.Add(ttl)
+				}
+			}
+			if !exp.IsZero() {
+				ed.SetWithExpire(field, p[1], exp.Sub(now))
+			} else {
+				ed.Set(field, p[1])
+			}
+		}
+		db.addAof(utils.ToCmdLine3("hsetex", args...))
+		return protocol.MakeIntReply(1)
+	}
+
+	// Legacy
 	field := string(args[1])
 	value := args[2]
-
-	// 获取或创建hash
 	ed, _, errReply := db.getOrInitExpireDict(key)
 	if errReply != nil {
 		return errReply
 	}
-
-	// 解析过期选项
-	now := time.Now()
-	expireAt := time.Time{}
-	keepTTL := false
-
-	for i := 3; i < len(args); i++ {
-		arg := strings.ToUpper(string(args[i]))
-		switch arg {
-		case "EX":
-			if i+1 >= len(args) {
-				return protocol.MakeSyntaxErrReply()
-			}
-			seconds, err := strconv.ParseInt(string(args[i+1]), 10, 64)
-			if err != nil || seconds <= 0 {
-				return protocol.MakeErrReply("ERR value is not an integer or out of range")
-			}
-			expireAt = now.Add(time.Duration(seconds) * time.Second)
-			i++
-		case "PX":
-			if i+1 >= len(args) {
-				return protocol.MakeSyntaxErrReply()
-			}
-			ms, err := strconv.ParseInt(string(args[i+1]), 10, 64)
-			if err != nil || ms <= 0 {
-				return protocol.MakeErrReply("ERR value is not an integer or out of range")
-			}
-			expireAt = now.Add(time.Duration(ms) * time.Millisecond)
-			i++
-		case "EXAT":
-			if i+1 >= len(args) {
-				return protocol.MakeSyntaxErrReply()
-			}
-			ts, err := strconv.ParseInt(string(args[i+1]), 10, 64)
-			if err != nil || ts <= 0 {
-				return protocol.MakeErrReply("ERR value is not an integer or out of range")
-			}
-			expireAt = time.Unix(ts, 0)
-			i++
-		case "PXAT":
-			if i+1 >= len(args) {
-				return protocol.MakeSyntaxErrReply()
-			}
-			ms, err := strconv.ParseInt(string(args[i+1]), 10, 64)
-			if err != nil || ms <= 0 {
-				return protocol.MakeErrReply("ERR value is not an integer or out of range")
-			}
-			expireAt = time.Unix(0, ms*int64(time.Millisecond))
-			i++
-		case "KEEPTTL":
-			keepTTL = true
-		default:
-			return protocol.MakeSyntaxErrReply()
-		}
+	expireAt, _, keepTTL, _, optErr := parseHashExpireOpt(args, 3)
+	if optErr != nil {
+		return optErr
 	}
-
-	// 检查是否需要保持原有TTL
+	now := time.Now()
 	if keepTTL {
 		_, ttl, exists := ed.GetWithExpire(field)
 		if exists && ttl > 0 {
 			expireAt = now.Add(ttl)
 		}
 	}
-
-	// 设置字段
 	if !expireAt.IsZero() {
 		ed.SetWithExpire(field, value, expireAt.Sub(now))
 	} else {
 		ed.Set(field, value)
 	}
-
 	db.addAof(utils.ToCmdLine3("hsetex", args...))
 	return protocol.MakeIntReply(1)
 }
 
-// execHGetDel 获取并删除字段
-// HGETDEL key field [field ...]
+// execHGetDel Redis 8: HGETDEL key FIELDS numfields field [field ...]
+// Legacy: HGETDEL key field [field ...]
 func execHGetDel(db *DB, args [][]byte) redis.Reply {
 	if len(args) < 2 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'hgetdel' command")
 	}
-
 	key := string(args[0])
-	fields := make([]string, len(args)-1)
-	for i := 1; i < len(args); i++ {
-		fields[i-1] = string(args[i])
+	var fields []string
+	if strings.ToUpper(string(args[1])) == "FIELDS" {
+		fs, _, errReply := parseHashFieldsBlock(args, 1)
+		if errReply != nil {
+			return errReply
+		}
+		fields = fs
+	} else {
+		fields = make([]string, len(args)-1)
+		for i := 1; i < len(args); i++ {
+			fields[i-1] = string(args[i])
+		}
 	}
 
-	// 获取hash
 	ed, errReply := db.getAsExpireDict(key)
 	if errReply != nil {
 		return errReply
 	}
+	out := make([][]byte, len(fields))
 	if ed == nil {
-		return &protocol.NullBulkReply{}
+		return protocol.MakeMultiBulkReply(out)
 	}
-
-	// 如果只查询一个字段，返回该字段的值
-	if len(fields) == 1 {
-		val, exists := ed.Get(fields[0])
-		if !exists {
-			return &protocol.NullBulkReply{}
-		}
-		// 删除字段
-		ed.Delete(fields[0])
-		db.addAof(utils.ToCmdLine3("hgetdel", args...))
-
-		value, _ := val.([]byte)
-		return protocol.MakeBulkReply(value)
-	}
-
-	// 多个字段，返回数组
-	result := make([][]byte, len(fields))
+	deleted := false
 	for i, field := range fields {
 		val, exists := ed.Get(field)
 		if exists {
-			value, _ := val.([]byte)
-			result[i] = value
+			b, _ := val.([]byte)
+			out[i] = b
 			ed.Delete(field)
+			deleted = true
 		}
 	}
-
-	db.addAof(utils.ToCmdLine3("hgetdel", args...))
-	return protocol.MakeMultiBulkReply(result)
+	if deleted {
+		db.addAof(utils.ToCmdLine3("hgetdel", args...))
+	}
+	return protocol.MakeMultiBulkReply(out)
 }
 
 // execHTTL 获取字段剩余生存时间
@@ -605,7 +704,7 @@ func undoHExpire(db *DB, args [][]byte) []CmdLine {
 		if remaining >= 0 {
 			expireAtMs := time.Now().Add(remaining).UnixNano() / int64(time.Millisecond)
 			undoCmdLines = append(undoCmdLines, utils.ToCmdLine("HPEXPIREAT", key,
-				strconv.FormatInt(expireAtMs, 10), field))
+				strconv.FormatInt(expireAtMs, 10), "FIELDS", "1", field))
 		}
 	}
 	return undoCmdLines
@@ -624,9 +723,18 @@ func undoHGetEx(db *DB, args [][]byte) []CmdLine {
 
 func undoHGetDel(db *DB, args [][]byte) []CmdLine {
 	key := string(args[0])
-	fields := make([]string, len(args)-1)
-	for i := 1; i < len(args); i++ {
-		fields[i-1] = string(args[i])
+	var fields []string
+	if len(args) >= 2 && strings.ToUpper(string(args[1])) == "FIELDS" {
+		fs, _, err := parseHashFieldsBlock(args, 1)
+		if err != nil {
+			return nil
+		}
+		fields = fs
+	} else {
+		fields = make([]string, len(args)-1)
+		for i := 1; i < len(args); i++ {
+			fields[i-1] = string(args[i])
+		}
 	}
 	return rollbackHashFields(db, key, fields...)
 }

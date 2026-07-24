@@ -204,6 +204,11 @@ func (server *Server) Exec(c redis.Connection, cmdLine [][]byte) (result redis.R
 
 	// Record the start time of command execution
 	GodisExecCommandStartUnixTime := time.Now()
+	if c != nil {
+		if t, ok := c.(interface{ TouchActive() }); ok {
+			t.TouchActive()
+		}
+	}
 
 	cmdName := strings.ToLower(string(cmdLine[0]))
 	// ping

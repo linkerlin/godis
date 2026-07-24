@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"sync"
+	"time"
 
 	"github.com/linkerlin/godis/lib/logger"
 )
@@ -20,6 +21,10 @@ type FakeConn struct {
 
 func NewFakeConn() *FakeConn {
 	c := &FakeConn{}
+	now := time.Now()
+	c.createdAt = now
+	c.lastActive = now
+	c.clientID = globalClientID.Add(1)
 	return c
 }
 

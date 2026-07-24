@@ -32,6 +32,8 @@
 | CLIENT REPLY / NO-TOUCH | ✅ REPLY 抑制写回；NO-TOUCH 跳过 LRU Touch |
 | timeout | ✅ std Handler 按秒设 ReadDeadline 踢空闲连接 |
 | COPY / FCALL | ✅ COPY/MOVE 经 DUMP 深拷贝；FCALL redis.call 走 execWithLock |
+| Hash field TTL 命令 | ✅ HGETEX/HSETEX/HGETDEL 支持 Redis 8 `FIELDS`（兼旧语法） |
+| CLIENT LIST | ✅ 真连接表；age/idle 按连接时钟 |
 | MONITOR | ✅ 流式广播（`BroadcastMonitor`） |
 | FAILOVER | ✅ 最小子集（ABORT/FORCE/TO/TIMEOUT）；完整协调切换仍缺 |
 | CLIENT UNBLOCK | ✅ 可唤醒 BLPOP/BZPOP/XREAD 等 |

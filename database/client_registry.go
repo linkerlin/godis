@@ -52,9 +52,16 @@ func formatClientListLine(c redis.Connection) string {
 		flags = "x"
 	}
 	libName, libVer := clientLibInfo(c)
+	age, idle := int64(0), int64(0)
+	if t, ok := c.(interface{ AgeSeconds() int64 }); ok {
+		age = t.AgeSeconds()
+	}
+	if t, ok := c.(interface{ IdleSeconds() int64 }); ok {
+		idle = t.IdleSeconds()
+	}
 	return fmt.Sprintf(
-		"id=%d addr=%s fd=0 name=%s age=0 idle=0 flags=%s db=%d sub=%d psub=0 multi=-1 qbuf=0 qbuf-free=0 obl=0 oll=0 omem=0 events=r cmd=client lib-name=%s lib-ver=%s",
-		c.GetClientID(), clientAddr(c), c.GetClientName(), flags, c.GetDBIndex(), c.SubsCount(), libName, libVer,
+		"id=%d addr=%s fd=0 name=%s age=%d idle=%d flags=%s db=%d sub=%d psub=0 multi=-1 qbuf=0 qbuf-free=0 obl=0 oll=0 omem=0 events=r cmd=client lib-name=%s lib-ver=%s",
+		c.GetClientID(), clientAddr(c), c.GetClientName(), age, idle, flags, c.GetDBIndex(), c.SubsCount(), libName, libVer,
 	)
 }
 
