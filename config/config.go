@@ -133,15 +133,11 @@ func parse(src io.Reader) (*ServerProperties, error) {
 	scanner := bufio.NewScanner(src)
 	for scanner.Scan() {
 		line := scanner.Text()
-		if len(line) > 0 && strings.TrimLeft(line, " ")[0] == '#' {
+		key, value, ok := splitConfigDirective(line)
+		if !ok {
 			continue
 		}
-		pivot := strings.IndexAny(line, " ")
-		if pivot > 0 && pivot < len(line)-1 { // separator found
-			key := line[0:pivot]
-			value := strings.Trim(line[pivot+1:], " ")
-			rawMap[strings.ToLower(key)] = value
-		}
+		rawMap[strings.ToLower(key)] = value
 	}
 	if err := scanner.Err(); err != nil {
 		return nil, errors.Wrap(err, "scan config file failed")
@@ -217,6 +213,58 @@ func SetupConfig(configFilename string) error {
 
 func GetTmpDir() string {
 	return Properties.Dir + "/tmp"
+}
+
+// splitConfigDirective splits a redis.conf line into key and value.
+// Supports multi-space separators and quoted values (spaces inside quotes).
+func splitConfigDirective(line string) (key, value string, ok bool) {
+	line = strings.TrimSpace(line)
+	if line == "" || strings.HasPrefix(line, "#") {
+		return "", "", false
+	}
+	i := 0
+	for i < len(line) && line[i] != ' ' && line[i] != '\t' {
+		i++
+	}
+	if i == 0 || i >= len(line) {
+		return "", "", false
+	}
+	key = line[:i]
+	rest := strings.TrimSpace(line[i:])
+	if rest == "" {
+		return "", "", false
+	}
+	return key, unquoteConfigValue(rest), true
+}
+
+func unquoteConfigValue(s string) string {
+	if len(s) < 2 {
+		return s
+	}
+	quote := s[0]
+	if quote != '"' && quote != '\'' {
+		return s
+	}
+	var b strings.Builder
+	escaped := false
+	for i := 1; i < len(s); i++ {
+		ch := s[i]
+		if escaped {
+			b.WriteByte(ch)
+			escaped = false
+			continue
+		}
+		if ch == '\\' {
+			escaped = true
+			continue
+		}
+		if ch == quote {
+			return b.String()
+		}
+		b.WriteByte(ch)
+	}
+	// Unclosed quote: treat as literal (best-effort).
+	return s
 }
 
 // ParseConfigBool parses Redis-style config booleans.

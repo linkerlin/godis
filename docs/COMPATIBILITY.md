@@ -35,6 +35,9 @@
 | Hash field TTL 命令 | ✅ HGETEX/HSETEX/HGETDEL 支持 Redis 8 `FIELDS`（兼旧语法） |
 | CLIENT LIST / INFO | ✅ 真连接表；age/idle 同源格式 |
 | XDELEX / XACKDEL | ✅ 逐 ID 状态数组（-1/1/2） |
+| 协议错误 | ✅ 回写后关闭连接（std；gnet 本已 Close） |
+| 配置文件 | ✅ 支持引号值与多空白分隔 |
+| TS FILTER | ✅ `label=` / `label!=` 存在性语义 |
 | MONITOR | ✅ 流式广播（`BroadcastMonitor`） |
 | FAILOVER | ✅ 最小子集（ABORT/FORCE/TO/TIMEOUT）；完整协调切换仍缺 |
 | CLIENT UNBLOCK | ✅ 可唤醒 BLPOP/BZPOP/XREAD 等 |

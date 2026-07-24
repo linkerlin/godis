@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/linkerlin/godis/datastruct/timeseries"
+	"github.com/linkerlin/godis/interface/database"
 	"github.com/linkerlin/godis/interface/redis"
 	"github.com/linkerlin/godis/redis/protocol"
 )
@@ -102,7 +103,7 @@ func execTSMRangeInternal(db *DB, args [][]byte, reverse bool) redis.Reply {
 
 	// Iterate all keys (simplified - in production would use index)
 	db.data.ForEach(func(key string, val interface{}) bool {
-		ts, ok := val.(*timeseries.TimeSeries)
+		ts, ok := entityAsTimeSeries(val)
 		if !ok {
 			return true
 		}
@@ -195,7 +196,7 @@ func execTSMGet(db *DB, args [][]byte) redis.Reply {
 	var results [][]byte
 
 	db.data.ForEach(func(key string, val interface{}) bool {
-		ts, ok := val.(*timeseries.TimeSeries)
+		ts, ok := entityAsTimeSeries(val)
 		if !ok {
 			return true
 		}
@@ -249,7 +250,7 @@ func execTSQueryIndex(db *DB, args [][]byte) redis.Reply {
 	var keys [][]byte
 
 	db.data.ForEach(func(key string, val interface{}) bool {
-		ts, ok := val.(*timeseries.TimeSeries)
+		ts, ok := entityAsTimeSeries(val)
 		if !ok {
 			return true
 		}
@@ -263,8 +264,8 @@ func execTSQueryIndex(db *DB, args [][]byte) redis.Reply {
 	return protocol.MakeMultiBulkReply(keys)
 }
 
-// matchFilters checks if a time series matches the filter conditions
-// Filters: label=value, label!=value, label= (exists), label!= (not exists)
+// matchFilters checks if a time series matches the filter conditions.
+// Filters: label=value, label!=value, label= (exists), label!= (does not exist).
 func matchFilters(ts *timeseries.TimeSeries, filters []string) bool {
 	labels := ts.GetLabels()
 
@@ -276,22 +277,48 @@ func matchFilters(ts *timeseries.TimeSeries, filters []string) bool {
 
 		label := parts[0]
 		value := parts[1]
-
-		// Check not equal
-		if strings.HasSuffix(label, "!") {
+		notEqual := strings.HasSuffix(label, "!")
+		if notEqual {
 			label = strings.TrimSuffix(label, "!")
-			if labels[label] == value {
+		}
+
+		_, exists := labels[label]
+		if value == "" {
+			// label= → must exist; label!= → must not exist
+			if notEqual {
+				if exists {
+					return false
+				}
+			} else if !exists {
+				return false
+			}
+			continue
+		}
+
+		if notEqual {
+			if exists && labels[label] == value {
 				return false
 			}
 		} else {
-			// Check equal
-			if labels[label] != value {
+			if !exists || labels[label] != value {
 				return false
 			}
 		}
 	}
 
 	return true
+}
+
+func entityAsTimeSeries(val interface{}) (*timeseries.TimeSeries, bool) {
+	switch v := val.(type) {
+	case *timeseries.TimeSeries:
+		return v, true
+	case *database.DataEntity:
+		ts, ok := v.Data.(*timeseries.TimeSeries)
+		return ts, ok
+	default:
+		return nil, false
+	}
 }
 
 func prepareTSMAdd(args [][]byte) ([]string, []string) {

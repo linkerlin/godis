@@ -52,13 +52,36 @@ func TestParseMaxClientsAndMetricsAddr(t *testing.T) {
 	}
 }
 
-func TestParseAclLogMaxLen(t *testing.T) {
-	src := "acllog-max-len 64\n"
+func TestParseQuotedValues(t *testing.T) {
+	src := "dir \"/data/my dir\"\n" +
+		"requirepass 'secret pass'\n" +
+		"bind\t0.0.0.0\n" +
+		"save 3600 1 300 100\n"
 	p, err := parse(strings.NewReader(src))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if p.AclLogMaxLen != 64 {
-		t.Fatalf("acllog-max-len: got %d", p.AclLogMaxLen)
+	if p.Dir != "/data/my dir" {
+		t.Fatalf("quoted dir: got %q", p.Dir)
+	}
+	if p.RequirePass != "secret pass" {
+		t.Fatalf("quoted requirepass: got %q", p.RequirePass)
+	}
+	if p.Bind != "0.0.0.0" {
+		t.Fatalf("tab-separated bind: got %q", p.Bind)
+	}
+	if p.Save != "3600 1 300 100" {
+		t.Fatalf("save multi-token value: got %q", p.Save)
+	}
+}
+
+func TestSplitConfigDirective(t *testing.T) {
+	key, val, ok := splitConfigDirective(`  logfile "/var/log/godis.log"  `)
+	if !ok || key != "logfile" || val != "/var/log/godis.log" {
+		t.Fatalf("got key=%q val=%q ok=%v", key, val, ok)
+	}
+	_, _, ok = splitConfigDirective("# comment")
+	if ok {
+		t.Fatal("comment should be skipped")
 	}
 }

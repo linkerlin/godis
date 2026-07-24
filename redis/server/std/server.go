@@ -121,15 +121,12 @@ func (h *Handler) Handle(ctx context.Context, conn net.Conn) {
 				logger.Info("connection closed: " + client.RemoteAddr())
 				return
 			}
-			// protocol err
+			// protocol err — Redis closes the connection after PROTO error
 			errReply := protocol.MakeErrReply(payload.Err.Error())
-			_, err := client.Write(errReply.ToBytes())
-			if err != nil {
-				h.closeClient(client)
-				logger.Info("connection closed: " + client.RemoteAddr())
-				return
-			}
-			continue
+			_, _ = client.Write(errReply.ToBytes())
+			h.closeClient(client)
+			logger.Info("connection closed (protocol error): " + client.RemoteAddr())
+			return
 		}
 		if payload.Data == nil {
 			logger.Error("empty payload")

@@ -123,7 +123,7 @@ func (e *Engine) LoadLibrary(name, code string, replace bool) (int, error) {
 func (e *Engine) parseLibrary(name, code string) (*Library, error) {
 	lib := &Library{
 		Name:      name,
-		Engine:    "LUA",
+		Engine:    parseEngineFromShebang(code),
 		Functions: make(map[string]*Function),
 		Code:      code,
 		SHA:       computeSHA(code),
@@ -407,6 +407,23 @@ func stripFunctionShebang(code string) string {
 		out = append(out, line)
 	}
 	return strings.Join(out, "\n")
+}
+
+// parseEngineFromShebang returns Redis engine name from "#!lua ..." (default LUA).
+func parseEngineFromShebang(code string) string {
+	for _, line := range strings.Split(code, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if !strings.HasPrefix(trimmed, "#!") {
+			continue
+		}
+		body := strings.TrimSpace(strings.TrimPrefix(trimmed, "#!"))
+		if body == "" {
+			break
+		}
+		engine := strings.Fields(body)[0]
+		return strings.ToUpper(engine)
+	}
+	return "LUA"
 }
 
 // Stats returns engine statistics
