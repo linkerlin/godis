@@ -907,6 +907,11 @@ func prepareJSONKey(args [][]byte) ([]string, []string) {
 	return []string{string(args[0])}, nil
 }
 
+// undoJSONKey restores JSON keys via DEL + GODIS.RESTORE (opaque) for MULTI rollback.
+func undoJSONKey(db *DB, args [][]byte) []CmdLine {
+	return rollbackFirstKey(db, args)
+}
+
 func prepareJSONMGet(args [][]byte) ([]string, []string) {
 	if len(args) < 2 {
 		return nil, nil
@@ -938,11 +943,11 @@ func prepareJSONDebug(args [][]byte) ([]string, []string) {
 }
 
 func init() {
-	registerCommand("JSON.Set", execJSONSet, prepareJSONKey, nil, -4, flagWrite).
+	registerCommand("JSON.Set", execJSONSet, prepareJSONKey, undoJSONKey, -4, flagWrite).
 		attachCommandExtra([]string{redisFlagWrite, redisFlagDenyOOM}, 1, 1, 1)
 	registerCommand("JSON.Get", execJSONGet, prepareJSONKey, nil, -2, flagReadOnly).
 		attachCommandExtra([]string{redisFlagReadonly}, 1, 1, 1)
-	registerCommand("JSON.Del", execJSONDel, prepareJSONKey, nil, -2, flagWrite).
+	registerCommand("JSON.Del", execJSONDel, prepareJSONKey, undoJSONKey, -2, flagWrite).
 		attachCommandExtra([]string{redisFlagWrite}, 1, 1, 1)
 	registerCommand("JSON.Forget", execJSONDel, prepareJSONKey, nil, -2, flagWrite).
 		attachCommandExtra([]string{redisFlagWrite}, 1, 1, 1)

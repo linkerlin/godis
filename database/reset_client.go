@@ -1,7 +1,6 @@
 package database
 
 import (
-	"fmt"
 	"strings"
 
 	"github.com/linkerlin/godis/interface/redis"
@@ -66,21 +65,7 @@ func execClientInfoConn(c redis.Connection, args [][]byte) redis.Reply {
 	if c == nil {
 		return execClientInfo(args)
 	}
-	addr := c.RemoteAddr()
-	if addr == "" {
-		addr = "127.0.0.1:0"
-	}
-	name := c.GetClientName()
-	libName, libVer := clientLibInfo(c)
-	flags := "N"
-	if c.InMultiState() {
-		flags = "x"
-	}
-	info := fmt.Sprintf(
-		"id=%d addr=%s fd=0 name=%s age=0 idle=0 flags=%s db=%d sub=%d psub=0 multi=-1 qbuf=0 qbuf-free=0 obl=0 oll=0 omem=0 events=r cmd=client lib-name=%s lib-ver=%s\n",
-		c.GetClientID(), addr, name, flags, c.GetDBIndex(), c.SubsCount(), libName, libVer,
-	)
-	return protocol.MakeBulkReply([]byte(info))
+	return protocol.MakeBulkReply([]byte(formatClientListLine(c) + "\n"))
 }
 
 // CLIENT SETINFO LIB-NAME / LIB-VER

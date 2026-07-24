@@ -1,6 +1,7 @@
 package functions
 
 import (
+	"context"
 	"crypto/sha1"
 	"encoding/hex"
 	"fmt"
@@ -53,10 +54,10 @@ type RunningFunction struct {
 
 // Engine manages Redis Functions
 type Engine struct {
-	libraries map[string]*Library
-	functions map[string]*Function // Global function name -> Function
-	luaEngine *scripting.LuaEngine
-	dbExec    func(cmd string, args ...string) (interface{}, error)
+	libraries    map[string]*Library
+	functions    map[string]*Function // Global function name -> Function
+	scriptEngine *scripting.Engine
+	dbExec       func(cmd string, args ...string) (interface{}, error)
 
 	// Execution tracking for KILL
 	running   *RunningFunction
@@ -65,13 +66,13 @@ type Engine struct {
 	mu sync.RWMutex
 }
 
-// NewEngine creates a new Functions engine
+// NewEngine creates a new Functions engine (FCALL uses gopher-lua via scripting.Engine).
 func NewEngine(poolSize int) *Engine {
 	return &Engine{
-		libraries: make(map[string]*Library),
-		functions: make(map[string]*Function),
-		luaEngine: scripting.NewLuaEngine(),
-		running:   nil,
+		libraries:    make(map[string]*Library),
+		functions:    make(map[string]*Function),
+		scriptEngine: scripting.NewEngine(nil),
+		running:      nil,
 	}
 }
 
@@ -80,6 +81,7 @@ func (e *Engine) SetDBExec(dbExec func(cmd string, args ...string) (interface{},
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.dbExec = dbExec
+	e.scriptEngine = scripting.NewEngine(dbExec)
 }
 
 // LoadLibrary loads a library from code
@@ -320,8 +322,18 @@ func (e *Engine) Call(functionName string, keys []string, args []string) (interf
 		e.runningMu.Unlock()
 	}()
 
-	// Execute using Lua engine with cancel support
-	result, err := e.luaEngine.ExecuteWithCancel(script, keys, args, e.dbExec, cancel)
+	// Execute using gopher-lua (scripting.Engine); cancel channel maps to context.
+	ctx, cancelFn := context.WithCancel(context.Background())
+	defer cancelFn()
+	go func() {
+		select {
+		case <-cancel:
+			cancelFn()
+		case <-ctx.Done():
+		}
+	}()
+
+	result, err := e.scriptEngine.EvalWithContext(ctx, script, keys, args)
 	if err != nil {
 		return nil, fmt.Errorf("function execution failed: %v", err)
 	}
@@ -360,52 +372,41 @@ func (e *Engine) KillRunningFunction() error {
 
 // buildExecutionScript builds a Lua script that sets up the environment and calls the function
 func (e *Engine) buildExecutionScript(libCode, funcName string, keys, args []string) string {
-	// Create a script that:
-	// 1. Loads the library code
-	// 2. Calls the registered function
-	// 3. Returns the result
-
+	// Strip Redis shebang lines (#!lua ...) — not valid Lua.
+	body := stripFunctionShebang(libCode)
+	// GopherEngine already provides redis.call/pcall; only add register_function.
 	script := `
--- Redis Functions execution wrapper
-local redis = {
-	call = function(...)
-		local cmd = {...}
-		local cmdStr = table.remove(cmd, 1)
-		return redis_call(cmdStr, table.unpack(cmd))
-	end,
-	pcall = function(...)
-		local ok, result = pcall(redis.call, ...)
-		if not ok then
-			return {err = result}
-		end
-		return result
-	end,
-	register_function = function(name, callback, flags)
-		-- Store function for later call
-		if type(name) == "table" then
-			-- Table-style registration
-			_G[name.name] = name.callback
-		else
-			-- Direct registration
-			_G[name] = callback
-		end
-	end,
-	log = function(level, message)
-		print("[REDIS LOG " .. level .. "] " .. message)
+local __godis_funcs = {}
+redis.register_function = function(name, callback, flags)
+	if type(name) == "table" then
+		__godis_funcs[name.name] = name.callback
+	else
+		__godis_funcs[name] = callback
 	end
-}
-
--- Load library code
-` + libCode + `
-
--- Call the function
-if _G["` + funcName + `"] then
-	return _G["` + funcName + `"](KEYS, ARGV)
-else
-	return {err = "Function not found"}
 end
+
+` + body + `
+
+local __fn = __godis_funcs["` + funcName + `"]
+if __fn == nil then
+	error("Function not found")
+end
+return __fn(KEYS, ARGV)
 `
 	return script
+}
+
+func stripFunctionShebang(code string) string {
+	lines := strings.Split(code, "\n")
+	out := make([]string, 0, len(lines))
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "#!") {
+			continue
+		}
+		out = append(out, line)
+	}
+	return strings.Join(out, "\n")
 }
 
 // Stats returns engine statistics

@@ -711,14 +711,60 @@ func undoHExpire(db *DB, args [][]byte) []CmdLine {
 }
 
 func undoHGetEx(db *DB, args [][]byte) []CmdLine {
-	// HGETEX的回滚比较复杂，因为它可能修改了过期时间
-	// 简化处理：只回滚字段值（如果字段被删除）
 	if len(args) < 2 {
 		return nil
 	}
 	key := string(args[0])
-	field := string(args[1])
-	return rollbackHashFields(db, key, field)
+	var fields []string
+	hasFields := false
+	for _, a := range args[1:] {
+		if strings.ToUpper(string(a)) == "FIELDS" {
+			hasFields = true
+			break
+		}
+	}
+	if hasFields {
+		i := 1
+		for i < len(args) && strings.ToUpper(string(args[i])) != "FIELDS" {
+			tok := strings.ToUpper(string(args[i]))
+			switch tok {
+			case "EX", "PX", "EXAT", "PXAT":
+				i += 2
+			case "PERSIST":
+				i++
+			default:
+				i++
+			}
+		}
+		fs, _, err := parseHashFieldsBlock(args, i)
+		if err != nil {
+			return nil
+		}
+		fields = fs
+	} else {
+		fields = []string{string(args[1])}
+	}
+
+	ed, errReply := db.getAsExpireDict(key)
+	if errReply != nil || ed == nil {
+		return rollbackGivenKeys(db, key)
+	}
+	var undoCmdLines []CmdLine
+	for _, field := range fields {
+		val, remaining, exists := ed.GetWithExpire(field)
+		if !exists {
+			undoCmdLines = append(undoCmdLines, utils.ToCmdLine("HDEL", key, field))
+			continue
+		}
+		value, _ := val.([]byte)
+		undoCmdLines = append(undoCmdLines, utils.ToCmdLine("HSET", key, field, string(value)))
+		if remaining >= 0 {
+			expireAtMs := time.Now().Add(remaining).UnixNano() / int64(time.Millisecond)
+			undoCmdLines = append(undoCmdLines, utils.ToCmdLine("HPEXPIREAT", key,
+				strconv.FormatInt(expireAtMs, 10), "FIELDS", "1", field))
+		}
+	}
+	return undoCmdLines
 }
 
 func undoHGetDel(db *DB, args [][]byte) []CmdLine {

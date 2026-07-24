@@ -425,25 +425,49 @@ func (s *Stream) Delete(ids []StreamID) int {
 // DELREF: delete stream entries and remove from all PELs
 // ACKED: delete only if not present in any PEL
 func (s *Stream) DeleteEx(ids []StreamID, mode string) int {
+	results := s.DeleteExResults(ids, mode)
+	n := 0
+	for _, r := range results {
+		if r == 1 {
+			n++
+		}
+	}
+	return n
+}
+
+// DeleteExResults returns per-ID status for XDELEX/XACKDEL:
+// -1 = ID not in stream, 1 = deleted, 2 = not deleted (still referenced / ACKED policy).
+func (s *Stream) DeleteExResults(ids []StreamID, mode string) []int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	mode = strings.ToUpper(mode)
-	deleted := 0
-	for _, id := range ids {
+	out := make([]int, len(ids))
+	for i, id := range ids {
+		_, exists := s.entries.Get(id.String())
+		if !exists {
+			out[i] = -1
+			if mode == "DELREF" {
+				s.removeIDFromAllPELs(id)
+			}
+			continue
+		}
 		inPEL := s.idInAnyPEL(id)
 		if mode == "ACKED" && inPEL {
+			out[i] = 2
 			continue
 		}
 		_, result := s.entries.Remove(id.String())
 		if result > 0 {
-			deleted++
+			out[i] = 1
+		} else {
+			out[i] = -1
 		}
 		if mode == "DELREF" {
 			s.removeIDFromAllPELs(id)
 		}
 	}
-	return deleted
+	return out
 }
 
 func (s *Stream) idInAnyPEL(id StreamID) bool {

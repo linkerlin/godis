@@ -31,9 +31,10 @@
 | 订阅态 | ✅ 仅 (P\|S)SUBSCRIBE/(P\|S)UNSUBSCRIBE/PING/QUIT/RESET；SSUBSCRIBE 真连接 |
 | CLIENT REPLY / NO-TOUCH | ✅ REPLY 抑制写回；NO-TOUCH 跳过 LRU Touch |
 | timeout | ✅ std Handler 按秒设 ReadDeadline 踢空闲连接 |
-| COPY / FCALL | ✅ COPY/MOVE 经 DUMP 深拷贝；FCALL redis.call 走 execWithLock |
+| COPY / FCALL | ✅ COPY/MOVE 经 DUMP 深拷贝；FCALL 用 gopher-lua，`redis.call` 走 execWithLock |
 | Hash field TTL 命令 | ✅ HGETEX/HSETEX/HGETDEL 支持 Redis 8 `FIELDS`（兼旧语法） |
-| CLIENT LIST | ✅ 真连接表；age/idle 按连接时钟 |
+| CLIENT LIST / INFO | ✅ 真连接表；age/idle 同源格式 |
+| XDELEX / XACKDEL | ✅ 逐 ID 状态数组（-1/1/2） |
 | MONITOR | ✅ 流式广播（`BroadcastMonitor`） |
 | FAILOVER | ✅ 最小子集（ABORT/FORCE/TO/TIMEOUT）；完整协调切换仍缺 |
 | CLIENT UNBLOCK | ✅ 可唤醒 BLPOP/BZPOP/XREAD 等 |
@@ -46,7 +47,7 @@ UNWATCH、WAIT（简版）、BITOP、BITFIELD、SMOVE、LPOS、XCLAIM、SHUTDOWN
 
 | 主题 | Redis | Godis |
 |------|-------|-------|
-| Lua 引擎 | 内置 | 默认 **gopher-lua**（`GODIS_LUA_ENGINE`） |
+| Lua 引擎 | 内置 | 默认 **gopher-lua**（`GODIS_LUA_ENGINE`）；**FCALL 同引擎**（M2z） |
 | 优雅关闭 | SIGTERM | std 路径 in-flight 等待；`SHUTDOWN` + hook |
 
 ## 测试

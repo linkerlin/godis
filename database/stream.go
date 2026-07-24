@@ -450,13 +450,20 @@ func execXDelex(db *DB, args [][]byte) redis.Reply {
 		return errReply
 	}
 	if s == nil {
-		return protocol.MakeIntReply(0)
+		return streamIDStatusReply(ids, -1)
 	}
-	deleted := s.DeleteEx(ids, mode)
-	if deleted > 0 {
+	results := s.DeleteExResults(ids, mode)
+	changed := false
+	for _, r := range results {
+		if r == 1 {
+			changed = true
+			break
+		}
+	}
+	if changed {
 		db.addAof(utils.ToCmdLine3("xdelex", args...))
 	}
-	return protocol.MakeIntReply(int64(deleted))
+	return streamIDStatusCodes(results)
 }
 
 // execXAckDel acknowledges then deletes with PEL policy (Redis 8.2)
@@ -476,13 +483,13 @@ func execXAckDel(db *DB, args [][]byte) redis.Reply {
 		return errReply
 	}
 	if s == nil {
-		return protocol.MakeIntReply(0)
+		return streamIDStatusReply(ids, -1)
 	}
 	group, err := s.GetGroup(groupName)
 	if err != nil {
-		return protocol.MakeIntReply(0)
+		return streamIDStatusReply(ids, -1)
 	}
-	acked := 0
+	acked := false
 	for _, id := range ids {
 		if _, ok := group.Pending[id]; ok {
 			delete(group.Pending, id)
@@ -491,15 +498,37 @@ func execXAckDel(db *DB, args [][]byte) redis.Reply {
 				delete(c.Pending, id)
 				return true
 			})
-			acked++
+			acked = true
 		}
 	}
-	_ = acked
-	deleted := s.DeleteEx(ids, mode)
-	if deleted > 0 || acked > 0 {
+	results := s.DeleteExResults(ids, mode)
+	changed := acked
+	for _, r := range results {
+		if r == 1 {
+			changed = true
+			break
+		}
+	}
+	if changed {
 		db.addAof(utils.ToCmdLine3("xackdel", args...))
 	}
-	return protocol.MakeIntReply(int64(deleted))
+	return streamIDStatusCodes(results)
+}
+
+func streamIDStatusReply(ids []stream.StreamID, code int64) redis.Reply {
+	replies := make([]redis.Reply, len(ids))
+	for i := range ids {
+		replies[i] = protocol.MakeIntReply(code)
+	}
+	return protocol.MakeMultiRawReply(replies)
+}
+
+func streamIDStatusCodes(codes []int) redis.Reply {
+	replies := make([]redis.Reply, len(codes))
+	for i, c := range codes {
+		replies[i] = protocol.MakeIntReply(int64(c))
+	}
+	return protocol.MakeMultiRawReply(replies)
 }
 
 // execXGroupCreate 创建消费者组
