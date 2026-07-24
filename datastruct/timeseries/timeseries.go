@@ -53,6 +53,7 @@ const (
 	VarPAggregation
 	VarSAggregation
 	RangeAggregation
+	TwaAggregation // time-weighted average
 )
 
 // NewTimeSeries creates a new time series
@@ -179,28 +180,73 @@ func (ts *TimeSeries) RangeWithAggregation(from, to int64, bucketSize time.Durat
 	if len(samples) == 0 {
 		return nil
 	}
-	
-	// Group by buckets
-	buckets := make(map[int64][]float64)
-	
-	for _, s := range samples {
-		bucket := s.Timestamp / int64(bucketSize.Milliseconds()) * int64(bucketSize.Milliseconds())
-		buckets[bucket] = append(buckets[bucket], s.Value)
+
+	bucketMs := int64(bucketSize.Milliseconds())
+	if bucketMs <= 0 {
+		return nil
 	}
-	
+
+	// Group by buckets
+	buckets := make(map[int64][]Sample)
+	for _, s := range samples {
+		bucket := s.Timestamp / bucketMs * bucketMs
+		buckets[bucket] = append(buckets[bucket], s)
+	}
+
 	// Aggregate each bucket
 	var result []Sample
-	for bucket, values := range buckets {
-		value := aggregate(values, agg)
+	for bucket, bucketSamples := range buckets {
+		bucketEnd := bucket + bucketMs
+		if bucketEnd > to+1 {
+			bucketEnd = to + 1
+		}
+		var value float64
+		if agg == TwaAggregation {
+			value = aggregateTWA(bucketSamples, bucket, bucketEnd)
+		} else {
+			values := make([]float64, len(bucketSamples))
+			for i, s := range bucketSamples {
+				values[i] = s.Value
+			}
+			value = aggregate(values, agg)
+		}
 		result = append(result, Sample{Timestamp: bucket, Value: value})
 	}
-	
+
 	// Sort by timestamp
 	sort.Slice(result, func(i, j int) bool {
 		return result[i].Timestamp < result[j].Timestamp
 	})
-	
+
 	return result
+}
+
+// aggregateTWA computes time-weighted average within [bucketStart, bucketEnd).
+func aggregateTWA(samples []Sample, bucketStart, bucketEnd int64) float64 {
+	if len(samples) == 0 {
+		return math.NaN()
+	}
+	var weightedSum, totalDuration float64
+	for i, s := range samples {
+		start := s.Timestamp
+		if start < bucketStart {
+			start = bucketStart
+		}
+		end := bucketEnd
+		if i+1 < len(samples) && samples[i+1].Timestamp < end {
+			end = samples[i+1].Timestamp
+		}
+		if end <= start {
+			continue
+		}
+		dur := float64(end - start)
+		weightedSum += s.Value * dur
+		totalDuration += dur
+	}
+	if totalDuration == 0 {
+		return samples[len(samples)-1].Value
+	}
+	return weightedSum / totalDuration
 }
 
 // Del deletes samples in a range
@@ -443,6 +489,8 @@ func AggregationTypeToString(agg AggregationType) string {
 		return "var.s"
 	case RangeAggregation:
 		return "range"
+	case TwaAggregation:
+		return "twa"
 	default:
 		return ""
 	}
@@ -475,6 +523,8 @@ func ParseAggregationType(s string) (AggregationType, error) {
 		return VarSAggregation, nil
 	case "range":
 		return RangeAggregation, nil
+	case "twa":
+		return TwaAggregation, nil
 	default:
 		return 0, ErrUnknownAggregation
 	}

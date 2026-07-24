@@ -2,6 +2,7 @@ package database
 
 import (
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -233,87 +234,112 @@ func execGeoHash(db *DB, args [][]byte) redis.Reply {
 }
 
 // execGeoRadius returns members within max distance of given point
+// GEORADIUS key longitude latitude radius m|km|ft|mi [WITHCOORD] [WITHDIST] [WITHHASH] [COUNT count [ANY]] [ASC|DESC] [STORE key] [STOREDIST key]
 func execGeoRadius(db *DB, args [][]byte) redis.Reply {
-	// parse args
 	if len(args) < 5 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'georadius' command")
 	}
-
-	key := string(args[0])
-	sortedSet, errReply := db.getAsSortedSet(key)
-	if errReply != nil {
-		return errReply
-	}
-	if sortedSet == nil {
-		return protocol.MakeEmptyMultiBulkReply()
-	}
-
-	lng, err := strconv.ParseFloat(string(args[1]), 64)
-	if err != nil {
-		return protocol.MakeErrReply("ERR value is not a valid float")
-	}
-	lat, err := strconv.ParseFloat(string(args[2]), 64)
-	if err != nil {
-		return protocol.MakeErrReply("ERR value is not a valid float")
-	}
-	radius, err := strconv.ParseFloat(string(args[3]), 64)
-	if err != nil {
-		return protocol.MakeErrReply("ERR value is not a valid float")
-	}
-	unit := strings.ToLower(string(args[4]))
-	meters, unitErr := geoUnitToMeters(radius, unit)
-	if unitErr != nil {
-		return unitErr
-	}
-	return geoRadius0(sortedSet, lat, lng, meters)
+	return execGeoRadiusViaSearch(db, args[0], false, args[1], args[2], args[3], args[4], args[5:])
 }
 
 // execGeoRadiusByMember returns members within max distance of given member's location
+// GEORADIUSBYMEMBER key member radius m|km|ft|mi [WITHCOORD] [WITHDIST] [WITHHASH] [COUNT count [ANY]] [ASC|DESC] [STORE key] [STOREDIST key]
 func execGeoRadiusByMember(db *DB, args [][]byte) redis.Reply {
-	// parse args
-	if len(args) < 3 {
+	if len(args) < 4 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'georadiusbymember' command")
 	}
+	return execGeoRadiusViaSearch(db, args[0], true, args[1], nil, args[2], args[3], args[4:])
+}
 
-	key := string(args[0])
-	sortedSet, errReply := db.getAsSortedSet(key)
-	if errReply != nil {
-		return errReply
+// execGeoRadiusViaSearch maps GEORADIUS* onto GEOSEARCH / GEOSEARCHSTORE (haversine + options).
+func execGeoRadiusViaSearch(db *DB, key []byte, fromMember bool, a, b, radius, unit []byte, opts [][]byte) redis.Reply {
+	var storeKey, storeDistKey []byte
+	hasWith := false
+	forward := make([][]byte, 0, 8+len(opts))
+	forward = append(forward, key)
+	if fromMember {
+		forward = append(forward, []byte("FROMMEMBER"), a)
+	} else {
+		forward = append(forward, []byte("FROMLONLAT"), a, b)
 	}
-	if sortedSet == nil {
-		return protocol.MakeEmptyMultiBulkReply()
-	}
+	forward = append(forward, []byte("BYRADIUS"), radius, unit)
 
-	member := string(args[1])
-	elem, ok := sortedSet.Get(member)
-	if !ok {
-		return &protocol.NullBulkReply{}
-	}
-	lat, lng := geohash.Decode(uint64(elem.Score))
-
-	radius, err := strconv.ParseFloat(string(args[2]), 64)
-	if err != nil {
-		return protocol.MakeErrReply("ERR value is not a valid float")
-	}
-	if len(args) > 3 {
-		unit := strings.ToLower(string(args[3]))
-		meters, unitErr := geoUnitToMeters(radius, unit)
-		if unitErr != nil {
-			return unitErr
+	i := 0
+	for i < len(opts) {
+		opt := strings.ToUpper(string(opts[i]))
+		switch opt {
+		case "WITHCOORD", "WITHDIST", "WITHHASH", "ASC", "DESC", "ANY":
+			if opt == "WITHCOORD" || opt == "WITHDIST" || opt == "WITHHASH" {
+				hasWith = true
+			}
+			forward = append(forward, opts[i])
+			i++
+		case "COUNT":
+			if i+1 >= len(opts) {
+				return protocol.MakeSyntaxErrReply()
+			}
+			forward = append(forward, opts[i], opts[i+1])
+			i += 2
+			if i < len(opts) && strings.EqualFold(string(opts[i]), "ANY") {
+				forward = append(forward, opts[i])
+				i++
+			}
+		case "STORE":
+			if i+1 >= len(opts) {
+				return protocol.MakeSyntaxErrReply()
+			}
+			storeKey = opts[i+1]
+			i += 2
+		case "STOREDIST":
+			if i+1 >= len(opts) {
+				return protocol.MakeSyntaxErrReply()
+			}
+			storeDistKey = opts[i+1]
+			i += 2
+		default:
+			return protocol.MakeSyntaxErrReply()
 		}
-		radius = meters
 	}
-	return geoRadius0(sortedSet, lat, lng, radius)
+
+	if storeKey != nil || storeDistKey != nil {
+		if hasWith {
+			return protocol.MakeErrReply("ERR syntax error")
+		}
+		if storeKey != nil && storeDistKey != nil {
+			return protocol.MakeErrReply("ERR STORE and STOREDIST options are mutually exclusive")
+		}
+		dest := storeKey
+		extra := [][]byte(nil)
+		if storeDistKey != nil {
+			dest = storeDistKey
+			extra = [][]byte{[]byte("STOREDIST")}
+		}
+		searchArgs := append([][]byte{dest}, forward...)
+		searchArgs = append(searchArgs, extra...)
+		return execGeoSearchStore(db, searchArgs)
+	}
+
+	return execGeoSearch(db, forward)
 }
 
 func geoRadius0(sortedSet *sortedset.SortedSet, lat float64, lng float64, radius float64) redis.Reply {
+	// Legacy helper (tests); applies haversine filter on geohash neighbour candidates.
 	areas := geohash.GetNeighbours(lat, lng, radius)
-	members := make([][]byte, 0)
+	seen := make(map[string]struct{})
+	var members [][]byte
 	for _, area := range areas {
 		lower := &sortedset.ScoreBorder{Value: float64(area[0])}
 		upper := &sortedset.ScoreBorder{Value: float64(area[1])}
 		elements := sortedSet.Range(lower, upper, 0, -1, true)
 		for _, elem := range elements {
+			if _, ok := seen[elem.Member]; ok {
+				continue
+			}
+			mLat, mLon := extractGeoHash(elem.Score)
+			if geohash.Distance(lat, lng, mLat, mLon) > radius {
+				continue
+			}
+			seen[elem.Member] = struct{}{}
 			members = append(members, []byte(elem.Member))
 		}
 	}
@@ -505,23 +531,12 @@ func execGeoSearch(db *DB, args [][]byte) redis.Reply {
 
 	// Sort results (ANY skips distance ordering once enough matches exist)
 	if !anyCount {
-		if asc {
-			for i := 0; i < len(results)-1; i++ {
-				for j := i + 1; j < len(results); j++ {
-					if results[i].dist > results[j].dist {
-						results[i], results[j] = results[j], results[i]
-					}
-				}
+		sort.Slice(results, func(i, j int) bool {
+			if asc {
+				return results[i].dist < results[j].dist
 			}
-		} else {
-			for i := 0; i < len(results)-1; i++ {
-				for j := i + 1; j < len(results); j++ {
-					if results[i].dist < results[j].dist {
-						results[i], results[j] = results[j], results[i]
-					}
-				}
-			}
-		}
+			return results[i].dist > results[j].dist
+		})
 	}
 
 	// Apply count limit
@@ -559,6 +574,17 @@ func execGeoSearch(db *DB, args [][]byte) redis.Reply {
 		}
 	}
 
+	if !withCoord && !withDist && !withHash {
+		args := make([][]byte, len(reply))
+		for i, r := range reply {
+			br, ok := r.(*protocol.BulkReply)
+			if !ok {
+				return protocol.MakeMultiRawReply(reply)
+			}
+			args[i] = br.Arg
+		}
+		return protocol.MakeMultiBulkReply(args)
+	}
 	return protocol.MakeMultiRawReply(reply)
 }
 

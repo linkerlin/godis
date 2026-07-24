@@ -39,7 +39,10 @@
 | 配置文件 | ✅ 支持引号值与多空白分隔 |
 | TS FILTER | ✅ `label=` / `label!=` 存在性语义 |
 | GEOSEARCH / GEOHASH | ✅ FROMMEMBER 含自身；缺键按成员 null 数组 |
+| GEORADIUS | ✅ WITH*/COUNT/ASC/DESC/STORE 经 GEOSEARCH 路径 |
 | XREADGROUP / XPENDING | ✅ 历史重读递增 DeliveryCount；`-`/`+` 范围 |
+| TS 聚合 | ✅ 含 **twa**（时间加权平均） |
+| SINTERCARD | ✅ LIMIT 提前终止 |
 | MONITOR | ✅ 流式广播（`BroadcastMonitor`） |
 | FAILOVER | ✅ 最小子集（ABORT/FORCE/TO/TIMEOUT）；完整协调切换仍缺 |
 | CLIENT UNBLOCK | ✅ 可唤醒 BLPOP/BZPOP/XREAD 等 |

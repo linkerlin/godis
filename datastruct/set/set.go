@@ -126,6 +126,44 @@ func Intersect(sets ...*Set) *Set {
 	return result
 }
 
+// IntersectCard returns |intersection|; if limit > 0, stops once that many members are found.
+func IntersectCard(limit int, sets ...*Set) int {
+	if len(sets) == 0 {
+		return 0
+	}
+	for _, set := range sets {
+		if set == nil || set.Len() == 0 {
+			return 0
+		}
+	}
+
+	// Iterate the smallest set for fewer membership checks.
+	smallest := sets[0]
+	for _, set := range sets[1:] {
+		if set.Len() < smallest.Len() {
+			smallest = set
+		}
+	}
+
+	count := 0
+	smallest.ForEach(func(member string) bool {
+		for _, set := range sets {
+			if set == smallest {
+				continue
+			}
+			if !set.Has(member) {
+				return true
+			}
+		}
+		count++
+		if limit > 0 && count >= limit {
+			return false
+		}
+		return true
+	})
+	return count
+}
+
 // Union adds two sets
 func Union(sets ...*Set) *Set {
 	result := Make()

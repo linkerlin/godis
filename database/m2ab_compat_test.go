@@ -17,11 +17,7 @@ func TestM2abGeoSearchIncludesSelf(t *testing.T) {
 	r := db.Exec(nil, utils.ToCmdLine(
 		"GEOSEARCH", "g", "FROMMEMBER", "Palermo", "BYRADIUS", "1", "km",
 	))
-	mr, ok := r.(*protocol.MultiRawReply)
-	if !ok || len(mr.Replies) != 1 {
-		t.Fatalf("GEOSEARCH: %s", r.ToBytes())
-	}
-	asserts.AssertBulkReply(t, mr.Replies[0], "Palermo")
+	asserts.AssertMultiBulkReply(t, r, []string{"Palermo"})
 }
 
 func TestM2abGeoHashMissingKey(t *testing.T) {
