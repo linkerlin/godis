@@ -55,6 +55,21 @@ type ServerProperties struct {
 	Maxmemory       int64  `cfg:"maxmemory"`
 	MaxmemoryPolicy string `cfg:"maxmemory-policy"`
 
+	// Accepted for Redis conf compatibility (semantics may be partial / noop).
+	Timeout              int    `cfg:"timeout"`
+	TCPKeepAlive         int    `cfg:"tcp-keepalive"`
+	LogLevel             string `cfg:"loglevel"`
+	LogFile              string `cfg:"logfile"`
+	ProtectedMode        bool   `cfg:"protected-mode"`
+	Daemonize            bool   `cfg:"daemonize"`
+	PidFile              string `cfg:"pidfile"`
+	LazyfreeLazyEviction bool   `cfg:"lazyfree-lazy-eviction"`
+	ProtoMaxBulkLen      int64  `cfg:"proto-max-bulk-len"`
+	// Save is Redis "save <sec> <changes> ..." as a single CONFIG string (e.g. "3600 1 300 100").
+	// Automatic snapshot scheduling is not fully wired; value is stored/returned for compatibility.
+	Save       string `cfg:"save"`
+	TCPBacklog int    `cfg:"tcp-backlog"`
+
 	ClusterEnable     bool   `cfg:"cluster-enable"`
 	ClusterAsSeed     bool   `cfg:"cluster-as-seed"`
 	ClusterSeed       string `cfg:"cluster-seed"`

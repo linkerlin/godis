@@ -2,6 +2,7 @@ package connection
 
 import (
 	"net"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -60,6 +61,8 @@ type Connection struct {
 	libName         string
 	libVer          string
 	noEvict         bool
+	noTouch         bool
+	replyMode       int // 0=ON, 1=OFF, 2=SKIP (suppress next)
 }
 
 var connPool = sync.Pool{
@@ -94,6 +97,8 @@ func (c *Connection) Close() error {
 	c.libName = ""
 	c.libVer = ""
 	c.noEvict = false
+	c.noTouch = false
+	c.replyMode = 0
 	c.clientID = 0
 	connPool.Put(c)
 	return nil
@@ -185,6 +190,48 @@ func (c *Connection) SetNoEvict(v bool) {
 // GetNoEvict returns whether CLIENT NO-EVICT is enabled.
 func (c *Connection) GetNoEvict() bool {
 	return c.noEvict
+}
+
+// SetNoTouch sets CLIENT NO-TOUCH (reads skip LRU/LFU touch).
+func (c *Connection) SetNoTouch(v bool) {
+	c.noTouch = v
+}
+
+// GetNoTouch returns whether CLIENT NO-TOUCH is enabled.
+func (c *Connection) GetNoTouch() bool {
+	return c.noTouch
+}
+
+const (
+	replyModeOn = iota
+	replyModeOff
+	replyModeSkip
+)
+
+// SetReplyMode sets CLIENT REPLY ON|OFF|SKIP.
+func (c *Connection) SetReplyMode(mode string) {
+	switch strings.ToUpper(mode) {
+	case "OFF":
+		c.replyMode = replyModeOff
+	case "SKIP":
+		c.replyMode = replyModeSkip
+	default:
+		c.replyMode = replyModeOn
+	}
+}
+
+// ShouldSuppressReply reports whether the next write should be skipped.
+// SKIP suppresses once then returns to ON. OFF suppresses until ON.
+func (c *Connection) ShouldSuppressReply() bool {
+	switch c.replyMode {
+	case replyModeOff:
+		return true
+	case replyModeSkip:
+		c.replyMode = replyModeOn
+		return true
+	default:
+		return false
+	}
 }
 
 // SetProtocolVersion stores the RESP protocol version negotiated via HELLO.

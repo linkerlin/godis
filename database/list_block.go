@@ -65,6 +65,21 @@ func ClearBlockingClientID() {
 	boundBlockingClient.Delete(goid())
 }
 
+var boundNoTouch sync.Map // goid -> struct{}
+
+func bindNoTouch() {
+	boundNoTouch.Store(goid(), struct{}{})
+}
+
+func clearNoTouch() {
+	boundNoTouch.Delete(goid())
+}
+
+func peekNoTouch() bool {
+	_, ok := boundNoTouch.Load(goid())
+	return ok
+}
+
 func peekBlockingClientID() int64 {
 	if v, ok := boundBlockingClient.Load(goid()); ok {
 		return v.(int64)

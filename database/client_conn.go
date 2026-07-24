@@ -35,7 +35,7 @@ func execClientConn(c redis.Connection, db *DB, args [][]byte) redis.Reply {
 	case "ID":
 		return execClientIDConn(c, args[1:])
 	case "REPLY":
-		return execClientReply(args[1:])
+		return execClientReplyConn(c, args[1:])
 	case "TRACKING":
 		return execClientTrackingConn(c, args[1:])
 	case "CACHING":
@@ -46,6 +46,8 @@ func execClientConn(c redis.Connection, db *DB, args [][]byte) redis.Reply {
 		return execClientTrackingInfoConn(c, args[1:])
 	case "NO-EVICT":
 		return execClientNoEvictConn(c, args[1:])
+	case "NO-TOUCH":
+		return execClientNoTouchConn(c, args[1:])
 	case "UNBLOCK":
 		return execClientUnblock(args[1:])
 	case "HELP":

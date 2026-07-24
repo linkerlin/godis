@@ -1,32 +1,36 @@
 package database
 
 import (
-	"math/rand"
+	"sync"
 	"time"
 
+	"github.com/linkerlin/godis/config"
+	"github.com/linkerlin/godis/interface/redis"
 	"github.com/linkerlin/godis/lib/memory"
+	"github.com/linkerlin/godis/redis/protocol"
 )
 
-// KeyMetadata stores metadata for a key (for LRU/LFU)
-type KeyMetadata struct {
-	LastAccessTime time.Time
-	AccessCount    uint64
-	HasTTL         bool
-}
+const bytesPerKeyEstimate = 128
 
 // EvictionManager handles key eviction based on maxmemory-policy
 type EvictionManager struct {
 	db      *DB
 	policy  memory.EvictionPolicy
-	samples int // Number of keys to sample for LRU/LFU
+	samples int
+
+	mu          sync.Mutex
+	lastAccess  map[string]time.Time
+	accessCount map[string]uint64
 }
 
 // NewEvictionManager creates a new eviction manager
 func NewEvictionManager(db *DB, policy memory.EvictionPolicy) *EvictionManager {
 	return &EvictionManager{
-		db:      db,
-		policy:  policy,
-		samples: 5, // Default sample size
+		db:          db,
+		policy:      policy,
+		samples:     5,
+		lastAccess:  make(map[string]time.Time),
+		accessCount: make(map[string]uint64),
 	}
 }
 
@@ -40,6 +44,57 @@ func (em *EvictionManager) SetSamples(samples int) {
 	if samples > 0 {
 		em.samples = samples
 	}
+}
+
+// Touch records an access for LRU/LFU accounting.
+func (em *EvictionManager) Touch(key string) {
+	if em == nil {
+		return
+	}
+	em.mu.Lock()
+	em.lastAccess[key] = time.Now()
+	em.accessCount[key]++
+	em.mu.Unlock()
+}
+
+// Forget drops metadata when a key is removed.
+func (em *EvictionManager) Forget(key string) {
+	if em == nil {
+		return
+	}
+	em.mu.Lock()
+	delete(em.lastAccess, key)
+	delete(em.accessCount, key)
+	em.mu.Unlock()
+}
+
+// IdleSeconds returns seconds since last access (0 if unknown).
+func (em *EvictionManager) IdleSeconds(key string) int64 {
+	if em == nil {
+		return 0
+	}
+	em.mu.Lock()
+	t, ok := em.lastAccess[key]
+	em.mu.Unlock()
+	if !ok {
+		return 0
+	}
+	sec := int64(time.Since(t).Seconds())
+	if sec < 0 {
+		return 0
+	}
+	return sec
+}
+
+// Freq returns access count for LFU (0 if unknown).
+func (em *EvictionManager) Freq(key string) int64 {
+	if em == nil {
+		return 0
+	}
+	em.mu.Lock()
+	n := em.accessCount[key]
+	em.mu.Unlock()
+	return int64(n)
 }
 
 // EvictKeys evicts keys until the target memory is freed
@@ -56,17 +111,15 @@ func (em *EvictionManager) EvictKeys(target int64) int {
 		if !ok {
 			break
 		}
-
-		// Remove the key
 		em.db.Remove(key)
+		em.Forget(key)
 		evicted++
-		freed += 1024 // Estimate 1KB per key
+		freed += bytesPerKeyEstimate
 	}
 
 	return evicted
 }
 
-// selectKey selects a key to evict based on the policy
 func (em *EvictionManager) selectKey() (string, bool) {
 	switch em.policy {
 	case memory.AllKeysRandom, memory.VolatileRandom:
@@ -82,24 +135,18 @@ func (em *EvictionManager) selectKey() (string, bool) {
 	}
 }
 
-// selectRandomKey selects a random key
 func (em *EvictionManager) selectRandomKey() (string, bool) {
 	if em.policy == memory.VolatileRandom {
-		// Only keys with TTL
 		return em.selectRandomKeyWithTTL()
 	}
-
-	// All keys
 	keys := em.db.data.RandomKeys(em.samples)
 	if len(keys) == 0 {
 		return "", false
 	}
-	return keys[rand.Intn(len(keys))], true
+	return keys[0], true
 }
 
-// selectRandomKeyWithTTL selects a random key that has TTL
 func (em *EvictionManager) selectRandomKeyWithTTL() (string, bool) {
-	// Get some random keys and find one with TTL
 	for i := 0; i < 10; i++ {
 		keys := em.db.data.RandomKeys(em.samples)
 		for _, key := range keys {
@@ -111,101 +158,75 @@ func (em *EvictionManager) selectRandomKeyWithTTL() (string, bool) {
 	return "", false
 }
 
-// selectLRUKey selects the least recently used key
 func (em *EvictionManager) selectLRUKey() (string, bool) {
-	var candidate string
-	var oldestTime time.Time
-
-	// Sample keys and find the oldest access time
 	keys := em.db.data.RandomKeys(em.samples)
-
+	var candidate string
+	var oldest time.Time
+	em.mu.Lock()
+	defer em.mu.Unlock()
 	for _, key := range keys {
-		// Check if we only want volatile keys
 		if em.policy == memory.VolatileLRU {
 			if _, exists := em.db.ttlMap.GetWithLock(key); !exists {
 				continue
 			}
 		}
-
-		// Get metadata from entity (simplified - in real impl, store access time)
-		entity, exists := em.db.data.GetWithLock(key)
-		if !exists {
-			continue
+		t, ok := em.lastAccess[key]
+		if !ok {
+			return key, true
 		}
-
-		// For now, use a simple heuristic: check if entity has access time
-		// In real implementation, DataEntity should store LastAccessTime
-		_ = entity
-		accessTime := time.Now().Add(-time.Duration(rand.Intn(3600)) * time.Second)
-
-		if oldestTime.IsZero() || accessTime.Before(oldestTime) {
-			oldestTime = accessTime
+		if oldest.IsZero() || t.Before(oldest) {
+			oldest = t
 			candidate = key
 		}
 	}
-
 	if candidate == "" {
 		return "", false
 	}
 	return candidate, true
 }
 
-// selectLFUKey selects the least frequently used key
 func (em *EvictionManager) selectLFUKey() (string, bool) {
+	keys := em.db.data.RandomKeys(em.samples)
 	var candidate string
 	var minCount uint64 = ^uint64(0)
-
-	// Sample keys and find the lowest access count
-	keys := em.db.data.RandomKeys(em.samples)
-
+	em.mu.Lock()
+	defer em.mu.Unlock()
 	for _, key := range keys {
-		// Check if we only want volatile keys
 		if em.policy == memory.VolatileLFU {
 			if _, exists := em.db.ttlMap.GetWithLock(key); !exists {
 				continue
 			}
 		}
-
-		// Get access count (simplified)
-		count := uint64(rand.Intn(1000))
-
+		count := em.accessCount[key]
 		if count < minCount {
 			minCount = count
 			candidate = key
 		}
 	}
-
 	if candidate == "" {
 		return "", false
 	}
 	return candidate, true
 }
 
-// selectTTLKey selects the key with shortest TTL
 func (em *EvictionManager) selectTTLKey() (string, bool) {
 	var candidate string
 	var shortestTTL time.Time
-
-	// Sample keys and find the one with shortest TTL
 	keys := em.db.data.RandomKeys(em.samples)
-
 	for _, key := range keys {
 		rawExpire, exists := em.db.ttlMap.GetWithLock(key)
 		if !exists {
 			continue
 		}
-
 		expireTime, ok := rawExpire.(time.Time)
 		if !ok {
 			continue
 		}
-
 		if shortestTTL.IsZero() || expireTime.Before(shortestTTL) {
 			shortestTTL = expireTime
 			candidate = key
 		}
 	}
-
 	if candidate == "" {
 		return "", false
 	}
@@ -218,4 +239,80 @@ func (em *EvictionManager) ShouldEvict(maxMemory int64, currentUsage int64) bool
 		return false
 	}
 	return currentUsage >= maxMemory
+}
+
+// ensureMemoryForWrite enforces maxmemory before a write command.
+func (server *Server) ensureMemoryForWrite(db *DB, approxWrite int64) redis.Reply {
+	if server == nil || server.memLimiter == nil || db == nil {
+		return nil
+	}
+	maxMem, policy := server.memLimiter.GetConfig()
+	if maxMem <= 0 {
+		return nil
+	}
+	if approxWrite <= 0 {
+		approxWrite = bytesPerKeyEstimate
+	}
+	for i := 0; i < 256; i++ {
+		used := server.memLimiter.UsedMemory()
+		if used+approxWrite <= maxMem {
+			return nil
+		}
+		if policy == "noeviction" {
+			return protocol.MakeErrReply("OOM command not allowed when used memory > 'maxmemory'")
+		}
+		n := 0
+		if db.evictionManager != nil {
+			n = db.evictionManager.EvictKeys(bytesPerKeyEstimate)
+		}
+		if n == 0 {
+			for _, holder := range server.dbSet {
+				other := holder.Load().(*DB)
+				if other == db || other.evictionManager == nil {
+					continue
+				}
+				n = other.evictionManager.EvictKeys(bytesPerKeyEstimate)
+				if n > 0 {
+					break
+				}
+			}
+		}
+		if n == 0 {
+			return protocol.MakeErrReply("OOM command not allowed when used memory > 'maxmemory'")
+		}
+	}
+	return protocol.MakeErrReply("OOM command not allowed when used memory > 'maxmemory'")
+}
+
+// syncMemoryConfig pushes Properties maxmemory settings into runtime limiter/managers.
+func (server *Server) syncMemoryConfig() {
+	if server == nil || server.memLimiter == nil || config.Properties == nil {
+		return
+	}
+	server.memLimiter.SetMaxMemory(config.Properties.Maxmemory)
+	pol := config.Properties.MaxmemoryPolicy
+	if pol == "" {
+		pol = "noeviction"
+	}
+	server.memLimiter.SetPolicy(pol)
+	ep := memory.ParseEvictionPolicy(pol)
+	for _, holder := range server.dbSet {
+		db := holder.Load().(*DB)
+		if db.evictionManager != nil {
+			db.evictionManager.SetPolicy(ep)
+		}
+	}
+}
+
+// approxKeyMemoryUsage estimates used memory from key counts (test-friendly).
+func (server *Server) approxKeyMemoryUsage() int64 {
+	if server == nil {
+		return 0
+	}
+	var n int64
+	for _, holder := range server.dbSet {
+		db := holder.Load().(*DB)
+		n += int64(db.data.Len()) * bytesPerKeyEstimate
+	}
+	return n
 }

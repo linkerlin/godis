@@ -16,7 +16,7 @@
 | RediSearch (FT.*) | 中–高 | SEARCH/AGGREGATE/ALIAS/ALTER/EXPLAIN/CONFIG/PROFILE 等 |
 | 集群 (CLUSTER *) | 低–中 | 槽位算法与官方不兼容（**延期**）；子集命令 |
 | ACL / 安全 | 中–高 | ACL 引擎；`aclfile` 配置项尚未实现 |
-| 配置 | 中–高 | 布尔 yes/true/1…；CONFIG SET 含 appendonly/maxmemory 等；eviction 未实现 |
+| 配置 | 中–高 | 布尔解析；CONFIG SET 含 maxmemory/save/tcp-backlog；**eviction 写路径已接**（键数估算）；部分 CF-3 为存取桩 |
 | 概率数据结构 (BF/CF/CMS…) | 中–高 | 见 `database/probabilistic.go` |
 
 ## 已知差异（抽样，以代码为准）
@@ -28,7 +28,9 @@
 | HLL | 算法/编码与 Redis **不互通**（延期对齐） |
 | EXEC | 已按 Redis：出错继续、不整事务回滚 |
 | BLPOP / XREAD BLOCK | 真阻塞（等待队列 + 写路径唤醒） |
-| 订阅态 | ✅ 仅 (P)SUBSCRIBE/(P)UNSUBSCRIBE/PING/QUIT/RESET |
+| 订阅态 | ✅ 仅 (P\|S)SUBSCRIBE/(P\|S)UNSUBSCRIBE/PING/QUIT/RESET；SSUBSCRIBE 真连接 |
+| CLIENT REPLY / NO-TOUCH | ✅ REPLY 抑制写回；NO-TOUCH 跳过 LRU Touch |
+| timeout | ✅ std Handler 按秒设 ReadDeadline 踢空闲连接 |
 | MONITOR | ✅ 流式广播（`BroadcastMonitor`） |
 | FAILOVER | ✅ 最小子集（ABORT/FORCE/TO/TIMEOUT）；完整协调切换仍缺 |
 | CLIENT UNBLOCK | ✅ 可唤醒 BLPOP/BZPOP/XREAD 等 |

@@ -2,6 +2,7 @@ package gnet
 
 import (
 	"context"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -90,6 +91,16 @@ func (s *GnetServer) OnTraffic(c gnet.Conn) (action gnet.Action) {
 	}
 	result := s.db.Exec(conn, cmdLine)
 	if result == nil {
+		return gnet.None
+	}
+	cmdName := strings.ToLower(string(cmdLine[0]))
+	suppress := false
+	if cmdName != "client" {
+		if sreply, ok := conn.(interface{ ShouldSuppressReply() bool }); ok {
+			suppress = sreply.ShouldSuppressReply()
+		}
+	}
+	if suppress {
 		return gnet.None
 	}
 	var buffer []byte

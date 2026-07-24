@@ -1,11 +1,13 @@
 package database
 
 import (
+	"math/rand"
 	"strconv"
 	"strings"
 
 	"github.com/linkerlin/godis/datastruct/vector"
 	"github.com/linkerlin/godis/interface/redis"
+	"github.com/linkerlin/godis/lib/utils"
 	"github.com/linkerlin/godis/redis/protocol"
 )
 
@@ -248,6 +250,222 @@ func execVIsMember(db *DB, args [][]byte) redis.Reply {
 	return protocol.MakeIntReply(0)
 }
 
+// execVRandMember returns random element id(s) from a vector set.
+// VRANDMEMBER key [count]
+func execVRandMember(db *DB, args [][]byte) redis.Reply {
+	if len(args) != 1 && len(args) != 2 {
+		return protocol.MakeErrReply("ERR wrong number of arguments for 'vrandmember' command")
+	}
+	entity, exists := db.GetEntity(string(args[0]))
+	if !exists {
+		if len(args) == 2 {
+			return &protocol.EmptyMultiBulkReply{}
+		}
+		return &protocol.NullBulkReply{}
+	}
+	vs, ok := entity.Data.(*vector.VectorSet)
+	if !ok {
+		return &protocol.WrongTypeErrReply{}
+	}
+	ids := make([]string, 0, vs.Len())
+	vs.ForEach(func(id string, _ *vector.VectorItem) bool {
+		ids = append(ids, id)
+		return true
+	})
+	if len(ids) == 0 {
+		if len(args) == 2 {
+			return &protocol.EmptyMultiBulkReply{}
+		}
+		return &protocol.NullBulkReply{}
+	}
+	if len(args) == 1 {
+		return protocol.MakeBulkReply([]byte(ids[rand.Intn(len(ids))]))
+	}
+	count64, err := strconv.ParseInt(string(args[1]), 10, 64)
+	if err != nil {
+		return protocol.MakeErrReply("ERR value is not an integer or out of range")
+	}
+	count := int(count64)
+	if count == 0 {
+		return &protocol.EmptyMultiBulkReply{}
+	}
+	allowDup := count < 0
+	if allowDup {
+		count = -count
+	}
+	out := make([][]byte, count)
+	if allowDup {
+		for i := 0; i < count; i++ {
+			out[i] = []byte(ids[rand.Intn(len(ids))])
+		}
+	} else {
+		if count > len(ids) {
+			count = len(ids)
+		}
+		perm := rand.Perm(len(ids))
+		out = make([][]byte, count)
+		for i := 0; i < count; i++ {
+			out[i] = []byte(ids[perm[i]])
+		}
+	}
+	return protocol.MakeMultiBulkReply(out)
+}
+
+// execVSetAttr sets JSON attributes on a vector element.
+// VSETATTR key element json
+func execVSetAttr(db *DB, args [][]byte) redis.Reply {
+	if len(args) != 3 {
+		return protocol.MakeErrReply("ERR wrong number of arguments for 'vsetattr' command")
+	}
+	entity, exists := db.GetEntity(string(args[0]))
+	if !exists {
+		return protocol.MakeIntReply(0)
+	}
+	vs, ok := entity.Data.(*vector.VectorSet)
+	if !ok {
+		return &protocol.WrongTypeErrReply{}
+	}
+	jsonAttr := string(args[2])
+	if jsonAttr != "" {
+		// Light validation: must look like JSON object/array or empty already handled.
+		if jsonAttr[0] != '{' && jsonAttr[0] != '[' {
+			return protocol.MakeErrReply("ERR invalid attribute format: must be a valid JSON object")
+		}
+	}
+	if !vs.SetAttributes(string(args[1]), jsonAttr) {
+		return protocol.MakeIntReply(0)
+	}
+	db.addAof(utils.ToCmdLine3("vsetattr", args...))
+	return protocol.MakeIntReply(1)
+}
+
+// execVGetAttr returns JSON attributes.
+// VGETATTR key element
+func execVGetAttr(db *DB, args [][]byte) redis.Reply {
+	if len(args) != 2 {
+		return protocol.MakeErrReply("ERR wrong number of arguments for 'vgetattr' command")
+	}
+	entity, exists := db.GetEntity(string(args[0]))
+	if !exists {
+		return &protocol.NullBulkReply{}
+	}
+	vs, ok := entity.Data.(*vector.VectorSet)
+	if !ok {
+		return &protocol.WrongTypeErrReply{}
+	}
+	attr, ok := vs.GetAttributes(string(args[1]))
+	if !ok || attr == "" {
+		return &protocol.NullBulkReply{}
+	}
+	return protocol.MakeBulkReply([]byte(attr))
+}
+
+// execVLinks returns HNSW neighbors (flat index: empty neighbor list).
+// VLINKS key element [WITHSCORES]
+func execVLinks(db *DB, args [][]byte) redis.Reply {
+	if len(args) < 2 || len(args) > 3 {
+		return protocol.MakeErrReply("ERR wrong number of arguments for 'vlinks' command")
+	}
+	withScores := false
+	if len(args) == 3 {
+		if strings.ToUpper(string(args[2])) != "WITHSCORES" {
+			return protocol.MakeSyntaxErrReply()
+		}
+		withScores = true
+	}
+	entity, exists := db.GetEntity(string(args[0]))
+	if !exists {
+		return &protocol.NullBulkReply{}
+	}
+	vs, ok := entity.Data.(*vector.VectorSet)
+	if !ok {
+		return &protocol.WrongTypeErrReply{}
+	}
+	if _, found := vs.Get(string(args[1])); !found {
+		return &protocol.NullBulkReply{}
+	}
+	_ = withScores
+	// No HNSW graph yet: one empty layer (compatible shape for clients).
+	return protocol.MakeMultiRawReply([]redis.Reply{
+		protocol.MakeMultiBulkReply([][]byte{}),
+	})
+}
+
+// execVRange returns elements in a lexicographical id range.
+// VRANGE key start end [count]
+func execVRange(db *DB, args [][]byte) redis.Reply {
+	if len(args) < 3 || len(args) > 4 {
+		return protocol.MakeErrReply("ERR wrong number of arguments for 'vrange' command")
+	}
+	entity, exists := db.GetEntity(string(args[0]))
+	if !exists {
+		return &protocol.EmptyMultiBulkReply{}
+	}
+	vs, ok := entity.Data.(*vector.VectorSet)
+	if !ok {
+		return &protocol.WrongTypeErrReply{}
+	}
+	startSpec := string(args[1])
+	endSpec := string(args[2])
+	limit := -1
+	if len(args) == 4 {
+		n, err := strconv.Atoi(string(args[3]))
+		if err != nil {
+			return protocol.MakeErrReply("ERR value is not an integer or out of range")
+		}
+		limit = n
+	}
+	ids := vs.SortedIDs()
+	out := make([][]byte, 0)
+	for _, id := range ids {
+		if !lexRangeGE(id, startSpec) {
+			continue
+		}
+		if !lexRangeLE(id, endSpec) {
+			continue
+		}
+		out = append(out, []byte(id))
+		if limit >= 0 && len(out) >= limit {
+			break
+		}
+	}
+	return protocol.MakeMultiBulkReply(out)
+}
+
+func lexRangeGE(id, spec string) bool {
+	if spec == "-" {
+		return true
+	}
+	if len(spec) == 0 {
+		return true
+	}
+	switch spec[0] {
+	case '[':
+		return id >= spec[1:]
+	case '(':
+		return id > spec[1:]
+	default:
+		return id >= spec
+	}
+}
+
+func lexRangeLE(id, spec string) bool {
+	if spec == "+" {
+		return true
+	}
+	if len(spec) == 0 {
+		return true
+	}
+	switch spec[0] {
+	case '[':
+		return id <= spec[1:]
+	case '(':
+		return id < spec[1:]
+	default:
+		return id <= spec
+	}
+}
+
 func formatFloatsCSV(fs []float64) string {
 	parts := make([]string, len(fs))
 	for i, f := range fs {
@@ -273,4 +491,14 @@ func init() {
 		attachCommandExtra([]string{redisFlagReadonly}, 1, 1, 1)
 	registerCommand("VIsMember", execVIsMember, prepareVSKey, nil, 3, flagReadOnly).
 		attachCommandExtra([]string{redisFlagReadonly, redisFlagFast}, 1, 1, 1)
+	registerCommand("VRandMember", execVRandMember, prepareVSKey, nil, -2, flagReadOnly).
+		attachCommandExtra([]string{redisFlagReadonly}, 1, 1, 1)
+	registerCommand("VSetAttr", execVSetAttr, prepareVSKey, nil, 4, flagWrite).
+		attachCommandExtra([]string{redisFlagWrite}, 1, 1, 1)
+	registerCommand("VGetAttr", execVGetAttr, prepareVSKey, nil, 3, flagReadOnly).
+		attachCommandExtra([]string{redisFlagReadonly}, 1, 1, 1)
+	registerCommand("VLinks", execVLinks, prepareVSKey, nil, -3, flagReadOnly).
+		attachCommandExtra([]string{redisFlagReadonly}, 1, 1, 1)
+	registerCommand("VRange", execVRange, prepareVSKey, nil, -4, flagReadOnly).
+		attachCommandExtra([]string{redisFlagReadonly}, 1, 1, 1)
 }

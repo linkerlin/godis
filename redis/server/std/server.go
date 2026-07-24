@@ -95,11 +95,24 @@ func (h *Handler) Handle(ctx context.Context, conn net.Conn) {
 	database.RegisterClient(client)
 
 	ch := parser.ParseStream(conn)
+	refreshIdleDeadline := func() {
+		if config.Properties != nil && config.Properties.Timeout > 0 {
+			_ = conn.SetReadDeadline(time.Now().Add(time.Duration(config.Properties.Timeout) * time.Second))
+		} else {
+			_ = conn.SetReadDeadline(time.Time{})
+		}
+	}
+	refreshIdleDeadline()
 	for payload := range ch {
 		if h.closing.Get() {
 			break
 		}
 		if payload.Err != nil {
+			if ne, ok := payload.Err.(net.Error); ok && ne.Timeout() {
+				h.closeClient(client)
+				logger.Info("connection idle timeout: " + client.RemoteAddr())
+				return
+			}
 			if payload.Err == io.EOF ||
 				payload.Err == io.ErrUnexpectedEOF ||
 				strings.Contains(payload.Err.Error(), "use of closed network connection") {
@@ -128,19 +141,27 @@ func (h *Handler) Handle(ctx context.Context, conn net.Conn) {
 			continue
 		}
 		result := h.db.Exec(client, r.Args)
-		if result != nil {
-			var resultBytes []byte
-			if client.GetProtocolVersion() == 3 {
-				resultBytes = protocol.ReplyToRESP3(result)
-			} else {
-				resultBytes = result.ToBytes()
-			}
-			_, _ = client.Write(resultBytes)
-			stats.RecordOutput(len(resultBytes))
-		} else {
-			_, _ = client.Write(unknownErrReplyBytes)
-			stats.RecordOutput(len(unknownErrReplyBytes))
+		cmdName := ""
+		if len(r.Args) > 0 {
+			cmdName = strings.ToLower(string(r.Args[0]))
 		}
+		suppress := cmdName != "client" && client.ShouldSuppressReply()
+		if !suppress {
+			if result != nil {
+				var resultBytes []byte
+				if client.GetProtocolVersion() == 3 {
+					resultBytes = protocol.ReplyToRESP3(result)
+				} else {
+					resultBytes = result.ToBytes()
+				}
+				_, _ = client.Write(resultBytes)
+				stats.RecordOutput(len(resultBytes))
+			} else {
+				_, _ = client.Write(unknownErrReplyBytes)
+				stats.RecordOutput(len(unknownErrReplyBytes))
+			}
+		}
+		refreshIdleDeadline()
 	}
 }
 

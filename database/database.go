@@ -199,12 +199,22 @@ func (db *DB) execNormalCommand(c redis.Connection, cmdLine [][]byte) redis.Repl
 			return reply
 		}
 	}
+	// Enforce maxmemory before taking key locks (eviction may remove other keys).
+	if (cmd.flags&flagReadOnly) == 0 && db.server != nil {
+		if errReply := db.server.ensureMemoryForWrite(db, bytesPerKeyEstimate); errReply != nil {
+			return errReply
+		}
+	}
 	db.addVersion(write...)
 	db.RWLocks(write, read)
 	defer db.RWUnLocks(write, read)
 	if c != nil {
 		BindBlockingClientID(c.GetClientID())
 		defer ClearBlockingClientID()
+		if nt, ok := c.(interface{ GetNoTouch() bool }); ok && nt.GetNoTouch() {
+			bindNoTouch()
+			defer clearNoTouch()
+		}
 	}
 	fun := cmd.executor
 	result := fun(db, cmdLine[1:])
@@ -272,12 +282,18 @@ func (db *DB) GetEntity(key string) (*database.DataEntity, bool) {
 		return nil, false
 	}
 	entity, _ := raw.(*database.DataEntity)
+	if db.evictionManager != nil && !peekNoTouch() {
+		db.evictionManager.Touch(key)
+	}
 	return entity, true
 }
 
 // PutEntity a DataEntity into DB
 func (db *DB) PutEntity(key string, entity *database.DataEntity) int {
 	ret := db.data.PutWithLock(key, entity)
+	if db.evictionManager != nil {
+		db.evictionManager.Touch(key)
+	}
 	// db.insertCallback may be set as nil, during `if` and actually callback
 	// so introduce a local variable `cb`
 	if cb := db.insertCallback; ret > 0 && cb != nil {
@@ -308,6 +324,9 @@ func (db *DB) Remove(key string) {
 	db.ttlMap.Remove(key)
 	taskKey := genExpireTask(key)
 	timewheel.Cancel(taskKey)
+	if db.evictionManager != nil {
+		db.evictionManager.Forget(key)
+	}
 	if cb := db.deleteCallback; cb != nil {
 		var entity *database.DataEntity
 		if deleted > 0 {

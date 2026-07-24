@@ -101,22 +101,36 @@ func getObjectEncoding(data interface{}) string {
 
 // execObjectIdleTime returns the idle time of the key
 func execObjectIdleTime(db *DB, key string) redis.Reply {
-	// Simplified: return 0 (no idle time tracking)
-	_, exists := db.GetEntity(key)
-	if !exists {
+	raw, ok := db.data.GetWithLock(key)
+	if !ok {
 		return protocol.MakeNullBulkReply()
 	}
-	return protocol.MakeIntReply(0)
+	_ = raw
+	if db.IsExpired(key) {
+		return protocol.MakeNullBulkReply()
+	}
+	idle := int64(0)
+	if db.evictionManager != nil {
+		idle = db.evictionManager.IdleSeconds(key)
+	}
+	return protocol.MakeIntReply(idle)
 }
 
 // execObjectFreq returns the access frequency of the key (LFU)
 func execObjectFreq(db *DB, key string) redis.Reply {
-	// Simplified: return 0 (no LFU tracking)
-	_, exists := db.GetEntity(key)
-	if !exists {
+	raw, ok := db.data.GetWithLock(key)
+	if !ok {
 		return protocol.MakeNullBulkReply()
 	}
-	return protocol.MakeIntReply(0)
+	_ = raw
+	if db.IsExpired(key) {
+		return protocol.MakeNullBulkReply()
+	}
+	freq := int64(0)
+	if db.evictionManager != nil {
+		freq = db.evictionManager.Freq(key)
+	}
+	return protocol.MakeIntReply(freq)
 }
 
 // execObjectHelp returns help information

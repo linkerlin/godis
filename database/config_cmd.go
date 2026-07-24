@@ -7,6 +7,7 @@ import (
 
 	"github.com/linkerlin/godis/config"
 	"github.com/linkerlin/godis/interface/redis"
+	"github.com/linkerlin/godis/lib/memory"
 	"github.com/linkerlin/godis/redis/protocol"
 )
 
@@ -73,6 +74,17 @@ func getConfigMatches(pattern string) []configPair {
 		{"maxclients", strconv.Itoa(config.Properties.MaxClients)},
 		{"maxmemory", strconv.FormatInt(config.Properties.Maxmemory, 10)},
 		{"maxmemory-policy", config.Properties.MaxmemoryPolicy},
+		{"timeout", strconv.Itoa(config.Properties.Timeout)},
+		{"tcp-keepalive", strconv.Itoa(config.Properties.TCPKeepAlive)},
+		{"loglevel", config.Properties.LogLevel},
+		{"logfile", config.Properties.LogFile},
+		{"protected-mode", boolToString(config.Properties.ProtectedMode)},
+		{"daemonize", boolToString(config.Properties.Daemonize)},
+		{"pidfile", config.Properties.PidFile},
+		{"lazyfree-lazy-eviction", boolToString(config.Properties.LazyfreeLazyEviction)},
+		{"proto-max-bulk-len", strconv.FormatInt(config.Properties.ProtoMaxBulkLen, 10)},
+		{"save", config.Properties.Save},
+		{"tcp-backlog", strconv.Itoa(config.Properties.TCPBacklog)},
 		{"slowlog-log-slower-than", strconv.FormatInt(config.Properties.SlowLogSlowerThan, 10)},
 		{"slowlog-max-len", strconv.Itoa(config.Properties.SlowLogMaxLen)},
 		{"acllog-max-len", strconv.Itoa(config.Properties.AclLogMaxLen)},
@@ -139,8 +151,64 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 				return protocol.MakeErrReply(fmt.Sprintf("ERR Invalid value for '%s'", key))
 			}
 			config.Properties.Maxmemory = n
+			server.syncMemoryConfig()
 		case "maxmemory-policy":
-			config.Properties.MaxmemoryPolicy = value
+			pol := strings.ToLower(value)
+			if _, ok := memory.ParseEvictionPolicyStrict(pol); !ok {
+				return protocol.MakeErrReply("ERR Invalid argument '" + value + "' for CONFIG SET 'maxmemory-policy'")
+			}
+			config.Properties.MaxmemoryPolicy = pol
+			server.syncMemoryConfig()
+		case "timeout":
+			n, err := strconv.Atoi(value)
+			if err != nil || n < 0 {
+				return protocol.MakeErrReply(fmt.Sprintf("ERR Invalid value for '%s'", key))
+			}
+			config.Properties.Timeout = n
+		case "tcp-keepalive":
+			n, err := strconv.Atoi(value)
+			if err != nil || n < 0 {
+				return protocol.MakeErrReply(fmt.Sprintf("ERR Invalid value for '%s'", key))
+			}
+			config.Properties.TCPKeepAlive = n
+		case "loglevel":
+			config.Properties.LogLevel = value
+		case "logfile":
+			config.Properties.LogFile = value
+		case "protected-mode":
+			ok, b := config.ParseConfigBool(value)
+			if !ok {
+				return protocol.MakeErrReply("ERR invalid protected-mode value")
+			}
+			config.Properties.ProtectedMode = b
+		case "daemonize":
+			ok, b := config.ParseConfigBool(value)
+			if !ok {
+				return protocol.MakeErrReply("ERR invalid daemonize value")
+			}
+			config.Properties.Daemonize = b
+		case "pidfile":
+			config.Properties.PidFile = value
+		case "lazyfree-lazy-eviction":
+			ok, b := config.ParseConfigBool(value)
+			if !ok {
+				return protocol.MakeErrReply("ERR invalid lazyfree-lazy-eviction value")
+			}
+			config.Properties.LazyfreeLazyEviction = b
+		case "proto-max-bulk-len":
+			n, err := strconv.ParseInt(value, 10, 64)
+			if err != nil || n < 0 {
+				return protocol.MakeErrReply(fmt.Sprintf("ERR Invalid value for '%s'", key))
+			}
+			config.Properties.ProtoMaxBulkLen = n
+		case "save":
+			config.Properties.Save = value
+		case "tcp-backlog":
+			n, err := strconv.Atoi(value)
+			if err != nil || n < 0 {
+				return protocol.MakeErrReply(fmt.Sprintf("ERR Invalid value for '%s'", key))
+			}
+			config.Properties.TCPBacklog = n
 		case "slowlog-log-slower-than":
 			n, err := strconv.ParseInt(value, 10, 64)
 			if err != nil {

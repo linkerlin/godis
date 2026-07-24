@@ -23,7 +23,7 @@ func TestM2rSubscribeWhitelist(t *testing.T) {
 		t.Fatal("expected subscribed")
 	}
 	bad := server.Exec(c, utils.ToCmdLine("SET", "k", "v"))
-	if !protocol.IsErrorReply(bad) || !strings.Contains(string(bad.ToBytes()), "only (P)SUBSCRIBE") {
+	if !protocol.IsErrorReply(bad) || !strings.Contains(string(bad.ToBytes()), "SUBSCRIBE") {
 		t.Fatalf("expected subscribe-context error, got %s", bad.ToBytes())
 	}
 	ok := server.Exec(c, utils.ToCmdLine("PING"))

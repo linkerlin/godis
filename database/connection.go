@@ -192,17 +192,15 @@ func execClientID(args [][]byte) redis.Reply {
 	return protocol.MakeIntReply(1)
 }
 
-// execClientReply controls command replies
+// execClientReply controls command replies (legacy path without conn — no-op store).
 // CLIENT REPLY ON|OFF|SKIP
 func execClientReply(args [][]byte) redis.Reply {
 	if len(args) != 1 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'client|reply' command")
 	}
-
 	mode := strings.ToUpper(string(args[0]))
 	switch mode {
 	case "ON", "OFF", "SKIP":
-		// Simplified: would set reply mode
 		return protocol.MakeStatusReply("OK")
 	default:
 		return protocol.MakeErrReply("ERR syntax error")
@@ -389,6 +387,10 @@ func execClientHelp(args [][]byte) redis.Reply {
 		"    Stop processing commands for some time.",
 		"REPLY ON|OFF|SKIP",
 		"    Control the replies sent to the current connection.",
+		"NO-EVICT ON|OFF",
+		"    Set the client eviction mode for the current connection.",
+		"NO-TOUCH ON|OFF",
+		"    Control whether commands may alter the LRU/LFU of keys.",
 		"SETNAME connection-name",
 		"    Set the current connection name.",
 		"TRACKING ON|OFF [REDIRECT id] [BCAST] [...]",

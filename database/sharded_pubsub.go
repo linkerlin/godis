@@ -2,6 +2,7 @@ package database
 
 import (
 	"github.com/linkerlin/godis/interface/redis"
+	"github.com/linkerlin/godis/lib/wildcard"
 	"github.com/linkerlin/godis/pubsub"
 	"github.com/linkerlin/godis/redis/protocol"
 )
@@ -9,76 +10,66 @@ import (
 // Global sharded pub/sub hub
 var shardedHub = pubsub.NewShardedHub()
 
-// execSSubscribe subscribes to sharded channels
-// SSUBSCRIBE channel [channel ...]
-func execSSubscribe(db *DB, args [][]byte) redis.Reply {
+// execSSubscribeConn SSUBSCRIBE with real connection.
+func execSSubscribeConn(c redis.Connection, args [][]byte) redis.Reply {
 	if len(args) < 1 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'ssubscribe' command")
 	}
-
 	channels := make([]string, len(args))
 	for i, arg := range args {
 		channels[i] = string(arg)
 	}
-
-	// Get current connection from context (simplified)
-	// In real implementation, connection should be passed
-	return shardedHub.Subscribe(nil, channels)
+	return shardedHub.Subscribe(c, channels)
 }
 
-// execSUnsubscribe unsubscribes from sharded channels
-// SUNSUBSCRIBE [channel [channel ...]]
-func execSUnsubscribe(db *DB, args [][]byte) redis.Reply {
+// execSUnsubscribeConn SUNSUBSCRIBE with real connection.
+func execSUnsubscribeConn(c redis.Connection, args [][]byte) redis.Reply {
 	channels := make([]string, len(args))
 	for i, arg := range args {
 		channels[i] = string(arg)
 	}
-
-	return shardedHub.Unsubscribe(nil, channels)
+	return shardedHub.Unsubscribe(c, channels)
 }
 
 // execSPublish publishes to a sharded channel
-// SPUBLISH channel message
 func execSPublish(db *DB, args [][]byte) redis.Reply {
 	if len(args) != 2 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'spublish' command")
 	}
-
-	channel := string(args[0])
-	message := args[1]
-
-	receivers := shardedHub.Publish(channel, message)
-
-	return protocol.MakeIntReply(int64(receivers))
+	return protocol.MakeIntReply(int64(shardedHub.Publish(string(args[0]), args[1])))
 }
 
-// execSChannel returns sharded channel info
-// SCHANNELS [pattern]
+// execSChannels lists sharded channels (optional glob pattern).
 func execSChannels(args [][]byte) redis.Reply {
-	// Simplified: return empty list
-	// In real implementation, would list sharded channels
-	return protocol.MakeEmptyMultiBulkReply()
-}
-
-// execSUnsubscribeCmd is the command handler
-func execSUnsubscribeCmd(db *DB, args [][]byte) redis.Reply {
-	return execSUnsubscribe(db, args)
-}
-
-// execSChannelsCmd is the command handler
-func execSChannelsCmd(db *DB, args [][]byte) redis.Reply {
-	return execSChannels(args)
+	if len(args) > 1 {
+		return protocol.MakeErrReply("ERR wrong number of arguments for 'schannels' command")
+	}
+	var matcher *wildcard.Pattern
+	if len(args) == 1 {
+		m, err := wildcard.CompilePattern(string(args[0]))
+		if err != nil {
+			return protocol.MakeErrReply("ERR invalid pattern")
+		}
+		matcher = m
+	}
+	names := shardedHub.Channels()
+	out := make([][]byte, 0, len(names))
+	for _, name := range names {
+		if matcher != nil && !matcher.IsMatch(name) {
+			continue
+		}
+		out = append(out, []byte(name))
+	}
+	return protocol.MakeMultiBulkReply(out)
 }
 
 func init() {
-	// Note: These commands would need proper connection handling
-	// For now, they're registered but simplified
-	registerCommand("SSubscribe", execSSubscribe, nil, nil, -2, flagAdmin).
-		attachCommandExtra([]string{redisFlagAdmin, redisFlagPubSub}, 0, 0, 0)
-	registerCommand("SUnsubscribe", execSUnsubscribeCmd, nil, nil, -1, flagAdmin).
-		attachCommandExtra([]string{redisFlagAdmin, redisFlagPubSub}, 0, 0, 0)
+	registerSpecialCommand("SSubscribe", -2, flagAdmin).
+		attachCommandExtra([]string{redisFlagAdmin, redisFlagPubSub, redisFlagNoScript}, 0, 0, 0)
+	registerSpecialCommand("SUnsubscribe", -1, flagAdmin).
+		attachCommandExtra([]string{redisFlagAdmin, redisFlagPubSub, redisFlagNoScript}, 0, 0, 0)
 	registerCommand("SPublish", execSPublish, nil, nil, 3, flagWrite).
 		attachCommandExtra([]string{redisFlagWrite}, 0, 0, 0)
-	registerCommand("SChannels", execSChannelsCmd, nil, nil, -1, flagAdmin).
+	registerSpecialCommand("SChannels", -1, flagAdmin).
 		attachCommandExtra([]string{redisFlagAdmin}, 0, 0, 0)
 }

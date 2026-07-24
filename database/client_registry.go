@@ -181,3 +181,41 @@ func execClientNoEvictConn(c redis.Connection, args [][]byte) redis.Reply {
 	}
 	return protocol.MakeOkReply()
 }
+
+// execClientNoTouchConn handles CLIENT NO-TOUCH ON|OFF.
+func execClientNoTouchConn(c redis.Connection, args [][]byte) redis.Reply {
+	if len(args) != 1 {
+		return protocol.MakeErrReply("ERR wrong number of arguments for 'client|no-touch' command")
+	}
+	mode := strings.ToUpper(string(args[0]))
+	setter, ok := c.(interface{ SetNoTouch(bool) })
+	if !ok {
+		return protocol.MakeOkReply()
+	}
+	switch mode {
+	case "ON":
+		setter.SetNoTouch(true)
+	case "OFF":
+		setter.SetNoTouch(false)
+	default:
+		return protocol.MakeSyntaxErrReply()
+	}
+	return protocol.MakeOkReply()
+}
+
+// execClientReplyConn handles CLIENT REPLY ON|OFF|SKIP.
+func execClientReplyConn(c redis.Connection, args [][]byte) redis.Reply {
+	if len(args) != 1 {
+		return protocol.MakeErrReply("ERR wrong number of arguments for 'client|reply' command")
+	}
+	mode := strings.ToUpper(string(args[0]))
+	switch mode {
+	case "ON", "OFF", "SKIP":
+		if setter, ok := c.(interface{ SetReplyMode(string) }); ok {
+			setter.SetReplyMode(mode)
+		}
+		return protocol.MakeOkReply()
+	default:
+		return protocol.MakeErrReply("ERR syntax error")
+	}
+}

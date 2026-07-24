@@ -143,8 +143,16 @@ func newServerWithSize(dictSize int) (*Server, error) {
 	// initialize lock manager
 	server.lockManager = dict.NewLockManager(nil, nil)
 
-	// initialize memory limiter
-	server.memLimiter = memory.NewLimiter(nil)
+	// initialize memory limiter from config
+	policy := config.Properties.MaxmemoryPolicy
+	if policy == "" {
+		policy = "noeviction"
+	}
+	server.memLimiter = memory.NewLimiter(&memory.Config{
+		MaxMemory: config.Properties.Maxmemory,
+		Policy:    policy,
+	})
+	server.memLimiter.SetMemUsageFunc(server.approxKeyMemoryUsage)
 	server.memLimiter.Start()
 
 	SetSlowLogLenProvider(func() int { return server.SlowLogLen() })
@@ -156,22 +164,11 @@ func newServerWithSize(dictSize int) (*Server, error) {
 	}
 
 	// initialize and propagate eviction manager
-	defaultPolicy := memory.ParseEvictionPolicy(config.Properties.MaxmemoryPolicy)
+	defaultPolicy := memory.ParseEvictionPolicy(policy)
 	for _, holder := range server.dbSet {
 		db := holder.Load().(*DB)
 		em := NewEvictionManager(db, defaultPolicy)
 		db.SetEvictionManager(em)
-	}
-
-	// set up memory limiter eviction callback
-	if server.memLimiter.IsEvictionAllowed() {
-		server.memLimiter.SetEvictCallback(func(key string) {
-			// Try to evict from all DBs
-			for _, holder := range server.dbSet {
-				db := holder.Load().(*DB)
-				db.Remove(key)
-			}
-		})
 	}
 
 	server.InitACLEngine()
@@ -227,16 +224,17 @@ func (server *Server) Exec(c redis.Connection, cmdLine [][]byte) (result redis.R
 		return reply
 	}
 
-	// Pub/Sub subscribed state: only allow a small command set (Redis PS-3).
+	// Pub/Sub subscribed state: only allow a small command set (Redis PS-3 / PS-5).
 	if c != nil && c.SubsCount() > 0 {
 		switch cmdName {
 		case "subscribe", "unsubscribe", "psubscribe", "punsubscribe",
+			"ssubscribe", "sunsubscribe",
 			"ping", "quit", "reset":
 			// allowed
 		default:
 			return protocol.MakeErrReply(
 				"ERR Can't execute '" + strings.ToUpper(cmdName) +
-					"': only (P)SUBSCRIBE / (P)UNSUBSCRIBE / PING / QUIT / RESET are allowed in this context",
+					"': only (P|S)SUBSCRIBE / (P|S)UNSUBSCRIBE / PING / QUIT / RESET are allowed in this context",
 			)
 		}
 	}
@@ -311,6 +309,15 @@ func (server *Server) Exec(c redis.Connection, cmdLine [][]byte) (result redis.R
 		return pubsub.UnSubscribe(server.hub, c, cmdLine[1:])
 	} else if cmdName == "punsubscribe" {
 		return pubsub.PUnSubscribe(server.hub, c, cmdLine[1:])
+	} else if cmdName == "ssubscribe" {
+		if len(cmdLine) < 2 {
+			return protocol.MakeArgNumErrReply("ssubscribe")
+		}
+		return execSSubscribeConn(c, cmdLine[1:])
+	} else if cmdName == "sunsubscribe" {
+		return execSUnsubscribeConn(c, cmdLine[1:])
+	} else if cmdName == "schannels" {
+		return execSChannels(cmdLine[1:])
 	} else if cmdName == "shutdown" {
 		return execShutdown(server, cmdLine[1:])
 	} else if cmdName == "failover" {
@@ -430,6 +437,7 @@ func (server *Server) AfterClientClose(c redis.Connection) {
 	}
 	RemoveMonitorClient(c)
 	pubsub.UnsubscribeAll(server.hub, c)
+	shardedHub.AfterClientClose(c)
 }
 
 // Close graceful shutdown database

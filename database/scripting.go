@@ -13,24 +13,31 @@ import (
 // Global scripting engine
 var scriptEngine *scripting.Engine
 
+// scriptDB is the DB currently executing EVAL/EVALSHA (redis.call target).
+var scriptDB *DB
+
 // InitScriptingEngine initializes the scripting engine
 func InitScriptingEngine(db *DB) {
-	// Create database execution function
+	scriptDB = db
+	if scriptEngine != nil {
+		return
+	}
+
+	// Nested redis.call must not re-lock; EVAL holds keys via prepareEval.
 	dbExec := func(cmd string, args ...string) (interface{}, error) {
-		// Build command line
 		cmdLine := make([][]byte, 0, len(args)+1)
 		cmdLine = append(cmdLine, []byte(cmd))
 		for _, arg := range args {
 			cmdLine = append(cmdLine, []byte(arg))
 		}
-
-		// Execute command
-		result := db.Exec(nil, cmdLine)
+		target := scriptDB
+		if target == nil {
+			return nil, fmt.Errorf("ERR scripting engine not bound to a database")
+		}
+		result := target.execWithLock(nil, cmdLine)
 		if errReply, ok := result.(*protocol.StandardErrReply); ok {
 			return nil, fmt.Errorf("%s", errReply.Status)
 		}
-
-		// Convert result
 		return redisReplyToGo(result), nil
 	}
 
@@ -44,6 +51,7 @@ func execEval(db *DB, args [][]byte) redis.Reply {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'eval' command")
 	}
 
+	scriptDB = db
 	if scriptEngine == nil {
 		InitScriptingEngine(db)
 	}
@@ -92,6 +100,7 @@ func execEvalSha(db *DB, args [][]byte) redis.Reply {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'evalsha' command")
 	}
 
+	scriptDB = db
 	if scriptEngine == nil {
 		InitScriptingEngine(db)
 	}
@@ -396,10 +405,29 @@ func execScriptInfo(db *DB, args [][]byte) redis.Reply {
 	return protocol.MakeMultiBulkReply(result)
 }
 
+// prepareEval locks the keys declared by EVAL/EVALSHA (MULTI/EXEC + concurrent safety).
+func prepareEval(args [][]byte) ([]string, []string) {
+	if len(args) < 2 {
+		return nil, nil
+	}
+	numKeys, err := strconv.Atoi(string(args[1]))
+	if err != nil || numKeys < 0 {
+		return nil, nil
+	}
+	if len(args) < 2+numKeys {
+		return nil, nil
+	}
+	keys := make([]string, numKeys)
+	for i := 0; i < numKeys; i++ {
+		keys[i] = string(args[2+i])
+	}
+	return keys, nil
+}
+
 func init() {
-	registerCommand("Eval", execEval, nil, nil, -3, flagSpecial).
+	registerCommand("Eval", execEval, prepareEval, nil, -3, flagSpecial).
 		attachCommandExtra([]string{redisFlagNoScript}, 0, 0, 0)
-	registerCommand("EvalSha", execEvalSha, nil, nil, -3, flagSpecial).
+	registerCommand("EvalSha", execEvalSha, prepareEval, nil, -3, flagSpecial).
 		attachCommandExtra([]string{redisFlagNoScript}, 0, 0, 0)
 	registerCommand("Script|Exists", execScriptExists, nil, nil, -2, flagAdmin).
 		attachCommandExtra([]string{redisFlagAdmin}, 0, 0, 0)

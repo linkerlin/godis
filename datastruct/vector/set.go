@@ -12,6 +12,8 @@ type VectorItem struct {
 	ID       string
 	Vector   *Vector
 	Metadata map[string]string
+	// Attributes is Redis Vector Set JSON attributes (VSETATTR/VGETATTR).
+	Attributes string
 }
 
 // SearchResult represents a search result with similarity score
@@ -56,14 +58,55 @@ func (vs *VectorSet) Add(id string, vec *Vector, metadata map[string]string) boo
 	}
 	
 	_, exists := vs.vectors[id]
-	vs.vectors[id] = &VectorItem{
+	item := &VectorItem{
 		ID:       id,
 		Vector:   vec,
 		Metadata: metadata,
 	}
+	if exists {
+		if old := vs.vectors[id]; old != nil {
+			item.Attributes = old.Attributes
+		}
+	}
+	vs.vectors[id] = item
 	
 	vs.indexed = false // Invalidate index
 	return !exists
+}
+
+// SetAttributes sets JSON attributes on an element. Returns false if id missing.
+func (vs *VectorSet) SetAttributes(id string, json string) bool {
+	vs.mu.Lock()
+	defer vs.mu.Unlock()
+	item, ok := vs.vectors[id]
+	if !ok {
+		return false
+	}
+	item.Attributes = json
+	return true
+}
+
+// GetAttributes returns JSON attributes; ok false if id missing.
+func (vs *VectorSet) GetAttributes(id string) (string, bool) {
+	vs.mu.RLock()
+	defer vs.mu.RUnlock()
+	item, ok := vs.vectors[id]
+	if !ok {
+		return "", false
+	}
+	return item.Attributes, true
+}
+
+// SortedIDs returns element ids sorted lexicographically.
+func (vs *VectorSet) SortedIDs() []string {
+	vs.mu.RLock()
+	defer vs.mu.RUnlock()
+	ids := make([]string, 0, len(vs.vectors))
+	for id := range vs.vectors {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	return ids
 }
 
 // Get retrieves a vector by ID

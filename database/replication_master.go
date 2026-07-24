@@ -341,6 +341,18 @@ func (server *Server) execPSync(c redis.Connection, args [][]byte) redis.Reply {
 }
 
 func (server *Server) execReplConf(c redis.Connection, args [][]byte) redis.Reply {
+	if len(args) >= 1 && strings.EqualFold(string(args[0]), "getack") {
+		// Slave side: master sent REPLCONF GETACK — reply with current offset.
+		offset := int64(0)
+		if server.slaveStatus != nil {
+			server.slaveStatus.mutex.Lock()
+			offset = server.slaveStatus.replOffset
+			server.slaveStatus.mutex.Unlock()
+		}
+		return protocol.MakeMultiBulkReply(utils.ToCmdLine(
+			"REPLCONF", "ACK", strconv.FormatInt(offset, 10),
+		))
+	}
 	if len(args)%2 != 0 {
 		return protocol.MakeSyntaxErrReply()
 	}
@@ -356,8 +368,10 @@ func (server *Server) execReplConf(c redis.Connection, args [][]byte) redis.Repl
 			if err != nil {
 				return protocol.MakeErrReply("ERR value is not an integer or out of range")
 			}
-			slave.offset = offset
-			slave.lastAckTime = time.Now()
+			if slave != nil {
+				slave.offset = offset
+				slave.lastAckTime = time.Now()
+			}
 			return &protocol.NoReply{}
 		}
 	}
@@ -383,6 +397,7 @@ func (server *Server) setSlaveOnline(slave *slaveClient, currentOffset int64) {
 }
 
 var pingBytes = protocol.MakeMultiBulkReply(utils.ToCmdLine("ping")).ToBytes()
+var getAckBytes = protocol.MakeMultiBulkReply(utils.ToCmdLine("REPLCONF", "GETACK", "*")).ToBytes()
 
 const maxBacklogSize = 10 * 1024 * 1024 // 10MB
 
@@ -394,6 +409,7 @@ func (server *Server) masterCron() {
 	}
 	if server.masterStatus.bgSaveState == bgSaveFinish {
 		server.masterStatus.backlog.appendBytes(pingBytes)
+		server.masterStatus.backlog.appendBytes(getAckBytes)
 	}
 	backlogSize := len(server.masterStatus.backlog.buf)
 	server.masterStatus.mu.Unlock()

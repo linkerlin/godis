@@ -79,34 +79,34 @@ func ParseEvictionPolicy(s string) EvictionPolicy {
 
 // Limiter manages memory limit and eviction
 type Limiter struct {
-	maxMemory       int64
-	policy          EvictionPolicy
-	samples         int // Number of samples for LRU/LFU
-	
+	maxMemory int64
+	policy    EvictionPolicy
+	samples   int // Number of samples for LRU/LFU
+
 	// Stats
-	stats           *Stats
-	
+	stats *Stats
+
 	// Callbacks
-	evictCallback   func(key string) // Called when a key is evicted
-	memUsageFunc    func() int64     // Returns current memory usage
-	
-	mu              sync.RWMutex
-	running         bool
-	stopCh          chan struct{}
+	evictCallback func(key string) // Called when a key is evicted
+	memUsageFunc  func() int64     // Returns current memory usage
+
+	mu      sync.RWMutex
+	running bool
+	stopCh  chan struct{}
 }
 
 // Stats tracks memory limiter statistics
 type Stats struct {
-	EvictedKeys    uint64
+	EvictedKeys        uint64
 	EvictedNonVolatile uint64
-	EvictedByPolicy  map[string]uint64
+	EvictedByPolicy    map[string]uint64
 }
 
 // Config configures the memory limiter
 type Config struct {
-	MaxMemory    int64
-	Policy       string
-	Samples      int
+	MaxMemory     int64
+	Policy        string
+	Samples       int
 	EvictCallback func(key string)
 	MemUsageFunc  func() int64
 }
@@ -116,11 +116,11 @@ func NewLimiter(config *Config) *Limiter {
 	if config == nil {
 		config = &Config{}
 	}
-	
+
 	if config.Samples <= 0 {
 		config.Samples = 5 // Default samples for LRU/LFU
 	}
-	
+
 	l := &Limiter{
 		maxMemory:     config.MaxMemory,
 		policy:        ParseEvictionPolicy(config.Policy),
@@ -132,7 +132,7 @@ func NewLimiter(config *Config) *Limiter {
 		},
 		stopCh: make(chan struct{}),
 	}
-	
+
 	return l
 }
 
@@ -140,11 +140,11 @@ func NewLimiter(config *Config) *Limiter {
 func (l *Limiter) Start() {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	
+
 	if l.running {
 		return
 	}
-	
+
 	l.running = true
 	go l.monitor()
 }
@@ -153,11 +153,11 @@ func (l *Limiter) Start() {
 func (l *Limiter) Stop() {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	
+
 	if !l.running {
 		return
 	}
-	
+
 	l.running = false
 	close(l.stopCh)
 }
@@ -166,7 +166,7 @@ func (l *Limiter) Stop() {
 func (l *Limiter) monitor() {
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
-	
+
 	for {
 		select {
 		case <-ticker.C:
@@ -184,7 +184,7 @@ func (l *Limiter) shouldEvict() bool {
 	if l.maxMemory <= 0 {
 		return false
 	}
-	
+
 	memUsed := l.getMemoryUsage()
 	return memUsed >= l.maxMemory
 }
@@ -194,7 +194,7 @@ func (l *Limiter) getMemoryUsage() int64 {
 	if l.memUsageFunc != nil {
 		return l.memUsageFunc()
 	}
-	
+
 	// Default: use runtime stats
 	var m runtime.MemStats
 	runtime.ReadMemStats(&m)
@@ -206,28 +206,28 @@ func (l *Limiter) EvictIfNeeded() bool {
 	if l.maxMemory <= 0 || l.policy == NoEviction {
 		return false
 	}
-	
+
 	// Try to free enough memory (10% of maxmemory)
 	target := l.maxMemory / 10
 	freed := int64(0)
-	
+
 	for freed < target && l.shouldEvict() {
 		key, ok := l.selectKeyToEvict()
 		if !ok {
 			return false // No key could be evicted
 		}
-		
+
 		if l.evictCallback != nil {
 			l.evictCallback(key)
 		}
-		
+
 		l.stats.EvictedKeys++
 		l.stats.EvictedByPolicy[l.policy.String()]++
-		
+
 		// Estimate freed memory (simplified)
 		freed += 1024 // Assume 1KB per key
 	}
-	
+
 	return true
 }
 
@@ -238,7 +238,7 @@ func (l *Limiter) selectKeyToEvict() (string, bool) {
 	// 1. Sample keys according to the policy
 	// 2. Track access patterns for LRU/LFU
 	// 3. Check TTL for volatile-* policies
-	
+
 	// For now, return empty - the actual eviction logic would be
 	// implemented in the database layer
 	return "", false
@@ -249,19 +249,19 @@ func (l *Limiter) CheckWriteAllowed(writeSize int64) error {
 	if l.maxMemory <= 0 {
 		return nil
 	}
-	
+
 	if l.policy == NoEviction {
 		memUsed := l.getMemoryUsage()
 		if memUsed+writeSize > l.maxMemory {
 			return ErrMemoryLimitExceeded
 		}
 	}
-	
+
 	// For other policies, try to make room
 	if l.shouldEvict() {
 		l.EvictIfNeeded()
 	}
-	
+
 	return nil
 }
 
@@ -269,14 +269,14 @@ func (l *Limiter) CheckWriteAllowed(writeSize int64) error {
 func (l *Limiter) GetStats() Stats {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
-	
+
 	// Copy stats
 	s := *l.stats
 	s.EvictedByPolicy = make(map[string]uint64)
 	for k, v := range l.stats.EvictedByPolicy {
 		s.EvictedByPolicy[k] = v
 	}
-	
+
 	return s
 }
 
@@ -284,15 +284,52 @@ func (l *Limiter) GetStats() Stats {
 func (l *Limiter) GetConfig() (maxMemory int64, policy string) {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
-	
+
 	return l.maxMemory, l.policy.String()
+}
+
+// SetMemUsageFunc sets the function used to estimate current memory usage.
+func (l *Limiter) SetMemUsageFunc(fn func() int64) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.memUsageFunc = fn
+}
+
+// UsedMemory returns the current estimated memory usage.
+func (l *Limiter) UsedMemory() int64 {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+	return l.getMemoryUsage()
+}
+
+// ParseEvictionPolicyStrict parses policy and reports whether it is known.
+func ParseEvictionPolicyStrict(s string) (EvictionPolicy, bool) {
+	switch s {
+	case "noeviction":
+		return NoEviction, true
+	case "allkeys-lru":
+		return AllKeysLRU, true
+	case "allkeys-lfu":
+		return AllKeysLFU, true
+	case "allkeys-random":
+		return AllKeysRandom, true
+	case "volatile-lru":
+		return VolatileLRU, true
+	case "volatile-lfu":
+		return VolatileLFU, true
+	case "volatile-ttl":
+		return VolatileTTL, true
+	case "volatile-random":
+		return VolatileRandom, true
+	default:
+		return NoEviction, false
+	}
 }
 
 // SetMaxMemory sets the maximum memory limit
 func (l *Limiter) SetMaxMemory(maxMemory int64) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	
 	l.maxMemory = maxMemory
 }
 
@@ -300,7 +337,7 @@ func (l *Limiter) SetMaxMemory(maxMemory int64) {
 func (l *Limiter) SetPolicy(policy string) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	
+
 	l.policy = ParseEvictionPolicy(policy)
 }
 
@@ -308,7 +345,7 @@ func (l *Limiter) SetPolicy(policy string) {
 func (l *Limiter) SetEvictCallback(cb func(key string)) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	
+
 	l.evictCallback = cb
 }
 
@@ -316,7 +353,7 @@ func (l *Limiter) SetEvictCallback(cb func(key string)) {
 func (l *Limiter) IsEvictionAllowed() bool {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
-	
+
 	return l.policy != NoEviction && l.maxMemory > 0
 }
 
@@ -324,16 +361,16 @@ func (l *Limiter) IsEvictionAllowed() bool {
 func (l *Limiter) MemoryInfo() map[string]interface{} {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
-	
+
 	memUsed := l.getMemoryUsage()
-	
+
 	return map[string]interface{}{
-		"maxmemory":            l.maxMemory,
-		"maxmemory_human":      humanReadableSize(uint64(l.maxMemory)),
-		"used_memory":          memUsed,
-		"used_memory_human":    humanReadableSize(uint64(memUsed)),
-		"maxmemory_policy":     l.policy.String(),
-		"eviction_allowed":     l.policy != NoEviction,
+		"maxmemory":         l.maxMemory,
+		"maxmemory_human":   humanReadableSize(uint64(l.maxMemory)),
+		"used_memory":       memUsed,
+		"used_memory_human": humanReadableSize(uint64(memUsed)),
+		"maxmemory_policy":  l.policy.String(),
+		"eviction_allowed":  l.policy != NoEviction,
 	}
 }
 
