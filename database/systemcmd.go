@@ -20,6 +20,7 @@ import (
 type ServerStats struct {
 	TotalCommandsProcessed   uint64
 	TotalConnectionsReceived uint64
+	TotalErrorReplies        uint64
 	ExpiredKeys              uint64
 	EvictedKeys              uint64
 	KeyspaceHits             uint64
@@ -83,6 +84,7 @@ func resetOpsWindow() {
 func resetServerStats() {
 	atomic.StoreUint64(&serverStats.TotalCommandsProcessed, 0)
 	atomic.StoreUint64(&serverStats.TotalConnectionsReceived, 0)
+	atomic.StoreUint64(&serverStats.TotalErrorReplies, 0)
 	atomic.StoreUint64(&serverStats.ExpiredKeys, 0)
 	atomic.StoreUint64(&serverStats.EvictedKeys, 0)
 	atomic.StoreUint64(&serverStats.KeyspaceHits, 0)
@@ -271,6 +273,7 @@ func GenGodisInfoString(section string, db *Server) []byte {
 			"evicted_keys:%d\r\n"+
 			"keyspace_hits:%d\r\n"+
 			"keyspace_misses:%d\r\n"+
+			"total_error_replies:%d\r\n"+
 			"pubsub_channels:%d\r\n"+
 			"pubsub_patterns:%d\r\n"+
 			"latest_fork_usec:%d\r\n"+
@@ -297,6 +300,7 @@ func GenGodisInfoString(section string, db *Server) []byte {
 			serverStats.EvictedKeys,
 			serverStats.KeyspaceHits,
 			serverStats.KeyspaceMisses,
+			atomic.LoadUint64(&serverStats.TotalErrorReplies),
 			getPubsubChannelsCount(db),
 			getPubsubPatternsCount(db),
 			0, // latest_fork_usec - N/A in Go

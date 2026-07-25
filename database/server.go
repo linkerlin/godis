@@ -195,6 +195,9 @@ func (server *Server) Exec(c redis.Connection, cmdLine [][]byte) (result redis.R
 			logger.Errorf("panic in Exec: %v\n%s", r, string(debug.Stack()))
 			result = &protocol.UnknownErrReply{}
 		}
+		if result != nil && protocol.IsErrorReply(result) {
+			atomic.AddUint64(&serverStats.TotalErrorReplies, 1)
+		}
 	}()
 
 	if len(cmdLine) == 0 {
@@ -315,8 +318,11 @@ func (server *Server) Exec(c redis.Connection, cmdLine [][]byte) (result redis.R
 	// read only slave
 	role := atomic.LoadInt32(&server.role)
 	if role == slaveRole && !c.IsMaster() {
-		// only allow read only command, forbid all special commands except `auth` and `slaveof`
-		if !isReadOnlyCommand(cmdName) {
+		readOnly := true
+		if config.Properties != nil {
+			readOnly = config.Properties.ReplicaReadOnly
+		}
+		if readOnly && !isReadOnlyCommand(cmdName) {
 			return protocol.MakeErrReply("READONLY You can't write against a read only slave.")
 		}
 	}
