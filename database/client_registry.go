@@ -97,15 +97,25 @@ func formatClientListLine(c redis.Connection) string {
 	if t, ok := c.(interface{ IdleSeconds() int64 }); ok {
 		idle = t.IdleSeconds()
 	}
+	subN := len(c.GetChannels())
+	psubN := c.PSubsCount()
+	ssubN := 0
+	if sc, ok := c.(interface{ SSubsCount() int }); ok {
+		ssubN = sc.SSubsCount()
+	}
 	return fmt.Sprintf(
-		"id=%d addr=%s laddr=%s fd=0 name=%s age=%d idle=%d flags=%s db=%d sub=%d psub=%d multi=-1 qbuf=0 qbuf-free=0 obl=0 oll=0 omem=0 events=r cmd=client lib-name=%s lib-ver=%s",
-		c.GetClientID(), clientAddr(c), clientLocalAddr(c), c.GetClientName(), age, idle, flags, c.GetDBIndex(), c.SubsCount(), c.PSubsCount(), libName, libVer,
+		"id=%d addr=%s laddr=%s fd=0 name=%s age=%d idle=%d flags=%s db=%d sub=%d psub=%d ssub=%d multi=-1 qbuf=0 qbuf-free=0 obl=0 oll=0 omem=0 events=r cmd=client lib-name=%s lib-ver=%s",
+		c.GetClientID(), clientAddr(c), clientLocalAddr(c), c.GetClientName(), age, idle, flags, c.GetDBIndex(), subN, psubN, ssubN, libName, libVer,
 	)
 }
 
 // clientConnType maps a connection to Redis CLIENT LIST TYPE labels.
 func clientConnType(c redis.Connection) string {
-	if c.SubsCount() > 0 || c.PSubsCount() > 0 {
+	ssub := 0
+	if sc, ok := c.(interface{ SSubsCount() int }); ok {
+		ssub = sc.SSubsCount()
+	}
+	if c.SubsCount() > 0 || c.PSubsCount() > 0 || ssub > 0 {
 		return "pubsub"
 	}
 	if c.IsSlave() {

@@ -162,6 +162,7 @@ func GenGodisInfoString(section string, db *Server) []byte {
 		s := fmt.Sprintf("# Server\r\n"+
 			"redis_version:%s\r\n"+
 			"godis_version:%s\r\n"+
+			"redis_mode:%s\r\n"+
 			"godis_mode:%s\r\n"+
 			"os:%s %s\r\n"+
 			"arch_bits:%d\r\n"+
@@ -177,6 +178,7 @@ func GenGodisInfoString(section string, db *Server) []byte {
 			"config_file:%s\r\n",
 			godisVersion,
 			godisVersion,
+			getRedisMode(),
 			getGodisRunningMode(),
 			runtime.GOOS, runtime.GOARCH,
 			32<<(^uint(0)>>63),
@@ -581,6 +583,14 @@ func getGodisRunningMode() string {
 	} else {
 		return config.StandaloneMode
 	}
+}
+
+// getRedisMode returns Redis INFO redis_mode (standalone|cluster).
+func getRedisMode() string {
+	if config.Properties != nil && config.Properties.ClusterEnable {
+		return "cluster"
+	}
+	return "standalone"
 }
 
 // getGodisRuninngTime return the running time of godis

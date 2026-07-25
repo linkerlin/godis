@@ -669,12 +669,14 @@ func execJSONClear(db *DB, args [][]byte) redis.Reply {
 	}
 	key := string(args[0])
 	path := "$"
+	explicitPath := false
 	if len(args) > 1 {
 		path = string(args[1])
+		explicitPath = true
 	}
 	entity, exists := db.GetEntity(key)
 	if !exists {
-		return protocol.MakeIntReply(0)
+		return wrapEnhancedJSONIntReply(path, explicitPath, 0)
 	}
 	jv, ok := entity.Data.(*godisjson.JSONValue)
 	if !ok {
@@ -687,7 +689,7 @@ func execJSONClear(db *DB, args [][]byte) redis.Reply {
 	if n > 0 {
 		db.addAof(utils.ToCmdLine3("json.clear", args...))
 	}
-	return protocol.MakeIntReply(int64(n))
+	return wrapEnhancedJSONIntReply(path, explicitPath, int64(n))
 }
 
 // execJSONToggle toggles a boolean at path
@@ -698,8 +700,10 @@ func execJSONToggle(db *DB, args [][]byte) redis.Reply {
 	}
 	key := string(args[0])
 	path := "$"
+	explicitPath := false
 	if len(args) > 1 {
 		path = string(args[1])
+		explicitPath = true
 	}
 	entity, exists := db.GetEntity(key)
 	if !exists {
@@ -714,10 +718,11 @@ func execJSONToggle(db *DB, args [][]byte) redis.Reply {
 		return protocol.MakeErrReply(fmt.Sprintf("ERR %v", err))
 	}
 	db.addAof(utils.ToCmdLine3("json.toggle", args...))
+	v := int64(0)
 	if newVal {
-		return protocol.MakeIntReply(1)
+		v = 1
 	}
-	return protocol.MakeIntReply(0)
+	return wrapEnhancedJSONIntReply(path, explicitPath, v)
 }
 
 // execJSONMerge applies JSON Merge Patch (RFC7396)
@@ -844,12 +849,14 @@ func execJSONDebug(db *DB, args [][]byte) redis.Reply {
 		}
 		key := string(args[1])
 		path := "$"
+		explicitPath := false
 		if len(args) == 3 {
 			path = string(args[2])
+			explicitPath = true
 		}
 		entity, exists := db.GetEntity(key)
 		if !exists {
-			return protocol.MakeIntReply(0)
+			return wrapEnhancedJSONIntReply(path, explicitPath, 0)
 		}
 		jv, ok := entity.Data.(*godisjson.JSONValue)
 		if !ok {
@@ -857,21 +864,23 @@ func execJSONDebug(db *DB, args [][]byte) redis.Reply {
 		}
 		n, err := jv.DebugMemory(path)
 		if err != nil {
-			return protocol.MakeIntReply(0)
+			return wrapEnhancedJSONIntReply(path, explicitPath, 0)
 		}
-		return protocol.MakeIntReply(int64(n))
+		return wrapEnhancedJSONIntReply(path, explicitPath, int64(n))
 	case "FIELDS":
 		if len(args) < 2 || len(args) > 3 {
 			return protocol.MakeErrReply("ERR wrong number of arguments for 'json.debug|fields' command")
 		}
 		key := string(args[1])
 		path := "$"
+		explicitPath := false
 		if len(args) == 3 {
 			path = string(args[2])
+			explicitPath = true
 		}
 		entity, exists := db.GetEntity(key)
 		if !exists {
-			return protocol.MakeIntReply(0)
+			return wrapEnhancedJSONIntReply(path, explicitPath, 0)
 		}
 		jv, ok := entity.Data.(*godisjson.JSONValue)
 		if !ok {
@@ -879,9 +888,9 @@ func execJSONDebug(db *DB, args [][]byte) redis.Reply {
 		}
 		n, err := jv.DebugFields(path)
 		if err != nil {
-			return protocol.MakeIntReply(0)
+			return wrapEnhancedJSONIntReply(path, explicitPath, 0)
 		}
-		return protocol.MakeIntReply(int64(n))
+		return wrapEnhancedJSONIntReply(path, explicitPath, int64(n))
 	default:
 		return protocol.MakeErrReply("ERR unknown subcommand '" + string(args[0]) + "'")
 	}

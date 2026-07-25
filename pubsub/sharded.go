@@ -60,7 +60,11 @@ func (sh *ShardedHub) Subscribe(conn redis.Connection, channels []string) redis.
 			sh.slots[slot][channel] = make(map[redis.Connection]struct{})
 		}
 		sh.slots[slot][channel][conn] = struct{}{}
-		conn.Subscribe(channel)
+		if ss, ok := conn.(interface{ SSubscribe(string) }); ok {
+			ss.SSubscribe(channel)
+		} else {
+			conn.Subscribe(channel)
+		}
 		count := sh.subCount(conn)
 		msg := []byte("*3\r\n$10\r\nssubscribe\r\n$" +
 			strconv.Itoa(len(channel)) + "\r\n" + channel + "\r\n:" +
@@ -107,7 +111,11 @@ func (sh *ShardedHub) Unsubscribe(conn redis.Connection, channels []string) redi
 				delete(sh.slots, slot)
 			}
 		}
-		conn.UnSubscribe(channel)
+		if ss, ok := conn.(interface{ SUnSubscribe(string) }); ok {
+			ss.SUnSubscribe(channel)
+		} else {
+			conn.UnSubscribe(channel)
+		}
 		count := sh.subCount(conn)
 		msg := []byte("*3\r\n$12\r\nsunsubscribe\r\n$" +
 			strconv.Itoa(len(channel)) + "\r\n" + channel + "\r\n:" +
@@ -181,7 +189,11 @@ func (sh *ShardedHub) AfterClientClose(conn redis.Connection) {
 		for channel, subs := range slotMap {
 			if _, ok := subs[conn]; ok {
 				delete(subs, conn)
-				conn.UnSubscribe(channel)
+				if ss, ok := conn.(interface{ SUnSubscribe(string) }); ok {
+					ss.SUnSubscribe(channel)
+				} else {
+					conn.UnSubscribe(channel)
+				}
 				if len(subs) == 0 {
 					delete(slotMap, channel)
 				}

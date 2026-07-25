@@ -961,9 +961,39 @@ func execFTAggregate(db *DB, args [][]byte) redis.Reply {
 		arg := strings.ToUpper(string(args[i]))
 
 		switch arg {
+		case "VERBATIM":
+			req.Verbatim = true
+			i++
+			continue
+
+		case "TIMEOUT":
+			if i+1 >= len(args) {
+				return protocol.MakeSyntaxErrReply()
+			}
+			ms, err := strconv.Atoi(string(args[i+1]))
+			if err != nil || ms < 0 {
+				return protocol.MakeErrReply("ERR Invalid TIMEOUT value")
+			}
+			req.TimeoutMs = ms
+			i += 2
+			continue
+
+		case "APPLY":
+			// APPLY expr AS name — accept syntax; expression engine not wired.
+			if i+3 >= len(args) || !strings.EqualFold(string(args[i+2]), "AS") {
+				return protocol.MakeSyntaxErrReply()
+			}
+			i += 4
+			continue
+
 		case "LOAD":
 			if i+1 >= len(args) {
 				return protocol.MakeSyntaxErrReply()
+			}
+			if string(args[i+1]) == "*" {
+				req.LoadAll = true
+				i += 2
+				continue
 			}
 			count, err := strconv.Atoi(string(args[i+1]))
 			if err != nil {
@@ -972,7 +1002,8 @@ func execFTAggregate(db *DB, args [][]byte) redis.Reply {
 			i += 2
 			for j := 0; j < count && i < len(args); j++ {
 				nextArg := strings.ToUpper(string(args[i]))
-				if nextArg == "GROUPBY" || nextArg == "SORTBY" || nextArg == "LIMIT" {
+				if nextArg == "GROUPBY" || nextArg == "SORTBY" || nextArg == "LIMIT" ||
+					nextArg == "APPLY" || nextArg == "FILTER" || nextArg == "LOAD" {
 					break
 				}
 				req.Load = append(req.Load, string(args[i]))
@@ -1131,9 +1162,10 @@ func execFTAggregate(db *DB, args [][]byte) redis.Reply {
 				i += 3
 			}
 			continue
-		}
 
-		i++
+		default:
+			return protocol.MakeSyntaxErrReply()
+		}
 	}
 
 	// Execute aggregation

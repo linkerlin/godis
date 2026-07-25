@@ -41,6 +41,9 @@ type GopherEngine struct {
 
 	// Script replication flags from redis.set_repl (informational stub).
 	replFlags int
+
+	// Optional error handler from redis.set_error_handler (informational stub).
+	errorHandler *lua.LFunction
 }
 
 // scriptExecution tracks a running script
@@ -349,6 +352,7 @@ func (e *GopherEngine) registerRedisAPI(L *lua.LState) {
 	L.SetField(redisTable, "acl_check_cmd", L.NewFunction(e.luaRedisACLCheckCmd))
 	L.SetField(redisTable, "set_repl", L.NewFunction(e.luaRedisSetRepl))
 	L.SetField(redisTable, "replicate_commands", L.NewFunction(luaRedisReplicateCommands))
+	L.SetField(redisTable, "set_error_handler", L.NewFunction(e.luaRedisSetErrorHandler))
 	// redis.LOG_* level constants (for redis.log)
 	L.SetField(redisTable, "LOG_DEBUG", lua.LNumber(0))
 	L.SetField(redisTable, "LOG_VERBOSE", lua.LNumber(1))
@@ -468,6 +472,19 @@ func (e *GopherEngine) luaRedisSetRepl(L *lua.LState) int {
 	e.mu.Lock()
 	e.replFlags = flags
 	e.mu.Unlock()
+	return 0
+}
+
+// luaRedisSetErrorHandler implements redis.set_error_handler(fn|nil) — stores callback; not invoked yet.
+func (e *GopherEngine) luaRedisSetErrorHandler(L *lua.LState) int {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if L.GetTop() < 1 || L.Get(1).Type() == lua.LTNil {
+		e.errorHandler = nil
+		return 0
+	}
+	fn := L.OptFunction(1, nil)
+	e.errorHandler = fn
 	return 0
 }
 

@@ -401,8 +401,12 @@ func (e *RediSearchEngine) Aggregate(req *AggregationRequest) (*AggregationResul
 	}
 
 	// Apply LOAD
-	for _, load := range req.Load {
-		_ = load // Fields already loaded in documents
+	if req.LoadAll {
+		// LOAD *: document fields already present
+	} else {
+		for _, load := range req.Load {
+			_ = load // Fields already loaded in documents
+		}
 	}
 
 	// Apply GROUPBY
@@ -445,16 +449,19 @@ func (e *RediSearchEngine) Aggregate(req *AggregationRequest) (*AggregationResul
 
 // AggregationRequest represents an aggregation request
 type AggregationRequest struct {
-	Query    string
-	Load     []string
-	GroupBy  []string      // Support multiple group by fields
-	Having   *HavingClause // HAVING clause for group filtering
-	Reduce   []Reducer
-	SortBy   string
-	SortDesc bool
-	Offset   int
-	Limit    int
-	Filter   string // FILTER expression
+	Query     string
+	Load      []string
+	LoadAll   bool // LOAD *
+	Verbatim  bool
+	TimeoutMs int // accepted; cancellation not wired
+	GroupBy   []string      // Support multiple group by fields
+	Having    *HavingClause // HAVING clause for group filtering
+	Reduce    []Reducer
+	SortBy    string
+	SortDesc  bool
+	Offset    int
+	Limit     int
+	Filter    string // FILTER expression
 }
 
 // HavingClause represents a HAVING clause for group filtering

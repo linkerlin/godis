@@ -37,6 +37,8 @@ type Connection struct {
 	subs map[string]bool
 	// pattern subscriptions (PSUBSCRIBE)
 	psubs map[string]bool
+	// sharded channel subscriptions (SSUBSCRIBE)
+	ssubs map[string]bool
 
 	// password may be changed by CONFIG command during runtime, so store the password
 	password string
@@ -338,14 +340,40 @@ func (c *Connection) PUnSubscribe(pattern string) {
 	delete(c.psubs, pattern)
 }
 
-// SubsCount returns channel + pattern subscription count.
+// SSubscribe adds a sharded pub/sub channel subscription.
+func (c *Connection) SSubscribe(channel string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.ssubs == nil {
+		c.ssubs = make(map[string]bool)
+	}
+	c.ssubs[channel] = true
+}
+
+// SUnSubscribe removes a sharded pub/sub channel subscription.
+func (c *Connection) SUnSubscribe(channel string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if len(c.ssubs) == 0 {
+		return
+	}
+	delete(c.ssubs, channel)
+}
+
+// SubsCount returns classic channel + pattern + sharded subscription count
+// (used for "in subscribed mode" checks).
 func (c *Connection) SubsCount() int {
-	return len(c.subs) + len(c.psubs)
+	return len(c.subs) + len(c.psubs) + len(c.ssubs)
 }
 
 // PSubsCount returns pattern subscription count.
 func (c *Connection) PSubsCount() int {
 	return len(c.psubs)
+}
+
+// SSubsCount returns sharded channel subscription count.
+func (c *Connection) SSubsCount() int {
+	return len(c.ssubs)
 }
 
 // GetChannels returns all subscribing channels
