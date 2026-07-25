@@ -8,6 +8,7 @@ import (
 	"path"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"time"
 )
@@ -44,7 +45,45 @@ type logEntry struct {
 
 var (
 	levelFlags = []string{"DEBUG", "INFO", "WARN", "ERROR", "FATAL"}
+
+	minLevelMu sync.RWMutex
+	minLevel   LogLevel = DEBUG
 )
+
+// SetMinLevel sets the minimum log level (messages below are dropped).
+func SetMinLevel(level LogLevel) {
+	minLevelMu.Lock()
+	minLevel = level
+	minLevelMu.Unlock()
+}
+
+// GetMinLevel returns the current minimum log level.
+func GetMinLevel() LogLevel {
+	minLevelMu.RLock()
+	defer minLevelMu.RUnlock()
+	return minLevel
+}
+
+// ParseRedisLogLevel maps Redis CONFIG loglevel names to LogLevel.
+// debug/verbose → DEBUG, notice → INFO, warning → WARNING.
+func ParseRedisLogLevel(s string) (LogLevel, bool) {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "debug", "verbose":
+		return DEBUG, true
+	case "notice", "info", "":
+		return INFO, true
+	case "warning", "warn":
+		return WARNING, true
+	default:
+		return 0, false
+	}
+}
+
+func shouldLog(level LogLevel) bool {
+	minLevelMu.RLock()
+	defer minLevelMu.RUnlock()
+	return level >= minLevel
+}
 
 // ILogger defines the methods that any logger should implement
 type ILogger interface {
@@ -141,6 +180,9 @@ func Setup(settings *Settings) error {
 
 // Output sends a msg to logger
 func (logger *Logger) Output(level LogLevel, callerDepth int, msg string) {
+	if !shouldLog(level) {
+		return
+	}
 	var formattedMsg string
 	_, file, line, ok := runtime.Caller(callerDepth)
 	if ok {

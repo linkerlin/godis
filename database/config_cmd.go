@@ -7,6 +7,7 @@ import (
 
 	"github.com/linkerlin/godis/config"
 	"github.com/linkerlin/godis/interface/redis"
+	"github.com/linkerlin/godis/lib/logger"
 	"github.com/linkerlin/godis/lib/memory"
 	"github.com/linkerlin/godis/redis/protocol"
 )
@@ -177,7 +178,18 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 			}
 			config.Properties.TCPKeepAlive = n
 		case "loglevel":
-			config.Properties.LogLevel = value
+			lv, ok := logger.ParseRedisLogLevel(value)
+			if !ok {
+				return protocol.MakeErrReply("ERR Invalid argument '" + value + "' for CONFIG SET 'loglevel'")
+			}
+			config.Properties.LogLevel = strings.ToLower(strings.TrimSpace(value))
+			if config.Properties.LogLevel == "warn" {
+				config.Properties.LogLevel = "warning"
+			}
+			if config.Properties.LogLevel == "info" {
+				config.Properties.LogLevel = "notice"
+			}
+			logger.SetMinLevel(lv)
 		case "logfile":
 			config.Properties.LogFile = value
 		case "protected-mode":

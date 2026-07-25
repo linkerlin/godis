@@ -74,6 +74,7 @@ func main() {
 	if err := setupConfig(); err != nil {
 		logger.Fatal(fmt.Sprintf("setup config failed: %+v", err))
 	}
+	applyLogLevelFromConfig()
 
 	startMetricsServer()
 
@@ -87,6 +88,19 @@ func main() {
 	}
 	if err != nil {
 		logger.Fatal(fmt.Sprintf("start server failed: %+v", err))
+	}
+}
+
+func applyLogLevelFromConfig() {
+	if config.Properties == nil {
+		return
+	}
+	lvl := config.Properties.LogLevel
+	if lvl == "" {
+		lvl = "notice"
+	}
+	if lv, ok := logger.ParseRedisLogLevel(lvl); ok {
+		logger.SetMinLevel(lv)
 	}
 }
 

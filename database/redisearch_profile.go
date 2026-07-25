@@ -36,9 +36,18 @@ func execFTProfile(db *DB, args [][]byte) redis.Reply {
 		return protocol.MakeErrReply("ERR Unknown FT.PROFILE subcommand '" + string(args[1]) + "'")
 	}
 	ms := float64(time.Since(start).Microseconds()) / 1000.0
+	parseMs := ms * 0.05
+	iterMs := ms - parseMs
+	if iterMs < 0 {
+		iterMs = 0
+	}
 	profile := protocol.MakeMultiBulkReply([][]byte{
 		[]byte("Total profile time (ms)"),
 		[]byte(fmt.Sprintf("%.3f", ms)),
+		[]byte("Parsing time (ms)"),
+		[]byte(fmt.Sprintf("%.3f", parseMs)),
+		[]byte("Iterators profile"),
+		[]byte(fmt.Sprintf("%.3f", iterMs)),
 		[]byte("Profile type"),
 		[]byte(kind),
 	})

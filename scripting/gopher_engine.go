@@ -393,6 +393,23 @@ func (e *GopherEngine) luaRedisCall(L *lua.LState) int {
 	// Execute Redis command
 	result, err := e.dbExec(cmd, args...)
 	if err != nil {
+		e.mu.RLock()
+		handler := e.errorHandler
+		e.mu.RUnlock()
+		if handler != nil {
+			if callErr := L.CallByParam(lua.P{Fn: handler, NRet: 1, Protect: true}, lua.LString(err.Error())); callErr != nil {
+				L.RaiseError("%s", err.Error())
+				return 0
+			}
+			ret := L.Get(-1)
+			L.Pop(1)
+			if ret.Type() == lua.LTNil {
+				L.RaiseError("%s", err.Error())
+				return 0
+			}
+			pushGoValue(L, luaValueToGo(ret))
+			return 1
+		}
 		L.RaiseError("%s", err.Error())
 		return 0
 	}

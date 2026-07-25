@@ -50,13 +50,26 @@ func execFTAlter(db *DB, args [][]byte) redis.Reply {
 	return protocol.MakeOkReply()
 }
 
-// execFTExplain FT.EXPLAIN index query
+// execFTExplain FT.EXPLAIN index query [DIALECT n]
 func execFTExplain(db *DB, args [][]byte) redis.Reply {
-	if len(args) != 2 {
+	if len(args) < 2 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'ft.explain' command")
 	}
 	indexName := resolveSearchIndex(string(args[0]))
 	query := string(args[1])
+	for i := 2; i < len(args); i++ {
+		if strings.EqualFold(string(args[i]), "DIALECT") {
+			if i+1 >= len(args) {
+				return protocol.MakeSyntaxErrReply()
+			}
+			if _, err := strconv.Atoi(string(args[i+1])); err != nil {
+				return protocol.MakeErrReply("ERR Invalid DIALECT value")
+			}
+			i++
+			continue
+		}
+		return protocol.MakeSyntaxErrReply()
+	}
 
 	searchEnginesMu.RLock()
 	_, ok := searchEngines[indexName]
@@ -65,8 +78,47 @@ func execFTExplain(db *DB, args [][]byte) redis.Reply {
 		return protocol.MakeErrReply(fmt.Sprintf("ERR Index '%s' does not exist", string(args[0])))
 	}
 
-	plan := "INTERSECT {\n  " + query + "\n}\n"
-	return protocol.MakeBulkReply([]byte(plan))
+	return protocol.MakeBulkReply([]byte(formatFTExplainPlan(query)))
+}
+
+// formatFTExplainPlan builds a shallow RediSearch-like explain tree.
+func formatFTExplainPlan(query string) string {
+	q := strings.TrimSpace(query)
+	if q == "" {
+		return "INTERSECT {\n}\n"
+	}
+	if strings.Contains(q, "|") {
+		parts := strings.Split(q, "|")
+		var b strings.Builder
+		b.WriteString("UNION {\n")
+		for _, p := range parts {
+			p = strings.TrimSpace(p)
+			if p == "" {
+				continue
+			}
+			b.WriteString("  INTERSECT {\n    ")
+			b.WriteString(p)
+			b.WriteString("\n  }\n")
+		}
+		b.WriteString("}\n")
+		return b.String()
+	}
+	if strings.HasPrefix(q, "@") {
+		return "INTERSECT {\n  " + q + "\n}\n"
+	}
+	terms := strings.Fields(q)
+	if len(terms) > 1 && !strings.Contains(q, "\"") {
+		var b strings.Builder
+		b.WriteString("INTERSECT {\n")
+		for _, t := range terms {
+			b.WriteString("  ")
+			b.WriteString(t)
+			b.WriteByte('\n')
+		}
+		b.WriteString("}\n")
+		return b.String()
+	}
+	return "INTERSECT {\n  " + q + "\n}\n"
 }
 
 // execFTExplainCLI FT.EXPLAINCLI index query — returns plan lines as array.
@@ -184,8 +236,8 @@ func parseFTSchemaFields(args [][]byte) ([]*redisearch.Field, redis.Reply) {
 func init() {
 	registerCommand("FT.Alter", execFTAlter, writeFirstKey, nil, -5, flagWrite).
 		attachCommandExtra([]string{redisFlagWrite}, 1, 1, 1)
-	registerCommand("FT.Explain", execFTExplain, readFirstKey, nil, 3, flagReadOnly).
+	registerCommand("FT.Explain", execFTExplain, readFirstKey, nil, -3, flagReadOnly).
 		attachCommandExtra([]string{redisFlagReadonly}, 1, 1, 1)
-	registerCommand("FT.ExplainCli", execFTExplainCLI, readFirstKey, nil, 3, flagReadOnly).
+	registerCommand("FT.ExplainCli", execFTExplainCLI, readFirstKey, nil, -3, flagReadOnly).
 		attachCommandExtra([]string{redisFlagReadonly}, 1, 1, 1)
 }
