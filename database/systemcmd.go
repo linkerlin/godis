@@ -123,7 +123,7 @@ func Info(db *Server, args [][]byte) redis.Reply {
 		case "server":
 			reply := GenGodisInfoString("server", db)
 			return protocol.MakeBulkReply(reply)
-		case "client":
+		case "client", "clients":
 			return protocol.MakeBulkReply(GenGodisInfoString("client", db))
 		case "memory":
 			return protocol.MakeBulkReply(GenGodisInfoString("memory", db))
@@ -207,7 +207,7 @@ func GenGodisInfoString(section string, db *Server) []byte {
 			blockedClients,
 			GetTrackingClientsCount(),
 			GetTotalTrackedKeys(),
-			0, // clients_in_timeout_table
+			blockedClients, // clients_in_timeout_table ≈ blocked waiters
 		)
 		return []byte(s)
 	case "memory":

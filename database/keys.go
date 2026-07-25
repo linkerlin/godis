@@ -587,7 +587,7 @@ func execScan(db *DB, args [][]byte) redis.Reply {
 	}
 	keysReply, nextCursor := db.data.DictScan(cursor, count, pattern)
 	if nextCursor < 0 {
-		return protocol.MakeErrReply("Invalid argument")
+		return protocol.MakeErrReply("ERR Invalid argument")
 	}
 
 	if len(scanType) != 0 {

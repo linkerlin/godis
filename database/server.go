@@ -231,7 +231,7 @@ func (server *Server) Exec(c redis.Connection, cmdLine [][]byte) (result redis.R
 	if !isAuthenticated(c) {
 		return protocol.MakeErrReply("NOAUTH Authentication required")
 	}
-	if reply := checkACLPermission(c, cmdName); reply != nil {
+	if reply := checkACLPermission(c, cmdName, cmdLine[1:]); reply != nil {
 		return reply
 	}
 

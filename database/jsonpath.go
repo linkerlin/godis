@@ -10,46 +10,6 @@ import (
 	"github.com/linkerlin/godis/redis/protocol"
 )
 
-// execJSONPath implements JSONPath query
-// JSON.GET key [INDENT indent] [NEWLINE newline] [SPACE space] [NOESCAPE] path [path ...]
-func execJSONPath(args [][]byte) redis.Reply {
-	// This is a simplified implementation
-	// Full JSONPath requires complex parser
-
-	if len(args) < 2 {
-		return protocol.MakeErrReply("ERR wrong number of arguments for 'json.get' command")
-	}
-
-	key := string(args[0])
-
-	// Find path arguments (skip options)
-	var paths []string
-	for i := 1; i < len(args); i++ {
-		arg := string(args[i])
-
-		// Skip options
-		if arg == "INDENT" || arg == "NEWLINE" || arg == "SPACE" {
-			i++ // Skip value too
-			continue
-		}
-		if arg == "NOESCAPE" {
-			continue
-		}
-
-		// This is a path
-		paths = append(paths, arg)
-	}
-
-	_ = key
-
-	// Simplified: return first path
-	if len(paths) > 0 {
-		return protocol.MakeBulkReply([]byte("{}"))
-	}
-
-	return &protocol.NullBulkReply{}
-}
-
 // execJSONNumMultBy multiplies numbers by a value
 // JSON.NUMMULTBY key path value
 func execJSONNumMultBy(db *DB, args [][]byte) redis.Reply {

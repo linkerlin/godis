@@ -143,7 +143,7 @@ func (server *Server) InitACLEngine() {
 		}
 	}
 
-	rules := []string{"on", "+@all", "~*"}
+	rules := []string{"on", "+@all", "~*", "&*"}
 	if config.Properties.RequirePass != "" {
 		rules = append(rules, ">"+config.Properties.RequirePass)
 	} else {
