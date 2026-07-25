@@ -278,7 +278,7 @@ func (server *Server) Exec(c redis.Connection, cmdLine [][]byte) (result redis.R
 	}
 	if cmdName == "slaveof" || cmdName == "replicaof" {
 		if c != nil && c.InMultiState() {
-			return protocol.MakeErrReply("cannot use slave of database within multi")
+			return protocol.MakeErrReply("ERR cannot use SLAVEOF/REPLICAOF within MULTI")
 		}
 		if len(cmdLine) != 3 {
 			return protocol.MakeArgNumErrReply(strings.ToUpper(cmdName))

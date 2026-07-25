@@ -531,6 +531,7 @@ func execFTSearch(db *DB, args [][]byte) redis.Reply {
 	noContent := false
 	withScores := false
 	withPayloads := false
+	withSortKeys := false
 	returnFields := []string{}
 
 	for i := 2; i < len(args); i++ {
@@ -550,7 +551,13 @@ func execFTSearch(db *DB, args [][]byte) redis.Reply {
 		case "NOSTOPWORDS":
 			opts.NoStopWords = true
 		case "WITHSORTKEYS":
+			withSortKeys = true
 			opts.WithSortKeys = true
+		case "DIALECT":
+			if i+1 >= len(args) {
+				return protocol.MakeSyntaxErrReply()
+			}
+			i++ // accept dialect version; query engine is fixed
 		case "FILTER":
 			if i+3 >= len(args) {
 				return protocol.MakeSyntaxErrReply()
@@ -674,6 +681,20 @@ func execFTSearch(db *DB, args [][]byte) redis.Reply {
 
 		if withPayloads && result.Document.Payload != nil {
 			replies = append(replies, protocol.MakeBulkReply(result.Document.Payload))
+		}
+
+		if withSortKeys {
+			sk := ""
+			if opts.SortBy != "" {
+				if val, ok := result.Fields[opts.SortBy]; ok {
+					sk = fmt.Sprintf("%v", val)
+				} else if result.Document != nil && result.Document.Fields != nil {
+					if val, ok := result.Document.Fields[opts.SortBy]; ok {
+						sk = fmt.Sprintf("%v", val)
+					}
+				}
+			}
+			replies = append(replies, protocol.MakeBulkReply([]byte(sk)))
 		}
 
 		if !noContent {

@@ -46,6 +46,8 @@ func execJSONSet(db *DB, args [][]byte) redis.Reply {
 			nx = true
 		case "XX":
 			xx = true
+		default:
+			return &protocol.SyntaxErrReply{}
 		}
 	}
 
