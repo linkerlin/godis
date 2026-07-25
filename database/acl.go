@@ -447,22 +447,36 @@ func execACLDryRun(db *DB, args [][]byte) redis.Reply {
 		return protocol.MakeErrReply("ERR this user has no permissions to run the '" + command + "' command")
 	}
 
-	// Check key permissions using command prepare keys (Redis ACL DRYRUN).
+	// Check key permissions using command prepare keys (Redis ACL DRYRUN + selectors).
 	cmdArgs := args[1:] // command + args
+	var writeKeys, readKeys []string
 	if len(cmdArgs) >= 1 {
 		cmdName := strings.ToLower(string(cmdArgs[0]))
 		if cmd, ok := cmdTable[cmdName]; ok && cmd.prepare != nil && len(cmdArgs) > 1 {
-			writeKeys, readKeys := cmd.prepare(cmdArgs[1:])
-			for _, k := range writeKeys {
-				if !user.CheckKey(k) {
-					return protocol.MakeErrReply("ERR this user has no permissions to access '" + k + "'")
-				}
+			writeKeys, readKeys = cmd.prepare(cmdArgs[1:])
+		}
+	}
+	if !user.CheckPermission(command, writeKeys, readKeys) {
+		// Narrow error: command allowed in some selector but keys don't match any set.
+		for _, k := range writeKeys {
+			if !user.CheckPermission(command, []string{k}, nil) {
+				return protocol.MakeErrReply("ERR this user has no permissions to access '" + k + "'")
 			}
-			for _, k := range readKeys {
-				if !user.CheckKey(k) {
-					return protocol.MakeErrReply("ERR this user has no permissions to access '" + k + "'")
-				}
+		}
+		for _, k := range readKeys {
+			if !user.CheckPermission(command, nil, []string{k}) {
+				return protocol.MakeErrReply("ERR this user has no permissions to access '" + k + "'")
 			}
+		}
+		return protocol.MakeErrReply("ERR this user has no permissions to run the '" + command + "' command")
+	}
+
+	// Channel check for PUBLISH / SUBSCRIBE when args present.
+	cmdUpper := strings.ToUpper(command)
+	if (cmdUpper == "PUBLISH" || cmdUpper == "SPUBLISH") && len(args) >= 3 {
+		ch := string(args[2])
+		if !user.CheckChannel(ch) {
+			return protocol.MakeErrReply("ERR this user has no permissions to access channel '" + ch + "'")
 		}
 	}
 
@@ -508,40 +522,7 @@ func execACLLoad(args [][]byte) redis.Reply {
 
 // formatACLUser formats user as ACL string
 func formatACLUser(user *acl.User) []byte {
-	// Simplified format
-	parts := []string{"user", user.Name}
-
-	if user.Enabled {
-		parts = append(parts, "on")
-	} else {
-		parts = append(parts, "off")
-	}
-
-	if len(user.Passwords) == 0 {
-		parts = append(parts, "nopass")
-	}
-
-	for _, pwd := range user.Passwords {
-		if pwd.IsSHA {
-			parts = append(parts, "#"+pwd.Hash)
-		} else {
-			parts = append(parts, ">"+pwd.Hash)
-		}
-	}
-
-	if user.Commands.AllCommands {
-		parts = append(parts, "+@all")
-	}
-
-	for _, kp := range user.KeyPatterns {
-		if kp.Allowed {
-			parts = append(parts, "~"+kp.Pattern)
-		} else {
-			parts = append(parts, "-~"+kp.Pattern)
-		}
-	}
-
-	return []byte(strings.Join(parts, " "))
+	return []byte(acl.FormatACLFileLine(user))
 }
 
 // formatACLUserReply formats user details as Redis reply
@@ -588,7 +569,15 @@ func formatACLUserReply(user *acl.User) redis.Reply {
 	result = append(result, []byte("keys"))
 	var keyReplies [][]byte
 	for _, kp := range user.KeyPatterns {
-		if kp.Allowed {
+		if !kp.Allowed {
+			continue
+		}
+		switch {
+		case kp.Read && !kp.Write:
+			keyReplies = append(keyReplies, []byte("%R~"+kp.Pattern))
+		case kp.Write && !kp.Read:
+			keyReplies = append(keyReplies, []byte("%W~"+kp.Pattern))
+		default:
 			keyReplies = append(keyReplies, []byte("~"+kp.Pattern))
 		}
 	}

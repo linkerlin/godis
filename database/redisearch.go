@@ -6,6 +6,7 @@ import (
 	"strings"
 	"sync"
 
+	godisjson "github.com/linkerlin/godis/datastruct/json"
 	"github.com/linkerlin/godis/datastruct/redisearch"
 	"github.com/linkerlin/godis/interface/database"
 	"github.com/linkerlin/godis/interface/redis"
@@ -110,6 +111,99 @@ func removeHashFromIndex(db *DB, key string) {
 	names := make([]string, 0, len(searchIndexMeta))
 	for name, meta := range searchIndexMeta {
 		if meta.onType == "JSON" {
+			continue
+		}
+		if indexMatchesKey(meta.prefixes, key) {
+			names = append(names, name)
+		}
+	}
+	searchIndexMetaMu.RUnlock()
+	if len(names) == 0 {
+		return
+	}
+	searchEnginesMu.RLock()
+	engines := make([]*redisearch.RediSearchEngine, 0, len(names))
+	for _, name := range names {
+		if e := searchEngines[name]; e != nil {
+			engines = append(engines, e)
+		}
+	}
+	searchEnginesMu.RUnlock()
+	for _, engine := range engines {
+		engine.DeleteDocument(key)
+	}
+}
+
+// reindexJSON indexes a JSON key into matching FT indexes (ON JSON).
+func reindexJSON(db *DB, key string) {
+	entity, exists := db.GetEntity(key)
+	if !exists {
+		return
+	}
+	jv, ok := entity.Data.(*godisjson.JSONValue)
+	if !ok {
+		return
+	}
+	searchIndexMetaMu.RLock()
+	metas := make(map[string]*indexMeta, len(searchIndexMeta))
+	for name, meta := range searchIndexMeta {
+		metas[name] = meta
+	}
+	searchIndexMetaMu.RUnlock()
+	if len(metas) == 0 {
+		return
+	}
+	searchEnginesMu.RLock()
+	engines := make(map[string]*redisearch.RediSearchEngine, len(metas))
+	for name := range metas {
+		if e := searchEngines[name]; e != nil {
+			engines[name] = e
+		}
+	}
+	searchEnginesMu.RUnlock()
+
+	for name, meta := range metas {
+		if meta.onType != "JSON" {
+			continue
+		}
+		if !indexMatchesKey(meta.prefixes, key) {
+			continue
+		}
+		engine := engines[name]
+		if engine == nil {
+			continue
+		}
+		fields := make(map[string]interface{}, len(meta.schema))
+		for _, f := range meta.schema {
+			path := f.Name
+			if !strings.HasPrefix(path, "$") {
+				path = "$." + path
+			}
+			val, err := jv.Get(path)
+			if err != nil || val == nil {
+				continue
+			}
+			// Document field name: last path segment or raw name without $.
+			docField := f.Name
+			if strings.HasPrefix(docField, "$.") {
+				docField = docField[2:]
+			} else if docField == "$" {
+				docField = "root"
+			}
+			fields[docField] = val
+		}
+		engine.DeleteDocument(key)
+		_ = engine.AddDocument(key, fields, 1.0, nil)
+	}
+}
+
+// removeJSONFromIndex removes a JSON key from ON JSON indexes.
+func removeJSONFromIndex(db *DB, key string) {
+	_ = db
+	searchIndexMetaMu.RLock()
+	names := make([]string, 0, len(searchIndexMeta))
+	for name, meta := range searchIndexMeta {
+		if meta.onType != "JSON" {
 			continue
 		}
 		if indexMatchesKey(meta.prefixes, key) {

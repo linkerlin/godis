@@ -40,7 +40,9 @@ type CommandPermissions struct {
 // KeyPattern represents a key access pattern
 type KeyPattern struct {
 	Pattern string
-	Allowed bool // true for +~pattern, false for -~pattern
+	Allowed bool // true for allow, false for deny
+	Read    bool // %R~ or ~ / %RW~
+	Write   bool // %W~ or ~ / %RW~
 }
 
 // ChannelPattern represents a Pub/Sub channel access pattern
@@ -53,6 +55,7 @@ type ChannelPattern struct {
 type Selector struct {
 	Commands    *CommandPermissions
 	KeyPatterns []KeyPattern
+	Channels    []ChannelPattern
 }
 
 // NewUser creates a new ACL user
@@ -168,7 +171,7 @@ func (u *User) AllowAllCommands() {
 	u.Commands.AllCommands = true
 }
 
-// CheckCommand checks if user can execute a command
+// CheckCommand checks if user can execute a command (root or any selector).
 func (u *User) CheckCommand(cmd string) bool {
 	u.mu.RLock()
 	defer u.mu.RUnlock()
@@ -176,75 +179,160 @@ func (u *User) CheckCommand(cmd string) bool {
 	if !u.Enabled {
 		return false
 	}
-
 	cmd = strings.ToLower(cmd)
-
-	// Check explicitly denied commands first
-	if u.Commands.DeniedCommands[cmd] {
-		return false
-	}
-
-	// Check explicitly allowed commands
-	if u.Commands.AllowedCommands[cmd] {
+	if commandsAllow(u.Commands, cmd) {
 		return true
 	}
-
-	// Check categories
-	categories := GetCommandCategories(cmd)
-	for _, cat := range categories {
-		if allowed, exists := u.Commands.AllowedCategories[cat]; exists {
-			if !allowed {
-				return false
-			}
+	for _, sel := range u.Selectors {
+		if sel != nil && commandsAllow(sel.Commands, cmd) {
 			return true
 		}
 	}
-
-	// Check if @all is allowed
-	return u.Commands.AllCommands
+	return false
 }
 
-// AddKeyPattern adds a key pattern
-func (u *User) AddKeyPattern(pattern string, allowed bool) {
-	u.mu.Lock()
-	defer u.mu.Unlock()
-
-	u.KeyPatterns = append(u.KeyPatterns, KeyPattern{
-		Pattern: pattern,
-		Allowed: allowed,
-	})
-}
-
-// CheckKey checks if user can access a key
-func (u *User) CheckKey(key string) bool {
+// CheckPermission checks command + keys as Redis ACL selectors do:
+// root match OR any selector match (each set evaluated independently).
+func (u *User) CheckPermission(cmd string, writeKeys, readKeys []string) bool {
 	u.mu.RLock()
 	defer u.mu.RUnlock()
 
 	if !u.Enabled {
 		return false
 	}
-
-	// If no patterns defined, allow all
-	if len(u.KeyPatterns) == 0 {
+	cmd = strings.ToLower(cmd)
+	if permissionSetAllows(u.Commands, u.KeyPatterns, cmd, writeKeys, readKeys) {
 		return true
 	}
+	for _, sel := range u.Selectors {
+		if sel == nil {
+			continue
+		}
+		if permissionSetAllows(sel.Commands, sel.KeyPatterns, cmd, writeKeys, readKeys) {
+			return true
+		}
+	}
+	return false
+}
 
-	// Check patterns in order
+// CheckChannel checks Pub/Sub channel access (&pattern). Empty channels = allow all.
+func (u *User) CheckChannel(channel string) bool {
+	u.mu.RLock()
+	defer u.mu.RUnlock()
+
+	if !u.Enabled {
+		return false
+	}
+	if len(u.Channels) == 0 {
+		return true
+	}
+	for _, ch := range u.Channels {
+		if ch.Allowed && matchPattern(ch.Pattern, channel) {
+			return true
+		}
+	}
+	return false
+}
+
+func commandsAllow(cp *CommandPermissions, cmd string) bool {
+	if cp == nil {
+		return false
+	}
+	if cp.DeniedCommands[cmd] {
+		return false
+	}
+	if cp.AllowedCommands[cmd] {
+		return true
+	}
+	categories := GetCommandCategories(cmd)
+	for _, cat := range categories {
+		if allowed, exists := cp.AllowedCategories[cat]; exists {
+			if !allowed {
+				return false
+			}
+			return true
+		}
+	}
+	return cp.AllCommands
+}
+
+func keysAllow(patterns []KeyPattern, key string, write bool) bool {
+	if len(patterns) == 0 {
+		return true
+	}
 	allowed := false
 	hasPattern := false
-	for _, kp := range u.KeyPatterns {
+	for _, kp := range patterns {
+		need := kp.Read
+		if write {
+			need = kp.Write
+		}
+		if !kp.Read && !kp.Write {
+			need = true
+		}
+		if !need {
+			continue
+		}
 		if matchPattern(kp.Pattern, key) {
 			hasPattern = true
 			allowed = kp.Allowed
 		}
 	}
-
-	// If no pattern matched, deny by default
 	if !hasPattern {
 		return false
 	}
-
 	return allowed
+}
+
+func permissionSetAllows(cp *CommandPermissions, patterns []KeyPattern, cmd string, writeKeys, readKeys []string) bool {
+	if !commandsAllow(cp, cmd) {
+		return false
+	}
+	for _, k := range writeKeys {
+		if !keysAllow(patterns, k, true) {
+			return false
+		}
+	}
+	for _, k := range readKeys {
+		if !keysAllow(patterns, k, false) {
+			return false
+		}
+	}
+	return true
+}
+
+// AddKeyPattern adds a key pattern with both read and write access.
+func (u *User) AddKeyPattern(pattern string, allowed bool) {
+	u.AddKeyPatternRW(pattern, allowed, true, true)
+}
+
+// AddKeyPatternRW adds a key pattern with explicit read/write flags (Redis %R~/%W~/%RW~).
+func (u *User) AddKeyPatternRW(pattern string, allowed, read, write bool) {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+
+	u.KeyPatterns = append(u.KeyPatterns, KeyPattern{
+		Pattern: pattern,
+		Allowed: allowed,
+		Read:    read,
+		Write:   write,
+	})
+}
+
+// CheckKey checks if user can access a key for any operation (read or write).
+func (u *User) CheckKey(key string) bool {
+	return u.CheckKeyAccess(key, true) || u.CheckKeyAccess(key, false)
+}
+
+// CheckKeyAccess checks read (write=false) or write (write=true) on root key patterns.
+func (u *User) CheckKeyAccess(key string, write bool) bool {
+	u.mu.RLock()
+	defer u.mu.RUnlock()
+
+	if !u.Enabled {
+		return false
+	}
+	return keysAllow(u.KeyPatterns, key, write)
 }
 
 // Engine is the ACL engine
@@ -274,12 +362,17 @@ func (e *Engine) GetUser(name string) (*User, bool) {
 	return val.(*User), true
 }
 
-// SetUser creates or updates a user
+// SetUser creates or incrementally updates a user (Redis ACL SETUSER semantics).
 func (e *Engine) SetUser(name string, rules []string) (*User, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
-	u := NewUser(name)
+	var u *User
+	if val, exists := e.users.Get(name); exists {
+		u = val.(*User)
+	} else {
+		u = NewUser(name)
+	}
 	if err := applyRules(u, rules); err != nil {
 		return nil, err
 	}

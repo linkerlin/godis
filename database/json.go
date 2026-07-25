@@ -83,6 +83,7 @@ func execJSONSet(db *DB, args [][]byte) redis.Reply {
 	}
 
 	db.addAof(utils.ToCmdLine3("json.set", args...))
+	reindexJSON(db, key)
 	return protocol.MakeOkReply()
 }
 
@@ -279,6 +280,9 @@ func execJSONDel(db *DB, args [][]byte) redis.Reply {
 	// If root was deleted, remove the key
 	if path == "$" {
 		db.Remove(key)
+		removeJSONFromIndex(db, key)
+	} else if ok {
+		reindexJSON(db, key)
 	}
 
 	if ok {

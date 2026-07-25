@@ -110,6 +110,8 @@ func NewGopherEngine(dbExec func(cmd string, args ...string) (interface{}, error
 			MinimizeStackMemory: true,
 		})
 		e.registerRedisAPI(L)
+		registerCJSON(L)
+		registerCMsgPack(L)
 		return L
 	})
 
