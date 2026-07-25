@@ -32,8 +32,11 @@ func InitScriptingEngine(db *DB) {
 				return nil, fmt.Errorf("ERR scripting engine not bound to a database")
 			}
 			result := target.execWithLock(nil, cmdLine)
-			if errReply, ok := result.(*protocol.StandardErrReply); ok {
-				return nil, fmt.Errorf("%s", errReply.Status)
+			if protocol.IsErrorReply(result) {
+				if er, ok := result.(error); ok {
+					return nil, er
+				}
+				return nil, fmt.Errorf("%s", strings.TrimRight(string(result.ToBytes()), "\r\n"))
 			}
 			return redisReplyToGo(result), nil
 		}

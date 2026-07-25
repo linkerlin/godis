@@ -44,8 +44,11 @@ func makeFuncDBExec() func(cmd string, args ...string) (interface{}, error) {
 		}
 		// Nested redis.call must not re-lock (FCALL holds keys via prepare).
 		result := target.execWithLock(nil, cmdLine)
-		if errReply, ok := result.(*protocol.StandardErrReply); ok {
-			return nil, fmt.Errorf("%s", errReply.Status)
+		if protocol.IsErrorReply(result) {
+			if er, ok := result.(error); ok {
+				return nil, er
+			}
+			return nil, fmt.Errorf("%s", strings.TrimRight(string(result.ToBytes()), "\r\n"))
 		}
 		return redisReplyToGo(result), nil
 	}

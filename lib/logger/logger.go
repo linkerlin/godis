@@ -92,10 +92,14 @@ type ILogger interface {
 
 // Logger is Logger
 type Logger struct {
+	mu        sync.Mutex
 	logFile   *os.File
 	logger    *log.Logger
 	entryChan chan *logEntry
 	entryPool *sync.Pool
+	// rotateSettings enables daily file rotation (godis default logs/).
+	// When nil, output is fixed (stdout and/or Redis-style logfile).
+	rotateSettings *Settings
 }
 
 var DefaultLogger ILogger = NewStdoutLogger()
@@ -112,12 +116,7 @@ func NewStdoutLogger() *Logger {
 			},
 		},
 	}
-	go func() {
-		for e := range logger.entryChan {
-			_ = logger.logger.Output(0, e.msg) // msg includes call stack, no need for calldepth
-			logger.entryPool.Put(e)
-		}
-	}()
+	go logger.writeLoop()
 	return logger
 }
 
@@ -133,17 +132,25 @@ func NewFileLogger(settings *Settings) (*Logger, error) {
 	}
 	mw := io.MultiWriter(os.Stdout, logFile)
 	logger := &Logger{
-		logFile:   logFile,
-		logger:    log.New(mw, "", flags),
-		entryChan: make(chan *logEntry, bufferSize),
+		logFile:        logFile,
+		logger:         log.New(mw, "", flags),
+		entryChan:      make(chan *logEntry, bufferSize),
+		rotateSettings: settings,
 		entryPool: &sync.Pool{
 			New: func() interface{} {
 				return &logEntry{}
 			},
 		},
 	}
-	go func() {
-		for e := range logger.entryChan {
+	go logger.writeLoop()
+	return logger, nil
+}
+
+func (logger *Logger) writeLoop() {
+	for e := range logger.entryChan {
+		logger.mu.Lock()
+		if logger.rotateSettings != nil && logger.logFile != nil {
+			settings := logger.rotateSettings
 			logFilename := fmt.Sprintf("%s-%s.%s",
 				settings.Name,
 				time.Now().Format(settings.TimeFormat),
@@ -151,18 +158,62 @@ func NewFileLogger(settings *Settings) (*Logger, error) {
 			if path.Join(settings.Path, logFilename) != logger.logFile.Name() {
 				logFile, err := mustOpen(logFilename, settings.Path)
 				if err != nil {
-					// Log to stderr instead of panic
 					fmt.Fprintf(os.Stderr, "open log %s failed: %v\n", logFilename, err)
-					continue
+				} else {
+					if logger.logFile != nil {
+						_ = logger.logFile.Close()
+					}
+					logger.logFile = logFile
+					logger.logger = log.New(io.MultiWriter(os.Stdout, logFile), "", flags)
 				}
-				logger.logFile = logFile
-				logger.logger = log.New(io.MultiWriter(os.Stdout, logFile), "", flags)
 			}
-			_ = logger.logger.Output(0, e.msg) // msg includes call stack, no need for calldepth
-			logger.entryPool.Put(e)
 		}
-	}()
-	return logger, nil
+		l := logger.logger
+		logger.mu.Unlock()
+		_ = l.Output(0, e.msg)
+		logger.entryPool.Put(e)
+	}
+}
+
+// ReconfigureOutput switches DefaultLogger output.
+// Empty logfile → stdout only; non-empty → append to that path (also mirrors stdout).
+func ReconfigureOutput(logfile string) error {
+	l, ok := DefaultLogger.(*Logger)
+	if !ok || l == nil {
+		DefaultLogger = NewStdoutLogger()
+		l = DefaultLogger.(*Logger)
+	}
+	return l.reconfigureOutput(logfile)
+}
+
+func (logger *Logger) reconfigureOutput(logfile string) error {
+	logger.mu.Lock()
+	defer logger.mu.Unlock()
+
+	var w io.Writer = os.Stdout
+	var f *os.File
+	if logfile != "" {
+		dir := filepath.Dir(logfile)
+		if dir != "" && dir != "." {
+			if err := os.MkdirAll(dir, 0755); err != nil {
+				return err
+			}
+		}
+		var err error
+		f, err = os.OpenFile(logfile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+		if err != nil {
+			return err
+		}
+		w = io.MultiWriter(os.Stdout, f)
+	}
+	if logger.logFile != nil {
+		_ = logger.logFile.Close()
+		logger.logFile = nil
+	}
+	logger.logFile = f
+	logger.logger = log.New(w, "", flags)
+	logger.rotateSettings = nil // Redis logfile: fixed path, no daily rotate
+	return nil
 }
 
 // Setup initializes DefaultLogger

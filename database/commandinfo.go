@@ -84,7 +84,7 @@ func getCommandDocs(args [][]byte) redis.Reply {
 func getKeys(args [][]byte) redis.Reply {
 	cmdLine, cmdName, ok := ResolveCommandLine(args)
 	if !ok {
-		return protocol.MakeErrReply("Invalid command specified")
+		return protocol.MakeErrReply("ERR Invalid command specified")
 	}
 	cmd := cmdTable[cmdName]
 	if !validateArity(cmd.arity, cmdLine) {
@@ -92,7 +92,7 @@ func getKeys(args [][]byte) redis.Reply {
 	}
 
 	if cmd.prepare == nil {
-		return protocol.MakeErrReply("The command has no key arguments")
+		return protocol.MakeErrReply("ERR The command has no key arguments")
 	}
 	writeKeys, readKeys := cmd.prepare(cmdLine[1:])
 	keys := append(writeKeys, readKeys...)

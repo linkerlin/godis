@@ -532,7 +532,11 @@ func execFTSearch(db *DB, args [][]byte) redis.Reply {
 	withScores := false
 	withPayloads := false
 	withSortKeys := false
-	returnFields := []string{}
+	type returnFieldSpec struct {
+		source string
+		name   string // reply key (AS alias or source)
+	}
+	returnFields := []returnFieldSpec{}
 	var inKeys map[string]struct{}
 
 	for i := 2; i < len(args); i++ {
@@ -554,6 +558,8 @@ func execFTSearch(db *DB, args [][]byte) redis.Reply {
 		case "WITHSORTKEYS":
 			withSortKeys = true
 			opts.WithSortKeys = true
+		case "WITHCURSOR":
+			return protocol.MakeErrReply("ERR WITHCURSOR is not supported")
 		case "DIALECT":
 			if i+1 >= len(args) {
 				return protocol.MakeSyntaxErrReply()
@@ -761,12 +767,22 @@ func execFTSearch(db *DB, args [][]byte) redis.Reply {
 			i += 2
 			for j := 0; j < count && i < len(args); j++ {
 				nextArg := strings.ToUpper(string(args[i]))
-				if nextArg == "LIMIT" || nextArg == "SORTBY" || nextArg == "GEOFILTER" {
+				if nextArg == "LIMIT" || nextArg == "SORTBY" || nextArg == "GEOFILTER" ||
+					nextArg == "WITHCURSOR" || nextArg == "HIGHLIGHT" || nextArg == "SUMMARIZE" {
 					i--
 					break
 				}
-				returnFields = append(returnFields, string(args[i]))
+				src := string(args[i])
+				name := src
 				i++
+				if i < len(args) && strings.EqualFold(string(args[i]), "AS") {
+					if i+1 >= len(args) {
+						return protocol.MakeSyntaxErrReply()
+					}
+					name = string(args[i+1])
+					i += 2
+				}
+				returnFields = append(returnFields, returnFieldSpec{source: src, name: name})
 			}
 			i--
 		case "GEOFILTER":
@@ -882,10 +898,10 @@ func execFTSearch(db *DB, args [][]byte) redis.Reply {
 			}
 
 			if len(returnFields) > 0 {
-				for _, field := range returnFields {
-					if val, ok := result.Fields[field]; ok {
-						fields = append(fields, []byte(field))
-						fields = append(fields, []byte(formatVal(field, val)))
+				for _, rf := range returnFields {
+					if val, ok := result.Fields[rf.source]; ok {
+						fields = append(fields, []byte(rf.name))
+						fields = append(fields, []byte(formatVal(rf.source, val)))
 					}
 				}
 			} else {
@@ -965,6 +981,9 @@ func execFTAggregate(db *DB, args [][]byte) redis.Reply {
 			req.Verbatim = true
 			i++
 			continue
+
+		case "WITHCURSOR":
+			return protocol.MakeErrReply("ERR WITHCURSOR is not supported")
 
 		case "TIMEOUT":
 			if i+1 >= len(args) {

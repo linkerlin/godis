@@ -215,6 +215,18 @@ func GenGodisInfoString(section string, db *Server) []byte {
 	case "memory":
 		var m runtime.MemStats
 		runtime.ReadMemStats(&m)
+		maxMem := int64(0)
+		maxMemPolicy := "noeviction"
+		if config.Properties != nil {
+			maxMem = config.Properties.Maxmemory
+			if config.Properties.MaxmemoryPolicy != "" {
+				maxMemPolicy = config.Properties.MaxmemoryPolicy
+			}
+		}
+		maxMemU := uint64(0)
+		if maxMem > 0 {
+			maxMemU = uint64(maxMem)
+		}
 		s := fmt.Sprintf("# Memory\r\n"+
 			"used_memory:%d\r\n"+
 			"used_memory_human:%s\r\n"+
@@ -222,6 +234,9 @@ func GenGodisInfoString(section string, db *Server) []byte {
 			"used_memory_peak:%d\r\n"+
 			"used_memory_peak_human:%s\r\n"+
 			"used_memory_lua:%d\r\n"+
+			"maxmemory:%d\r\n"+
+			"maxmemory_human:%s\r\n"+
+			"maxmemory_policy:%s\r\n"+
 			"mem_fragmentation_ratio:%.2f\r\n"+
 			"mem_allocator:%s\r\n",
 			m.TotalAlloc,
@@ -230,6 +245,9 @@ func GenGodisInfoString(section string, db *Server) []byte {
 			m.TotalAlloc, // Simplified peak
 			humanReadableSize(m.TotalAlloc),
 			scripting.GetGlobalLuaMemory(),
+			maxMem,
+			humanReadableSize(maxMemU),
+			maxMemPolicy,
 			float64(m.Sys)/float64(m.TotalAlloc),
 			"go",
 		)

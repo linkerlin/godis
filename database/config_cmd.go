@@ -191,6 +191,9 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 			}
 			logger.SetMinLevel(lv)
 		case "logfile":
+			if err := logger.ReconfigureOutput(value); err != nil {
+				return protocol.MakeErrReply("ERR Failed opening the logfile: " + err.Error())
+			}
 			config.Properties.LogFile = value
 		case "protected-mode":
 			ok, b := config.ParseConfigBool(value)

@@ -62,6 +62,7 @@ func main() {
 	flag.Parse()
 
 	print(banner)
+	// Boot with stdout; after config, applyLogFileFromConfig may switch to logfile.
 	if err := logger.Setup(&logger.Settings{
 		Path:       "logs",
 		Name:       "godis",
@@ -75,6 +76,7 @@ func main() {
 		logger.Fatal(fmt.Sprintf("setup config failed: %+v", err))
 	}
 	applyLogLevelFromConfig()
+	applyLogFileFromConfig()
 
 	startMetricsServer()
 
@@ -101,6 +103,16 @@ func applyLogLevelFromConfig() {
 	}
 	if lv, ok := logger.ParseRedisLogLevel(lvl); ok {
 		logger.SetMinLevel(lv)
+	}
+}
+
+func applyLogFileFromConfig() {
+	if config.Properties == nil {
+		return
+	}
+	// Empty logfile → stdout only (Redis default). Non-empty → that path.
+	if err := logger.ReconfigureOutput(config.Properties.LogFile); err != nil {
+		fmt.Fprintf(os.Stderr, "apply logfile %q failed: %v\n", config.Properties.LogFile, err)
 	}
 }
 

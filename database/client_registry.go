@@ -107,9 +107,13 @@ func formatClientListLine(c redis.Connection) string {
 	if u := c.GetACLUser(); u != "" {
 		user = u
 	}
+	respVer := c.GetProtocolVersion()
+	if respVer <= 0 {
+		respVer = 2
+	}
 	return fmt.Sprintf(
-		"id=%d addr=%s laddr=%s fd=0 name=%s age=%d idle=%d flags=%s db=%d sub=%d psub=%d ssub=%d user=%s multi=-1 qbuf=0 qbuf-free=0 obl=0 oll=0 omem=0 events=r cmd=client lib-name=%s lib-ver=%s",
-		c.GetClientID(), clientAddr(c), clientLocalAddr(c), c.GetClientName(), age, idle, flags, c.GetDBIndex(), subN, psubN, ssubN, user, libName, libVer,
+		"id=%d addr=%s laddr=%s fd=0 name=%s age=%d idle=%d flags=%s db=%d sub=%d psub=%d ssub=%d user=%s multi=-1 qbuf=0 qbuf-free=0 obl=0 oll=0 omem=0 events=r cmd=client resp=%d lib-name=%s lib-ver=%s",
+		c.GetClientID(), clientAddr(c), clientLocalAddr(c), c.GetClientName(), age, idle, flags, c.GetDBIndex(), subN, psubN, ssubN, user, respVer, libName, libVer,
 	)
 }
 
@@ -134,24 +138,58 @@ func clientConnType(c redis.Connection) string {
 // execClientListConn lists registered clients (CLIENT LIST).
 func execClientListConn(c redis.Connection, args [][]byte) redis.Reply {
 	typeFilter := ""
-	if len(args) == 2 && strings.EqualFold(string(args[0]), "TYPE") {
-		typeFilter = strings.ToLower(string(args[1]))
-		switch typeFilter {
-		case "normal", "master", "replica", "slave", "pubsub":
-			if typeFilter == "slave" {
-				typeFilter = "replica"
+	idFilter := map[int64]struct{}{}
+	for i := 0; i < len(args); {
+		opt := strings.ToUpper(string(args[i]))
+		switch opt {
+		case "TYPE":
+			if i+1 >= len(args) {
+				return protocol.MakeErrReply("ERR syntax error")
+			}
+			typeFilter = strings.ToLower(string(args[i+1]))
+			switch typeFilter {
+			case "normal", "master", "replica", "slave", "pubsub":
+				if typeFilter == "slave" {
+					typeFilter = "replica"
+				}
+			default:
+				return protocol.MakeErrReply("ERR Unknown client type '" + string(args[i+1]) + "'")
+			}
+			i += 2
+		case "ID":
+			i++
+			if i >= len(args) {
+				return protocol.MakeErrReply("ERR syntax error")
+			}
+			for i < len(args) {
+				next := strings.ToUpper(string(args[i]))
+				if next == "TYPE" || next == "ID" {
+					break
+				}
+				id, err := strconv.ParseInt(string(args[i]), 10, 64)
+				if err != nil {
+					return protocol.MakeErrReply("ERR Invalid client ID")
+				}
+				idFilter[id] = struct{}{}
+				i++
+			}
+			if len(idFilter) == 0 {
+				return protocol.MakeErrReply("ERR syntax error")
 			}
 		default:
-			return protocol.MakeErrReply("ERR Unknown client type '" + string(args[1]) + "'")
+			return protocol.MakeErrReply("ERR syntax error")
 		}
-	} else if len(args) != 0 {
-		return protocol.MakeErrReply("ERR syntax error")
 	}
 
 	var b strings.Builder
 	RangeClients(func(other redis.Connection) bool {
 		if typeFilter != "" && clientConnType(other) != typeFilter {
 			return true
+		}
+		if len(idFilter) > 0 {
+			if _, ok := idFilter[other.GetClientID()]; !ok {
+				return true
+			}
 		}
 		b.WriteString(formatClientListLine(other))
 		b.WriteByte('\n')
