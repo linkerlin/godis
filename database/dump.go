@@ -314,7 +314,12 @@ func writeEntityToRDB(enc *rdbenc.Encoder, key string, entity *database.DataEnti
 		})
 		return enc.WriteHashMapObject(key, hash)
 	default:
-		return errDumpUnsupported("DUMP not implemented for this data type")
+		// stream / JSON / vector / timeseries → Godis opaque string (not Redis-wire)
+		payload, ok := aof.EncodeOpaque(entity)
+		if !ok {
+			return errDumpUnsupported("DUMP not implemented for this data type")
+		}
+		return enc.WriteStringObject(key, payload)
 	}
 }
 

@@ -61,6 +61,15 @@ func clientAddr(c redis.Connection) string {
 
 func formatClientListLine(c redis.Connection) string {
 	flags := "N"
+	typ := clientConnType(c)
+	switch typ {
+	case "pubsub":
+		flags = "P"
+	case "replica", "slave":
+		flags = "S"
+	case "master":
+		flags = "M"
+	}
 	if c.InMultiState() {
 		flags = "x"
 	}
@@ -73,22 +82,47 @@ func formatClientListLine(c redis.Connection) string {
 		idle = t.IdleSeconds()
 	}
 	return fmt.Sprintf(
-		"id=%d addr=%s fd=0 name=%s age=%d idle=%d flags=%s db=%d sub=%d psub=0 multi=-1 qbuf=0 qbuf-free=0 obl=0 oll=0 omem=0 events=r cmd=client lib-name=%s lib-ver=%s",
-		c.GetClientID(), clientAddr(c), c.GetClientName(), age, idle, flags, c.GetDBIndex(), c.SubsCount(), libName, libVer,
+		"id=%d addr=%s fd=0 name=%s age=%d idle=%d flags=%s db=%d sub=%d psub=%d multi=-1 qbuf=0 qbuf-free=0 obl=0 oll=0 omem=0 events=r cmd=client lib-name=%s lib-ver=%s",
+		c.GetClientID(), clientAddr(c), c.GetClientName(), age, idle, flags, c.GetDBIndex(), c.SubsCount(), c.PSubsCount(), libName, libVer,
 	)
+}
+
+// clientConnType maps a connection to Redis CLIENT LIST TYPE labels.
+func clientConnType(c redis.Connection) string {
+	if c.SubsCount() > 0 || c.PSubsCount() > 0 {
+		return "pubsub"
+	}
+	if c.IsSlave() {
+		return "replica"
+	}
+	if c.IsMaster() {
+		return "master"
+	}
+	return "normal"
 }
 
 // execClientListConn lists registered clients (CLIENT LIST).
 func execClientListConn(c redis.Connection, args [][]byte) redis.Reply {
-	// Optional TYPE filter is accepted but not filtered (all clients are "normal").
+	typeFilter := ""
 	if len(args) == 2 && strings.EqualFold(string(args[0]), "TYPE") {
-		_ = args[1]
+		typeFilter = strings.ToLower(string(args[1]))
+		switch typeFilter {
+		case "normal", "master", "replica", "slave", "pubsub":
+			if typeFilter == "slave" {
+				typeFilter = "replica"
+			}
+		default:
+			return protocol.MakeErrReply("ERR Unknown client type '" + string(args[1]) + "'")
+		}
 	} else if len(args) != 0 {
 		return protocol.MakeErrReply("ERR syntax error")
 	}
 
 	var b strings.Builder
 	RangeClients(func(other redis.Connection) bool {
+		if typeFilter != "" && clientConnType(other) != typeFilter {
+			return true
+		}
 		b.WriteString(formatClientListLine(other))
 		b.WriteByte('\n')
 		return true

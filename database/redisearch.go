@@ -22,6 +22,7 @@ var searchEnginesMu = &struct{ sync.RWMutex }{}
 type indexMeta struct {
 	prefixes []string // empty entry = match all keys (PREFIX *)
 	schema   []*redisearch.Field
+	onType   string // "HASH" (default) or "JSON"
 }
 
 var (
@@ -73,6 +74,9 @@ func reindexHash(db *DB, key string) {
 	searchEnginesMu.RUnlock()
 
 	for name, meta := range metas {
+		if meta.onType == "JSON" {
+			continue // ON JSON indexes are not fed by HSET
+		}
 		if !indexMatchesKey(meta.prefixes, key) {
 			continue
 		}
@@ -105,6 +109,9 @@ func removeHashFromIndex(db *DB, key string) {
 	searchIndexMetaMu.RLock()
 	names := make([]string, 0, len(searchIndexMeta))
 	for name, meta := range searchIndexMeta {
+		if meta.onType == "JSON" {
+			continue
+		}
 		if indexMatchesKey(meta.prefixes, key) {
 			names = append(names, name)
 		}
@@ -143,6 +150,7 @@ func execFTCreate(db *DB, args [][]byte) redis.Reply {
 
 	// Parse options
 	var prefix []string
+	onType := "HASH" // Redis default
 	schemaStart := 1
 
 	for i := 1; i < len(args); i++ {
@@ -150,7 +158,14 @@ func execFTCreate(db *DB, args [][]byte) redis.Reply {
 
 		switch arg {
 		case "ON":
-			// ON HASH|JSON - skip for now
+			if i+1 >= len(args) {
+				return protocol.MakeSyntaxErrReply()
+			}
+			t := strings.ToUpper(string(args[i+1]))
+			if t != "HASH" && t != "JSON" {
+				return protocol.MakeErrReply("ERR Wrong type specified for ON. Expected HASH or JSON.")
+			}
+			onType = t
 			i++
 		case "PREFIX":
 			if i+1 >= len(args) {
@@ -277,7 +292,7 @@ func execFTCreate(db *DB, args [][]byte) redis.Reply {
 	searchEnginesMu.Unlock()
 
 	// Store prefix + schema meta for hash auto-indexing (RediSearch ON HASH).
-	meta := &indexMeta{prefixes: prefix, schema: fields}
+	meta := &indexMeta{prefixes: prefix, schema: fields, onType: onType}
 	searchIndexMetaMu.Lock()
 	searchIndexMeta[indexName] = meta
 	searchIndexMetaMu.Unlock()
