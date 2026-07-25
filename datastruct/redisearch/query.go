@@ -140,14 +140,57 @@ func (n *PrefixNode) Evaluate(idx *InvertedIndex) []string {
 
 // FuzzyNode represents a fuzzy (approximate) search
 type FuzzyNode struct {
-	Term     string
-	Field    string
-	MaxDist  int // Maximum Levenshtein distance
+	Term    string
+	Field   string
+	MaxDist int // Maximum Levenshtein distance
 }
 
 // Evaluate evaluates a fuzzy node
 func (n *FuzzyNode) Evaluate(idx *InvertedIndex) []string {
 	return idx.FuzzySearch(n.Term, n.Field, n.MaxDist)
+}
+
+// PhraseNode represents a quoted multi-term phrase with optional SLOP proximity.
+type PhraseNode struct {
+	Terms   []string
+	Field   string
+	Slop    int
+	InOrder bool // quoted phrases default to ordered matching
+}
+
+// Evaluate evaluates a phrase with position proximity.
+func (n *PhraseNode) Evaluate(idx *InvertedIndex) []string {
+	if len(n.Terms) == 0 {
+		return nil
+	}
+	if len(n.Terms) == 1 {
+		return (&TermNode{Term: n.Terms[0], Field: n.Field}).Evaluate(idx)
+	}
+	return idx.SearchPhrase(n.Terms, n.Field, n.Slop, n.InOrder)
+}
+
+// ApplyPhraseOpts walks the AST and applies FT.SEARCH SLOP / INORDER to PhraseNodes.
+func ApplyPhraseOpts(node QueryNode, slop int, inOrder bool) {
+	if node == nil {
+		return
+	}
+	switch n := node.(type) {
+	case *PhraseNode:
+		n.Slop = slop
+		if inOrder {
+			n.InOrder = true
+		}
+	case *AndNode:
+		ApplyPhraseOpts(n.Left, slop, inOrder)
+		ApplyPhraseOpts(n.Right, slop, inOrder)
+	case *OrNode:
+		ApplyPhraseOpts(n.Left, slop, inOrder)
+		ApplyPhraseOpts(n.Right, slop, inOrder)
+	case *NotNode:
+		ApplyPhraseOpts(n.Child, slop, inOrder)
+	case *OptionalNode:
+		ApplyPhraseOpts(n.Child, slop, inOrder)
+	}
 }
 
 // TagNode represents a tag search
@@ -639,14 +682,22 @@ func (p *ExpressionParser) parsePrimary() (QueryNode, error) {
 	}
 	
 	if p.match("\"") {
-		// Phrase
+		// Phrase — tokenize into PhraseNode (ordered; SLOP applied later via opts)
 		phraseStart := p.pos
 		for p.pos < len(p.input) && p.input[p.pos] != '"' {
 			p.pos++
 		}
 		phrase := p.input[phraseStart:p.pos]
 		p.match("\"")
-		return &TermNode{Term: phrase, Field: field}, nil
+		tok := &StandardTokenizer{}
+		terms := tok.Tokenize(phrase)
+		if len(terms) == 0 {
+			return &TermNode{Term: phrase, Field: field}, nil
+		}
+		if len(terms) == 1 {
+			return &TermNode{Term: terms[0], Field: field}, nil
+		}
+		return &PhraseNode{Terms: terms, Field: field, Slop: 0, InOrder: true}, nil
 	}
 	
 	// Simple term or prefix

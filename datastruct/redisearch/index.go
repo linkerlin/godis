@@ -288,6 +288,105 @@ func (idx *InvertedIndex) Search(query string, field string) []string {
 	return docIDs
 }
 
+// SearchPhrase finds documents where terms appear within SLOP intervening words.
+// When inOrder is true, term positions must be strictly increasing.
+func (idx *InvertedIndex) SearchPhrase(terms []string, field string, slop int, inOrder bool) []string {
+	idx.mu.RLock()
+	defer idx.mu.RUnlock()
+
+	if len(terms) == 0 {
+		return nil
+	}
+	if slop < 0 {
+		slop = 0
+	}
+
+	posMaps := make([]map[string][]int, len(terms))
+	for i, token := range terms {
+		term := token
+		if field != "" {
+			term = field + ":" + token
+		}
+		docs := idx.terms[term]
+		if docs == nil {
+			stemmed := idx.stemmer.Stem(token)
+			if stemmed != token {
+				if field != "" {
+					docs = idx.terms[field+":"+stemmed]
+				}
+				if docs == nil {
+					docs = idx.terms[stemmed]
+				}
+			}
+		}
+		if docs == nil {
+			return nil
+		}
+		posMaps[i] = docs
+	}
+
+	// Intersect document IDs that contain every term.
+	candidates := make(map[string]bool)
+	for docID := range posMaps[0] {
+		candidates[docID] = true
+	}
+	for i := 1; i < len(posMaps); i++ {
+		for docID := range candidates {
+			if _, ok := posMaps[i][docID]; !ok {
+				delete(candidates, docID)
+			}
+		}
+	}
+
+	var docIDs []string
+	for docID := range candidates {
+		positions := make([][]int, len(terms))
+		for i := range terms {
+			positions[i] = posMaps[i][docID]
+		}
+		if phrasePositionsMatch(positions, slop, inOrder) {
+			docIDs = append(docIDs, docID)
+		}
+	}
+	return docIDs
+}
+
+// phrasePositionsMatch reports whether there is a sequence of positions, one per
+// term, with at most `slop` intervening tokens between consecutive matches.
+func phrasePositionsMatch(termPositions [][]int, slop int, inOrder bool) bool {
+	return matchPhraseAt(termPositions, 0, -1, slop, inOrder)
+}
+
+func matchPhraseAt(termPositions [][]int, termIdx, prevPos, slop int, inOrder bool) bool {
+	if termIdx >= len(termPositions) {
+		return true
+	}
+	for _, pos := range termPositions[termIdx] {
+		if termIdx > 0 {
+			if inOrder {
+				if pos <= prevPos {
+					continue
+				}
+				if pos-prevPos-1 > slop {
+					continue
+				}
+			} else {
+				dist := pos - prevPos
+				if dist < 0 {
+					dist = -dist
+				}
+				if dist == 0 || dist-1 > slop {
+					continue
+				}
+			}
+		}
+		if matchPhraseAt(termPositions, termIdx+1, pos, slop, inOrder) {
+			return true
+		}
+	}
+	return false
+}
+
 // SearchOr performs OR search
 func (idx *InvertedIndex) SearchOr(query string, field string) []string {
 	idx.mu.RLock()

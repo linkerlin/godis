@@ -53,8 +53,10 @@ func execJSONStrLen(db *DB, args [][]byte) redis.Reply {
 
 	key := string(args[0])
 	path := "$"
+	explicitPath := false
 	if len(args) > 1 {
 		path = string(args[1])
+		explicitPath = true
 	}
 
 	entity, exists := db.GetEntity(key)
@@ -71,7 +73,7 @@ func execJSONStrLen(db *DB, args [][]byte) redis.Reply {
 	if err != nil {
 		return protocol.MakeErrReply("ERR " + err.Error())
 	}
-	return protocol.MakeIntReply(int64(length))
+	return wrapEnhancedJSONIntReply(path, explicitPath, int64(length))
 }
 
 // execJSONArrPop pops an element from array

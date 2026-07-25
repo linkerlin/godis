@@ -17,10 +17,13 @@ import (
 // Redis 8 Vector Set command aliases. Legacy VS* names remain registered.
 // Supported subset:
 //
-//	VADD key VALUES dim f1..fn ELE element
+//	VADD key VALUES dim f1..fn ELE element [NX|XX] [SETATTR json]
 //	VSIM key VALUES dim f1..fn [COUNT n] [WITHSCORES]
 //	VSIM key ELE element [COUNT n] [WITHSCORES]
 //	VREM / VCARD / VDIM / VEMB / VINFO / VISMEMBER
+//
+// Accepted no-ops on VADD (not implemented): CAS, NOQUANT, Q8, BIN, TRUTH,
+// NOTHREAD, REDUCE, EF, M — parsed and ignored; no true HNSW/quantization.
 
 func execVAdd(db *DB, args [][]byte) redis.Reply {
 	if len(args) < 2 {
@@ -362,6 +365,15 @@ func execVInfo(db *DB, args [][]byte) redis.Reply {
 		protocol.MakeIntReply(int64(vs.Dimension())),
 		protocol.MakeBulkReply([]byte("size")),
 		protocol.MakeIntReply(int64(vs.Len())),
+		// Flat index stubs (no HNSW); shape matches Redis VINFO keys clients may read.
+		protocol.MakeBulkReply([]byte("hnsw-m")),
+		protocol.MakeIntReply(0),
+		protocol.MakeBulkReply([]byte("hnsw-ef-construction")),
+		protocol.MakeIntReply(0),
+		protocol.MakeBulkReply([]byte("hnsw-max-node-uid")),
+		protocol.MakeIntReply(0),
+		protocol.MakeBulkReply([]byte("max-level")),
+		protocol.MakeIntReply(0),
 	})
 }
 

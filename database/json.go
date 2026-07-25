@@ -194,6 +194,14 @@ func wrapEnhancedJSONNumReply(path string, newVal float64) redis.Reply {
 	return protocol.MakeBulkReply([]byte(s))
 }
 
+// wrapEnhancedJSONIntReply wraps RedisJSON `$…` length results in an array of integers.
+func wrapEnhancedJSONIntReply(path string, wrap bool, n int64) redis.Reply {
+	if wrap && strings.HasPrefix(path, "$") {
+		return protocol.MakeMultiRawReply([]redis.Reply{protocol.MakeIntReply(n)})
+	}
+	return protocol.MakeIntReply(n)
+}
+
 type jsonGetFormatOpts struct {
 	indent   string
 	newline  string
@@ -448,7 +456,7 @@ func execJSONStrAppend(db *DB, args [][]byte) redis.Reply {
 	}
 
 	db.addAof(utils.ToCmdLine3("json.strappend", args...))
-	return protocol.MakeIntReply(int64(newLen))
+	return wrapEnhancedJSONIntReply(path, len(args) == 3, int64(newLen))
 }
 
 // execJSONArrAppend appends values to an array at the specified path
@@ -496,7 +504,7 @@ func execJSONArrAppend(db *DB, args [][]byte) redis.Reply {
 	}
 
 	db.addAof(utils.ToCmdLine3("json.arrappend", args...))
-	return protocol.MakeIntReply(int64(newLen))
+	return wrapEnhancedJSONIntReply(path, true, int64(newLen))
 }
 
 // execJSONArrInsert inserts values into an array at index
@@ -532,7 +540,7 @@ func execJSONArrInsert(db *DB, args [][]byte) redis.Reply {
 		return protocol.MakeErrReply(fmt.Sprintf("ERR %v", err))
 	}
 	db.addAof(utils.ToCmdLine3("json.arrinsert", args...))
-	return protocol.MakeIntReply(int64(newLen))
+	return wrapEnhancedJSONIntReply(path, true, int64(newLen))
 }
 
 // execJSONMGet gets the same path from multiple keys

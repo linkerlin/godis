@@ -19,7 +19,7 @@
 | 配置 | 中–高 | 布尔解析；CONFIG SET 含 maxmemory/save/tcp-backlog；**eviction 写路径已接**（键数估算）；部分 CF-3 为存取桩 |
 | 概率数据结构 (BF/CF/CMS…) | 中–高 | 见 `database/probabilistic.go`；CF EXPANSION 已接扩容 |
 
-**M2 里程碑：** 至 **M2az** 已含 protected-mode、FT HIGHLIGHT、Lua set_repl/LOG_*、tcp-keepalive 等。仍延期：集群 CRC16/MOVED、HLL 互通、真 HNSW、完整 FAILOVER、精确 `used_memory`、FUNCTION DUMP 官方互通、MIGRATE 等（见计划文档）。
+**M2 里程碑：** 至 **M2ba** 已含 FT 短语邻近/SLOP、JSON `$` 长度封装、VINFO 桩、protected-mode 等。仍延期：集群 CRC16/MOVED、HLL 互通、真 HNSW、完整 FAILOVER、精确 `used_memory`、FUNCTION DUMP 官方互通、MIGRATE 等（见计划文档）。
 
 ## 已知差异（抽样，以代码为准）
 
@@ -47,6 +47,8 @@
 | TS DUPLICATE_POLICY | ✅ BLOCK/FIRST/LAST/MIN/MAX/SUM + ON_DUPLICATE |
 | SINTERCARD | ✅ LIMIT 提前终止 |
 | VSIM FILTER | ✅ 最小 `.field==value` / `!=` 属性过滤 |
+| VADD 选项 | ✅ NX/XX/SETATTR；CAS/NOQUANT/Q8/BIN/REDUCE/EF/M 等 **accept-no-op**（无真量化/HNSW） |
+| FT 短语 / SLOP | ✅ 引号短语 + positions 邻近；SLOP/INORDER/TIMEOUT 可解析 |
 | save 自动快照 | ✅ `CONFIG save` 点位 + dirty 计数触发 BGSAVE |
 | GEO geohash | ✅ 52-bit（float64 无损，对齐 Redis） |
 | 复制 backlog | ✅ 固定容量环形缓冲 |

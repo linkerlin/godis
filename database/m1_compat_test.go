@@ -175,7 +175,7 @@ func TestM1JSONNumMultByAndStrLen(t *testing.T) {
 	if string(bulk.Arg) != "[6]" {
 		t.Fatalf("NUMMULTBY expected [6], got %s", bulk.Arg)
 	}
-	asserts.AssertIntReply(t, testDB.Exec(nil, utils.ToCmdLine("JSON.STRLEN", "j:m1", "$.s")), 2)
+	asserts.AssertIntReply(t, testDB.Exec(nil, utils.ToCmdLine("JSON.STRLEN", "j:m1", ".s")), 2)
 }
 
 func TestM1ACLGenPassIsRandom(t *testing.T) {

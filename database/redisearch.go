@@ -559,6 +559,28 @@ func execFTSearch(db *DB, args [][]byte) redis.Reply {
 				return protocol.MakeSyntaxErrReply()
 			}
 			i++ // accept dialect version; query engine is fixed
+		case "SLOP":
+			if i+1 >= len(args) {
+				return protocol.MakeSyntaxErrReply()
+			}
+			slop, err := strconv.Atoi(string(args[i+1]))
+			if err != nil || slop < 0 {
+				return protocol.MakeErrReply("ERR Invalid SLOP value")
+			}
+			opts.Slop = slop
+			i++
+		case "INORDER":
+			opts.InOrder = true
+		case "TIMEOUT":
+			if i+1 >= len(args) {
+				return protocol.MakeSyntaxErrReply()
+			}
+			ms, err := strconv.Atoi(string(args[i+1]))
+			if err != nil || ms < 0 {
+				return protocol.MakeErrReply("ERR Invalid TIMEOUT value")
+			}
+			opts.TimeoutMs = ms
+			i++ // accept; cancellation not wired
 		case "INKEYS":
 			if i+1 >= len(args) {
 				return protocol.MakeSyntaxErrReply()

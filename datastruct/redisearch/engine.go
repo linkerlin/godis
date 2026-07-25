@@ -159,6 +159,10 @@ func (e *RediSearchEngine) Search(query string, opts *SearchOptions) (*SearchRes
 		}
 	}
 
+	if opts != nil {
+		ApplyPhraseOpts(node, opts.Slop, opts.InOrder)
+	}
+
 	// Execute query
 	docIDs := node.Evaluate(e.index)
 
@@ -293,6 +297,9 @@ type SearchOptions struct {
 	WithSortKeys bool
 	Verbatim     bool
 	NoStopWords  bool
+	Slop         int
+	InOrder      bool
+	TimeoutMs    int // accepted; search cancellation not wired
 	GeoFilter    *GeoFilterOptions
 	Filters      []FieldFilter
 	// Highlight options
