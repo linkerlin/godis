@@ -170,12 +170,16 @@ func execFunctionFlush(db *DB, args [][]byte) redis.Reply {
 	if len(args) > 1 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'function flush' command")
 	}
+	if len(args) == 1 {
+		mode := strings.ToUpper(string(args[0]))
+		if mode != "ASYNC" && mode != "SYNC" {
+			return protocol.MakeErrReply("ERR FUNCTION FLUSH only supports SYNC|ASYNC mode")
+		}
+	}
 
 	if funcEngine == nil {
 		return protocol.MakeOkReply()
 	}
-
-	// ASYNC/SYNC ignored for now
 
 	if err := funcEngine.FlushAll(); err != nil {
 		return protocol.MakeErrReply(fmt.Sprintf("ERR %v", err))

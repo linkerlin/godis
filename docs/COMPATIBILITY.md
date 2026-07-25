@@ -62,6 +62,9 @@
 | DUMP 扩展类型 | ✅ stream/JSON/vector/TS 经 Godis opaque（非 Redis 互通） |
 | FT.CREATE ON | ✅ HASH/JSON 校验并记录；仅 HASH 自动索引 HSET |
 | CLIENT LIST TYPE | ✅ normal/master/replica/pubsub 过滤；flags/psub 对齐 |
+| CLIENT PAUSE | ✅ WRITE/ALL 在 Exec 路径真正阻塞（UNPAUSE/CLIENT 豁免） |
+| INFO stats | ✅ instantaneous_ops_per_sec；pubsub_channels/patterns 接 hub |
+| SCRIPT/FUNCTION FLUSH | ✅ 校验 SYNC\|ASYNC 模式参数 |
 | MONITOR | ✅ 流式广播（`BroadcastMonitor`） |
 | FAILOVER | ✅ 最小子集（ABORT/FORCE/TO/TIMEOUT）；完整协调切换仍缺 |
 | CLIENT UNBLOCK | ✅ 可唤醒 BLPOP/BZPOP/XREAD 等 |

@@ -29,7 +29,7 @@ func MakeHub() *Hub {
 	}
 }
 
-// NumSub returns the number of subscribers on a channel.
+	// NumSub returns the number of subscribers on a channel.
 func (hub *Hub) NumSub(channel string) int {
 	raw, ok := hub.subs.Get(channel)
 	if !ok {
@@ -40,6 +40,11 @@ func (hub *Hub) NumSub(channel string) int {
 		return 0
 	}
 	return subscribers.Len()
+}
+
+// NumChannels returns the number of active pub/sub channels.
+func (hub *Hub) NumChannels() int {
+	return hub.subs.Len()
 }
 
 // NumPat returns the number of unique pattern subscriptions.

@@ -38,6 +38,7 @@ func RecordCommand(cmdName string, usec uint64, failed bool) {
 	atomic.AddUint64(&stats.calls, 1)
 	atomic.AddUint64(&stats.usec, usec)
 	atomic.AddUint64(&serverStats.TotalCommandsProcessed, 1)
+	noteOps()
 	
 	if failed {
 		atomic.AddUint64(&stats.failedCalls, 1)

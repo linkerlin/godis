@@ -231,6 +231,14 @@ func (server *Server) Exec(c redis.Connection, cmdLine [][]byte) (result redis.R
 		return reply
 	}
 
+	// CLIENT PAUSE: stall until pause expires (exempt admin handshake cmds).
+	if !isClientPauseExempt(cmdName) {
+		isWrite := !isReadOnlyCommand(cmdName)
+		for server.CheckClientPause(isWrite) {
+			time.Sleep(5 * time.Millisecond)
+		}
+	}
+
 	// Pub/Sub subscribed state: only allow a small command set (Redis PS-3 / PS-5).
 	if c != nil && c.SubsCount() > 0 {
 		switch cmdName {
@@ -497,6 +505,15 @@ func (server *Server) CheckClientPause(isWrite bool) bool {
 		return true
 	}
 	return isWrite
+}
+
+func isClientPauseExempt(cmdName string) bool {
+	switch cmdName {
+	case "auth", "hello", "ping", "quit", "reset", "client", "info":
+		return true
+	default:
+		return false
+	}
 }
 
 // setClientPause configures client pause (used by CLIENT PAUSE).

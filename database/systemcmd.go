@@ -29,6 +29,37 @@ type ServerStats struct {
 
 var serverStats = &ServerStats{}
 
+// Sliding 1-second window for INFO instantaneous_ops_per_sec.
+var (
+	opsWindowSec      int64
+	opsWindowCount    int64
+	opsLastSecCount   int64
+)
+
+func noteOps() {
+	now := time.Now().Unix()
+	for {
+		sec := atomic.LoadInt64(&opsWindowSec)
+		if sec == now {
+			atomic.AddInt64(&opsWindowCount, 1)
+			return
+		}
+		if atomic.CompareAndSwapInt64(&opsWindowSec, sec, now) {
+			prev := atomic.SwapInt64(&opsWindowCount, 1)
+			if sec != 0 {
+				atomic.StoreInt64(&opsLastSecCount, prev)
+			}
+			return
+		}
+	}
+}
+
+func resetOpsWindow() {
+	atomic.StoreInt64(&opsWindowSec, 0)
+	atomic.StoreInt64(&opsWindowCount, 0)
+	atomic.StoreInt64(&opsLastSecCount, 0)
+}
+
 // resetServerStats clears INFO stats counters (CONFIG RESETSTAT).
 func resetServerStats() {
 	atomic.StoreUint64(&serverStats.TotalCommandsProcessed, 0)
@@ -39,6 +70,7 @@ func resetServerStats() {
 	atomic.StoreUint64(&serverStats.KeyspaceMisses, 0)
 	serverStats.ExpiredStale = 0
 	ResetCommandStats()
+	resetOpsWindow()
 	stats.Reset()
 	atomic.StoreUint64(&tcp.RejectedConnections, 0)
 }
@@ -223,8 +255,8 @@ func GenGodisInfoString(section string, db *Server) []byte {
 			serverStats.EvictedKeys,
 			serverStats.KeyspaceHits,
 			serverStats.KeyspaceMisses,
-			getPubsubChannelsCount(),
-			getPubsubPatternsCount(),
+			getPubsubChannelsCount(db),
+			getPubsubPatternsCount(db),
 			0, // latest_fork_usec - N/A in Go
 			0, // migrate_cached_sockets - TODO
 			0, // slave_expires_tracked_keys - TODO
@@ -460,18 +492,30 @@ func getBlockedClientsCount() int64 {
 }
 
 func getInstantaneousOpsPerSec() int64 {
-	// TODO: implement ops tracking
-	return 0
+	now := time.Now().Unix()
+	sec := atomic.LoadInt64(&opsWindowSec)
+	if sec == now {
+		// Prefer completed previous second; fall back to in-progress count.
+		if last := atomic.LoadInt64(&opsLastSecCount); last > 0 {
+			return last
+		}
+		return atomic.LoadInt64(&opsWindowCount)
+	}
+	return atomic.LoadInt64(&opsLastSecCount)
 }
 
-func getPubsubChannelsCount() int64 {
-	// TODO: implement pubsub tracking
-	return 0
+func getPubsubChannelsCount(db *Server) int64 {
+	if db == nil || db.hub == nil {
+		return 0
+	}
+	return int64(db.hub.NumChannels())
 }
 
-func getPubsubPatternsCount() int64 {
-	// TODO: implement pubsub tracking
-	return 0
+func getPubsubPatternsCount(db *Server) int64 {
+	if db == nil || db.hub == nil {
+		return 0
+	}
+	return int64(db.hub.NumPat())
 }
 
 func getNetInputBytes() uint64 {

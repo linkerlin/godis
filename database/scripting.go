@@ -195,14 +195,18 @@ func execScriptFlush(db *DB, args [][]byte) redis.Reply {
 	if len(args) > 1 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'script|flush' command")
 	}
+	if len(args) == 1 {
+		mode := strings.ToUpper(string(args[0]))
+		if mode != "ASYNC" && mode != "SYNC" {
+			return protocol.MakeErrReply("ERR SCRIPT FLUSH only support SYNC|ASYNC mode")
+		}
+	}
 
 	if scriptEngine == nil {
 		return protocol.MakeOkReply()
 	}
 
-	// ASYNC/SYNC ignored for now
 	scriptEngine.Flush()
-
 	return protocol.MakeOkReply()
 }
 
