@@ -1,9 +1,11 @@
 package database
 
 import (
+	"sort"
 	"strings"
 
 	"github.com/linkerlin/godis/interface/redis"
+	"github.com/linkerlin/godis/lib/wildcard"
 	"github.com/linkerlin/godis/redis/protocol"
 )
 
@@ -36,6 +38,8 @@ func execCommand(args [][]byte) redis.Reply {
 		return getCommandDocs(args[1:])
 	} else if subCommand == "count" {
 		return protocol.MakeIntReply(int64(len(cmdTable)))
+	} else if subCommand == "list" {
+		return getCommandList(args[1:])
 	} else if subCommand == "getkeys" {
 		if len(args) < 2 {
 			return protocol.MakeErrReply("ERR wrong number of arguments for 'command|" + subCommand + "'")
@@ -44,6 +48,11 @@ func execCommand(args [][]byte) redis.Reply {
 	} else {
 		return protocol.MakeErrReply("ERR Unknown subcommand or wrong number of arguments for '" + subCommand + "'")
 	}
+}
+
+func execCommandAsDB(db *DB, args [][]byte) redis.Reply {
+	_ = db
+	return execCommand(args)
 }
 
 // getCommandDocs returns command documentation
@@ -94,6 +103,47 @@ func getKeys(args [][]byte) redis.Reply {
 	return protocol.MakeMultiBulkReply(resp)
 }
 
+func getCommandList(args [][]byte) redis.Reply {
+	pattern := "*"
+	for i := 0; i < len(args); i++ {
+		opt := strings.ToUpper(string(args[i]))
+		if opt == "FILTERBY" {
+			if i+2 >= len(args) {
+				return protocol.MakeSyntaxErrReply()
+			}
+			kind := strings.ToUpper(string(args[i+1]))
+			if kind != "PATTERN" {
+				// MODULE / ACLCAT accepted as no-match-all for unknown kinds
+				if kind == "MODULE" || kind == "ACLCAT" {
+					return protocol.MakeEmptyMultiBulkReply()
+				}
+				return protocol.MakeSyntaxErrReply()
+			}
+			pattern = string(args[i+2])
+			i += 2
+			continue
+		}
+		return protocol.MakeSyntaxErrReply()
+	}
+
+	match, err := wildcard.CompilePattern(pattern)
+	if err != nil {
+		return protocol.MakeErrReply("ERR Invalid argument")
+	}
+	names := make([]string, 0, len(cmdTable))
+	for name := range cmdTable {
+		if pattern == "*" || match.IsMatch(name) {
+			names = append(names, name)
+		}
+	}
+	sort.Strings(names)
+	out := make([][]byte, len(names))
+	for i, n := range names {
+		out[i] = []byte(n)
+	}
+	return protocol.MakeMultiBulkReply(out)
+}
+
 func getCommands(args [][]byte) redis.Reply {
 	replies := make([]redis.Reply, len(args))
 	for i, v := range args {
@@ -116,7 +166,7 @@ func getAllGodisCommandReply() redis.Reply {
 }
 
 func init() {
-	registerSpecialCommand("Command", 0, 0).
+	registerCommand("Command", execCommandAsDB, noPrepare, nil, -1, flagReadOnly).
 		attachCommandExtra([]string{redisFlagRandom, redisFlagLoading, redisFlagStale}, 0, 0, 0)
 	registerSpecialCommand("Keys", 2, 0).
 		attachCommandExtra([]string{redisFlagReadonly, redisFlagSortForScript}, 0, 0, 0)

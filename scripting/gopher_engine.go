@@ -26,6 +26,9 @@ type GopherEngine struct {
 
 	// Full debugger
 	debugger *FullDebugger
+
+	// Preferred RESP major version from redis.setresp (2 or 3); informational for now.
+	respVersion int
 }
 
 // scriptExecution tracks a running script
@@ -320,8 +323,10 @@ func (e *GopherEngine) registerRedisAPI(L *lua.LState) {
 	// Register redis.debug (for debugging)
 	L.SetField(redisTable, "debug", L.NewFunction(e.luaRedisDebug))
 
-	// Register redis.setresp (compatibility, does nothing)
+	// Register redis.setresp (compatibility, stores preferred RESP version)
 	L.SetField(redisTable, "setresp", L.NewFunction(e.luaRedisSetResp))
+	L.SetField(redisTable, "error_reply", L.NewFunction(luaRedisErrorReply))
+	L.SetField(redisTable, "status_reply", L.NewFunction(luaRedisStatusReply))
 }
 
 // luaRedisCall implements redis.call
@@ -460,9 +465,31 @@ func (e *GopherEngine) luaRedisDebug(L *lua.LState) int {
 	return 0
 }
 
-// luaRedisSetResp implements redis.setresp (compatibility)
+// luaRedisSetResp implements redis.setresp — records preferred RESP major version.
 func (e *GopherEngine) luaRedisSetResp(L *lua.LState) int {
-	// This is a compatibility function that does nothing
-	// In a full implementation, this would set the response protocol version
+	n := L.CheckInt(1)
+	if n != 2 && n != 3 {
+		L.RaiseError("ERR Unknown RESP version")
+		return 0
+	}
+	e.mu.Lock()
+	e.respVersion = n
+	e.mu.Unlock()
 	return 0
+}
+
+func luaRedisErrorReply(L *lua.LState) int {
+	msg := L.CheckString(1)
+	t := L.NewTable()
+	L.SetField(t, "err", lua.LString(msg))
+	L.Push(t)
+	return 1
+}
+
+func luaRedisStatusReply(L *lua.LState) int {
+	msg := L.CheckString(1)
+	t := L.NewTable()
+	L.SetField(t, "ok", lua.LString(msg))
+	L.Push(t)
+	return 1
 }

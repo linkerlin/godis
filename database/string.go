@@ -716,7 +716,7 @@ func execGetRange(db *DB, args [][]byte) redis.Reply {
 		return err
 	}
 	if bs == nil {
-		return protocol.MakeNullBulkReply()
+		return protocol.MakeBulkReply([]byte{})
 	}
 	bytesLen := int64(len(bs))
 	beg, end := utils.ConvertRange(startIdx, endIdx, bytesLen)

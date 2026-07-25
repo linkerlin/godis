@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/linkerlin/godis/config"
 	"github.com/linkerlin/godis/interface/redis"
 	"github.com/linkerlin/godis/lib/logger"
 	"github.com/linkerlin/godis/redis/protocol"
@@ -17,9 +18,16 @@ import (
 
 // Upper bounds aligned with Redis proto-max-bulk-len default (512MB).
 const (
-	maxBulkStringLen int64 = 512 * 1024 * 1024
-	maxArrayElements int64 = 1024 * 1024
+	defaultMaxBulkStringLen int64 = 512 * 1024 * 1024
+	maxArrayElements        int64 = 1024 * 1024
 )
+
+func maxBulkStringLen() int64 {
+	if config.Properties != nil && config.Properties.ProtoMaxBulkLen > 0 {
+		return config.Properties.ProtoMaxBulkLen
+	}
+	return defaultMaxBulkStringLen
+}
 
 // Payload stores redis.Reply or error
 type Payload struct {
@@ -212,7 +220,7 @@ func parseBulkString(header []byte, reader *bufio.Reader, ch chan<- *Payload) er
 			Data: protocol.MakeNullBulkReply(),
 		}
 		return nil
-	} else if strLen > maxBulkStringLen {
+	} else if strLen > maxBulkStringLen() {
 		protocolError(ch, "bulk string too long")
 		return nil
 	}
@@ -233,7 +241,7 @@ func parseBlobError(header []byte, reader *bufio.Reader, ch chan<- *Payload) err
 	if err != nil || strLen < 0 {
 		protocolError(ch, "illegal blob error header: "+string(header))
 		return nil
-	} else if strLen > maxBulkStringLen {
+	} else if strLen > maxBulkStringLen() {
 		protocolError(ch, "blob error too long")
 		return nil
 	}
@@ -262,7 +270,7 @@ func parseRDBBulkString(reader *bufio.Reader, ch chan<- *Payload) error {
 	if err != nil || strLen <= 0 {
 		return errors.New("illegal bulk header: " + string(header))
 	}
-	if strLen > maxBulkStringLen {
+	if strLen > maxBulkStringLen() {
 		return errors.New("bulk string too long")
 	}
 	body := make([]byte, strLen)
@@ -424,7 +432,7 @@ func parseBulkStringFull(reader *bufio.Reader) (redis.Reply, error) {
 	if strLen == -1 {
 		return protocol.MakeNullBulkReply(), nil
 	}
-	if strLen > maxBulkStringLen {
+	if strLen > maxBulkStringLen() {
 		return nil, errors.New("bulk string too long")
 	}
 	body := make([]byte, strLen+2)
@@ -444,7 +452,7 @@ func parseBlobErrorFull(reader *bufio.Reader) (redis.Reply, error) {
 	if err != nil || strLen < 0 {
 		return nil, errors.New("illegal blob error header")
 	}
-	if strLen > maxBulkStringLen {
+	if strLen > maxBulkStringLen() {
 		return nil, errors.New("blob error too long")
 	}
 	body := make([]byte, strLen+2)
@@ -477,7 +485,7 @@ func parseVerbatimFromHeader(header []byte, reader *bufio.Reader) (redis.Reply, 
 	if err != nil || strLen < 0 {
 		return nil, errors.New("illegal verbatim string header")
 	}
-	if strLen > maxBulkStringLen {
+	if strLen > maxBulkStringLen() {
 		return nil, errors.New("verbatim string too long")
 	}
 	body := make([]byte, strLen+2)

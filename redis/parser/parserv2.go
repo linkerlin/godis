@@ -60,7 +60,7 @@ func ParseV2(r io.Reader) ([][]byte, error) {
 				result[i] = nil // Null Bulk String
 				continue
 			}
-			if int64(strLen) > maxBulkStringLen {
+			if int64(strLen) > maxBulkStringLen() {
 				return nil, errors.New("bulk string too long")
 			}
 

@@ -66,8 +66,11 @@ func execObjectEncoding(db *DB, key string) redis.Reply {
 
 // getObjectEncoding returns the encoding name for a given data type
 func getObjectEncoding(data interface{}) string {
-	switch data.(type) {
+	switch v := data.(type) {
 	case []byte:
+		if _, err := strconv.ParseInt(string(v), 10, 64); err == nil {
+			return "int"
+		}
 		return "raw"
 	case list.List:
 		return "quicklist"

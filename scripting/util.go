@@ -70,7 +70,12 @@ func luaTableToGo(tbl *lua.LTable) interface{} {
 	// Convert to map
 	result := make(map[string]interface{})
 	tbl.ForEach(func(key, value lua.LValue) {
-		keyStr := luaValueToString(key)
+		var keyStr string
+		if s, ok := key.(lua.LString); ok {
+			keyStr = string(s)
+		} else {
+			keyStr = luaValueToArg(key)
+		}
 		result[keyStr] = luaValueToGo(value)
 	})
 	return result
@@ -188,13 +193,13 @@ func ConvertToRedisReply(v interface{}) redis.Reply {
 		}
 		return protocol.MakeMultiRawReply(replies)
 	case map[string]interface{}:
-		// Check for error reply (used by pcall)
+		// Check for error reply (used by pcall / redis.error_reply)
 		if errVal, ok := val["err"]; ok {
-			return protocol.MakeErrReply(fmt.Sprintf("-%v", errVal))
+			return protocol.MakeErrReply(fmt.Sprint(errVal))
 		}
-		// Check for status reply
+		// Check for status reply (redis.status_reply)
 		if okVal, ok := val["ok"]; ok {
-			return ConvertToRedisReply(okVal)
+			return protocol.MakeStatusReply(fmt.Sprint(okVal))
 		}
 		replies := make([]redis.Reply, 0, len(val)*2)
 		for k, v := range val {

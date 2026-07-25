@@ -539,13 +539,7 @@ func TestGetRange_StringNotExist(t *testing.T) {
 	testDB.Flush()
 	key := utils.RandString(10)
 	actual := testDB.Exec(nil, utils.ToCmdLine("GetRange", key, fmt.Sprint(0), fmt.Sprint(len(key))))
-	val, ok := actual.(*protocol.NullBulkReply)
-	if !ok {
-		t.Errorf("expect nil bulk protocol, get: %s", string(actual.ToBytes()))
-		return
-	}
-
-	asserts.AssertNullBulk(t, val)
+	asserts.AssertBulkReply(t, actual, "")
 }
 
 func TestGetRange_StringExist_GetPartial(t *testing.T) {
@@ -592,15 +586,10 @@ func TestGetRange_StringExist_StartIdxEndIdxAreSame(t *testing.T) {
 func TestGetRange_StringExist_StartIdxGreaterThanEndIdx(t *testing.T) {
 	testDB.Flush()
 	key := utils.RandString(10)
+	testDB.Exec(nil, utils.ToCmdLine2("SET", key, key))
 
 	actual := testDB.Exec(nil, utils.ToCmdLine("GetRange", key, fmt.Sprint(len(key)+1), fmt.Sprint(len(key))))
-	val, ok := actual.(*protocol.NullBulkReply)
-	if !ok {
-		t.Errorf("expect nil bulk protocol, get: %s", string(actual.ToBytes()))
-		return
-	}
-
-	asserts.AssertNullBulk(t, val)
+	asserts.AssertBulkReply(t, actual, "")
 }
 
 func TestGetRange_StringExist_StartIdxEndIdxAreNegative(t *testing.T) {
