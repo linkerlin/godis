@@ -1,13 +1,18 @@
 package redisearch
 
 import (
+	"errors"
 	"fmt"
 	"math"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 )
+
+// ErrTimeout is returned when FT TIMEOUT soft deadline is exceeded.
+var ErrTimeout = errors.New("Timeout limit was reached")
 
 // RediSearchEngine is the main search engine
 type RediSearchEngine struct {
@@ -147,6 +152,11 @@ func (e *RediSearchEngine) Search(query string, opts *SearchOptions) (*SearchRes
 	e.mu.RLock()
 	defer e.mu.RUnlock()
 
+	var deadline time.Time
+	if opts != nil {
+		deadline = ftDeadline(opts.TimeoutMs, opts.Deadline)
+	}
+
 	// Parse query
 	parser := NewExpressionParser(query)
 	node, err := parser.Parse()
@@ -182,6 +192,9 @@ func (e *RediSearchEngine) Search(query string, opts *SearchOptions) (*SearchRes
 	// Fetch documents and calculate scores
 	results := make([]*SearchResult, 0, len(docIDs))
 	for _, docID := range docIDs {
+		if ftDeadlineExceeded(deadline) {
+			return nil, ErrTimeout
+		}
 		doc, ok := e.index.GetDocument(docID)
 		if !ok {
 			continue
@@ -277,6 +290,20 @@ type GeoFilterOptions struct {
 }
 
 // numField reads a numeric field value from a search result's stored fields.
+func ftDeadline(timeoutMs int, explicit time.Time) time.Time {
+	if !explicit.IsZero() {
+		return explicit
+	}
+	if timeoutMs > 0 {
+		return time.Now().Add(time.Duration(timeoutMs) * time.Millisecond)
+	}
+	return time.Time{}
+}
+
+func ftDeadlineExceeded(deadline time.Time) bool {
+	return !deadline.IsZero() && time.Now().After(deadline)
+}
+
 func numField(r *SearchResult, field string) (float64, bool) {
 	raw, ok := r.Fields[field]
 	if !ok {
@@ -302,7 +329,9 @@ type SearchOptions struct {
 	NoStopWords  bool
 	Slop         int
 	InOrder      bool
-	TimeoutMs    int // accepted; search cancellation not wired
+	TimeoutMs    int // soft deadline in ms; cancellation mid-scan
+	// Deadline overrides TimeoutMs when set (tests / callers with absolute time).
+	Deadline time.Time
 	InFields     []string
 	Summarize    bool
 	SummarizeFields []string
@@ -374,6 +403,8 @@ func (e *RediSearchEngine) Aggregate(req *AggregationRequest) (*AggregationResul
 	e.mu.RLock()
 	defer e.mu.RUnlock()
 
+	deadline := ftDeadline(req.TimeoutMs, req.Deadline)
+
 	var docs []*Document
 
 	// Handle wildcard query
@@ -393,11 +424,17 @@ func (e *RediSearchEngine) Aggregate(req *AggregationRequest) (*AggregationResul
 		// Fetch documents
 		docs = make([]*Document, 0, len(docIDs))
 		for _, docID := range docIDs {
+			if ftDeadlineExceeded(deadline) {
+				return nil, ErrTimeout
+			}
 			doc, ok := e.index.GetDocument(docID)
 			if ok {
 				docs = append(docs, doc)
 			}
 		}
+	}
+	if ftDeadlineExceeded(deadline) {
+		return nil, ErrTimeout
 	}
 
 	// Apply LOAD
@@ -453,7 +490,9 @@ type AggregationRequest struct {
 	Load      []string
 	LoadAll   bool // LOAD *
 	Verbatim  bool
-	TimeoutMs int // accepted; cancellation not wired
+	TimeoutMs int // soft deadline in ms
+	// Deadline overrides TimeoutMs when set.
+	Deadline  time.Time
 	GroupBy   []string      // Support multiple group by fields
 	Having    *HavingClause // HAVING clause for group filtering
 	Reduce    []Reducer
@@ -497,7 +536,8 @@ func (e *RediSearchEngine) groupBy(docs []*Document, groupByFields []string, red
 		// Build composite key from multiple group by fields
 		var keyParts []string
 		for _, field := range groupByFields {
-			keyParts = append(keyParts, fmt.Sprintf("%v", doc.Fields[field]))
+			f := strings.TrimPrefix(field, "@")
+			keyParts = append(keyParts, fmt.Sprintf("%v", doc.Fields[f]))
 		}
 		key := strings.Join(keyParts, "|$")
 		groupMap[key] = append(groupMap[key], doc)
@@ -510,11 +550,11 @@ func (e *RediSearchEngine) groupBy(docs []*Document, groupByFields []string, red
 			Fields: make(map[string]interface{}),
 		}
 
-		// Store individual group by field values
+		// Store individual group by field values (without @ prefix)
 		keyParts := strings.Split(key, "|$")
 		for i, field := range groupByFields {
 			if i < len(keyParts) {
-				group.Fields[field] = keyParts[i]
+				group.Fields[strings.TrimPrefix(field, "@")] = keyParts[i]
 			}
 		}
 
@@ -524,7 +564,7 @@ func (e *RediSearchEngine) groupBy(docs []*Document, groupByFields []string, red
 			if r.As != "" {
 				group.Fields[r.As] = value
 			} else {
-				group.Fields[r.Field] = value
+				group.Fields[strings.TrimPrefix(r.Field, "@")] = value
 			}
 		}
 
@@ -620,13 +660,14 @@ func toFloat64(v interface{}) (float64, bool) {
 }
 
 func (e *RediSearchEngine) applyReducer(docs []*Document, r Reducer) interface{} {
+	field := strings.TrimPrefix(r.Field, "@")
 	switch strings.ToUpper(r.Function) {
 	case "COUNT":
 		return len(docs)
 	case "SUM":
 		var sum float64
 		for _, doc := range docs {
-			if v, ok := doc.Fields[r.Field].(float64); ok {
+			if v, ok := toFloat64(doc.Fields[field]); ok {
 				sum += v
 			}
 		}
@@ -634,7 +675,7 @@ func (e *RediSearchEngine) applyReducer(docs []*Document, r Reducer) interface{}
 	case "MIN":
 		min := math.MaxFloat64
 		for _, doc := range docs {
-			if v, ok := doc.Fields[r.Field].(float64); ok {
+			if v, ok := toFloat64(doc.Fields[field]); ok {
 				if v < min {
 					min = v
 				}
@@ -647,7 +688,7 @@ func (e *RediSearchEngine) applyReducer(docs []*Document, r Reducer) interface{}
 	case "MAX":
 		max := -math.MaxFloat64
 		for _, doc := range docs {
-			if v, ok := doc.Fields[r.Field].(float64); ok {
+			if v, ok := toFloat64(doc.Fields[field]); ok {
 				if v > max {
 					max = v
 				}
@@ -661,7 +702,7 @@ func (e *RediSearchEngine) applyReducer(docs []*Document, r Reducer) interface{}
 		var sum float64
 		var count int
 		for _, doc := range docs {
-			if v, ok := doc.Fields[r.Field].(float64); ok {
+			if v, ok := toFloat64(doc.Fields[field]); ok {
 				sum += v
 				count++
 			}
@@ -673,7 +714,7 @@ func (e *RediSearchEngine) applyReducer(docs []*Document, r Reducer) interface{}
 	case "TOLIST":
 		var list []interface{}
 		for _, doc := range docs {
-			list = append(list, doc.Fields[r.Field])
+			list = append(list, doc.Fields[field])
 		}
 		return list
 	default:
@@ -737,6 +778,7 @@ func (e *RediSearchEngine) filterGroups(groups []*Group, filter string) []*Group
 	}
 
 	field := strings.TrimSpace(parts[0])
+	field = strings.TrimPrefix(field, "@")
 	valueStr := strings.TrimSpace(parts[1])
 
 	// Try to parse as number

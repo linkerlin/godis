@@ -79,6 +79,14 @@ func (e *Engine) SetACLCheckCmd(fn func(cmd string, args []string) bool) {
 	}
 }
 
+// GetReplFlags returns script replication flags (0 = REPL_NONE suppresses AOF).
+func (e *Engine) GetReplFlags() int {
+	if e.gopherEngine != nil {
+		return e.gopherEngine.GetReplFlags()
+	}
+	return 3 // REPL_ALL
+}
+
 // SetEngineType changes the engine type at runtime
 func (e *Engine) SetEngineType(engineType EngineType) {
 	e.mu.Lock()

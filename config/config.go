@@ -55,6 +55,9 @@ type ServerProperties struct {
 	Maxmemory       int64  `cfg:"maxmemory"`
 	MaxmemoryPolicy string `cfg:"maxmemory-policy"`
 
+	// ReplicaReadOnly mirrors Redis replica-read-only / slave-read-only (default true).
+	ReplicaReadOnly bool `cfg:"replica-read-only"`
+
 	// Accepted for Redis conf compatibility (semantics may be partial / noop).
 	Timeout              int    `cfg:"timeout"`
 	TCPKeepAlive         int    `cfg:"tcp-keepalive"`
@@ -123,15 +126,16 @@ func init() {
 
 	// default config
 	Properties = &ServerProperties{
-		Bind:          "127.0.0.1",
-		Port:          6379,
-		AppendOnly:    false,
-		SearchBackend: "native",
-		VectorBackend: "native",
-		Hz:            10,
-		TCPKeepAlive:  300,
-		ProtectedMode: true,
-		RunID:         utils.RandString(40),
+		Bind:             "127.0.0.1",
+		Port:             6379,
+		AppendOnly:       false,
+		SearchBackend:    "native",
+		VectorBackend:    "native",
+		Hz:               10,
+		TCPKeepAlive:     300,
+		ProtectedMode:    true,
+		ReplicaReadOnly:  true,
+		RunID:            utils.RandString(40),
 	}
 }
 
@@ -191,6 +195,19 @@ func parse(src io.Reader) (*ServerProperties, error) {
 					fieldVal.Set(reflect.ValueOf(slice))
 				}
 			}
+		}
+	}
+	// replica-read-only defaults to yes; slave-read-only is an alias.
+	if v, ok := rawMap["slave-read-only"]; ok {
+		if _, has := rawMap["replica-read-only"]; !has {
+			if okb, b := ParseConfigBool(v); okb {
+				config.ReplicaReadOnly = b
+			}
+		}
+	}
+	if _, ok := rawMap["replica-read-only"]; !ok {
+		if _, ok2 := rawMap["slave-read-only"]; !ok2 {
+			config.ReplicaReadOnly = true
 		}
 	}
 	return config, nil

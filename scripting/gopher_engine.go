@@ -16,6 +16,8 @@ import (
 const (
 	luaRedisVersion    = "8.0.0"
 	luaRedisVersionNum = 0x080000 // 8.0.0 as Redis VERSION_NUM
+	replFlagNone       = 0
+	replFlagAll        = 3
 )
 
 // GopherEngine is a Lua scripting engine based on gopher-lua
@@ -39,7 +41,7 @@ type GopherEngine struct {
 	// Preferred RESP major version from redis.setresp (2 or 3); informational for now.
 	respVersion int
 
-	// Script replication flags from redis.set_repl (informational stub).
+	// Script replication flags from redis.set_repl (0=REPL_NONE … 3=REPL_ALL).
 	replFlags int
 
 	// Optional error handler from redis.set_error_handler (informational stub).
@@ -118,6 +120,7 @@ func NewGopherEngine(dbExec func(cmd string, args ...string) (interface{}, error
 		dbExec:         dbExec,
 		runningScripts: make(map[string]*scriptExecution),
 		debugger:       GetFullDebugger(),
+		replFlags:      replFlagAll, // default: replicate / AOF writes
 	}
 
 	// Initialize LState pool with default size 50
@@ -151,6 +154,11 @@ func (e *GopherEngine) Eval(script string, keys []string, args []string) (interf
 
 // EvalWithContext executes a Lua script with context (for timeout/cancellation)
 func (e *GopherEngine) EvalWithContext(ctx context.Context, script string, keys []string, args []string) (interface{}, error) {
+	// Reset replication flags per script (Redis default REPL_ALL).
+	e.mu.Lock()
+	e.replFlags = replFlagAll
+	e.mu.Unlock()
+
 	L := e.statePool.Get()
 	defer e.statePool.Put(L)
 
@@ -483,13 +491,21 @@ func (e *GopherEngine) luaRedisACLCheckCmd(L *lua.LState) int {
 	return 1
 }
 
-// luaRedisSetRepl implements redis.set_repl(flags) — records flags; AOF policy unchanged.
+// luaRedisSetRepl implements redis.set_repl(flags).
+// REPL_NONE (0) suppresses AOF for subsequent redis.call writes in this script.
 func (e *GopherEngine) luaRedisSetRepl(L *lua.LState) int {
-	flags := L.OptInt(1, 0)
+	flags := L.OptInt(1, replFlagAll)
 	e.mu.Lock()
 	e.replFlags = flags
 	e.mu.Unlock()
 	return 0
+}
+
+// GetReplFlags returns the current script replication flags.
+func (e *GopherEngine) GetReplFlags() int {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	return e.replFlags
 }
 
 // luaRedisSetErrorHandler implements redis.set_error_handler(fn|nil) — stores callback; not invoked yet.

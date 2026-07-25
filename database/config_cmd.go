@@ -3,6 +3,7 @@ package database
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -76,7 +77,9 @@ func getConfigMatches(pattern string) []configPair {
 		{"appendonly", boolToString(config.Properties.AppendOnly)},
 		{"appendfilename", config.Properties.AppendFilename},
 		{"appendfsync", config.Properties.AppendFsync},
-		{"rdbfilename", config.Properties.RDBFilename},
+		{"dir", configDir()},
+		{"dbfilename", config.Properties.RDBFilename},
+		{"rdbfilename", config.Properties.RDBFilename}, // alias
 		{"maxclients", strconv.Itoa(config.Properties.MaxClients)},
 		{"maxmemory", strconv.FormatInt(config.Properties.Maxmemory, 10)},
 		{"maxmemory-policy", config.Properties.MaxmemoryPolicy},
@@ -87,6 +90,9 @@ func getConfigMatches(pattern string) []configPair {
 		{"protected-mode", boolToString(config.Properties.ProtectedMode)},
 		{"daemonize", boolToString(config.Properties.Daemonize)},
 		{"pidfile", config.Properties.PidFile},
+		{"aclfile", config.Properties.AclFile},
+		{"replica-read-only", boolToString(config.Properties.ReplicaReadOnly)},
+		{"slave-read-only", boolToString(config.Properties.ReplicaReadOnly)},
 		{"lazyfree-lazy-eviction", boolToString(config.Properties.LazyfreeLazyEviction)},
 		{"proto-max-bulk-len", strconv.FormatInt(config.Properties.ProtoMaxBulkLen, 10)},
 		{"save", config.Properties.Save},
@@ -220,6 +226,30 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 				_ = os.Remove(old)
 			}
 			config.Properties.PidFile = value
+		case "aclfile":
+			config.Properties.AclFile = value
+		case "replica-read-only", "slave-read-only":
+			ok, b := config.ParseConfigBool(value)
+			if !ok {
+				return protocol.MakeErrReply("ERR invalid replica-read-only value")
+			}
+			config.Properties.ReplicaReadOnly = b
+		case "dir":
+			if value == "" {
+				return protocol.MakeErrReply("ERR invalid dir value")
+			}
+			if err := os.MkdirAll(value, 0755); err != nil {
+				return protocol.MakeErrReply("ERR Failed changing directory: " + err.Error())
+			}
+			if err := os.MkdirAll(filepath.Join(value, "tmp"), 0755); err != nil {
+				return protocol.MakeErrReply("ERR Failed changing directory: " + err.Error())
+			}
+			config.Properties.Dir = value
+		case "dbfilename", "rdbfilename":
+			if value == "" {
+				return protocol.MakeErrReply("ERR invalid dbfilename value")
+			}
+			config.Properties.RDBFilename = value
 		case "lazyfree-lazy-eviction":
 			ok, b := config.ParseConfigBool(value)
 			if !ok {
@@ -289,6 +319,13 @@ func boolToString(b bool) string {
 		return "yes"
 	}
 	return "no"
+}
+
+func configDir() string {
+	if config.Properties == nil || config.Properties.Dir == "" {
+		return "."
+	}
+	return config.Properties.Dir
 }
 
 func init() {

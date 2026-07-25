@@ -31,6 +31,12 @@ func InitScriptingEngine(db *DB) {
 			if target == nil {
 				return nil, fmt.Errorf("ERR scripting engine not bound to a database")
 			}
+			// redis.set_repl(REPL_NONE): suppress AOF for nested writes.
+			if scriptEngine != nil && scriptEngine.GetReplFlags() == 0 {
+				saved := target.addAof
+				target.addAof = func(CmdLine) {}
+				defer func() { target.addAof = saved }()
+			}
 			result := target.execWithLock(nil, cmdLine)
 			if protocol.IsErrorReply(result) {
 				if er, ok := result.(error); ok {

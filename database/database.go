@@ -4,6 +4,7 @@ package database
 import (
 	"context"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/linkerlin/godis/datastruct/dict"
@@ -276,11 +277,14 @@ func validateArity(arity int, cmdArgs [][]byte) bool {
 func (db *DB) GetEntity(key string) (*database.DataEntity, bool) {
 	raw, ok := db.data.GetWithLock(key)
 	if !ok {
+		atomic.AddUint64(&serverStats.KeyspaceMisses, 1)
 		return nil, false
 	}
 	if db.IsExpired(key) {
+		atomic.AddUint64(&serverStats.KeyspaceMisses, 1)
 		return nil, false
 	}
+	atomic.AddUint64(&serverStats.KeyspaceHits, 1)
 	entity, _ := raw.(*database.DataEntity)
 	if db.evictionManager != nil && !peekNoTouch() {
 		db.evictionManager.Touch(key)
@@ -442,6 +446,7 @@ func (db *DB) Expire(key string, expireTime time.Time) {
 		expireTime, _ := rawExpireTime.(time.Time)
 		expired := time.Now().After(expireTime)
 		if expired {
+			atomic.AddUint64(&serverStats.ExpiredKeys, 1)
 			db.Remove(key)
 		}
 	})
@@ -464,6 +469,7 @@ func (db *DB) IsExpired(key string) bool {
 	expired := time.Now().After(expireTime)
 	if expired {
 		// Track stale expiration (key was accessed but already expired)
+		atomic.AddUint64(&serverStats.ExpiredKeys, 1)
 		serverStats.ExpiredStale++
 		db.Remove(key)
 	}

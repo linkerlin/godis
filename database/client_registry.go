@@ -76,19 +76,29 @@ func clientAgeSeconds(c redis.Connection) int64 {
 }
 
 func formatClientListLine(c redis.Connection) string {
-	flags := "N"
+	var flagParts []byte
 	typ := clientConnType(c)
 	switch typ {
 	case "pubsub":
-		flags = "P"
+		flagParts = append(flagParts, 'P')
 	case "replica", "slave":
-		flags = "S"
+		flagParts = append(flagParts, 'S')
 	case "master":
-		flags = "M"
+		flagParts = append(flagParts, 'M')
 	}
 	if c.InMultiState() {
-		flags = "x"
+		flagParts = append(flagParts, 'x')
 	}
+	if _, blocked := activeBlockers.Load(c.GetClientID()); blocked {
+		flagParts = append(flagParts, 'b')
+	}
+	if tid := c.GetTrackingID(); tid != "" && IsTrackingEnabled(tid) {
+		flagParts = append(flagParts, 't')
+	}
+	if len(flagParts) == 0 {
+		flagParts = append(flagParts, 'N')
+	}
+	flags := string(flagParts)
 	libName, libVer := clientLibInfo(c)
 	age, idle := int64(0), int64(0)
 	if t, ok := c.(interface{ AgeSeconds() int64 }); ok {
@@ -117,9 +127,14 @@ func formatClientListLine(c redis.Connection) string {
 			cmd = s
 		}
 	}
+	multi := -1
+	if c.InMultiState() {
+		multi = len(c.GetQueuedCmdLine())
+	}
+	watching := len(c.GetWatching())
 	return fmt.Sprintf(
-		"id=%d addr=%s laddr=%s fd=0 name=%s age=%d idle=%d flags=%s db=%d sub=%d psub=%d ssub=%d user=%s multi=-1 qbuf=0 qbuf-free=0 obl=0 oll=0 omem=0 events=r cmd=%s resp=%d lib-name=%s lib-ver=%s",
-		c.GetClientID(), clientAddr(c), clientLocalAddr(c), c.GetClientName(), age, idle, flags, c.GetDBIndex(), subN, psubN, ssubN, user, cmd, respVer, libName, libVer,
+		"id=%d addr=%s laddr=%s fd=0 name=%s age=%d idle=%d flags=%s db=%d sub=%d psub=%d ssub=%d user=%s multi=%d watching=%d qbuf=0 qbuf-free=0 obl=0 oll=0 omem=0 events=r cmd=%s resp=%d lib-name=%s lib-ver=%s",
+		c.GetClientID(), clientAddr(c), clientLocalAddr(c), c.GetClientName(), age, idle, flags, c.GetDBIndex(), subN, psubN, ssubN, user, multi, watching, cmd, respVer, libName, libVer,
 	)
 }
 
