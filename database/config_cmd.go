@@ -146,6 +146,28 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 				return protocol.MakeErrReply("ERR invalid appendonly value")
 			}
 			config.Properties.AppendOnly = b
+			if b && server.persister == nil {
+				filename := config.Properties.AppendFilename
+				if filename == "" {
+					filename = "appendonly.aof"
+					config.Properties.AppendFilename = filename
+				}
+				fsync := config.Properties.AppendFsync
+				if fsync == "" {
+					fsync = "everysec"
+				}
+				p, err := NewPersister(server, filename, false, fsync)
+				if err != nil {
+					config.Properties.AppendOnly = false
+					return protocol.MakeErrReply("ERR Failed enabling AOF: " + err.Error())
+				}
+				server.bindPersister(p)
+			}
+		case "appendfilename":
+			if strings.TrimSpace(value) == "" {
+				return protocol.MakeErrReply("ERR empty appendfilename")
+			}
+			config.Properties.AppendFilename = value
 		case "appendfsync":
 			v := strings.ToLower(value)
 			if v != "always" && v != "everysec" && v != "no" {

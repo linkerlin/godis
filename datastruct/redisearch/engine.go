@@ -97,6 +97,7 @@ func (e *RediSearchEngine) DropIndex(deleteDocs bool) error {
 	}
 
 	e.schema = make(map[string]*Field)
+	e.geoIndices = make(map[string]*GeoIndex)
 	return nil
 }
 
@@ -112,7 +113,11 @@ func (e *RediSearchEngine) AddDocument(docID string, fields map[string]interface
 		Payload: payload,
 	}
 
-	return e.index.IndexDocument(doc)
+	if err := e.index.IndexDocument(doc); err != nil {
+		return err
+	}
+	e.indexGeoFieldsLocked(doc)
+	return nil
 }
 
 // DeleteDocument deletes a document from the index
@@ -120,7 +125,31 @@ func (e *RediSearchEngine) DeleteDocument(docID string) bool {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
+	for _, gi := range e.geoIndices {
+		gi.Remove(docID)
+	}
 	return e.index.DeleteDocument(docID)
+}
+
+// indexGeoFieldsLocked indexes GEO schema fields into geoIndices (caller holds e.mu).
+func (e *RediSearchEngine) indexGeoFieldsLocked(doc *Document) {
+	for name, field := range e.schema {
+		if field.Type != FieldTypeGeo {
+			continue
+		}
+		raw, ok := doc.Fields[name]
+		if !ok || raw == nil {
+			continue
+		}
+		pt, ok := ParseGeoPoint(fmt.Sprintf("%v", raw))
+		if !ok {
+			continue
+		}
+		if e.geoIndices[name] == nil {
+			e.geoIndices[name] = NewGeoIndex()
+		}
+		e.geoIndices[name].Add(doc.ID, pt)
+	}
 }
 
 // GetDocument retrieves a document by ID
@@ -176,8 +205,15 @@ func (e *RediSearchEngine) Search(query string, opts *SearchOptions) (*SearchRes
 		}
 	}
 
-	// Execute query
-	docIDs := node.Evaluate(e.index)
+	// Execute query (* = all documents, same as AGGREGATE)
+	var docIDs []string
+	if query == "*" {
+		for _, doc := range e.index.GetAllDocuments() {
+			docIDs = append(docIDs, doc.ID)
+		}
+	} else {
+		docIDs = node.Evaluate(e.index)
+	}
 
 	// Apply geo filter if specified
 	if opts != nil && opts.GeoFilter != nil {

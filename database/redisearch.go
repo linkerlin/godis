@@ -808,7 +808,7 @@ func execFTSearch(db *DB, args [][]byte) redis.Reply {
 				return protocol.MakeErrReply("ERR Invalid unit")
 			}
 			opts.GeoFilter = &redisearch.GeoFilterOptions{
-				Field:  geoField,
+				Field:  strings.TrimPrefix(geoField, "@"),
 				Lon:    lon,
 				Lat:    lat,
 				Radius: radius,

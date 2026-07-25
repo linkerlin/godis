@@ -87,6 +87,14 @@ func (e *Engine) GetReplFlags() int {
 	return 3 // REPL_ALL
 }
 
+// ShouldSuppressAOF is true when script flags omit REPL_AOF (NONE or REPLICA-only).
+func (e *Engine) ShouldSuppressAOF() bool {
+	if e.gopherEngine != nil {
+		return e.gopherEngine.ShouldSuppressAOF()
+	}
+	return false
+}
+
 // SetEngineType changes the engine type at runtime
 func (e *Engine) SetEngineType(engineType EngineType) {
 	e.mu.Lock()

@@ -17,6 +17,8 @@ const (
 	luaRedisVersion    = "8.0.0"
 	luaRedisVersionNum = 0x080000 // 8.0.0 as Redis VERSION_NUM
 	replFlagNone       = 0
+	replFlagAOF        = 1
+	replFlagReplica    = 2
 	replFlagAll        = 3
 )
 
@@ -499,6 +501,14 @@ func (e *GopherEngine) luaRedisSetRepl(L *lua.LState) int {
 	e.replFlags = flags
 	e.mu.Unlock()
 	return 0
+}
+
+// ShouldSuppressAOF reports whether script replication flags omit REPL_AOF.
+// REPL_NONE (0) and REPL_REPLICA (2) suppress AOF; REPL_AOF (1) and REPL_ALL (3) keep it.
+func (e *GopherEngine) ShouldSuppressAOF() bool {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	return e.replFlags&replFlagAOF == 0
 }
 
 // GetReplFlags returns the current script replication flags.

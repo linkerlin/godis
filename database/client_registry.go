@@ -51,6 +51,30 @@ func FindClientByID(id int64) redis.Connection {
 	return found
 }
 
+// countPubsubClients returns connections in pubsub state (sub/psub/ssub).
+func countPubsubClients() int {
+	n := 0
+	RangeClients(func(c redis.Connection) bool {
+		if clientConnType(c) == "pubsub" {
+			n++
+		}
+		return true
+	})
+	return n
+}
+
+// countWatchingClients returns connections with active WATCH keys.
+func countWatchingClients() int {
+	n := 0
+	RangeClients(func(c redis.Connection) bool {
+		if len(c.GetWatching()) > 0 {
+			n++
+		}
+		return true
+	})
+	return n
+}
+
 func clientAddr(c redis.Connection) string {
 	addr := c.RemoteAddr()
 	if addr == "" {
@@ -94,6 +118,9 @@ func formatClientListLine(c redis.Connection) string {
 	}
 	if tid := c.GetTrackingID(); tid != "" && IsTrackingEnabled(tid) {
 		flagParts = append(flagParts, 't')
+	}
+	if ne, ok := c.(interface{ GetNoEvict() bool }); ok && ne.GetNoEvict() {
+		flagParts = append(flagParts, 'e')
 	}
 	if len(flagParts) == 0 {
 		flagParts = append(flagParts, 'N')

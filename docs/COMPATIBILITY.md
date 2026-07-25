@@ -15,11 +15,11 @@
 | JSON / Vector / Time Series | 中–高 | 子集 + 持续补全；Vector 保留 VS* 与 Redis 名双名 |
 | RediSearch (FT.*) | 中–高 | SEARCH/AGGREGATE/ALIAS/ALTER/EXPLAIN/CONFIG/PROFILE 等 |
 | 集群 (CLUSTER *) | 低–中 | 槽位算法与官方不兼容（**延期**）；子集命令 |
-| ACL / 安全 | 中–高 | ACL 引擎；`aclfile` 配置项尚未实现 |
+| ACL / 安全 | 中–高 | ACL 引擎；CONFIG `aclfile` 可存取（M2bh）；文件见 ACL LOAD/SAVE |
 | 配置 | 中–高 | 布尔解析；CONFIG SET 含 maxmemory/save/tcp-backlog；**eviction 写路径已接**（键数估算）；部分 CF-3 为存取桩 |
 | 概率数据结构 (BF/CF/CMS…) | 中–高 | 见 `database/probabilistic.go`；CF EXPANSION 已接扩容 |
 
-**M2 里程碑：** 至 **M2bh** 已含 CLIENT LIST watching/flags、CONFIG aclfile/replica-read-only、INFO total_error_replies、FT TIMEOUT 软超时等。仍延期：集群 CRC16/MOVED、HLL 互通、真 HNSW、完整 FAILOVER、精确 `used_memory`、FUNCTION DUMP 官方互通、MIGRATE 等（见计划文档）。
+**M2 里程碑：** 至 **M2bi** 已含 CLIENT flags `e`、appendonly 冷启 AOF、INFO pubsub/watching_clients、FT GEO 真过滤、Lua set_repl AOF/REPLICA 分路径等。仍延期：集群 CRC16/MOVED、HLL 互通、真 HNSW、完整 FAILOVER、精确 `used_memory`、FUNCTION DUMP 官方互通、MIGRATE 等（见计划文档）。
 
 ## 已知差异（抽样，以代码为准）
 

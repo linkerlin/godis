@@ -204,6 +204,8 @@ func GenGodisInfoString(section string, db *Server) []byte {
 			"blocked_clients:%d\r\n"+
 			"tracking_clients:%d\r\n"+
 			"tracking_total_keys:%d\r\n"+
+			"pubsub_clients:%d\r\n"+
+			"watching_clients:%d\r\n"+
 			"clients_in_timeout_table:%d\r\n",
 			atomic.LoadInt32(&tcp.ClientCounter),
 			0, // cluster_connections
@@ -211,6 +213,8 @@ func GenGodisInfoString(section string, db *Server) []byte {
 			blockedClients,
 			GetTrackingClientsCount(),
 			GetTotalTrackedKeys(),
+			countPubsubClients(),
+			countWatchingClients(),
 			blockedClients, // clients_in_timeout_table ≈ blocked waiters
 		)
 		return []byte(s)
