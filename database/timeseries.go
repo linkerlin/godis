@@ -548,17 +548,45 @@ func execTSIncrDecr(db *DB, args [][]byte, isIncr bool) redis.Reply {
 		delta = -delta
 	}
 
-	// Parse timestamp
+	// Parse options: TIMESTAMP / RETENTION / LABELS
 	timestamp := time.Now().UnixMilli()
-	for i := 2; i < len(args); i += 2 {
-		if i+1 >= len(args) {
-			break
-		}
-		if strings.ToUpper(string(args[i])) == "TIMESTAMP" {
-			ts, err := strconv.ParseInt(string(args[i+1]), 10, 64)
-			if err == nil {
-				timestamp = ts
+	retention := time.Duration(0)
+	labels := make(map[string]string)
+	for i := 2; i < len(args); {
+		opt := strings.ToUpper(string(args[i]))
+		switch opt {
+		case "TIMESTAMP":
+			if i+1 >= len(args) {
+				return protocol.MakeSyntaxErrReply()
 			}
+			ts, err := strconv.ParseInt(string(args[i+1]), 10, 64)
+			if err != nil {
+				return protocol.MakeErrReply("ERR timestamp must be an integer")
+			}
+			timestamp = ts
+			i += 2
+		case "RETENTION":
+			if i+1 >= len(args) {
+				return protocol.MakeSyntaxErrReply()
+			}
+			ms, err := strconv.ParseInt(string(args[i+1]), 10, 64)
+			if err != nil || ms < 0 {
+				return protocol.MakeErrReply("ERR Retention must be an integer")
+			}
+			retention = time.Duration(ms) * time.Millisecond
+			i += 2
+		case "LABELS":
+			i++
+			for i+1 < len(args) {
+				next := strings.ToUpper(string(args[i]))
+				if next == "TIMESTAMP" || next == "RETENTION" || next == "LABELS" {
+					break
+				}
+				labels[string(args[i])] = string(args[i+1])
+				i += 2
+			}
+		default:
+			return protocol.MakeSyntaxErrReply()
 		}
 	}
 
@@ -567,13 +595,22 @@ func execTSIncrDecr(db *DB, args [][]byte, isIncr bool) redis.Reply {
 	var ts *timeseries.TimeSeries
 
 	if !exists {
-		ts = timeseries.NewTimeSeries(key, 0)
+		ts = timeseries.NewTimeSeries(key, retention)
+		if len(labels) > 0 {
+			ts.SetLabels(labels)
+		}
 		db.PutEntity(key, &database.DataEntity{Data: ts})
 	} else {
 		var ok bool
 		ts, ok = entity.Data.(*timeseries.TimeSeries)
 		if !ok {
 			return &protocol.WrongTypeErrReply{}
+		}
+		if retention > 0 {
+			ts.SetRetention(retention)
+		}
+		if len(labels) > 0 {
+			ts.SetLabels(labels)
 		}
 	}
 

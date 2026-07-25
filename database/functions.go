@@ -1,6 +1,7 @@
 package database
 
 import (
+	"encoding/binary"
 	"fmt"
 	"strings"
 
@@ -251,6 +252,10 @@ func execFunctionStats(db *DB, args [][]byte) redis.Reply {
 	return protocol.MakeMultiBulkReply(reply)
 }
 
+// Godis FUNCTION DUMP envelope (godis-internal; not Redis wire-compatible).
+// Format: magic "GODISFN1" || u32be count || repeated (u32be nameLen||name||u32be engLen||eng||u32be codeLen||code)
+var functionDumpMagic = []byte("GODISFN1")
+
 // execFunctionDump dumps all functions
 // FUNCTION DUMP
 func execFunctionDump(db *DB, args [][]byte) redis.Reply {
@@ -262,17 +267,75 @@ func execFunctionDump(db *DB, args [][]byte) redis.Reply {
 		return protocol.MakeBulkReply([]byte{})
 	}
 
-	// Serialize all libraries
-	var dump []byte
-	for _, name := range funcEngine.ListLibraries() {
+	names := funcEngine.ListLibraries()
+	var body []byte
+	body = append(body, functionDumpMagic...)
+	var countBuf [4]byte
+	binary.BigEndian.PutUint32(countBuf[:], uint32(len(names)))
+	body = append(body, countBuf[:]...)
+	for _, name := range names {
 		lib, _ := funcEngine.GetLibrary(name)
-		if lib != nil {
-			dump = append(dump, []byte(lib.Code)...)
-			dump = append(dump, '\n')
+		if lib == nil {
+			continue
 		}
+		eng := lib.Engine
+		if eng == "" {
+			eng = "LUA"
+		}
+		body = appendLengthPrefixed(body, []byte(lib.Name))
+		body = appendLengthPrefixed(body, []byte(eng))
+		body = appendLengthPrefixed(body, []byte(lib.Code))
 	}
 
-	return protocol.MakeBulkReply(dump)
+	return protocol.MakeBulkReply(body)
+}
+
+func appendLengthPrefixed(dst, val []byte) []byte {
+	var n [4]byte
+	binary.BigEndian.PutUint32(n[:], uint32(len(val)))
+	dst = append(dst, n[:]...)
+	return append(dst, val...)
+}
+
+func readLengthPrefixed(src []byte, off int) (val []byte, next int, ok bool) {
+	if off+4 > len(src) {
+		return nil, off, false
+	}
+	n := int(binary.BigEndian.Uint32(src[off : off+4]))
+	off += 4
+	if n < 0 || off+n > len(src) {
+		return nil, off, false
+	}
+	return src[off : off+n], off + n, true
+}
+
+func parseFunctionDumpBinary(payload []byte) (map[string]string, bool) {
+	if len(payload) < len(functionDumpMagic)+4 || string(payload[:len(functionDumpMagic)]) != string(functionDumpMagic) {
+		return nil, false
+	}
+	off := len(functionDumpMagic)
+	count := int(binary.BigEndian.Uint32(payload[off : off+4]))
+	off += 4
+	libs := make(map[string]string, count)
+	for i := 0; i < count; i++ {
+		nameB, n1, ok := readLengthPrefixed(payload, off)
+		if !ok {
+			return nil, false
+		}
+		off = n1
+		_, n2, ok := readLengthPrefixed(payload, off) // engine (ignored for load)
+		if !ok {
+			return nil, false
+		}
+		off = n2
+		codeB, n3, ok := readLengthPrefixed(payload, off)
+		if !ok {
+			return nil, false
+		}
+		off = n3
+		libs[string(nameB)] = string(codeB)
+	}
+	return libs, true
 }
 
 // execFunctionRestore restores functions from dump
@@ -292,20 +355,19 @@ func execFunctionRestore(db *DB, args [][]byte) redis.Reply {
 		policy = strings.ToUpper(string(args[1]))
 	}
 
-	payload := string(args[0])
-	if reply := validateBulkBytes(args[0]); reply != nil {
+	payload := args[0]
+	if reply := validateBulkBytes(payload); reply != nil {
 		return reply
 	}
-
-	// Parse payload (libraries separated by shebang)
-	// Split by "#!lua name="
 
 	if policy == "FLUSH" {
 		funcEngine.FlushAll()
 	}
 
-	// Simple parsing - split by shebang and load each library
-	libs := parseLibraryDump(payload)
+	libs, ok := parseFunctionDumpBinary(payload)
+	if !ok {
+		libs = parseLibraryDump(string(payload))
+	}
 
 	for name, code := range libs {
 		replace := policy == "REPLACE" || policy == "FLUSH"

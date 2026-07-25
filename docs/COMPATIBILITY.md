@@ -50,6 +50,8 @@
 | 复制 backlog | ✅ 固定容量环形缓冲 |
 | Hash field TTL 持久化 | ✅ RDB/DUMP 经 Godis opaque（非 Redis 互通） |
 | CONFIG RESETSTAT | ✅ 清零 INFO/cmd/net/rejected 计数 |
+| CONFIG REWRITE | ✅ 写回配置文件（无配置文件时报错） |
+| FUNCTION DUMP | ✅ Godis `GODISFN1` 二进制（非 Redis 互通） |
 | MONITOR | ✅ 流式广播（`BroadcastMonitor`） |
 | FAILOVER | ✅ 最小子集（ABORT/FORCE/TO/TIMEOUT）；完整协调切换仍缺 |
 | CLIENT UNBLOCK | ✅ 可唤醒 BLPOP/BZPOP/XREAD 等 |

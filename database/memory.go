@@ -6,11 +6,14 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/linkerlin/godis/datastruct/dict"
 	godisjson "github.com/linkerlin/godis/datastruct/json"
 	"github.com/linkerlin/godis/datastruct/list"
 	"github.com/linkerlin/godis/datastruct/set"
 	"github.com/linkerlin/godis/datastruct/sortedset"
 	"github.com/linkerlin/godis/datastruct/stream"
+	"github.com/linkerlin/godis/datastruct/timeseries"
+	"github.com/linkerlin/godis/datastruct/vector"
 	"github.com/linkerlin/godis/interface/redis"
 	"github.com/linkerlin/godis/redis/protocol"
 )
@@ -91,6 +94,30 @@ func estimateEntityBytes(key string, data interface{}) int64 {
 		size += int64(v.Len() * 16)
 	case *stream.Stream:
 		size += int64(v.Len() * 64)
+	case *dict.ExpireDict:
+		v.ForEach(func(field string, val interface{}) bool {
+			size += int64(len(field) + 32) // field + expire metadata
+			if b, ok := val.([]byte); ok {
+				size += int64(len(b))
+			}
+			return true
+		})
+	case dict.Dict:
+		v.ForEach(func(field string, val interface{}) bool {
+			size += int64(len(field) + 16)
+			if b, ok := val.([]byte); ok {
+				size += int64(len(b))
+			}
+			return true
+		})
+	case *timeseries.TimeSeries:
+		size += int64(v.Len()*16 + len(v.GetLabels())*16)
+	case *vector.VectorSet:
+		dim := v.Dimension()
+		if dim <= 0 {
+			dim = 1
+		}
+		size += int64(v.Len() * (dim*8 + 32))
 	default:
 		size += 128
 	}

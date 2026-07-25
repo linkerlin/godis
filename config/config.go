@@ -86,6 +86,11 @@ func GetConfigFilePath() string {
 	return configFilePath
 }
 
+// SetConfigFilePath sets the path used by CONFIG REWRITE (mainly for tests).
+func SetConfigFilePath(path string) {
+	configFilePath = path
+}
+
 type ServerInfo struct {
 	StartUpTime time.Time
 }
