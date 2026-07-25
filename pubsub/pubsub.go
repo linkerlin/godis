@@ -18,8 +18,26 @@ var (
 	messageBytes       = []byte("message")
 	pmessageBytes      = []byte("pmessage")
 	unSubscribeNothing = []byte("*3\r\n$11\r\nunsubscribe\r\n$-1\r\n:0\r\n")
+	unSubscribeNothing3 = []byte("*3\r\n$11\r\nunsubscribe\r\n_\r\n:0\r\n")
 	pUnSubNothing      = []byte("*3\r\n$12\r\npunsubscribe\r\n$-1\r\n:0\r\n")
+	pUnSubNothing3     = []byte("*3\r\n$12\r\npunsubscribe\r\n_\r\n:0\r\n")
 )
+
+func writeUnSubNothing(c redis.Connection, psub bool) {
+	if c.GetProtocolVersion() == 3 {
+		if psub {
+			_, _ = c.Write(pUnSubNothing3)
+		} else {
+			_, _ = c.Write(unSubscribeNothing3)
+		}
+		return
+	}
+	if psub {
+		_, _ = c.Write(pUnSubNothing)
+	} else {
+		_, _ = c.Write(unSubscribeNothing)
+	}
+}
 
 func makeMsg(t string, channel string, code int64) []byte {
 	return []byte("*3\r\n$" + strconv.FormatInt(int64(len(t)), 10) + protocol.CRLF + t + protocol.CRLF +
@@ -121,7 +139,7 @@ func UnSubscribe(db *Hub, c redis.Connection, args [][]byte) redis.Reply {
 	defer db.subsLocker.UnLocks(channels...)
 
 	if len(channels) == 0 {
-		_, _ = c.Write(unSubscribeNothing)
+		writeUnSubNothing(c, false)
 		return &protocol.NoReply{}
 	}
 
@@ -192,7 +210,7 @@ func PUnSubscribe(hub *Hub, c redis.Connection, args [][]byte) redis.Reply {
 		patterns = c.GetPatterns()
 	}
 	if len(patterns) == 0 {
-		_, _ = c.Write(pUnSubNothing)
+		writeUnSubNothing(c, true)
 		return &protocol.NoReply{}
 	}
 	for _, pattern := range patterns {

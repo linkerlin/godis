@@ -14,6 +14,7 @@ type CuckooFilter struct {
 	bucketSize uint
 	count      uint
 	maxKicks   uint
+	expansion  uint // grow factor when full; 0 = no auto-expand
 }
 
 // NewCuckooFilter creates a new Cuckoo filter
@@ -44,7 +45,18 @@ func NewCuckooFilterOpts(capacity, bucketSize, maxKicks uint) *CuckooFilter {
 		size:       numBuckets,
 		bucketSize: bucketSize,
 		maxKicks:   maxKicks,
+		expansion:  1,
 	}
+}
+
+// SetExpansion sets auto-expansion factor (0 disables).
+func (cf *CuckooFilter) SetExpansion(exp uint) {
+	cf.expansion = exp
+}
+
+// Expansion returns the configured expansion factor.
+func (cf *CuckooFilter) Expansion() uint {
+	return cf.expansion
 }
 
 // Add adds an element to the filter
@@ -85,7 +97,52 @@ func (cf *CuckooFilter) Add(data []byte) error {
 		}
 	}
 
+	if cf.expansion > 0 && cf.expand() {
+		return cf.Add(data)
+	}
 	return ErrFilterFull
+}
+
+// expand grows the bucket array by expansion factor. Returns false if disabled.
+func (cf *CuckooFilter) expand() bool {
+	if cf.expansion == 0 {
+		return false
+	}
+	newSize := cf.size * cf.expansion
+	if newSize <= cf.size {
+		newSize = cf.size + 1
+	}
+	oldBuckets := cf.buckets
+	oldCount := cf.count
+	cf.buckets = make([][]string, newSize)
+	for i := range cf.buckets {
+		cf.buckets[i] = make([]string, 0, cf.bucketSize)
+	}
+	cf.size = newSize
+	cf.count = 0
+	// Re-insert fingerprints best-effort (positions change with size).
+	for _, bucket := range oldBuckets {
+		for _, fp := range bucket {
+			placed := false
+			for n := uint(0); n < cf.maxKicks+cf.bucketSize; n++ {
+				idx := cf.hash([]byte(fp+strconv.FormatUint(uint64(n), 10))) % cf.size
+				if len(cf.buckets[idx]) < int(cf.bucketSize) {
+					cf.buckets[idx] = append(cf.buckets[idx], fp)
+					cf.count++
+					placed = true
+					break
+				}
+			}
+			if !placed {
+				// restore on failure
+				cf.buckets = oldBuckets
+				cf.size = uint(len(oldBuckets))
+				cf.count = oldCount
+				return false
+			}
+		}
+	}
+	return true
 }
 
 // Exists checks if an element might exist
@@ -206,7 +263,7 @@ var ErrFilterFull = fmt.Errorf("cuckoo filter is full")
 // MarshalBinary serializes the cuckoo filter (bucket fingerprints).
 func (cf *CuckooFilter) MarshalBinary() []byte {
 	var b strings.Builder
-	b.WriteString(fmt.Sprintf("%d %d %d %d\n", cf.size, cf.bucketSize, cf.count, cf.maxKicks))
+	b.WriteString(fmt.Sprintf("%d %d %d %d %d\n", cf.size, cf.bucketSize, cf.count, cf.maxKicks, cf.expansion))
 	for _, bucket := range cf.buckets {
 		b.WriteString(strconv.Itoa(len(bucket)))
 		for _, fp := range bucket {
@@ -224,9 +281,13 @@ func UnmarshalCuckooFilter(data []byte) (*CuckooFilter, error) {
 	if len(lines) < 1 {
 		return nil, fmt.Errorf("invalid cuckoo data")
 	}
-	var size, bucketSize, count, maxKicks uint
-	if _, err := fmt.Sscanf(lines[0], "%d %d %d %d", &size, &bucketSize, &count, &maxKicks); err != nil {
+	var size, bucketSize, count, maxKicks, expansion uint
+	n, err := fmt.Sscanf(lines[0], "%d %d %d %d %d", &size, &bucketSize, &count, &maxKicks, &expansion)
+	if err != nil || n < 4 {
 		return nil, fmt.Errorf("invalid cuckoo header")
+	}
+	if n == 4 {
+		expansion = 1
 	}
 	if int(size) != len(lines)-1 {
 		return nil, fmt.Errorf("invalid cuckoo bucket count")
@@ -237,6 +298,7 @@ func UnmarshalCuckooFilter(data []byte) (*CuckooFilter, error) {
 		bucketSize: bucketSize,
 		count:      count,
 		maxKicks:   maxKicks,
+		expansion:  expansion,
 	}
 	for i := uint(0); i < size; i++ {
 		fields := strings.Fields(lines[i+1])

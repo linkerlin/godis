@@ -16,7 +16,7 @@ func TestPing(t *testing.T) {
 	asserts.AssertStatusReply(t, actual, "PONG")
 	val := utils.RandString(5)
 	actual = Ping(c, utils.ToCmdLine(val))
-	asserts.AssertStatusReply(t, actual, val)
+	asserts.AssertBulkReply(t, actual, val)
 	actual = Ping(c, utils.ToCmdLine(val, val))
 	asserts.AssertErrReply(t, actual, "ERR wrong number of arguments for 'ping' command")
 }

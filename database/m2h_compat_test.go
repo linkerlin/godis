@@ -88,9 +88,13 @@ func TestM2hTSDecrByAOFCmd(t *testing.T) {
 			aofCmds = append(aofCmds, strings.ToLower(string(cmdLine[0])))
 		}
 	}
-	db.Exec(nil, utils.ToCmdLine("TS.CREATE", "ts"))
-	db.Exec(nil, utils.ToCmdLine("TS.ADD", "ts", "*", "10"))
-	db.Exec(nil, utils.ToCmdLine("TS.DECRBY", "ts", "3"))
+	key := "ts:m2h:decr"
+	db.Exec(nil, utils.ToCmdLine("TS.CREATE", key))
+	db.Exec(nil, utils.ToCmdLine("TS.ADD", key, "1000", "10"))
+	r := db.Exec(nil, utils.ToCmdLine("TS.DECRBY", key, "3", "TIMESTAMP", "1001"))
+	if protocol.IsErrorReply(r) {
+		t.Fatalf("TS.DECRBY: %s", r.ToBytes())
+	}
 	found := false
 	for _, c := range aofCmds {
 		if c == "ts.decrby" {

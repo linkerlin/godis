@@ -17,7 +17,9 @@
 | 集群 (CLUSTER *) | 低–中 | 槽位算法与官方不兼容（**延期**）；子集命令 |
 | ACL / 安全 | 中–高 | ACL 引擎；`aclfile` 配置项尚未实现 |
 | 配置 | 中–高 | 布尔解析；CONFIG SET 含 maxmemory/save/tcp-backlog；**eviction 写路径已接**（键数估算）；部分 CF-3 为存取桩 |
-| 概率数据结构 (BF/CF/CMS…) | 中–高 | 见 `database/probabilistic.go` |
+| 概率数据结构 (BF/CF/CMS…) | 中–高 | 见 `database/probabilistic.go`；CF EXPANSION 已接扩容 |
+
+**M2 里程碑：** 至 **M2aq** 可落地单机兼容项已收口。仍延期：集群 CRC16/MOVED、HLL 互通、真 HNSW、完整 FAILOVER、精确 `used_memory`、FUNCTION DUMP 官方互通等（见计划文档）。
 
 ## 已知差异（抽样，以代码为准）
 
@@ -74,6 +76,16 @@
 | DUMP Bloom/HLL/Cuckoo | ✅ Godis opaque（非 Redis 互通） |
 | DUMP CMS/TopK/TDigest | ✅ Godis opaque（非 Redis 互通） |
 | INFO sync_* | ✅ sync_full / sync_partial_ok / sync_partial_err 计数（RESETSTAT 清零） |
+| INFO blocked_clients | ✅ 含 List/Stream/**ZSet** 阻塞等待者 |
+| OBJECT ENCODING | ✅ 含 hyperloglog / vectorset |
+| XINFO STREAM FULL | ✅ COUNT 截断 entries 嵌套数组 |
+| FT.SEARCH 选项 | ✅ 未知选项 syntax error；VERBATIM/NOSTOPWORDS/FILTER |
+| Pub/Sub RESP3 | ✅ 无参 UNSUBSCRIBE/PUNSUBSCRIBE 用 `_` |
+| MEMORY HELP | ✅ 子命令帮助数组 |
+| CF.RESERVE EXPANSION | ✅ 存因子并在满时扩容 |
+| WAIT | ✅ 循环内对副本发 GETACK |
+| TDIGEST.ADD | ✅ VALUES / WEIGHTS |
+| FT.ADD NOSAVE | ✅ 跳过 AOF |
 | MONITOR | ✅ 流式广播（`BroadcastMonitor`） |
 | FAILOVER | ✅ 最小子集（ABORT/FORCE/TO/TIMEOUT）；完整协调切换仍缺 |
 | CLIENT UNBLOCK | ✅ 可唤醒 BLPOP/BZPOP/XREAD 等 |

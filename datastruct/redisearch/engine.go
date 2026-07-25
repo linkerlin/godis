@@ -167,6 +167,11 @@ func (e *RediSearchEngine) Search(query string, opts *SearchOptions) (*SearchRes
 		docIDs = e.applyGeoFilter(docIDs, opts.GeoFilter)
 	}
 
+	// Apply numeric FILTER clauses
+	if opts != nil && len(opts.Filters) > 0 {
+		docIDs = e.applyFieldFilters(docIDs, opts.Filters)
+	}
+
 	// Fetch documents and calculate scores
 	results := make([]*SearchResult, 0, len(docIDs))
 	for _, docID := range docIDs {
@@ -175,7 +180,7 @@ func (e *RediSearchEngine) Search(query string, opts *SearchOptions) (*SearchRes
 			continue
 		}
 
-		score := e.calculateScore(doc, query)
+		score := e.calculateScore(doc, query, opts)
 
 		result := &SearchResult{
 			Document: doc,
@@ -285,6 +290,9 @@ type SearchOptions struct {
 	SortDesc     bool
 	WithScores   bool
 	WithPayloads bool
+	WithSortKeys bool
+	Verbatim     bool
+	NoStopWords  bool
 	GeoFilter    *GeoFilterOptions
 	Filters      []FieldFilter
 	// Highlight options
@@ -308,13 +316,16 @@ type SearchResults struct {
 }
 
 // calculateScore calculates TF-IDF like score
-func (e *RediSearchEngine) calculateScore(doc *Document, query string) float64 {
+func (e *RediSearchEngine) calculateScore(doc *Document, query string, opts *SearchOptions) float64 {
 	// Simple BM25-like scoring
 	score := doc.Score // Base score
 
 	// Tokenize query
 	tokens := e.index.tokenizer.Tokenize(query)
-	tokens = e.index.stopFilter.Filter(tokens)
+	skipStop := opts != nil && (opts.Verbatim || opts.NoStopWords)
+	if !skipStop {
+		tokens = e.index.stopFilter.Filter(tokens)
+	}
 
 	docCount := float64(e.index.DocCount())
 
@@ -931,6 +942,59 @@ func min(a, b int) int {
 		return a
 	}
 	return b
+}
+
+// applyFieldFilters keeps docs whose numeric field values fall in [Min, Max].
+func (e *RediSearchEngine) applyFieldFilters(docIDs []string, filters []FieldFilter) []string {
+	if len(filters) == 0 {
+		return docIDs
+	}
+	out := make([]string, 0, len(docIDs))
+	for _, docID := range docIDs {
+		doc, ok := e.index.GetDocument(docID)
+		if !ok {
+			continue
+		}
+		okDoc := true
+		for _, f := range filters {
+			raw, exists := doc.Fields[f.Field]
+			if !exists {
+				okDoc = false
+				break
+			}
+			var v float64
+			switch t := raw.(type) {
+			case float64:
+				v = t
+			case int:
+				v = float64(t)
+			case int64:
+				v = float64(t)
+			case string:
+				parsed, err := strconv.ParseFloat(t, 64)
+				if err != nil {
+					okDoc = false
+				} else {
+					v = parsed
+				}
+			default:
+				okDoc = false
+			}
+			if !okDoc {
+				break
+			}
+			minV, _ := f.Min.(float64)
+			maxV, _ := f.Max.(float64)
+			if v < minV || v > maxV {
+				okDoc = false
+				break
+			}
+		}
+		if okDoc {
+			out = append(out, docID)
+		}
+	}
+	return out
 }
 
 // applyGeoFilter filters documents by geo location

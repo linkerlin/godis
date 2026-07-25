@@ -448,10 +448,10 @@ func execFTAdd(db *DB, args [][]byte) redis.Reply {
 		return protocol.MakeErrReply(fmt.Sprintf("ERR %v", err))
 	}
 
-	_ = nosave
-	_ = language
-
-	db.addAof(utils.ToCmdLine3("ft.add", args...))
+	_ = language // accepted for wire compat; tokenizer is language-agnostic today
+	if !nosave {
+		db.addAof(utils.ToCmdLine3("ft.add", args...))
+	}
 	return protocol.MakeOkReply()
 }
 
@@ -529,6 +529,27 @@ func execFTSearch(db *DB, args [][]byte) redis.Reply {
 		case "WITHPAYLOADS":
 			withPayloads = true
 			opts.WithPayloads = true
+		case "VERBATIM":
+			opts.Verbatim = true
+		case "NOSTOPWORDS":
+			opts.NoStopWords = true
+		case "WITHSORTKEYS":
+			opts.WithSortKeys = true
+		case "FILTER":
+			if i+3 >= len(args) {
+				return protocol.MakeSyntaxErrReply()
+			}
+			minV, err1 := strconv.ParseFloat(string(args[i+2]), 64)
+			maxV, err2 := strconv.ParseFloat(string(args[i+3]), 64)
+			if err1 != nil || err2 != nil {
+				return protocol.MakeErrReply("ERR Invalid filter range")
+			}
+			opts.Filters = append(opts.Filters, redisearch.FieldFilter{
+				Field: string(args[i+1]),
+				Min:   minV,
+				Max:   maxV,
+			})
+			i += 3
 		case "LIMIT":
 			if i+2 >= len(args) {
 				return protocol.MakeSyntaxErrReply()
@@ -609,6 +630,8 @@ func execFTSearch(db *DB, args [][]byte) redis.Reply {
 				Unit:   unit,
 			}
 			i += 5
+		default:
+			return protocol.MakeSyntaxErrReply()
 		}
 	}
 

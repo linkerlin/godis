@@ -451,7 +451,7 @@ func execACLDryRun(db *DB, args [][]byte) redis.Reply {
 	cmdArgs := args[1:] // command + args
 	if len(cmdArgs) >= 1 {
 		cmdName := strings.ToLower(string(cmdArgs[0]))
-		if cmd, ok := cmdTable[cmdName]; ok && cmd.prepare != nil {
+		if cmd, ok := cmdTable[cmdName]; ok && cmd.prepare != nil && len(cmdArgs) > 1 {
 			writeKeys, readKeys := cmd.prepare(cmdArgs[1:])
 			for _, k := range writeKeys {
 				if !user.CheckKey(k) {

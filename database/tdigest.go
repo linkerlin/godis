@@ -39,6 +39,7 @@ func execTDigestCreate(db *DB, args [][]byte) redis.Reply {
 
 // execTDigestAdd adds values to a T-Digest
 // TDIGEST.ADD key value [value ...]
+// TDIGEST.ADD key VALUES value [value ...] [WEIGHTS weight [weight ...]]
 func execTDigestAdd(db *DB, args [][]byte) redis.Reply {
 	if len(args) < 2 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'tdigest.add' command")
@@ -56,12 +57,48 @@ func execTDigestAdd(db *DB, args [][]byte) redis.Reply {
 		return &protocol.WrongTypeErrReply{}
 	}
 
-	for i := 1; i < len(args); i++ {
-		value, err := strconv.ParseFloat(string(args[i]), 64)
-		if err != nil {
-			return protocol.MakeErrReply("ERR value is not a valid float")
+	values := make([]float64, 0)
+	weights := make([]float64, 0)
+	i := 1
+	if strings.ToUpper(string(args[1])) == "VALUES" {
+		i = 2
+		for i < len(args) && strings.ToUpper(string(args[i])) != "WEIGHTS" {
+			v, err := strconv.ParseFloat(string(args[i]), 64)
+			if err != nil {
+				return protocol.MakeErrReply("ERR value is not a valid float")
+			}
+			values = append(values, v)
+			i++
 		}
-		td.Add(value, 1.0)
+		if i < len(args) && strings.ToUpper(string(args[i])) == "WEIGHTS" {
+			i++
+			for ; i < len(args); i++ {
+				w, err := strconv.ParseFloat(string(args[i]), 64)
+				if err != nil {
+					return protocol.MakeErrReply("ERR weight is not a valid float")
+				}
+				weights = append(weights, w)
+			}
+		}
+		if len(weights) > 0 && len(weights) != len(values) {
+			return protocol.MakeErrReply("ERR number of weights must match number of values")
+		}
+	} else {
+		for ; i < len(args); i++ {
+			v, err := strconv.ParseFloat(string(args[i]), 64)
+			if err != nil {
+				return protocol.MakeErrReply("ERR value is not a valid float")
+			}
+			values = append(values, v)
+		}
+	}
+
+	for j, v := range values {
+		w := 1.0
+		if j < len(weights) {
+			w = weights[j]
+		}
+		td.Add(v, w)
 	}
 
 	db.addAof(prependCmd("tdigest.add", args))

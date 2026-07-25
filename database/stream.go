@@ -1,6 +1,7 @@
 package database
 
 import (
+	"math"
 	"strconv"
 	"strings"
 
@@ -647,18 +648,25 @@ func execXInfoStream(db *DB, args [][]byte) redis.Reply {
 	}
 
 	full := false
+	entryLimit := -1 // -1 = all
 
 	if len(args) > 1 {
 		if strings.ToUpper(string(args[1])) == "FULL" {
 			full = true
-			// COUNT参数处理（简化版，暂不实现详细逻辑）
 			if len(args) > 3 && strings.ToUpper(string(args[2])) == "COUNT" {
-				_, err := strconv.Atoi(string(args[3]))
+				n, err := strconv.Atoi(string(args[3]))
 				if err != nil {
 					return protocol.MakeErrReply("ERR value is not an integer or out of range")
 				}
-				// 这里可以添加条目数量限制逻辑
+				if n < 0 {
+					return protocol.MakeErrReply("ERR COUNT can't be negative")
+				}
+				entryLimit = n
+			} else if len(args) > 2 {
+				return protocol.MakeSyntaxErrReply()
 			}
+		} else {
+			return protocol.MakeSyntaxErrReply()
 		}
 	}
 
@@ -695,9 +703,38 @@ func execXInfoStream(db *DB, args [][]byte) redis.Reply {
 	}
 
 	if full {
-		// 详细信息（简化处理）
-		result = append(result, []byte("entries"))
-		// 这里可以添加条目列表
+		entries := s.Range(stream.StreamID{}, stream.StreamID{Timestamp: math.MaxInt64, Sequence: math.MaxInt64})
+		if entryLimit >= 0 && len(entries) > entryLimit {
+			entries = entries[:entryLimit]
+		}
+		entryReplies := make([]redis.Reply, 0, len(entries))
+		for _, e := range entries {
+			fieldPairs := make([]redis.Reply, 0, len(e.Fields)*2)
+			for k, v := range e.Fields {
+				fieldPairs = append(fieldPairs,
+					protocol.MakeBulkReply([]byte(k)),
+					protocol.MakeBulkReply([]byte(v)),
+				)
+			}
+			entryReplies = append(entryReplies, protocol.MakeMultiRawReply([]redis.Reply{
+				protocol.MakeBulkReply([]byte(e.ID.String())),
+				protocol.MakeMultiRawReply(fieldPairs),
+			}))
+		}
+		parts := make([]redis.Reply, 0, 20)
+		addKV := func(k, v string) {
+			parts = append(parts, protocol.MakeBulkReply([]byte(k)), protocol.MakeBulkReply([]byte(v)))
+		}
+		addKV("length", strconv.Itoa(info["length"].(int)))
+		addKV("radix-tree-keys", strconv.Itoa(info["radix-tree-keys"].(int)))
+		addKV("radix-tree-nodes", strconv.Itoa(info["radix-tree-nodes"].(int)))
+		addKV("last-generated-id", info["last-generated-id"].(string))
+		addKV("max-deleted-entry-id", info["max-deleted-entry-id"].(string))
+		addKV("entries-added", strconv.FormatInt(info["entries-added"].(int64), 10))
+		addKV("recorded-first-entry-id", info["recorded-first-entry-id"].(string))
+		addKV("groups", strconv.Itoa(len(groups)))
+		parts = append(parts, protocol.MakeBulkReply([]byte("entries")), protocol.MakeMultiRawReply(entryReplies))
+		return protocol.MakeMultiRawReply(parts)
 	}
 
 	return protocol.MakeMultiBulkReply(result)

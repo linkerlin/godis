@@ -582,6 +582,7 @@ func (server *Server) execWait(args [][]byte) redis.Reply {
 
 	deadline := time.Now().Add(time.Duration(timeoutMs) * time.Millisecond)
 	for {
+		server.nudgeSlavesForWait()
 		n := server.countSyncedSlaves()
 		if n >= numReplicas {
 			return protocol.MakeIntReply(n)
@@ -590,6 +591,23 @@ func (server *Server) execWait(args [][]byte) redis.Reply {
 			return protocol.MakeIntReply(n)
 		}
 		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func (server *Server) nudgeSlavesForWait() {
+	if server.masterStatus == nil {
+		return
+	}
+	server.masterStatus.mu.RLock()
+	slaves := make([]*slaveClient, 0, len(server.masterStatus.onlineSlaves))
+	for slave := range server.masterStatus.onlineSlaves {
+		slaves = append(slaves, slave)
+	}
+	server.masterStatus.mu.RUnlock()
+	for _, slave := range slaves {
+		if slave.conn != nil {
+			_, _ = slave.conn.Write(getAckBytes)
+		}
 	}
 }
 

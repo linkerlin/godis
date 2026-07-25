@@ -124,7 +124,10 @@ func TestStreamXInfoStreamDirect(t *testing.T) {
 	}
 
 	full := execXInfoStream(db, [][]byte{[]byte("s:xinfo"), []byte("FULL"), []byte("COUNT"), []byte("1")})
-	if _, ok := full.(*protocol.MultiBulkReply); !ok {
-		t.Fatalf("execXInfoStream FULL: got %s", full.ToBytes())
+	switch full.(type) {
+	case *protocol.MultiBulkReply, *protocol.MultiRawReply:
+		// FULL returns nested MultiRawReply (entries array)
+	default:
+		t.Fatalf("execXInfoStream FULL: got %T %s", full, full.ToBytes())
 	}
 }

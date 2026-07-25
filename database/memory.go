@@ -39,9 +39,34 @@ func execMemory(server *Server, c redis.Connection, args [][]byte) redis.Reply {
 		return protocol.MakeBulkReply([]byte("I'm fine, no issues to report."))
 	case "MALLOC-STATS":
 		return protocol.MakeBulkReply([]byte("Stats not available in Go runtime"))
+	case "HELP":
+		return execMemoryHelp()
 	default:
 		return protocol.MakeErrReply(fmt.Sprintf("ERR Unknown subcommand or wrong number of arguments for '%s'", subCmd))
 	}
+}
+
+func execMemoryHelp() redis.Reply {
+	lines := []string{
+		"MEMORY <subcommand> [<arg> [value] [opt] ...]. Subcommands are:",
+		"DOCTOR",
+		"    Return memory problems report.",
+		"MALLOC-STATS",
+		"    Return internal statistics (Go runtime limited).",
+		"PURGE",
+		"    Attempt to purge dirty pages (triggers GC).",
+		"STATS",
+		"    Return memory usage statistics.",
+		"USAGE <key> [SAMPLES <count>]",
+		"    Estimate memory usage of a key in bytes.",
+		"HELP",
+		"    Print this help.",
+	}
+	out := make([]redis.Reply, len(lines))
+	for i, l := range lines {
+		out[i] = protocol.MakeBulkReply([]byte(l))
+	}
+	return protocol.MakeMultiRawReply(out)
 }
 
 func execMemoryUsage(server *Server, c redis.Connection, args [][]byte) redis.Reply {

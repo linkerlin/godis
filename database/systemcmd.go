@@ -510,7 +510,7 @@ func getLRUClock() uint32 {
 }
 
 func getBlockedClientsCount() int64 {
-	return GetBlockedListClientsCount() + GetBlockedStreamClientsCount()
+	return GetBlockedListClientsCount() + GetBlockedStreamClientsCount() + GetBlockedZSetClientsCount()
 }
 
 func getInstantaneousOpsPerSec() int64 {

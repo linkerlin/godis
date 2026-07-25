@@ -13,6 +13,7 @@ import (
 	"github.com/linkerlin/godis/datastruct/sortedset"
 	"github.com/linkerlin/godis/datastruct/stream"
 	"github.com/linkerlin/godis/datastruct/timeseries"
+	"github.com/linkerlin/godis/datastruct/vector"
 	"github.com/linkerlin/godis/interface/redis"
 	"github.com/linkerlin/godis/redis/protocol"
 )
@@ -94,6 +95,10 @@ func getObjectEncoding(data interface{}) string {
 		return "tdigest"
 	case *timeseries.TimeSeries:
 		return "timeseries"
+	case *HLL:
+		return "hyperloglog"
+	case *vector.VectorSet:
+		return "vectorset"
 	default:
 		return "unknown"
 	}

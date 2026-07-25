@@ -343,6 +343,7 @@ func execCFReserve(db *DB, args [][]byte) redis.Reply {
 
 	bucketSize := uint(4)
 	maxIter := uint(500)
+	expansion := uint(1)
 	for i := 2; i < len(args); {
 		opt := strings.ToUpper(string(args[i]))
 		switch opt {
@@ -367,13 +368,14 @@ func execCFReserve(db *DB, args [][]byte) redis.Reply {
 			maxIter = uint(v)
 			i += 2
 		case "EXPANSION":
-			// Accepted for compatibility; auto-expansion not implemented yet.
 			if i+1 >= len(args) {
 				return protocol.MakeSyntaxErrReply()
 			}
-			if _, err := strconv.ParseUint(string(args[i+1]), 10, 64); err != nil {
+			v, err := strconv.ParseUint(string(args[i+1]), 10, 64)
+			if err != nil {
 				return protocol.MakeErrReply("ERR EXPANSION must be an integer")
 			}
+			expansion = uint(v)
 			i += 2
 		default:
 			return protocol.MakeSyntaxErrReply()
@@ -386,6 +388,7 @@ func execCFReserve(db *DB, args [][]byte) redis.Reply {
 	}
 
 	cf := probabilistic.NewCuckooFilterOpts(uint(capacity), bucketSize, maxIter)
+	cf.SetExpansion(expansion)
 	db.PutEntity(key, &database.DataEntity{Data: cf})
 
 	db.addAof(prependCmd("cf.reserve", args))

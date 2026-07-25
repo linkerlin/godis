@@ -91,11 +91,19 @@ func TestM2lXDelex(t *testing.T) {
 	id := string(idReply.(*protocol.BulkReply).Arg)
 	db.Exec(nil, utils.ToCmdLine("XGROUP", "CREATE", "s", "g", "0-0"))
 	db.Exec(nil, utils.ToCmdLine("XREADGROUP", "GROUP", "g", "c1", "STREAMS", "s", ">"))
-	// ACKED should not delete while pending
+	// ACKED should not delete while pending (status 2 = still referenced)
 	r := db.Exec(nil, utils.ToCmdLine("XDELEX", "s", "ACKED", "IDS", "1", id))
-	asserts.AssertIntReply(t, r, 0)
+	mr, ok := r.(*protocol.MultiRawReply)
+	if !ok || len(mr.Replies) != 1 {
+		t.Fatalf("XDELEX ACKED: %T %s", r, r.ToBytes())
+	}
+	asserts.AssertIntReply(t, mr.Replies[0], 2)
 	asserts.AssertIntReply(t, db.Exec(nil, utils.ToCmdLine("XLEN", "s")), 1)
-	// DELREF deletes and clears PEL
-	asserts.AssertIntReply(t, db.Exec(nil, utils.ToCmdLine("XDELEX", "s", "DELREF", "IDS", "1", id)), 1)
+	r = db.Exec(nil, utils.ToCmdLine("XDELEX", "s", "DELREF", "IDS", "1", id))
+	mr, ok = r.(*protocol.MultiRawReply)
+	if !ok || len(mr.Replies) != 1 {
+		t.Fatalf("XDELEX DELREF: %T %s", r, r.ToBytes())
+	}
+	asserts.AssertIntReply(t, mr.Replies[0], 1)
 	asserts.AssertIntReply(t, db.Exec(nil, utils.ToCmdLine("XLEN", "s")), 0)
 }

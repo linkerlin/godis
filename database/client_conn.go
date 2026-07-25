@@ -53,7 +53,7 @@ func execClientConn(c redis.Connection, db *DB, args [][]byte) redis.Reply {
 	case "HELP":
 		return execClientHelp(args[1:])
 	default:
-		return protocol.MakeErrReply("ERR unknown subcommand '" + strings.ToLower(subCmd) + "'")
+		return protocol.MakeErrReply("ERR Unknown subcommand or wrong number of arguments for '" + subCmd + "'")
 	}
 }
 

@@ -1,7 +1,6 @@
 package database
 
 import (
-	"fmt"
 	"strconv"
 	"strings"
 
@@ -84,24 +83,19 @@ func execClient(db *DB, args [][]byte) redis.Reply {
 	}
 }
 
-// execClientList lists client connections
-// CLIENT LIST [TYPE normal|master|replica|pubsub]
+// execClientList lists client connections (legacy entry without conn; prefer registry).
 func execClientList(args [][]byte) redis.Reply {
-	// Simplified: return empty list
-	// In full implementation, would iterate over all connections
-	return protocol.MakeBulkReply([]byte(""))
+	return execClientListConn(nil, args)
 }
 
-// execClientInfo returns info about current client
-// CLIENT INFO
+// execClientInfo returns info about current client (no conn → empty stub avoided).
 func execClientInfo(args [][]byte) redis.Reply {
-	if len(args) != 0 {
-		return protocol.MakeErrReply("ERR wrong number of arguments for 'client|info' command")
-	}
+	return protocol.MakeErrReply("ERR CLIENT INFO requires a client connection")
+}
 
-	// Build client info string
-	info := fmt.Sprintf("id=1 addr=127.0.0.1:12345 fd=0 name= age=0 idle=0 flags=N db=0 sub=0 psub=0 multi=-1 qbuf=0 qbuf-free=0 obl=0 oll=0 omem=0 events=r cmd=client\n")
-	return protocol.MakeBulkReply([]byte(info))
+// execClientKill kills client connections via registry filters.
+func execClientKill(args [][]byte) redis.Reply {
+	return execClientKillConn(nil, args)
 }
 
 // execClientSetName sets client name
@@ -130,14 +124,6 @@ func execClientGetName(args [][]byte) redis.Reply {
 
 	// Simplified: return nil (no name set)
 	return &protocol.NullBulkReply{}
-}
-
-// execClientKill kills client connections
-// CLIENT KILL [ip:port] [ID client-id] [TYPE type] [USER username] [ADDR ip:port] [SKIPME yes/no]
-func execClientKill(args [][]byte) redis.Reply {
-	// Simplified: always return 0 (no clients killed)
-	// In full implementation, would parse filters and kill matching clients
-	return protocol.MakeIntReply(0)
 }
 
 // execClientPause pauses clients

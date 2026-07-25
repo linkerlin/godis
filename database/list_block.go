@@ -143,6 +143,19 @@ func GetBlockedListClientsCount() int64 {
 	return int64(len(seen))
 }
 
+// GetBlockedZSetClientsCount counts clients blocked on BZPOP*/BZMPOP wait queues.
+func GetBlockedZSetClientsCount() int64 {
+	zsetWaitMu.Lock()
+	defer zsetWaitMu.Unlock()
+	seen := make(map[*blockWaiter]struct{})
+	for _, ws := range zsetWaiters {
+		for _, w := range ws {
+			seen[w] = struct{}{}
+		}
+	}
+	return int64(len(seen))
+}
+
 func registerListWaiter(keys []string) *blockWaiter {
 	w := &blockWaiter{
 		keys:     append([]string(nil), keys...),

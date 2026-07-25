@@ -2,6 +2,7 @@ package database
 
 import (
 	"testing"
+	"time"
 
 	"github.com/linkerlin/godis/config"
 	"github.com/linkerlin/godis/lib/utils"
@@ -75,7 +76,7 @@ func TestM2tPFDebugPeriod(t *testing.T) {
 }
 
 func TestM2tTrackingOptInCaching(t *testing.T) {
-	c := &trackingTestConn{name: "optin", clientID: 42}
+	c := &trackingTestConn{name: "optin", clientID: time.Now().UnixNano()}
 	c.SetProtocolVersion(3)
 	id := EnableTracking(c, "optin", nil, "", false)
 	c.SetTrackingID(id)
