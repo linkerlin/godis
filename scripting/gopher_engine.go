@@ -18,6 +18,9 @@ type GopherEngine struct {
 	scripts map[string]string // SHA1 -> script body
 	dbExec  func(cmd string, args ...string) (interface{}, error)
 
+	// Optional ACL checker for redis.acl_check_cmd (nil = always allow).
+	aclCheckCmd func(cmd string, args []string) bool
+
 	// LState pool for concurrent execution
 	statePool *lStatePool
 
@@ -29,6 +32,9 @@ type GopherEngine struct {
 
 	// Preferred RESP major version from redis.setresp (2 or 3); informational for now.
 	respVersion int
+
+	// Script replication flags from redis.set_repl (informational stub).
+	replFlags int
 }
 
 // scriptExecution tracks a running script
@@ -120,6 +126,13 @@ func NewGopherEngine(dbExec func(cmd string, args ...string) (interface{}, error
 	})
 
 	return e
+}
+
+// SetACLCheckCmd sets the optional redis.acl_check_cmd implementation.
+func (e *GopherEngine) SetACLCheckCmd(fn func(cmd string, args []string) bool) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.aclCheckCmd = fn
 }
 
 // Eval executes a Lua script
@@ -327,6 +340,14 @@ func (e *GopherEngine) registerRedisAPI(L *lua.LState) {
 	L.SetField(redisTable, "setresp", L.NewFunction(e.luaRedisSetResp))
 	L.SetField(redisTable, "error_reply", L.NewFunction(luaRedisErrorReply))
 	L.SetField(redisTable, "status_reply", L.NewFunction(luaRedisStatusReply))
+	L.SetField(redisTable, "acl_check_cmd", L.NewFunction(e.luaRedisACLCheckCmd))
+	L.SetField(redisTable, "set_repl", L.NewFunction(e.luaRedisSetRepl))
+	L.SetField(redisTable, "replicate_commands", L.NewFunction(luaRedisReplicateCommands))
+	// redis.LOG_* level constants (for redis.log)
+	L.SetField(redisTable, "LOG_DEBUG", lua.LNumber(0))
+	L.SetField(redisTable, "LOG_VERBOSE", lua.LNumber(1))
+	L.SetField(redisTable, "LOG_NOTICE", lua.LNumber(2))
+	L.SetField(redisTable, "LOG_WARNING", lua.LNumber(3))
 }
 
 // luaRedisCall implements redis.call
@@ -405,6 +426,39 @@ func (e *GopherEngine) luaRedisSha1Hex(L *lua.LState) int {
 	str := L.CheckString(1)
 	hash := sha1.Sum([]byte(str))
 	L.Push(lua.LString(hex.EncodeToString(hash[:])))
+	return 1
+}
+
+// luaRedisACLCheckCmd implements redis.acl_check_cmd(cmd, ...).
+func (e *GopherEngine) luaRedisACLCheckCmd(L *lua.LState) int {
+	cmd := L.CheckString(1)
+	var args []string
+	for i := 2; i <= L.GetTop(); i++ {
+		args = append(args, luaValueToArg(L.Get(i)))
+	}
+	ok := true
+	e.mu.RLock()
+	fn := e.aclCheckCmd
+	e.mu.RUnlock()
+	if fn != nil {
+		ok = fn(cmd, args)
+	}
+	L.Push(lua.LBool(ok))
+	return 1
+}
+
+// luaRedisSetRepl implements redis.set_repl(flags) — records flags; AOF policy unchanged.
+func (e *GopherEngine) luaRedisSetRepl(L *lua.LState) int {
+	flags := L.OptInt(1, 0)
+	e.mu.Lock()
+	e.replFlags = flags
+	e.mu.Unlock()
+	return 0
+}
+
+// luaRedisReplicateCommands implements redis.replicate_commands() — always true (Redis 5+).
+func luaRedisReplicateCommands(L *lua.LState) int {
+	L.Push(lua.LTrue)
 	return 1
 }
 

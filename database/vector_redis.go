@@ -29,6 +29,8 @@ func execVAdd(db *DB, args [][]byte) redis.Reply {
 	key := string(args[0])
 	var ele string
 	var floats []float64
+	nx, xx := false, false
+	var setattr string
 	i := 1
 	for i < len(args) {
 		tok := strings.ToUpper(string(args[i]))
@@ -61,9 +63,21 @@ func execVAdd(db *DB, args [][]byte) redis.Reply {
 			i += 2
 		case "FP32":
 			return protocol.MakeErrReply("ERR FP32 binary form not supported; use VALUES")
-		case "NX", "XX", "CAS", "NOQUANT", "Q8", "BIN", "TRUTH", "NOTHREAD":
+		case "NX":
+			nx = true
 			i++
-		case "REDUCE", "EF", "M", "SETATTR":
+		case "XX":
+			xx = true
+			i++
+		case "CAS", "NOQUANT", "Q8", "BIN", "TRUTH", "NOTHREAD":
+			i++
+		case "SETATTR":
+			if i+1 >= len(args) {
+				return protocol.MakeSyntaxErrReply()
+			}
+			setattr = string(args[i+1])
+			i += 2
+		case "REDUCE", "EF", "M":
 			if i+1 >= len(args) {
 				return protocol.MakeSyntaxErrReply()
 			}
@@ -75,7 +89,34 @@ func execVAdd(db *DB, args [][]byte) redis.Reply {
 	if ele == "" || floats == nil {
 		return protocol.MakeErrReply("ERR VADD requires VALUES and ELE")
 	}
-	return execVSAdd(db, [][]byte{[]byte(key), []byte(ele), []byte(formatFloatsCSV(floats))})
+
+	// NX/XX/SETATTR apply to the in-memory vector backend.
+	if currentVectorBackend().Name() != backendSQLite && (nx || xx || setattr != "") {
+		eleExists := false
+		if entity, exists := db.GetEntity(key); exists {
+			vs, ok := entity.Data.(*vector.VectorSet)
+			if !ok {
+				return &protocol.WrongTypeErrReply{}
+			}
+			_, eleExists = vs.Get(ele)
+		}
+		if nx && eleExists {
+			return protocol.MakeIntReply(0)
+		}
+		if xx && !eleExists {
+			return protocol.MakeIntReply(0)
+		}
+	}
+
+	r := execVSAdd(db, [][]byte{[]byte(key), []byte(ele), []byte(formatFloatsCSV(floats))})
+	if setattr != "" && currentVectorBackend().Name() != backendSQLite && !protocol.IsErrorReply(r) {
+		if entity, exists := db.GetEntity(key); exists {
+			if vs, ok := entity.Data.(*vector.VectorSet); ok {
+				vs.SetAttributes(ele, setattr)
+			}
+		}
+	}
+	return r
 }
 
 func execVSim(db *DB, args [][]byte) redis.Reply {

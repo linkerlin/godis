@@ -1,6 +1,7 @@
 package database
 
 import (
+	"net"
 	"strconv"
 	"strings"
 
@@ -60,6 +61,97 @@ func isAuthenticated(c redis.Connection) bool {
 		return false
 	}
 	return c.GetPassword() == config.Properties.RequirePass
+}
+
+// checkProtectedMode rejects non-local clients when Redis-style protected mode applies:
+// protected-mode yes, no requirepass / default ACL password, and bind is not loopback-only.
+func checkProtectedMode(c redis.Connection) redis.Reply {
+	if config.Properties == nil || !config.Properties.ProtectedMode {
+		return nil
+	}
+	if config.Properties.RequirePass != "" {
+		return nil
+	}
+	if aclEngine != nil {
+		if u, ok := aclEngine.GetUser("default"); ok && u.HasPassword() {
+			return nil
+		}
+	}
+	if bindsOnlyLoopback(config.Properties.Bind) {
+		return nil
+	}
+	if c == nil || isLocalClientAddr(c.RemoteAddr()) {
+		return nil
+	}
+	return protocol.MakeErrReply(
+		"DENIED Redis is running in protected mode because protected mode is enabled, " +
+			"no password is set for the default user, and no connection or interface restriction " +
+			"has been configured. In this mode connections are only accepted from the loopback interface. " +
+			"If you want to connect from external computers to Redis you may adopt one of the following solutions: " +
+			"1) Just disable protected mode sending the command 'CONFIG SET protected-mode no' from the loopback " +
+			"interface by connecting to Redis from the same host the server is running, however make sure Redis " +
+			"is not publicly accessible from internet if you do so. Use CONFIG REWRITE to make this change permanent. " +
+			"2) Alternatively you can just disable the protected mode by editing the Redis configuration file, " +
+			"and setting the protected mode option to 'no', and then restarting the server. " +
+			"3) If you started the server manually just for testing, restart it with the '--protected-mode no' option. " +
+			"4) Setup a password to secure Redis.",
+	)
+}
+
+func bindsOnlyLoopback(bind string) bool {
+	bind = strings.TrimSpace(bind)
+	if bind == "" {
+		// Empty bind historically means all interfaces in Redis.
+		return false
+	}
+	parts := strings.FieldsFunc(bind, func(r rune) bool {
+		return r == ',' || r == ' ' || r == '\t'
+	})
+	if len(parts) == 0 {
+		return false
+	}
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		if p == "0.0.0.0" || p == "*" || p == "::" || p == "[::]" {
+			return false
+		}
+		host := p
+		if strings.HasPrefix(host, "[") {
+			if i := strings.Index(host, "]"); i > 0 {
+				host = host[1:i]
+			}
+		} else if strings.Count(host, ":") == 1 {
+			// host:port form — rare in bind directive
+			h, _, err := net.SplitHostPort(host)
+			if err == nil {
+				host = h
+			}
+		}
+		ip := net.ParseIP(host)
+		if ip == nil || !ip.IsLoopback() {
+			return false
+		}
+	}
+	return true
+}
+
+func isLocalClientAddr(addr string) bool {
+	addr = strings.TrimSpace(addr)
+	if addr == "" {
+		// Tests / unix-like anonymous: treat as local.
+		return true
+	}
+	host := addr
+	if h, _, err := net.SplitHostPort(addr); err == nil {
+		host = h
+	} else {
+		host = strings.Trim(addr, "[]")
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 // checkACLPermission verifies the connection's ACL user may run cmdName

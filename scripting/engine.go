@@ -70,6 +70,15 @@ func NewEngineWithType(dbExec func(cmd string, args ...string) (interface{}, err
 	return e
 }
 
+// SetACLCheckCmd wires redis.acl_check_cmd for the gopher-lua backend.
+func (e *Engine) SetACLCheckCmd(fn func(cmd string, args []string) bool) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.gopherEngine != nil {
+		e.gopherEngine.SetACLCheckCmd(fn)
+	}
+}
+
 // SetEngineType changes the engine type at runtime
 func (e *Engine) SetEngineType(engineType EngineType) {
 	e.mu.Lock()

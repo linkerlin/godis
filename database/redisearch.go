@@ -533,6 +533,7 @@ func execFTSearch(db *DB, args [][]byte) redis.Reply {
 	withPayloads := false
 	withSortKeys := false
 	returnFields := []string{}
+	var inKeys map[string]struct{}
 
 	for i := 2; i < len(args); i++ {
 		arg := strings.ToUpper(string(args[i]))
@@ -558,6 +559,63 @@ func execFTSearch(db *DB, args [][]byte) redis.Reply {
 				return protocol.MakeSyntaxErrReply()
 			}
 			i++ // accept dialect version; query engine is fixed
+		case "INKEYS":
+			if i+1 >= len(args) {
+				return protocol.MakeSyntaxErrReply()
+			}
+			count, err := strconv.Atoi(string(args[i+1]))
+			if err != nil || count < 0 {
+				return protocol.MakeErrReply("ERR Invalid INKEYS count")
+			}
+			i += 2
+			inKeys = make(map[string]struct{}, count)
+			for j := 0; j < count; j++ {
+				if i >= len(args) {
+					return protocol.MakeSyntaxErrReply()
+				}
+				inKeys[string(args[i])] = struct{}{}
+				i++
+			}
+			i--
+		case "HIGHLIGHT":
+			opts.Highlight = true
+			if opts.HighlightOpenTag == "" {
+				opts.HighlightOpenTag = "<b>"
+			}
+			if opts.HighlightCloseTag == "" {
+				opts.HighlightCloseTag = "</b>"
+			}
+			for i+1 < len(args) {
+				next := strings.ToUpper(string(args[i+1]))
+				if next == "FIELDS" {
+					if i+2 >= len(args) {
+						return protocol.MakeSyntaxErrReply()
+					}
+					n, err := strconv.Atoi(string(args[i+2]))
+					if err != nil || n < 0 {
+						return protocol.MakeErrReply("ERR Invalid HIGHLIGHT FIELDS count")
+					}
+					last := i + 2 + n
+					if last >= len(args) {
+						return protocol.MakeSyntaxErrReply()
+					}
+					for j := i + 3; j <= last; j++ {
+						opts.HighlightFields = append(opts.HighlightFields, string(args[j]))
+					}
+					i = last
+					continue
+				}
+				if next == "TAGS" {
+					if i+3 >= len(args) {
+						return protocol.MakeSyntaxErrReply()
+					}
+					opts.HighlightOpenTag = string(args[i+2])
+					opts.HighlightCloseTag = string(args[i+3])
+					i += 3
+					continue
+				}
+				break
+			}
 		case "FILTER":
 			if i+3 >= len(args) {
 				return protocol.MakeSyntaxErrReply()
@@ -662,6 +720,20 @@ func execFTSearch(db *DB, args [][]byte) redis.Reply {
 	results, err := engine.Search(query, opts)
 	if err != nil {
 		return protocol.MakeErrReply(fmt.Sprintf("ERR %v", err))
+	}
+
+	if len(inKeys) > 0 {
+		filtered := make([]*redisearch.SearchResult, 0, len(results.Results))
+		for _, result := range results.Results {
+			if result.Document == nil {
+				continue
+			}
+			if _, ok := inKeys[result.Document.ID]; ok {
+				filtered = append(filtered, result)
+			}
+		}
+		results.Results = filtered
+		results.Total = len(filtered)
 	}
 
 	// Build response in RediSearch wire format:

@@ -41,7 +41,7 @@ func execJSONNumMultBy(db *DB, args [][]byte) redis.Reply {
 	}
 
 	db.addAof(utils.ToCmdLine3("json.nummultby", args...))
-	return protocol.MakeBulkReply([]byte(strconv.FormatFloat(newVal, 'g', -1, 64)))
+	return wrapEnhancedJSONNumReply(path, newVal)
 }
 
 // execJSONStrLen returns string length

@@ -213,6 +213,9 @@ func (server *Server) Exec(c redis.Connection, cmdLine [][]byte) (result redis.R
 	}
 
 	cmdName := strings.ToLower(string(cmdLine[0]))
+	if reply := checkProtectedMode(c); reply != nil {
+		return reply
+	}
 	// ping
 	if cmdName == "ping" {
 		return Ping(c, cmdLine[1:])

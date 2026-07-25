@@ -19,29 +19,53 @@ var scriptDB *DB
 // InitScriptingEngine initializes the scripting engine
 func InitScriptingEngine(db *DB) {
 	scriptDB = db
-	if scriptEngine != nil {
-		return
-	}
+	if scriptEngine == nil {
+		// Nested redis.call must not re-lock; EVAL holds keys via prepareEval.
+		dbExec := func(cmd string, args ...string) (interface{}, error) {
+			cmdLine := make([][]byte, 0, len(args)+1)
+			cmdLine = append(cmdLine, []byte(cmd))
+			for _, arg := range args {
+				cmdLine = append(cmdLine, []byte(arg))
+			}
+			target := scriptDB
+			if target == nil {
+				return nil, fmt.Errorf("ERR scripting engine not bound to a database")
+			}
+			result := target.execWithLock(nil, cmdLine)
+			if errReply, ok := result.(*protocol.StandardErrReply); ok {
+				return nil, fmt.Errorf("%s", errReply.Status)
+			}
+			return redisReplyToGo(result), nil
+		}
 
-	// Nested redis.call must not re-lock; EVAL holds keys via prepareEval.
-	dbExec := func(cmd string, args ...string) (interface{}, error) {
-		cmdLine := make([][]byte, 0, len(args)+1)
-		cmdLine = append(cmdLine, []byte(cmd))
-		for _, arg := range args {
-			cmdLine = append(cmdLine, []byte(arg))
-		}
-		target := scriptDB
-		if target == nil {
-			return nil, fmt.Errorf("ERR scripting engine not bound to a database")
-		}
-		result := target.execWithLock(nil, cmdLine)
-		if errReply, ok := result.(*protocol.StandardErrReply); ok {
-			return nil, fmt.Errorf("%s", errReply.Status)
-		}
-		return redisReplyToGo(result), nil
+		scriptEngine = scripting.NewEngine(dbExec)
 	}
+	scriptEngine.SetACLCheckCmd(scriptACLCheckCmd)
+}
 
-	scriptEngine = scripting.NewEngine(dbExec)
+// scriptACLCheckCmd implements redis.acl_check_cmd using the default ACL user
+// when no connection-bound user is available inside nested script execution.
+func scriptACLCheckCmd(cmd string, args []string) bool {
+	if aclEngine == nil {
+		return true
+	}
+	user, ok := aclEngine.GetUser("default")
+	if !ok {
+		return true
+	}
+	if !user.CheckCommand(cmd) {
+		return false
+	}
+	var writeKeys, readKeys []string
+	cmdName := strings.ToLower(cmd)
+	if c, ok := cmdTable[cmdName]; ok && c.prepare != nil && len(args) > 0 {
+		argBytes := make([][]byte, len(args))
+		for i, a := range args {
+			argBytes[i] = []byte(a)
+		}
+		writeKeys, readKeys = c.prepare(argBytes)
+	}
+	return user.CheckPermission(cmd, writeKeys, readKeys)
 }
 
 // execEval executes a Lua script
@@ -52,9 +76,7 @@ func execEval(db *DB, args [][]byte) redis.Reply {
 	}
 
 	scriptDB = db
-	if scriptEngine == nil {
-		InitScriptingEngine(db)
-	}
+	InitScriptingEngine(db)
 
 	script := string(args[0])
 	if reply := validateBulkBytes(args[0]); reply != nil {
@@ -101,9 +123,7 @@ func execEvalSha(db *DB, args [][]byte) redis.Reply {
 	}
 
 	scriptDB = db
-	if scriptEngine == nil {
-		InitScriptingEngine(db)
-	}
+	InitScriptingEngine(db)
 
 	sha1 := string(args[0])
 	if reply := validateBulkBytes(args[0]); reply != nil {

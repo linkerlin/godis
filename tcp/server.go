@@ -15,6 +15,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/linkerlin/godis/config"
 	"github.com/linkerlin/godis/interface/tcp"
 	"github.com/linkerlin/godis/lib/logger"
 )
@@ -96,6 +97,7 @@ func ListenAndServe(listener net.Listener, handler tcp.Handler, closeChan <-chan
 			_ = conn.Close()
 			continue
 		}
+		applyTCPKeepAlive(conn)
 		waitDone.Add(1)
 		go func() {
 			defer func() {
@@ -106,4 +108,17 @@ func ListenAndServe(listener net.Listener, handler tcp.Handler, closeChan <-chan
 		}()
 	}
 	waitDone.Wait()
+}
+
+// applyTCPKeepAlive sets TCP keepalive from tcp-keepalive (seconds; 0 disables).
+func applyTCPKeepAlive(conn net.Conn) {
+	if config.Properties == nil || config.Properties.TCPKeepAlive <= 0 {
+		return
+	}
+	tc, ok := conn.(*net.TCPConn)
+	if !ok {
+		return
+	}
+	_ = tc.SetKeepAlive(true)
+	_ = tc.SetKeepAlivePeriod(time.Duration(config.Properties.TCPKeepAlive) * time.Second)
 }

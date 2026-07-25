@@ -12,11 +12,12 @@ import (
 // FakeConn implements redis.Connection for test
 type FakeConn struct {
 	Connection
-	buf    []byte
-	offset int
-	waitOn chan struct{}
-	closed bool
-	mu     sync.Mutex
+	buf         []byte
+	offset      int
+	waitOn      chan struct{}
+	closed      bool
+	mu          sync.Mutex
+	fakeRemote  string // optional override for RemoteAddr()
 }
 
 func NewFakeConn() *FakeConn {
@@ -27,6 +28,18 @@ func NewFakeConn() *FakeConn {
 	c.clientID = globalClientID.Add(1)
 	c.localAddr = "127.0.0.1:6399"
 	return c
+}
+
+// SetRemoteAddr overrides RemoteAddr for protected-mode / ACL tests.
+func (c *FakeConn) SetRemoteAddr(addr string) {
+	c.fakeRemote = addr
+}
+
+func (c *FakeConn) RemoteAddr() string {
+	if c.fakeRemote != "" {
+		return c.fakeRemote
+	}
+	return ""
 }
 
 // Write writes data to buffer
@@ -110,8 +123,4 @@ func (c *FakeConn) Close() error {
 	c.closed = true
 	c.notify()
 	return nil
-}
-
-func (c *FakeConn) RemoteAddr() string {
-	return ""
 }

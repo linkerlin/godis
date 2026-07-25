@@ -129,6 +129,8 @@ func init() {
 		SearchBackend: "native",
 		VectorBackend: "native",
 		Hz:            10,
+		TCPKeepAlive:  300,
+		ProtectedMode: true,
 		RunID:         utils.RandString(40),
 	}
 }

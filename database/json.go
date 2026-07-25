@@ -185,6 +185,15 @@ func wrapEnhancedJSONPathValue(path string, val interface{}) interface{} {
 	return val
 }
 
+// wrapEnhancedJSONNumReply returns a bulk number, or `[n]` for RedisJSON `$…` paths.
+func wrapEnhancedJSONNumReply(path string, newVal float64) redis.Reply {
+	s := strconv.FormatFloat(newVal, 'g', -1, 64)
+	if strings.HasPrefix(path, "$") {
+		return protocol.MakeBulkReply([]byte("[" + s + "]"))
+	}
+	return protocol.MakeBulkReply([]byte(s))
+}
+
 type jsonGetFormatOpts struct {
 	indent   string
 	newline  string
@@ -385,7 +394,7 @@ func execJSONNumIncrBy(db *DB, args [][]byte) redis.Reply {
 	}
 
 	db.addAof(utils.ToCmdLine3("json.numincrby", args...))
-	return protocol.MakeBulkReply([]byte(fmt.Sprintf("%g", newVal)))
+	return wrapEnhancedJSONNumReply(path, newVal)
 }
 
 // execJSONStrAppend appends a string to the value at the specified path
@@ -569,8 +578,10 @@ func execJSONArrLen(db *DB, args [][]byte) redis.Reply {
 
 	key := string(args[0])
 	path := "$"
+	explicitPath := false
 	if len(args) > 1 {
 		path = string(args[1])
+		explicitPath = true
 	}
 
 	// Get JSON value
@@ -589,6 +600,9 @@ func execJSONArrLen(db *DB, args [][]byte) redis.Reply {
 		return protocol.MakeErrReply(fmt.Sprintf("ERR %v", err))
 	}
 
+	if explicitPath && strings.HasPrefix(path, "$") {
+		return protocol.MakeMultiRawReply([]redis.Reply{protocol.MakeIntReply(int64(length))})
+	}
 	return protocol.MakeIntReply(int64(length))
 }
 
@@ -910,8 +924,10 @@ func execJSONObjLen(db *DB, args [][]byte) redis.Reply {
 
 	key := string(args[0])
 	path := "$"
+	explicitPath := false
 	if len(args) > 1 {
 		path = string(args[1])
+		explicitPath = true
 	}
 
 	// Get JSON value
@@ -930,6 +946,9 @@ func execJSONObjLen(db *DB, args [][]byte) redis.Reply {
 		return protocol.MakeErrReply(fmt.Sprintf("ERR %v", err))
 	}
 
+	if explicitPath && strings.HasPrefix(path, "$") {
+		return protocol.MakeMultiRawReply([]redis.Reply{protocol.MakeIntReply(int64(length))})
+	}
 	return protocol.MakeIntReply(int64(length))
 }
 
