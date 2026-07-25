@@ -1,6 +1,7 @@
 package probabilistic
 
 import (
+	"encoding/json"
 	"math"
 	"sort"
 )
@@ -307,4 +308,47 @@ func (td *TDigest) Info() map[string]interface{} {
 		"mean":        td.Mean(),
 		"stdDev":      td.StdDev(),
 	}
+}
+
+type tdigestWire struct {
+	Centroids   []Centroid `json:"c"`
+	Compression float64    `json:"comp"`
+	Count       float64    `json:"n"`
+	Sum         float64    `json:"sum"`
+	SumSq       float64    `json:"sumsq"`
+	Min         float64    `json:"min"`
+	Max         float64    `json:"max"`
+}
+
+// EncodeJSON serializes T-Digest for Godis opaque DUMP/RESTORE.
+func (td *TDigest) EncodeJSON() ([]byte, error) {
+	return json.Marshal(tdigestWire{
+		Centroids:   td.centroids,
+		Compression: td.compression,
+		Count:       td.count,
+		Sum:         td.sum,
+		SumSq:       td.sumSq,
+		Min:         td.min,
+		Max:         td.max,
+	})
+}
+
+// DecodeTDigest restores T-Digest from EncodeJSON output.
+func DecodeTDigest(data []byte) (*TDigest, error) {
+	var w tdigestWire
+	if err := json.Unmarshal(data, &w); err != nil {
+		return nil, err
+	}
+	if w.Compression <= 0 {
+		w.Compression = 100
+	}
+	return &TDigest{
+		centroids:   w.Centroids,
+		compression: w.Compression,
+		count:       w.Count,
+		sum:         w.Sum,
+		sumSq:       w.SumSq,
+		min:         w.Min,
+		max:         w.Max,
+	}, nil
 }

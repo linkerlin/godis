@@ -148,8 +148,16 @@ func execAuth(db *DB, args [][]byte) redis.Reply {
 
 // Hello negotiates RESP version and optionally authenticates the connection.
 func Hello(c redis.Connection, args [][]byte) redis.Reply {
+	return HelloWithRole(c, args, "master")
+}
+
+// HelloWithRole is HELLO with an explicit replication role ("master"/"slave").
+func HelloWithRole(c redis.Connection, args [][]byte, role string) redis.Reply {
 	protoVersion := 2
 	var username, password, clientName string
+	if role == "" {
+		role = "master"
+	}
 
 	i := 0
 	for i < len(args) {
@@ -210,7 +218,7 @@ func Hello(c redis.Connection, args [][]byte) redis.Reply {
 		m.Put("proto", protocol.MakeBulkReply([]byte(strconv.Itoa(protoVersion))))
 		m.Put("id", protocol.MakeBulkReply([]byte(clientID)))
 		m.Put("mode", protocol.MakeBulkReply([]byte("standalone")))
-		m.Put("role", protocol.MakeBulkReply([]byte("master")))
+		m.Put("role", protocol.MakeBulkReply([]byte(role)))
 		m.Put("modules", protocol.MakeEmptyMultiBulkReply())
 		return m
 	}
@@ -221,7 +229,7 @@ func Hello(c redis.Connection, args [][]byte) redis.Reply {
 	result = append(result, []byte("proto"), []byte(strconv.Itoa(protoVersion)))
 	result = append(result, []byte("id"), []byte(clientID))
 	result = append(result, []byte("mode"), []byte("standalone"))
-	result = append(result, []byte("role"), []byte("master"))
+	result = append(result, []byte("role"), []byte(role))
 	result = append(result, []byte("modules"))
 	result = append(result, protocol.MakeEmptyMultiBulkReply().ToBytes())
 	return protocol.MakeMultiBulkReply(result)

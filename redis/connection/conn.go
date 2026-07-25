@@ -65,6 +65,7 @@ type Connection struct {
 	replyMode       int // 0=ON, 1=OFF, 2=SKIP (suppress next)
 	createdAt       time.Time
 	lastActive      time.Time
+	localAddr       string // optional override / cached local bind address
 }
 
 var connPool = sync.Pool{
@@ -75,7 +76,26 @@ var connPool = sync.Pool{
 
 // RemoteAddr returns the remote network address
 func (c *Connection) RemoteAddr() string {
+	if c.conn == nil {
+		return ""
+	}
 	return c.conn.RemoteAddr().String()
+}
+
+// LocalAddr returns the local network address of the connection.
+func (c *Connection) LocalAddr() string {
+	if c.localAddr != "" {
+		return c.localAddr
+	}
+	if c.conn == nil {
+		return ""
+	}
+	return c.conn.LocalAddr().String()
+}
+
+// SetLocalAddr sets/overrides the local address (tests / synthetic conns).
+func (c *Connection) SetLocalAddr(addr string) {
+	c.localAddr = addr
 }
 
 // Close disconnect with the client

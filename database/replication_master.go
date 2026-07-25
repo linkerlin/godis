@@ -289,6 +289,7 @@ func (server *Server) masterFullReSyncWithSlave(slave *slaveClient) error {
 
 	// set slave as online
 	server.setSlaveOnline(slave, currentOffset)
+	noteSyncFull()
 	return nil
 }
 
@@ -298,10 +299,12 @@ func (server *Server) masterTryPartialSyncWithSlave(slave *slaveClient, replId s
 	server.masterStatus.mu.RLock()
 	if replId != server.masterStatus.replId {
 		server.masterStatus.mu.RUnlock()
+		noteSyncPartialErr()
 		return cannotPartialSync
 	}
 	if !server.masterStatus.backlog.isValidOffset(slaveOffset) {
 		server.masterStatus.mu.RUnlock()
+		noteSyncPartialErr()
 		return cannotPartialSync
 	}
 	backlog, currentOffset := server.masterStatus.backlog.getSnapshotAfter(slaveOffset)
@@ -321,6 +324,7 @@ func (server *Server) masterTryPartialSyncWithSlave(slave *slaveClient, replId s
 
 	// set slave online
 	server.setSlaveOnline(slave, currentOffset)
+	noteSyncPartialOK()
 	return nil
 }
 

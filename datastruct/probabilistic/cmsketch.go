@@ -1,6 +1,7 @@
 package probabilistic
 
 import (
+	"encoding/json"
 	"fmt"
 	"hash/fnv"
 	"math"
@@ -113,3 +114,42 @@ func (cms *CountMinSketch) hash(item []byte, row uint) uint {
 
 // ErrCMSDimensionMismatch is returned when CMS dimensions don't match
 var ErrCMSDimensionMismatch = fmt.Errorf("CMS dimension mismatch")
+
+type cmsWire struct {
+	Width uint       `json:"w"`
+	Depth uint       `json:"d"`
+	Count uint64     `json:"c"`
+	Table [][]uint64 `json:"t"`
+}
+
+// EncodeJSON serializes the sketch for Godis opaque DUMP/RESTORE.
+func (cms *CountMinSketch) EncodeJSON() ([]byte, error) {
+	return json.Marshal(cmsWire{
+		Width: cms.width,
+		Depth: cms.depth,
+		Count: cms.count,
+		Table: cms.table,
+	})
+}
+
+// DecodeCountMinSketch restores a sketch from EncodeJSON output.
+func DecodeCountMinSketch(data []byte) (*CountMinSketch, error) {
+	var w cmsWire
+	if err := json.Unmarshal(data, &w); err != nil {
+		return nil, err
+	}
+	if w.Width == 0 || w.Depth == 0 || uint(len(w.Table)) != w.Depth {
+		return nil, fmt.Errorf("invalid cms data")
+	}
+	for _, row := range w.Table {
+		if uint(len(row)) != w.Width {
+			return nil, fmt.Errorf("invalid cms data")
+		}
+	}
+	return &CountMinSketch{
+		table: w.Table,
+		width: w.Width,
+		depth: w.Depth,
+		count: w.Count,
+	}, nil
+}

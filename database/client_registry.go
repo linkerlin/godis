@@ -59,6 +59,22 @@ func clientAddr(c redis.Connection) string {
 	return addr
 }
 
+func clientLocalAddr(c redis.Connection) string {
+	if t, ok := c.(interface{ LocalAddr() string }); ok {
+		if a := t.LocalAddr(); a != "" {
+			return a
+		}
+	}
+	return "127.0.0.1:6399"
+}
+
+func clientAgeSeconds(c redis.Connection) int64 {
+	if t, ok := c.(interface{ AgeSeconds() int64 }); ok {
+		return t.AgeSeconds()
+	}
+	return 0
+}
+
 func formatClientListLine(c redis.Connection) string {
 	flags := "N"
 	typ := clientConnType(c)
@@ -82,8 +98,8 @@ func formatClientListLine(c redis.Connection) string {
 		idle = t.IdleSeconds()
 	}
 	return fmt.Sprintf(
-		"id=%d addr=%s fd=0 name=%s age=%d idle=%d flags=%s db=%d sub=%d psub=%d multi=-1 qbuf=0 qbuf-free=0 obl=0 oll=0 omem=0 events=r cmd=client lib-name=%s lib-ver=%s",
-		c.GetClientID(), clientAddr(c), c.GetClientName(), age, idle, flags, c.GetDBIndex(), c.SubsCount(), c.PSubsCount(), libName, libVer,
+		"id=%d addr=%s laddr=%s fd=0 name=%s age=%d idle=%d flags=%s db=%d sub=%d psub=%d multi=-1 qbuf=0 qbuf-free=0 obl=0 oll=0 omem=0 events=r cmd=client lib-name=%s lib-ver=%s",
+		c.GetClientID(), clientAddr(c), clientLocalAddr(c), c.GetClientName(), age, idle, flags, c.GetDBIndex(), c.SubsCount(), c.PSubsCount(), libName, libVer,
 	)
 }
 
@@ -139,8 +155,10 @@ func execClientKillConn(c redis.Connection, args [][]byte) redis.Reply {
 	skipMe := true
 	filterID := int64(-1)
 	filterAddr := ""
+	filterLAddr := ""
 	filterType := ""
 	filterUser := ""
+	filterMaxAge := int64(-1)
 	oldStyle := false
 
 	if len(args) == 1 {
@@ -166,6 +184,12 @@ func execClientKillConn(c redis.Connection, args [][]byte) redis.Reply {
 				}
 				filterAddr = string(args[i+1])
 				i += 2
+			case "LADDR":
+				if i+1 >= len(args) {
+					return protocol.MakeSyntaxErrReply()
+				}
+				filterLAddr = string(args[i+1])
+				i += 2
 			case "TYPE":
 				if i+1 >= len(args) {
 					return protocol.MakeSyntaxErrReply()
@@ -186,6 +210,16 @@ func execClientKillConn(c redis.Connection, args [][]byte) redis.Reply {
 				}
 				filterUser = string(args[i+1])
 				i += 2
+			case "MAXAGE":
+				if i+1 >= len(args) {
+					return protocol.MakeSyntaxErrReply()
+				}
+				n, err := strconv.ParseInt(string(args[i+1]), 10, 64)
+				if err != nil || n < 0 {
+					return protocol.MakeErrReply("ERR value is not an integer or out of range")
+				}
+				filterMaxAge = n
+				i += 2
 			case "SKIPME":
 				if i+1 >= len(args) {
 					return protocol.MakeSyntaxErrReply()
@@ -196,12 +230,6 @@ func execClientKillConn(c redis.Connection, args [][]byte) redis.Reply {
 				} else if v == "NO" {
 					skipMe = false
 				} else {
-					return protocol.MakeSyntaxErrReply()
-				}
-				i += 2
-			case "LADDR", "MAXAGE":
-				// Accepted for compatibility; not applied yet.
-				if i+1 >= len(args) {
 					return protocol.MakeSyntaxErrReply()
 				}
 				i += 2
@@ -222,10 +250,16 @@ func execClientKillConn(c redis.Connection, args [][]byte) redis.Reply {
 		if filterAddr != "" && clientAddr(other) != filterAddr {
 			return true
 		}
+		if filterLAddr != "" && clientLocalAddr(other) != filterLAddr {
+			return true
+		}
 		if filterType != "" && clientConnType(other) != filterType {
 			return true
 		}
 		if filterUser != "" && other.GetACLUser() != filterUser {
+			return true
+		}
+		if filterMaxAge >= 0 && clientAgeSeconds(other) < filterMaxAge {
 			return true
 		}
 		_ = other.Close()

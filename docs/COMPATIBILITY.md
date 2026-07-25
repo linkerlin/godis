@@ -66,9 +66,14 @@
 | INFO stats | ✅ instantaneous_ops_per_sec；pubsub_channels/patterns 接 hub |
 | SCRIPT/FUNCTION FLUSH | ✅ 校验 SYNC\|ASYNC 模式参数 |
 | CLIENT KILL TYPE/USER | ✅ 按类型与 ACL 用户过滤 |
+| CLIENT KILL LADDR/MAXAGE | ✅ 本地地址与最大存活时间过滤 |
+| CLIENT LIST laddr | ✅ 输出 `laddr=` |
 | HELLO id | ✅ 返回真实 client id |
+| HELLO role | ✅ 随主从角色变化（master/slave） |
 | ROLE | ✅ master/slave 角色与副本列表 |
-| DUMP Bloom/HLL | ✅ Godis opaque（非 Redis 互通） |
+| DUMP Bloom/HLL/Cuckoo | ✅ Godis opaque（非 Redis 互通） |
+| DUMP CMS/TopK/TDigest | ✅ Godis opaque（非 Redis 互通） |
+| INFO sync_* | ✅ sync_full / sync_partial_ok / sync_partial_err 计数（RESETSTAT 清零） |
 | MONITOR | ✅ 流式广播（`BroadcastMonitor`） |
 | FAILOVER | ✅ 最小子集（ABORT/FORCE/TO/TIMEOUT）；完整协调切换仍缺 |
 | CLIENT UNBLOCK | ✅ 可唤醒 BLPOP/BZPOP/XREAD 等 |

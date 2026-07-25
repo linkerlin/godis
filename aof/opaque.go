@@ -26,6 +26,10 @@ const (
 	opaqueTimeSeries = "ts"
 	opaqueExpireDict = "hexpire"
 	opaqueBloom      = "bloom"
+	opaqueCuckoo     = "cuckoo"
+	opaqueCMS        = "cms"
+	opaqueTopK       = "topk"
+	opaqueTDigest    = "tdigest"
 )
 
 type opaqueEnvelope struct {
@@ -106,6 +110,18 @@ func EncodeOpaque(entity *database.DataEntity) (payload []byte, ok bool) {
 	case *probabilistic.BloomFilter:
 		typ = opaqueBloom
 		raw, err = json.Marshal(v.MarshalBinary()) // base64 JSON string; binary is not RawMessage-safe
+	case *probabilistic.CuckooFilter:
+		typ = opaqueCuckoo
+		raw, err = json.Marshal(v.MarshalBinary())
+	case *probabilistic.CountMinSketch:
+		typ = opaqueCMS
+		raw, err = v.EncodeJSON()
+	case *probabilistic.TopK:
+		typ = opaqueTopK
+		raw, err = v.EncodeJSON()
+	case *probabilistic.TDigest:
+		typ = opaqueTDigest
+		raw, err = v.EncodeJSON()
 	default:
 		return nil, false
 	}
@@ -172,6 +188,34 @@ func DecodeOpaque(payload []byte) (entity *database.DataEntity, ok bool) {
 			return nil, false
 		}
 		return &database.DataEntity{Data: bf}, true
+	case opaqueCuckoo:
+		var bin []byte
+		if err := json.Unmarshal(env.Data, &bin); err != nil {
+			return nil, false
+		}
+		cf, err := probabilistic.UnmarshalCuckooFilter(bin)
+		if err != nil {
+			return nil, false
+		}
+		return &database.DataEntity{Data: cf}, true
+	case opaqueCMS:
+		cms, err := probabilistic.DecodeCountMinSketch(env.Data)
+		if err != nil {
+			return nil, false
+		}
+		return &database.DataEntity{Data: cms}, true
+	case opaqueTopK:
+		tk, err := probabilistic.DecodeTopK(env.Data)
+		if err != nil {
+			return nil, false
+		}
+		return &database.DataEntity{Data: tk}, true
+	case opaqueTDigest:
+		td, err := probabilistic.DecodeTDigest(env.Data)
+		if err != nil {
+			return nil, false
+		}
+		return &database.DataEntity{Data: td}, true
 	default:
 		return nil, false
 	}

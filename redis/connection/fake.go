@@ -25,6 +25,7 @@ func NewFakeConn() *FakeConn {
 	c.createdAt = now
 	c.lastActive = now
 	c.clientID = globalClientID.Add(1)
+	c.localAddr = "127.0.0.1:6399"
 	return c
 }
 

@@ -29,6 +29,25 @@ type ServerStats struct {
 
 var serverStats = &ServerStats{}
 
+// Replication sync counters for INFO stats (Redis-compatible field names).
+var (
+	syncFullCount       uint64
+	syncPartialOKCount  uint64
+	syncPartialErrCount uint64
+)
+
+func noteSyncFull() {
+	atomic.AddUint64(&syncFullCount, 1)
+}
+
+func noteSyncPartialOK() {
+	atomic.AddUint64(&syncPartialOKCount, 1)
+}
+
+func noteSyncPartialErr() {
+	atomic.AddUint64(&syncPartialErrCount, 1)
+}
+
 // Sliding 1-second window for INFO instantaneous_ops_per_sec.
 var (
 	opsWindowSec      int64
@@ -73,6 +92,9 @@ func resetServerStats() {
 	resetOpsWindow()
 	stats.Reset()
 	atomic.StoreUint64(&tcp.RejectedConnections, 0)
+	atomic.StoreUint64(&syncFullCount, 0)
+	atomic.StoreUint64(&syncPartialOKCount, 0)
+	atomic.StoreUint64(&syncPartialErrCount, 0)
 }
 
 // Ping the server
@@ -246,9 +268,9 @@ func GenGodisInfoString(section string, db *Server) []byte {
 			getInstantaneousInputKbps(),
 			getInstantaneousOutputKbps(),
 			tcp.GetRejectedConnections(),
-			uint64(0), // sync_full - TODO
-			uint64(0), // sync_partial_ok - TODO
-			uint64(0), // sync_partial_err - TODO
+			atomic.LoadUint64(&syncFullCount),
+			atomic.LoadUint64(&syncPartialOKCount),
+			atomic.LoadUint64(&syncPartialErrCount),
 			serverStats.ExpiredKeys,
 			getExpiredStalePerc(),
 			uint64(0), // expired_time_cap_reached_count - TODO

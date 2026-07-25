@@ -2,7 +2,10 @@ package probabilistic
 
 import (
 	"container/heap"
+	"encoding/json"
+	"fmt"
 	"hash/fnv"
+	"sort"
 )
 
 // TopK maintains the top-k frequent items
@@ -166,4 +169,62 @@ func (tk *TopK) hash(item []byte) uint64 {
 	h := fnv.New64a()
 	h.Write(item)
 	return h.Sum64()
+}
+
+type topKItemWire struct {
+	Item  string `json:"i"`
+	Count uint64 `json:"c"`
+	Error uint64 `json:"e"`
+}
+
+type topKWire struct {
+	K     int            `json:"k"`
+	Width int            `json:"w"`
+	Depth int            `json:"d"`
+	Decay float64        `json:"decay"`
+	Items []topKItemWire `json:"items"`
+}
+
+// EncodeJSON serializes Top-K for Godis opaque DUMP/RESTORE.
+func (tk *TopK) EncodeJSON() ([]byte, error) {
+	items := make([]topKItemWire, 0, len(tk.items))
+	for _, it := range tk.items {
+		items = append(items, topKItemWire{Item: it.Item, Count: it.Count, Error: it.Error})
+	}
+	return json.Marshal(topKWire{
+		K:     tk.k,
+		Width: tk.width,
+		Depth: tk.depth,
+		Decay: tk.decay,
+		Items: items,
+	})
+}
+
+// DecodeTopK restores Top-K from EncodeJSON output.
+func DecodeTopK(data []byte) (*TopK, error) {
+	var w topKWire
+	if err := json.Unmarshal(data, &w); err != nil {
+		return nil, err
+	}
+	if w.K <= 0 {
+		return nil, fmt.Errorf("invalid topk data")
+	}
+	tk := NewTopKOpts(w.K, w.Width, w.Depth, w.Decay)
+	rankedItems := make([]*TopKItem, 0, len(w.Items))
+	for _, it := range w.Items {
+		item := &TopKItem{Item: it.Item, Count: it.Count, Error: it.Error, index: -1}
+		tk.items[it.Item] = item
+		rankedItems = append(rankedItems, item)
+	}
+	sort.Slice(rankedItems, func(i, j int) bool {
+		return rankedItems[i].Count > rankedItems[j].Count
+	})
+	limit := tk.k
+	if limit > len(rankedItems) {
+		limit = len(rankedItems)
+	}
+	for i := 0; i < limit; i++ {
+		heap.Push(tk.minHeap, rankedItems[i])
+	}
+	return tk, nil
 }

@@ -222,7 +222,11 @@ func (server *Server) Exec(c redis.Connection, cmdLine [][]byte) (result redis.R
 		return Auth(c, cmdLine[1:])
 	}
 	if cmdName == "hello" {
-		return Hello(c, cmdLine[1:])
+		roleName := "master"
+		if atomic.LoadInt32(&server.role) == slaveRole {
+			roleName = "slave"
+		}
+		return HelloWithRole(c, cmdLine[1:], roleName)
 	}
 	if !isAuthenticated(c) {
 		return protocol.MakeErrReply("NOAUTH Authentication required")
