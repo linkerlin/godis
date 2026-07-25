@@ -65,6 +65,10 @@
 | CLIENT PAUSE | ✅ WRITE/ALL 在 Exec 路径真正阻塞（UNPAUSE/CLIENT 豁免） |
 | INFO stats | ✅ instantaneous_ops_per_sec；pubsub_channels/patterns 接 hub |
 | SCRIPT/FUNCTION FLUSH | ✅ 校验 SYNC\|ASYNC 模式参数 |
+| CLIENT KILL TYPE/USER | ✅ 按类型与 ACL 用户过滤 |
+| HELLO id | ✅ 返回真实 client id |
+| ROLE | ✅ master/slave 角色与副本列表 |
+| DUMP Bloom/HLL | ✅ Godis opaque（非 Redis 互通） |
 | MONITOR | ✅ 流式广播（`BroadcastMonitor`） |
 | FAILOVER | ✅ 最小子集（ABORT/FORCE/TO/TIMEOUT）；完整协调切换仍缺 |
 | CLIENT UNBLOCK | ✅ 可唤醒 BLPOP/BZPOP/XREAD 等 |

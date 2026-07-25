@@ -194,11 +194,13 @@ func Hello(c redis.Connection, args [][]byte) redis.Reply {
 		bindAuthToConnection(c, username, password)
 	}
 
+	clientID := "0"
 	if c != nil {
 		c.SetProtocolVersion(protoVersion)
 		if clientName != "" {
 			c.SetClientName(clientName)
 		}
+		clientID = strconv.FormatInt(c.GetClientID(), 10)
 	}
 
 	if protoVersion == 3 {
@@ -206,7 +208,7 @@ func Hello(c redis.Connection, args [][]byte) redis.Reply {
 		m.Put("server", protocol.MakeBulkReply([]byte("godis")))
 		m.Put("version", protocol.MakeBulkReply([]byte("8.0.0")))
 		m.Put("proto", protocol.MakeBulkReply([]byte(strconv.Itoa(protoVersion))))
-		m.Put("id", protocol.MakeBulkReply([]byte("1")))
+		m.Put("id", protocol.MakeBulkReply([]byte(clientID)))
 		m.Put("mode", protocol.MakeBulkReply([]byte("standalone")))
 		m.Put("role", protocol.MakeBulkReply([]byte("master")))
 		m.Put("modules", protocol.MakeEmptyMultiBulkReply())
@@ -217,7 +219,7 @@ func Hello(c redis.Connection, args [][]byte) redis.Reply {
 	result = append(result, []byte("server"), []byte("godis"))
 	result = append(result, []byte("version"), []byte("8.0.0"))
 	result = append(result, []byte("proto"), []byte(strconv.Itoa(protoVersion)))
-	result = append(result, []byte("id"), []byte("1"))
+	result = append(result, []byte("id"), []byte(clientID))
 	result = append(result, []byte("mode"), []byte("standalone"))
 	result = append(result, []byte("role"), []byte("master"))
 	result = append(result, []byte("modules"))

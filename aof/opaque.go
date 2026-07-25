@@ -7,6 +7,7 @@ import (
 
 	"github.com/linkerlin/godis/datastruct/dict"
 	godisjson "github.com/linkerlin/godis/datastruct/json"
+	"github.com/linkerlin/godis/datastruct/probabilistic"
 	"github.com/linkerlin/godis/datastruct/stream"
 	"github.com/linkerlin/godis/datastruct/timeseries"
 	"github.com/linkerlin/godis/datastruct/vector"
@@ -24,6 +25,7 @@ const (
 	opaqueVector     = "vector"
 	opaqueTimeSeries = "ts"
 	opaqueExpireDict = "hexpire"
+	opaqueBloom      = "bloom"
 )
 
 type opaqueEnvelope struct {
@@ -101,6 +103,9 @@ func EncodeOpaque(entity *database.DataEntity) (payload []byte, ok bool) {
 	case *dict.ExpireDict:
 		typ = opaqueExpireDict
 		raw, err = json.Marshal(dumpExpireDict(v))
+	case *probabilistic.BloomFilter:
+		typ = opaqueBloom
+		raw, err = json.Marshal(v.MarshalBinary()) // base64 JSON string; binary is not RawMessage-safe
 	default:
 		return nil, false
 	}
@@ -157,6 +162,16 @@ func DecodeOpaque(payload []byte) (entity *database.DataEntity, ok bool) {
 			return nil, false
 		}
 		return &database.DataEntity{Data: ed}, true
+	case opaqueBloom:
+		var bin []byte
+		if err := json.Unmarshal(env.Data, &bin); err != nil {
+			return nil, false
+		}
+		bf, err := probabilistic.UnmarshalBloomFilter(bin)
+		if err != nil {
+			return nil, false
+		}
+		return &database.DataEntity{Data: bf}, true
 	default:
 		return nil, false
 	}

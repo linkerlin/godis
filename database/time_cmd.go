@@ -34,6 +34,8 @@ func execLolwut(args [][]byte) redis.Reply {
 func init() {
 	registerSpecialCommand("Time", 1, 0).
 		attachCommandExtra([]string{redisFlagRandom, redisFlagLoading, redisFlagStale}, 0, 0, 0)
+	registerSpecialCommand("Role", 1, 0).
+		attachCommandExtra([]string{redisFlagAdmin, redisFlagNoScript, redisFlagLoading, redisFlagStale}, 0, 0, 0)
 	registerSpecialCommand("Lolwut", -1, 0).
 		attachCommandExtra([]string{redisFlagReadonly, redisFlagLoading, redisFlagStale}, 0, 0, 0)
 }

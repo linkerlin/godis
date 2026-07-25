@@ -139,6 +139,8 @@ func execClientKillConn(c redis.Connection, args [][]byte) redis.Reply {
 	skipMe := true
 	filterID := int64(-1)
 	filterAddr := ""
+	filterType := ""
+	filterUser := ""
 	oldStyle := false
 
 	if len(args) == 1 {
@@ -164,6 +166,26 @@ func execClientKillConn(c redis.Connection, args [][]byte) redis.Reply {
 				}
 				filterAddr = string(args[i+1])
 				i += 2
+			case "TYPE":
+				if i+1 >= len(args) {
+					return protocol.MakeSyntaxErrReply()
+				}
+				filterType = strings.ToLower(string(args[i+1]))
+				switch filterType {
+				case "normal", "master", "replica", "slave", "pubsub":
+					if filterType == "slave" {
+						filterType = "replica"
+					}
+				default:
+					return protocol.MakeErrReply("ERR Unknown client type '" + string(args[i+1]) + "'")
+				}
+				i += 2
+			case "USER":
+				if i+1 >= len(args) {
+					return protocol.MakeSyntaxErrReply()
+				}
+				filterUser = string(args[i+1])
+				i += 2
 			case "SKIPME":
 				if i+1 >= len(args) {
 					return protocol.MakeSyntaxErrReply()
@@ -177,8 +199,8 @@ func execClientKillConn(c redis.Connection, args [][]byte) redis.Reply {
 					return protocol.MakeSyntaxErrReply()
 				}
 				i += 2
-			case "TYPE", "USER", "LADDR", "MAXAGE":
-				// Accepted for compatibility; not applied.
+			case "LADDR", "MAXAGE":
+				// Accepted for compatibility; not applied yet.
 				if i+1 >= len(args) {
 					return protocol.MakeSyntaxErrReply()
 				}
@@ -198,6 +220,12 @@ func execClientKillConn(c redis.Connection, args [][]byte) redis.Reply {
 			return true
 		}
 		if filterAddr != "" && clientAddr(other) != filterAddr {
+			return true
+		}
+		if filterType != "" && clientConnType(other) != filterType {
+			return true
+		}
+		if filterUser != "" && other.GetACLUser() != filterUser {
 			return true
 		}
 		_ = other.Close()

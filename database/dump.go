@@ -3,6 +3,7 @@ package database
 import (
 	"bytes"
 	"encoding/binary"
+	"encoding/json"
 	"strconv"
 	"strings"
 	"time"
@@ -209,6 +210,8 @@ func decodeDumpPayload(payload []byte) (*database.DataEntity, error) {
 			str := o.(*rdb.StringObject)
 			if restored, ok := aof.DecodeOpaque(str.Value); ok {
 				entity = restored
+			} else if restored, ok := decodeDumpExtraOpaque(str.Value); ok {
+				entity = restored
 			} else {
 				entity = &database.DataEntity{Data: str.Value}
 			}
@@ -303,6 +306,12 @@ func writeEntityToRDB(enc *rdbenc.Encoder, key string, entity *database.DataEnti
 			return errDumpUnsupported("ExpireDict opaque encode failed")
 		}
 		return enc.WriteStringObject(key, payload)
+	case *HLL:
+		payload, err := encodeHLLOpaque(val)
+		if err != nil {
+			return errDumpUnsupported(err.Error())
+		}
+		return enc.WriteStringObject(key, payload)
 	case Dict.Dict:
 		hash := make(map[string][]byte)
 		val.ForEach(func(field string, v interface{}) bool {
@@ -314,13 +323,56 @@ func writeEntityToRDB(enc *rdbenc.Encoder, key string, entity *database.DataEnti
 		})
 		return enc.WriteHashMapObject(key, hash)
 	default:
-		// stream / JSON / vector / timeseries → Godis opaque string (not Redis-wire)
+		// stream / JSON / vector / timeseries / bloom → Godis opaque string (not Redis-wire)
 		payload, ok := aof.EncodeOpaque(entity)
 		if !ok {
 			return errDumpUnsupported("DUMP not implemented for this data type")
 		}
 		return enc.WriteStringObject(key, payload)
 	}
+}
+
+// HLL lives in package database; encode with the same GODIS1 envelope aof uses.
+var dumpOpaqueMagic = []byte("GODIS1\x00")
+
+type dumpOpaqueEnv struct {
+	Type string          `json:"t"`
+	Data json.RawMessage `json:"d"`
+}
+
+func encodeHLLOpaque(h *HLL) ([]byte, error) {
+	raw, err := json.Marshal(h.registers)
+	if err != nil {
+		return nil, err
+	}
+	env, err := json.Marshal(dumpOpaqueEnv{Type: "hll", Data: raw})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]byte, 0, len(dumpOpaqueMagic)+len(env))
+	out = append(out, dumpOpaqueMagic...)
+	out = append(out, env...)
+	return out, nil
+}
+
+func decodeDumpExtraOpaque(payload []byte) (*database.DataEntity, bool) {
+	if !aof.IsOpaquePayload(payload) {
+		return nil, false
+	}
+	var env dumpOpaqueEnv
+	if err := json.Unmarshal(payload[len(dumpOpaqueMagic):], &env); err != nil {
+		return nil, false
+	}
+	if env.Type != "hll" {
+		return nil, false
+	}
+	var regs []uint8
+	if err := json.Unmarshal(env.Data, &regs); err != nil || len(regs) != hllRegisters {
+		return nil, false
+	}
+	h := NewHLL()
+	copy(h.registers, regs)
+	return &database.DataEntity{Data: h}, true
 }
 
 type dumpError string

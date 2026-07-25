@@ -292,6 +292,8 @@ func (server *Server) Exec(c redis.Connection, cmdLine [][]byte) (result redis.R
 		return execModule(cmdLine[1:])
 	} else if cmdName == "time" {
 		return execTime(cmdLine[1:])
+	} else if cmdName == "role" {
+		return server.execRole(cmdLine[1:])
 	} else if cmdName == "lolwut" {
 		return execLolwut(cmdLine[1:])
 	} else if cmdName == "pubsub" {
