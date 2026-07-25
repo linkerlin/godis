@@ -382,7 +382,7 @@ func (server *Server) Exec(c redis.Connection, cmdLine [][]byte) (result redis.R
 		return server.execWait(cmdLine[1:])
 	} else if cmdName == "select" {
 		if c != nil && c.InMultiState() {
-			return protocol.MakeErrReply("cannot select database within multi")
+			return protocol.MakeErrReply("ERR cannot select database within MULTI")
 		}
 		if len(cmdLine) != 2 {
 			return protocol.MakeArgNumErrReply("select")

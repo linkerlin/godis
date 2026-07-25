@@ -89,6 +89,7 @@ func getConfigMatches(pattern string) []configPair {
 		{"proto-max-bulk-len", strconv.FormatInt(config.Properties.ProtoMaxBulkLen, 10)},
 		{"save", config.Properties.Save},
 		{"tcp-backlog", strconv.Itoa(config.Properties.TCPBacklog)},
+		{"hz", strconv.Itoa(getServerHz())},
 		{"slowlog-log-slower-than", strconv.FormatInt(config.Properties.SlowLogSlowerThan, 10)},
 		{"slowlog-max-len", strconv.Itoa(config.Properties.SlowLogMaxLen)},
 		{"acllog-max-len", strconv.Itoa(config.Properties.AclLogMaxLen)},
@@ -213,6 +214,12 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 				return protocol.MakeErrReply(fmt.Sprintf("ERR Invalid value for '%s'", key))
 			}
 			config.Properties.TCPBacklog = n
+		case "hz":
+			n, err := strconv.Atoi(value)
+			if err != nil || n < 1 || n > 500 {
+				return protocol.MakeErrReply(fmt.Sprintf("ERR Invalid value for '%s'", key))
+			}
+			config.Properties.Hz = n
 		case "slowlog-log-slower-than":
 			n, err := strconv.ParseInt(value, 10, 64)
 			if err != nil {

@@ -112,8 +112,18 @@ func execJSONGet(db *DB, args [][]byte) redis.Reply {
 	if errReply != nil {
 		return errReply
 	}
+
+	// No path: RedisJSON returns the root document unwrapped.
 	if len(paths) == 0 {
-		paths = []string{"$"}
+		val, err := jv.Get("$")
+		if err != nil {
+			return &protocol.NullBulkReply{}
+		}
+		result, err := marshalJSONGet(val, opts)
+		if err != nil {
+			return protocol.MakeErrReply(fmt.Sprintf("ERR %v", err))
+		}
+		return protocol.MakeBulkReply(result)
 	}
 
 	if len(paths) == 1 {
@@ -121,6 +131,7 @@ func execJSONGet(db *DB, args [][]byte) redis.Reply {
 		if err != nil {
 			return &protocol.NullBulkReply{}
 		}
+		val = wrapEnhancedJSONPathValue(paths[0], val)
 		result, err := marshalJSONGet(val, opts)
 		if err != nil {
 			return protocol.MakeErrReply(fmt.Sprintf("ERR %v", err))
@@ -137,6 +148,7 @@ func execJSONGet(db *DB, args [][]byte) redis.Reply {
 		if err != nil {
 			continue
 		}
+		val = wrapEnhancedJSONPathValue(path, val)
 		if !first {
 			b.WriteByte(',')
 		}
@@ -163,6 +175,14 @@ func execJSONGet(db *DB, args [][]byte) redis.Reply {
 		}
 	}
 	return protocol.MakeBulkReply(result)
+}
+
+// wrapEnhancedJSONPathValue wraps RedisJSON `$…` path results in a JSON array.
+func wrapEnhancedJSONPathValue(path string, val interface{}) interface{} {
+	if strings.HasPrefix(path, "$") {
+		return []interface{}{val}
+	}
+	return val
 }
 
 type jsonGetFormatOpts struct {
@@ -303,8 +323,10 @@ func execJSONType(db *DB, args [][]byte) redis.Reply {
 
 	key := string(args[0])
 	path := "$"
+	explicitPath := false
 	if len(args) > 1 {
 		path = string(args[1])
+		explicitPath = true
 	}
 
 	// Get JSON value
@@ -323,6 +345,9 @@ func execJSONType(db *DB, args [][]byte) redis.Reply {
 		return &protocol.NullBulkReply{}
 	}
 
+	if explicitPath && strings.HasPrefix(path, "$") {
+		return protocol.MakeMultiBulkReply([][]byte{[]byte(typ)})
+	}
 	return protocol.MakeBulkReply([]byte(typ))
 }
 

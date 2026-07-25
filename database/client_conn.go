@@ -58,6 +58,9 @@ func execClientConn(c redis.Connection, db *DB, args [][]byte) redis.Reply {
 }
 
 func execClientSetNameConn(c redis.Connection, args [][]byte) redis.Reply {
+	if c == nil {
+		return protocol.MakeErrReply("ERR CLIENT SETNAME requires a client connection")
+	}
 	if len(args) != 1 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'client|setname' command")
 	}
@@ -70,6 +73,9 @@ func execClientSetNameConn(c redis.Connection, args [][]byte) redis.Reply {
 }
 
 func execClientGetNameConn(c redis.Connection, args [][]byte) redis.Reply {
+	if c == nil {
+		return protocol.MakeErrReply("ERR CLIENT GETNAME requires a client connection")
+	}
 	if len(args) != 0 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'client|getname' command")
 	}
@@ -80,6 +86,9 @@ func execClientGetNameConn(c redis.Connection, args [][]byte) redis.Reply {
 }
 
 func execClientIDConn(c redis.Connection, args [][]byte) redis.Reply {
+	if c == nil {
+		return protocol.MakeErrReply("ERR CLIENT ID requires a client connection")
+	}
 	if len(args) != 0 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'client|id' command")
 	}

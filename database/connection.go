@@ -98,32 +98,20 @@ func execClientKill(args [][]byte) redis.Reply {
 	return execClientKillConn(nil, args)
 }
 
-// execClientSetName sets client name
-// CLIENT SETNAME connection-name
+// execClientSetName sets client name (registry path without conn).
 func execClientSetName(args [][]byte) redis.Reply {
 	if len(args) != 1 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'client|setname' command")
 	}
-
-	name := string(args[0])
-	if strings.Contains(name, " ") {
-		return protocol.MakeErrReply("ERR Client names cannot contain spaces, newlines or special characters.")
-	}
-
-	// Simplified: would store in connection
-	_ = name
-	return protocol.MakeOkReply()
+	return protocol.MakeErrReply("ERR CLIENT SETNAME requires a client connection")
 }
 
-// execClientGetName gets client name
-// CLIENT GETNAME
+// execClientGetName gets client name (registry path without conn).
 func execClientGetName(args [][]byte) redis.Reply {
 	if len(args) != 0 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'client|getname' command")
 	}
-
-	// Simplified: return nil (no name set)
-	return &protocol.NullBulkReply{}
+	return protocol.MakeErrReply("ERR CLIENT GETNAME requires a client connection")
 }
 
 // execClientPause pauses clients
@@ -167,19 +155,15 @@ func execClientUnpause(db *DB, args [][]byte) redis.Reply {
 	return protocol.MakeOkReply()
 }
 
-// execClientID returns current client ID
-// CLIENT ID
+// execClientID returns current client ID (registry path without conn).
 func execClientID(args [][]byte) redis.Reply {
 	if len(args) != 0 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'client|id' command")
 	}
-
-	// Simplified: return 1
-	return protocol.MakeIntReply(1)
+	return protocol.MakeErrReply("ERR CLIENT ID requires a client connection")
 }
 
-// execClientReply controls command replies (legacy path without conn — no-op store).
-// CLIENT REPLY ON|OFF|SKIP
+// execClientReply controls command replies (registry path without conn).
 func execClientReply(args [][]byte) redis.Reply {
 	if len(args) != 1 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'client|reply' command")
@@ -187,7 +171,7 @@ func execClientReply(args [][]byte) redis.Reply {
 	mode := strings.ToUpper(string(args[0]))
 	switch mode {
 	case "ON", "OFF", "SKIP":
-		return protocol.MakeStatusReply("OK")
+		return protocol.MakeErrReply("ERR CLIENT REPLY requires a client connection")
 	default:
 		return protocol.MakeErrReply("ERR syntax error")
 	}

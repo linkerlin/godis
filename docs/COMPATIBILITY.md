@@ -19,7 +19,7 @@
 | 配置 | 中–高 | 布尔解析；CONFIG SET 含 maxmemory/save/tcp-backlog；**eviction 写路径已接**（键数估算）；部分 CF-3 为存取桩 |
 | 概率数据结构 (BF/CF/CMS…) | 中–高 | 见 `database/probabilistic.go`；CF EXPANSION 已接扩容 |
 
-**M2 里程碑：** 至 **M2av** 已含 ACL、Lua bit 全家、FT JSON AS/DIALECT/WITHSORTKEYS 等。仍延期：集群 CRC16/MOVED、HLL 互通、真 HNSW、完整 FAILOVER、精确 `used_memory`、FUNCTION DUMP 官方互通、MIGRATE 等（见计划文档）。
+**M2 里程碑：** 至 **M2aw** 已含 ACL、Lua bit、FT AS/DIALECT、JSON `$` 封装、`hz` 等。仍延期：集群 CRC16/MOVED、HLL 互通、真 HNSW、完整 FAILOVER、精确 `used_memory`、FUNCTION DUMP 官方互通、MIGRATE 等（见计划文档）。
 
 ## 已知差异（抽样，以代码为准）
 
@@ -96,6 +96,9 @@
 | FT SCHEMA AS | ✅ `$.path AS name`（CREATE/ALTER 共用解析） |
 | FT ON JSON 自动索引 | ✅ JSON.SET/DEL 喂/撤索引 |
 | FT.SEARCH DIALECT/WITHSORTKEYS | ✅ DIALECT 接受忽略；WITHSORTKEYS 插入 sortkey |
+| JSON.GET `$` 封装 | ✅ 显式 `$…` 路径包数组；无路径返回裸文档 |
+| CONFIG/INFO hz | ✅ 可配置 hz（默认 10） |
+| CLIENT 无连接 | ✅ SETNAME/GETNAME/ID/REPLY 要求连接 |
 | INFO clients_in_timeout_table | ✅ 对齐 blocked 等待者计数 |
 | SCAN 坏 MATCH | ✅ `ERR Invalid argument` |
 | MONITOR | ✅ 流式广播（`BroadcastMonitor`） |

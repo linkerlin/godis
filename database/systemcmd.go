@@ -187,7 +187,7 @@ func GenGodisInfoString(section string, db *Server) []byte {
 			time.Now().UnixMicro(),
 			int64(startUpTimeFromNow.Seconds()),
 			int64(startUpTimeFromNow.Hours()/24),
-			10, // hz - default event loop frequency
+			getServerHz(),
 			getLRUClock(),
 			config.GetConfigFilePath())
 		return []byte(s)
@@ -511,6 +511,13 @@ func getLRUClock() uint32 {
 
 func getBlockedClientsCount() int64 {
 	return GetBlockedListClientsCount() + GetBlockedStreamClientsCount() + GetBlockedZSetClientsCount()
+}
+
+func getServerHz() int {
+	if config.Properties == nil || config.Properties.Hz <= 0 {
+		return 10
+	}
+	return config.Properties.Hz
 }
 
 func getInstantaneousOpsPerSec() int64 {

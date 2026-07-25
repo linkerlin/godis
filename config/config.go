@@ -69,6 +69,8 @@ type ServerProperties struct {
 	// Autosave is driven by checkSavePoints (PE-4).
 	Save       string `cfg:"save"`
 	TCPBacklog int    `cfg:"tcp-backlog"`
+	// Hz is Redis server cron frequency (INFO hz / CONFIG hz); Godis uses it as a reported value.
+	Hz int `cfg:"hz"`
 
 	ClusterEnable     bool   `cfg:"cluster-enable"`
 	ClusterAsSeed     bool   `cfg:"cluster-as-seed"`
@@ -126,6 +128,7 @@ func init() {
 		AppendOnly:    false,
 		SearchBackend: "native",
 		VectorBackend: "native",
+		Hz:            10,
 		RunID:         utils.RandString(40),
 	}
 }

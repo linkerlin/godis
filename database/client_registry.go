@@ -321,6 +321,9 @@ func execClientNoTouchConn(c redis.Connection, args [][]byte) redis.Reply {
 
 // execClientReplyConn handles CLIENT REPLY ON|OFF|SKIP.
 func execClientReplyConn(c redis.Connection, args [][]byte) redis.Reply {
+	if c == nil {
+		return protocol.MakeErrReply("ERR CLIENT REPLY requires a client connection")
+	}
 	if len(args) != 1 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'client|reply' command")
 	}
