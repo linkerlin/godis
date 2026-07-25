@@ -112,6 +112,7 @@ func NewGopherEngine(dbExec func(cmd string, args ...string) (interface{}, error
 		e.registerRedisAPI(L)
 		registerCJSON(L)
 		registerCMsgPack(L)
+		registerBit(L)
 		return L
 	})
 

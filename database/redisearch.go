@@ -175,7 +175,10 @@ func reindexJSON(db *DB, key string) {
 		}
 		fields := make(map[string]interface{}, len(meta.schema))
 		for _, f := range meta.schema {
-			path := f.Name
+			path := f.Path
+			if path == "" {
+				path = f.Name
+			}
 			if !strings.HasPrefix(path, "$") {
 				path = "$." + path
 			}
@@ -183,14 +186,7 @@ func reindexJSON(db *DB, key string) {
 			if err != nil || val == nil {
 				continue
 			}
-			// Document field name: last path segment or raw name without $.
-			docField := f.Name
-			if strings.HasPrefix(docField, "$.") {
-				docField = docField[2:]
-			} else if docField == "$" {
-				docField = "root"
-			}
-			fields[docField] = val
+			fields[f.Name] = val
 		}
 		engine.DeleteDocument(key)
 		_ = engine.AddDocument(key, fields, 1.0, nil)
@@ -288,86 +284,12 @@ func execFTCreate(db *DB, args [][]byte) redis.Reply {
 		return protocol.MakeErrReply("ERR No schema specified")
 	}
 
-	// Parse schema
-	var fields []*redisearch.Field
-	i := schemaStart
-	for i < len(args) {
-		fieldName := string(args[i])
-		if reply := validateBulkBytes(args[i]); reply != nil {
-			return reply
-		}
-		i++
-
-		if i >= len(args) {
-			return protocol.MakeErrReply(fmt.Sprintf("ERR No type specified for field '%s'", fieldName))
-		}
-
-		fieldType := strings.ToUpper(string(args[i]))
-		field := &redisearch.Field{
-			Name:     fieldName,
-			Weight:   1.0,
-			Stemming: true,
-		}
-
-		switch fieldType {
-		case "TEXT":
-			field.Type = redisearch.FieldTypeText
-		case "NUMERIC":
-			field.Type = redisearch.FieldTypeNumeric
-		case "TAG":
-			field.Type = redisearch.FieldTypeTag
-		case "GEO":
-			field.Type = redisearch.FieldTypeGeo
-		case "VECTOR":
-			field.Type = redisearch.FieldTypeVector
-		default:
-			return protocol.MakeErrReply(fmt.Sprintf("ERR Unknown field type '%s'", fieldType))
-		}
-		i++
-
-		// Parse field options until the next field name (token before a type keyword).
-		for i < len(args) {
-			opt := strings.ToUpper(string(args[i]))
-
-			switch opt {
-			case "SORTABLE":
-				field.Sortable = true
-				i++
-			case "NOINDEX":
-				field.NoIndex = true
-				i++
-			case "NOSTEM":
-				field.Stemming = false
-				i++
-			case "SEPARATOR":
-				if i+1 >= len(args) {
-					return protocol.MakeSyntaxErrReply()
-				}
-				field.Separator = string(args[i+1])
-				i += 2
-			case "WEIGHT":
-				if i+1 >= len(args) {
-					return protocol.MakeSyntaxErrReply()
-				}
-				if reply := validateBulkBytes(args[i+1]); reply != nil {
-					return reply
-				}
-				weight, err := strconv.ParseFloat(string(args[i+1]), 64)
-				if err != nil {
-					return protocol.MakeErrReply("ERR Invalid weight")
-				}
-				field.Weight = weight
-				i += 2
-			default:
-				if i+1 < len(args) && isFTFieldType(string(args[i+1])) {
-					goto nextField
-				}
-				i++
-			}
-		}
-
-	nextField:
-		fields = append(fields, field)
+	fields, errReply := parseFTSchemaFields(args[schemaStart:])
+	if errReply != nil {
+		return errReply
+	}
+	if len(fields) == 0 {
+		return protocol.MakeErrReply("ERR No schema specified")
 	}
 
 	// Create engine

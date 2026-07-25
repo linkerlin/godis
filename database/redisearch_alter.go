@@ -91,13 +91,33 @@ func parseFTSchemaFields(args [][]byte) ([]*redisearch.Field, redis.Reply) {
 	var fields []*redisearch.Field
 	i := 0
 	for i < len(args) {
-		if i+1 >= len(args) {
-			return nil, protocol.MakeSyntaxErrReply()
+		if reply := validateBulkBytes(args[i]); reply != nil {
+			return nil, reply
 		}
-		fieldName := string(args[i])
-		fieldType := strings.ToUpper(string(args[i+1]))
+		ident := string(args[i])
+		i++
+
+		jsonPath := ""
+		if i < len(args) && strings.EqualFold(string(args[i]), "AS") {
+			if i+1 >= len(args) {
+				return nil, protocol.MakeSyntaxErrReply()
+			}
+			if reply := validateBulkBytes(args[i+1]); reply != nil {
+				return nil, reply
+			}
+			jsonPath = ident
+			ident = string(args[i+1])
+			i += 2
+		}
+
+		if i >= len(args) {
+			return nil, protocol.MakeErrReply(fmt.Sprintf("ERR No type specified for field '%s'", ident))
+		}
+
+		fieldType := strings.ToUpper(string(args[i]))
 		field := &redisearch.Field{
-			Name:     fieldName,
+			Name:     ident,
+			Path:     jsonPath,
 			Weight:   1.0,
 			Stemming: true,
 		}
@@ -115,7 +135,7 @@ func parseFTSchemaFields(args [][]byte) ([]*redisearch.Field, redis.Reply) {
 		default:
 			return nil, protocol.MakeErrReply(fmt.Sprintf("ERR Unknown field type '%s'", fieldType))
 		}
-		i += 2
+		i++
 		for i < len(args) {
 			opt := strings.ToUpper(string(args[i]))
 			switch opt {
@@ -147,6 +167,9 @@ func parseFTSchemaFields(args [][]byte) ([]*redisearch.Field, redis.Reply) {
 			default:
 				if i+1 < len(args) && isFTFieldType(string(args[i+1])) {
 					goto next
+				}
+				if strings.EqualFold(string(args[i]), "AS") {
+					return nil, protocol.MakeSyntaxErrReply()
 				}
 				// Unknown token before next field — treat as next field name
 				goto next

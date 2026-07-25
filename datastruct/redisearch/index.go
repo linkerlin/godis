@@ -21,7 +21,8 @@ const (
 
 // Field represents a field definition in the index
 type Field struct {
-	Name      string
+	Name      string // search/document field name (AS alias when set)
+	Path      string // JSON path for ON JSON (empty → derive from Name)
 	Type      FieldType
 	Weight    float64
 	Sortable  bool
