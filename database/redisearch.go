@@ -581,6 +581,72 @@ func execFTSearch(db *DB, args [][]byte) redis.Reply {
 			}
 			opts.TimeoutMs = ms
 			i++ // accept; cancellation not wired
+		case "INFIELDS":
+			if i+1 >= len(args) {
+				return protocol.MakeSyntaxErrReply()
+			}
+			count, err := strconv.Atoi(string(args[i+1]))
+			if err != nil || count < 0 {
+				return protocol.MakeErrReply("ERR Invalid INFIELDS count")
+			}
+			i += 2
+			for j := 0; j < count; j++ {
+				if i >= len(args) {
+					return protocol.MakeSyntaxErrReply()
+				}
+				opts.InFields = append(opts.InFields, string(args[i]))
+				i++
+			}
+			i--
+		case "SUMMARIZE":
+			opts.Summarize = true
+			if opts.SummarizeLen == 0 {
+				opts.SummarizeLen = 20
+			}
+			for i+1 < len(args) {
+				next := strings.ToUpper(string(args[i+1]))
+				if next == "FIELDS" {
+					if i+2 >= len(args) {
+						return protocol.MakeSyntaxErrReply()
+					}
+					n, err := strconv.Atoi(string(args[i+2]))
+					if err != nil || n < 0 {
+						return protocol.MakeErrReply("ERR Invalid SUMMARIZE FIELDS count")
+					}
+					last := i + 2 + n
+					if last >= len(args) {
+						return protocol.MakeSyntaxErrReply()
+					}
+					for j := i + 3; j <= last; j++ {
+						opts.SummarizeFields = append(opts.SummarizeFields, string(args[j]))
+					}
+					i = last
+					continue
+				}
+				if next == "FRAGS" || next == "LEN" {
+					if i+2 >= len(args) {
+						return protocol.MakeSyntaxErrReply()
+					}
+					v, err := strconv.Atoi(string(args[i+2]))
+					if err != nil || v < 0 {
+						return protocol.MakeErrReply("ERR Invalid SUMMARIZE " + next + " value")
+					}
+					if next == "LEN" {
+						opts.SummarizeLen = v
+					}
+					// FRAGS accepted but unused (single-fragment truncate)
+					i += 2
+					continue
+				}
+				if next == "SEPARATOR" {
+					if i+2 >= len(args) {
+						return protocol.MakeSyntaxErrReply()
+					}
+					i += 2 // accept separator; unused in minimal truncate
+					continue
+				}
+				break
+			}
 		case "INKEYS":
 			if i+1 >= len(args) {
 				return protocol.MakeSyntaxErrReply()
@@ -795,18 +861,38 @@ func execFTSearch(db *DB, args [][]byte) redis.Reply {
 			// Return fields
 			var fields [][]byte
 
+			formatVal := func(field string, val interface{}) string {
+				s := fmt.Sprintf("%v", val)
+				if opts.Summarize {
+					if len(opts.SummarizeFields) > 0 {
+						ok := false
+						for _, f := range opts.SummarizeFields {
+							if f == field {
+								ok = true
+								break
+							}
+						}
+						if !ok {
+							return s
+						}
+					}
+					return summarizeFTText(s, opts.SummarizeLen)
+				}
+				return s
+			}
+
 			if len(returnFields) > 0 {
 				for _, field := range returnFields {
 					if val, ok := result.Fields[field]; ok {
 						fields = append(fields, []byte(field))
-						fields = append(fields, []byte(fmt.Sprintf("%v", val)))
+						fields = append(fields, []byte(formatVal(field, val)))
 					}
 				}
 			} else {
 				// Return all fields
 				for k, v := range result.Fields {
 					fields = append(fields, []byte(k))
-					fields = append(fields, []byte(fmt.Sprintf("%v", v)))
+					fields = append(fields, []byte(formatVal(k, v)))
 				}
 			}
 
@@ -828,6 +914,18 @@ func execFTSearch(db *DB, args [][]byte) redis.Reply {
 	}
 
 	return protocol.MakeMultiRawReply(replies)
+}
+
+// summarizeFTText truncates field text for FT.SEARCH SUMMARIZE (minimal single fragment).
+func summarizeFTText(s string, maxLen int) string {
+	if maxLen <= 0 {
+		maxLen = 20
+	}
+	runes := []rune(s)
+	if len(runes) <= maxLen {
+		return s
+	}
+	return string(runes[:maxLen]) + "..."
 }
 
 // execFTAggregate performs an aggregation query

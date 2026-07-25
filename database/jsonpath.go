@@ -3,6 +3,7 @@ package database
 import (
 	"encoding/json"
 	"strconv"
+	"strings"
 
 	godisjson "github.com/linkerlin/godis/datastruct/json"
 	"github.com/linkerlin/godis/interface/redis"
@@ -96,8 +97,10 @@ func execJSONArrPop(db *DB, args [][]byte) redis.Reply {
 	}
 
 	path := "$"
+	explicitPath := false
 	if len(args) > 1 {
 		path = string(args[1])
+		explicitPath = true
 	}
 
 	index := -1 // Last element by default
@@ -108,7 +111,7 @@ func execJSONArrPop(db *DB, args [][]byte) redis.Reply {
 
 	elem, err := jv.ArrPop(path, index)
 	if err != nil {
-		return protocol.MakeErrReply(err.Error())
+		return protocol.MakeErrReply("ERR " + err.Error())
 	}
 
 	// Convert element to JSON string
@@ -116,7 +119,17 @@ func execJSONArrPop(db *DB, args [][]byte) redis.Reply {
 		return &protocol.NullBulkReply{}
 	}
 
+	if explicitPath && strings.HasPrefix(path, "$") {
+		data, err := json.Marshal([]interface{}{elem})
+		if err != nil {
+			return protocol.MakeErrReply("ERR " + err.Error())
+		}
+		db.addAof(utils.ToCmdLine3("json.arrpop", args...))
+		return protocol.MakeBulkReply(data)
+	}
+
 	data, _ := json.Marshal(elem)
+	db.addAof(utils.ToCmdLine3("json.arrpop", args...))
 	return protocol.MakeBulkReply(data)
 }
 
@@ -145,10 +158,11 @@ func execJSONArrTrim(db *DB, args [][]byte) redis.Reply {
 
 	newLen, err := jv.ArrTrim(path, start, stop)
 	if err != nil {
-		return protocol.MakeErrReply(err.Error())
+		return protocol.MakeErrReply("ERR " + err.Error())
 	}
 
-	return protocol.MakeIntReply(int64(newLen))
+	db.addAof(utils.ToCmdLine3("json.arrtrim", args...))
+	return wrapEnhancedJSONIntReply(path, true, int64(newLen))
 }
 
 // execJSONArrIndex returns index of element in array
@@ -185,10 +199,10 @@ func execJSONArrIndex(db *DB, args [][]byte) redis.Reply {
 
 	index, err := jv.ArrIndex(path, value, start, stop)
 	if err != nil {
-		return protocol.MakeIntReply(-1)
+		return wrapEnhancedJSONIntReply(path, true, -1)
 	}
 
-	return protocol.MakeIntReply(int64(index))
+	return wrapEnhancedJSONIntReply(path, true, int64(index))
 }
 
 func init() {

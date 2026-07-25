@@ -896,8 +896,10 @@ func execJSONObjKeys(db *DB, args [][]byte) redis.Reply {
 
 	key := string(args[0])
 	path := "$"
+	explicitPath := false
 	if len(args) > 1 {
 		path = string(args[1])
+		explicitPath = true
 	}
 
 	// Get JSON value
@@ -919,6 +921,9 @@ func execJSONObjKeys(db *DB, args [][]byte) redis.Reply {
 	result := make([][]byte, len(keys))
 	for i, k := range keys {
 		result[i] = []byte(k)
+	}
+	if explicitPath && strings.HasPrefix(path, "$") {
+		return protocol.MakeMultiRawReply([]redis.Reply{protocol.MakeMultiBulkReply(result)})
 	}
 	return protocol.MakeMultiBulkReply(result)
 }

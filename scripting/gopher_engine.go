@@ -12,6 +12,12 @@ import (
 	lua "github.com/yuin/gopher-lua"
 )
 
+// Lua redis.* version constants (keep in sync with database.godisVersion).
+const (
+	luaRedisVersion    = "8.0.0"
+	luaRedisVersionNum = 0x080000 // 8.0.0 as Redis VERSION_NUM
+)
+
 // GopherEngine is a Lua scripting engine based on gopher-lua
 type GopherEngine struct {
 	mu      sync.RWMutex
@@ -348,6 +354,15 @@ func (e *GopherEngine) registerRedisAPI(L *lua.LState) {
 	L.SetField(redisTable, "LOG_VERBOSE", lua.LNumber(1))
 	L.SetField(redisTable, "LOG_NOTICE", lua.LNumber(2))
 	L.SetField(redisTable, "LOG_WARNING", lua.LNumber(3))
+	// redis.REPL_* flags for set_repl (Redis scripting API)
+	L.SetField(redisTable, "REPL_NONE", lua.LNumber(0))
+	L.SetField(redisTable, "REPL_AOF", lua.LNumber(1))
+	L.SetField(redisTable, "REPL_SLAVE", lua.LNumber(2))
+	L.SetField(redisTable, "REPL_REPLICA", lua.LNumber(2))
+	L.SetField(redisTable, "REPL_ALL", lua.LNumber(3))
+	// Version constants (aligned with Godis redis_version / godisVersion)
+	L.SetField(redisTable, "REDIS_VERSION", lua.LString(luaRedisVersion))
+	L.SetField(redisTable, "REDIS_VERSION_NUM", lua.LNumber(luaRedisVersionNum))
 }
 
 // luaRedisCall implements redis.call

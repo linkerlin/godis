@@ -161,6 +161,9 @@ func (e *RediSearchEngine) Search(query string, opts *SearchOptions) (*SearchRes
 
 	if opts != nil {
 		ApplyPhraseOpts(node, opts.Slop, opts.InOrder)
+		if len(opts.InFields) > 0 {
+			node = ExpandInFields(node, opts.InFields)
+		}
 	}
 
 	// Execute query
@@ -300,6 +303,10 @@ type SearchOptions struct {
 	Slop         int
 	InOrder      bool
 	TimeoutMs    int // accepted; search cancellation not wired
+	InFields     []string
+	Summarize    bool
+	SummarizeFields []string
+	SummarizeLen    int // max chars per field; 0 = default 20
 	GeoFilter    *GeoFilterOptions
 	Filters      []FieldFilter
 	// Highlight options

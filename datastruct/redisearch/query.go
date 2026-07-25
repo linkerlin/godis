@@ -193,6 +193,73 @@ func ApplyPhraseOpts(node QueryNode, slop int, inOrder bool) {
 	}
 }
 
+// ExpandInFields restricts unscoped terms/phrases to the given fields (OR across fields).
+func ExpandInFields(node QueryNode, fields []string) QueryNode {
+	if node == nil || len(fields) == 0 {
+		return node
+	}
+	switch n := node.(type) {
+	case *TermNode:
+		if n.Field != "" {
+			return n
+		}
+		return orFieldTerms(n.Term, fields, func(term, field string) QueryNode {
+			return &TermNode{Term: term, Field: field}
+		})
+	case *PhraseNode:
+		if n.Field != "" {
+			return n
+		}
+		var result QueryNode
+		for i, f := range fields {
+			p := &PhraseNode{Terms: append([]string(nil), n.Terms...), Field: f, Slop: n.Slop, InOrder: n.InOrder}
+			if i == 0 {
+				result = p
+			} else {
+				result = &OrNode{Left: result, Right: p}
+			}
+		}
+		return result
+	case *PrefixNode:
+		if n.Field != "" {
+			return n
+		}
+		return orFieldTerms(n.Prefix, fields, func(prefix, field string) QueryNode {
+			return &PrefixNode{Prefix: prefix, Field: field}
+		})
+	case *FuzzyNode:
+		if n.Field != "" {
+			return n
+		}
+		return orFieldTerms(n.Term, fields, func(term, field string) QueryNode {
+			return &FuzzyNode{Term: term, Field: field, MaxDist: n.MaxDist}
+		})
+	case *AndNode:
+		return &AndNode{Left: ExpandInFields(n.Left, fields), Right: ExpandInFields(n.Right, fields)}
+	case *OrNode:
+		return &OrNode{Left: ExpandInFields(n.Left, fields), Right: ExpandInFields(n.Right, fields)}
+	case *NotNode:
+		return &NotNode{Child: ExpandInFields(n.Child, fields)}
+	case *OptionalNode:
+		return &OptionalNode{Child: ExpandInFields(n.Child, fields)}
+	default:
+		return node
+	}
+}
+
+func orFieldTerms(term string, fields []string, makeNode func(term, field string) QueryNode) QueryNode {
+	var result QueryNode
+	for i, f := range fields {
+		n := makeNode(term, f)
+		if i == 0 {
+			result = n
+		} else {
+			result = &OrNode{Left: result, Right: n}
+		}
+	}
+	return result
+}
+
 // TagNode represents a tag search
 type TagNode struct {
 	Field string
