@@ -268,7 +268,7 @@ func GenGodisInfoString(section string, db *Server) []byte {
 			"expired_keys:%d\r\n"+
 			"expired_stale_perc:%.2f\r\n"+
 			"expired_time_cap_reached_count:%d\r\n"+
-			"evict_keys:%d\r\n"+
+			"evicted_keys:%d\r\n"+
 			"keyspace_hits:%d\r\n"+
 			"keyspace_misses:%d\r\n"+
 			"pubsub_channels:%d\r\n"+

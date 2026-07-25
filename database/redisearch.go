@@ -998,12 +998,7 @@ func execFTAggregate(db *DB, args [][]byte) redis.Reply {
 			continue
 
 		case "APPLY":
-			// APPLY expr AS name — accept syntax; expression engine not wired.
-			if i+3 >= len(args) || !strings.EqualFold(string(args[i+2]), "AS") {
-				return protocol.MakeSyntaxErrReply()
-			}
-			i += 4
-			continue
+			return protocol.MakeErrReply("ERR APPLY is not supported")
 
 		case "LOAD":
 			if i+1 >= len(args) {

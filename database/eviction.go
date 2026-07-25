@@ -2,6 +2,7 @@ package database
 
 import (
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/linkerlin/godis/config"
@@ -300,6 +301,7 @@ func (server *Server) ensureMemoryForWrite(db *DB, approxWrite int64) redis.Repl
 		if n == 0 {
 			return protocol.MakeErrReply("OOM command not allowed when used memory > 'maxmemory'")
 		}
+		atomic.AddUint64(&serverStats.EvictedKeys, uint64(n))
 	}
 	return protocol.MakeErrReply("OOM command not allowed when used memory > 'maxmemory'")
 }

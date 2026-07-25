@@ -213,6 +213,11 @@ func (server *Server) Exec(c redis.Connection, cmdLine [][]byte) (result redis.R
 	}
 
 	cmdName := strings.ToLower(string(cmdLine[0]))
+	if c != nil {
+		if lc, ok := c.(interface{ SetLastCommand(string) }); ok {
+			lc.SetLastCommand(cmdName)
+		}
+	}
 	if reply := checkProtectedMode(c); reply != nil {
 		return reply
 	}

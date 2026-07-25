@@ -277,6 +277,22 @@ func unquoteConfigValue(s string) string {
 	return s
 }
 
+// WritePidFile writes the current process ID to path.
+// Empty path is a no-op (Redis empty pidfile).
+func WritePidFile(path string) error {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return nil
+	}
+	dir := filepath.Dir(path)
+	if dir != "" && dir != "." {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			return err
+		}
+	}
+	return os.WriteFile(path, []byte(strconv.Itoa(os.Getpid())+"\n"), 0644)
+}
+
 // ParseConfigBool parses Redis-style config booleans.
 // Accepts yes/on/true/1 and no/off/false/0 (case-insensitive).
 func ParseConfigBool(value string) (ok bool, result bool) {

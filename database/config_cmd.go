@@ -2,6 +2,7 @@ package database
 
 import (
 	"fmt"
+	"os"
 	"strconv"
 	"strings"
 
@@ -145,6 +146,9 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 				return protocol.MakeErrReply("ERR Invalid argument '" + value + "' for CONFIG SET 'appendfsync'")
 			}
 			config.Properties.AppendFsync = v
+			if server.persister != nil {
+				server.persister.SetFsync(v)
+			}
 		case "maxclients":
 			n, err := strconv.Atoi(value)
 			if err != nil || n < 0 {
@@ -208,6 +212,13 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 			}
 			config.Properties.Daemonize = b
 		case "pidfile":
+			old := config.Properties.PidFile
+			if err := config.WritePidFile(value); err != nil {
+				return protocol.MakeErrReply("ERR Failed writing pidfile: " + err.Error())
+			}
+			if old != "" && old != value {
+				_ = os.Remove(old)
+			}
 			config.Properties.PidFile = value
 		case "lazyfree-lazy-eviction":
 			ok, b := config.ParseConfigBool(value)

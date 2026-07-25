@@ -62,8 +62,9 @@ type Persister struct {
 	aofFile *os.File
 	// aofFilename is the path of aof file
 	aofFilename string
-	// aofFsync is the strategy of fsync
+	// aofFsync is the strategy of fsync (guarded by fsyncMu for CONFIG SET)
 	aofFsync string
+	fsyncMu  sync.RWMutex
 	// aof goroutine will send msg to main goroutine through this channel when aof tasks finished and ready to shut down
 	aofFinished chan struct{}
 	// pause aof for start/finish aof rewrite progress
@@ -102,10 +103,8 @@ func NewPersister(db database.DBEngine, filename string, load bool, fsync string
 	ctx, cancel := context.WithCancel(context.Background())
 	persister.ctx = ctx
 	persister.cancel = cancel
-	// fsync every second if needed
-	if persister.aofFsync == FsyncEverySec {
-		persister.fsyncEverySecond()
-	}
+	// Always run ticker; Fsync only when policy is everysec (supports runtime CONFIG SET).
+	persister.fsyncEverySecond()
 	return persister, nil
 }
 
@@ -123,7 +122,7 @@ func (persister *Persister) SaveCmdLine(dbIndex int, cmdLine CmdLine) {
 		return
 	}
 
-	if persister.aofFsync == FsyncAlways {
+	if persister.getFsync() == FsyncAlways {
 		p := &payload{
 			cmdLine: cmdLine,
 			dbIndex: dbIndex,
@@ -174,7 +173,7 @@ func (persister *Persister) writeAof(p *payload) {
 	for listener := range persister.listeners {
 		listener.Callback(persister.buffer)
 	}
-	if persister.aofFsync == FsyncAlways {
+	if persister.getFsync() == FsyncAlways {
 		_ = persister.aofFile.Sync()
 	}
 }
@@ -285,7 +284,7 @@ func (persister *Persister) Stats() map[string]interface{} {
 	stats := map[string]interface{}{
 		"enabled":  true,
 		"filename": persister.aofFilename,
-		"fsync":    persister.aofFsync,
+		"fsync":    persister.getFsync(),
 	}
 
 	// Get file info
@@ -296,15 +295,31 @@ func (persister *Persister) Stats() map[string]interface{} {
 	return stats
 }
 
-// fsyncEverySecond fsync aof file every second
+// SetFsync updates the runtime appendfsync policy (always|everysec|no).
+func (persister *Persister) SetFsync(policy string) {
+	persister.fsyncMu.Lock()
+	persister.aofFsync = strings.ToLower(policy)
+	persister.fsyncMu.Unlock()
+}
+
+func (persister *Persister) getFsync() string {
+	persister.fsyncMu.RLock()
+	defer persister.fsyncMu.RUnlock()
+	return persister.aofFsync
+}
+
+// fsyncEverySecond fsync aof file every second when policy is everysec
 func (persister *Persister) fsyncEverySecond() {
 	ticker := time.NewTicker(time.Second)
 	go func() {
 		for {
 			select {
 			case <-ticker.C:
-				persister.Fsync()
+				if persister.getFsync() == FsyncEverySec {
+					persister.Fsync()
+				}
 			case <-persister.ctx.Done():
+				ticker.Stop()
 				return
 			}
 		}

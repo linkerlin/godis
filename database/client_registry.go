@@ -111,9 +111,15 @@ func formatClientListLine(c redis.Connection) string {
 	if respVer <= 0 {
 		respVer = 2
 	}
+	cmd := "NULL"
+	if lc, ok := c.(interface{ GetLastCommand() string }); ok {
+		if s := lc.GetLastCommand(); s != "" {
+			cmd = s
+		}
+	}
 	return fmt.Sprintf(
-		"id=%d addr=%s laddr=%s fd=0 name=%s age=%d idle=%d flags=%s db=%d sub=%d psub=%d ssub=%d user=%s multi=-1 qbuf=0 qbuf-free=0 obl=0 oll=0 omem=0 events=r cmd=client resp=%d lib-name=%s lib-ver=%s",
-		c.GetClientID(), clientAddr(c), clientLocalAddr(c), c.GetClientName(), age, idle, flags, c.GetDBIndex(), subN, psubN, ssubN, user, respVer, libName, libVer,
+		"id=%d addr=%s laddr=%s fd=0 name=%s age=%d idle=%d flags=%s db=%d sub=%d psub=%d ssub=%d user=%s multi=-1 qbuf=0 qbuf-free=0 obl=0 oll=0 omem=0 events=r cmd=%s resp=%d lib-name=%s lib-ver=%s",
+		c.GetClientID(), clientAddr(c), clientLocalAddr(c), c.GetClientName(), age, idle, flags, c.GetDBIndex(), subN, psubN, ssubN, user, cmd, respVer, libName, libVer,
 	)
 }
 

@@ -51,13 +51,6 @@ func TestM2bcFTAggregateLoadStarAndUnknown(t *testing.T) {
 		t.Fatalf("LOAD *: %s", r.ToBytes())
 	}
 
-	r = db.Exec(nil, utils.ToCmdLine(
-		"FT.AGGREGATE", "agg", "*", "APPLY", "@n/2", "AS", "half",
-	))
-	if protocol.IsErrorReply(r) {
-		t.Fatalf("APPLY accept: %s", r.ToBytes())
-	}
-
 	bad := db.Exec(nil, utils.ToCmdLine("FT.AGGREGATE", "agg", "*", "NOTANOPTION"))
 	if !protocol.IsErrorReply(bad) {
 		t.Fatalf("expected syntax error, got %s", bad.ToBytes())

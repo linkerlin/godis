@@ -68,6 +68,7 @@ type Connection struct {
 	createdAt       time.Time
 	lastActive      time.Time
 	localAddr       string // optional override / cached local bind address
+	lastCommand     string // lowercase last command name for CLIENT LIST
 }
 
 var connPool = sync.Pool{
@@ -126,6 +127,7 @@ func (c *Connection) Close() error {
 	c.createdAt = time.Time{}
 	c.lastActive = time.Time{}
 	c.clientID = 0
+	c.lastCommand = ""
 	connPool.Put(c)
 	return nil
 }
@@ -215,6 +217,14 @@ func (c *Connection) SetTrackingID(id string) {
 
 func (c *Connection) GetTrackingID() string {
 	return c.trackingID
+}
+
+func (c *Connection) SetLastCommand(cmd string) {
+	c.lastCommand = cmd
+}
+
+func (c *Connection) GetLastCommand() string {
+	return c.lastCommand
 }
 
 func (c *Connection) SetLibName(name string) {

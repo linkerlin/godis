@@ -77,6 +77,7 @@ func main() {
 	}
 	applyLogLevelFromConfig()
 	applyLogFileFromConfig()
+	applyPidFileFromConfig()
 
 	startMetricsServer()
 
@@ -113,6 +114,15 @@ func applyLogFileFromConfig() {
 	// Empty logfile → stdout only (Redis default). Non-empty → that path.
 	if err := logger.ReconfigureOutput(config.Properties.LogFile); err != nil {
 		fmt.Fprintf(os.Stderr, "apply logfile %q failed: %v\n", config.Properties.LogFile, err)
+	}
+}
+
+func applyPidFileFromConfig() {
+	if config.Properties == nil {
+		return
+	}
+	if err := config.WritePidFile(config.Properties.PidFile); err != nil {
+		fmt.Fprintf(os.Stderr, "write pidfile %q failed: %v\n", config.Properties.PidFile, err)
 	}
 }
 
