@@ -78,9 +78,9 @@ type ProtocolErrReply struct {
 
 // ToBytes marshals redis.Reply
 func (r *ProtocolErrReply) ToBytes() []byte {
-	return []byte("-ERR Protocol error: '" + r.Msg + "'\r\n")
+	return []byte("-ERR Protocol error: \"" + r.Msg + "\"\r\n")
 }
 
 func (r *ProtocolErrReply) Error() string {
-	return "ERR Protocol error '" + r.Msg + "' command"
+	return "ERR Protocol error: \"" + r.Msg + "\""
 }

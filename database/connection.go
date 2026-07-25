@@ -279,15 +279,34 @@ func execClientCachingConn(c redis.Connection, args [][]byte) redis.Reply {
 	return protocol.MakeStatusReply("OK")
 }
 
-// execClientGetRedir returns tracking redirection target
-// CLIENT GETREDIR
+// execClientGetRedirConn returns tracking redirection target for this connection.
+// CLIENT GETREDIR → -1 (off), 0 (on, no redirect), or target client id.
+func execClientGetRedirConn(c redis.Connection, args [][]byte) redis.Reply {
+	if len(args) != 0 {
+		return protocol.MakeErrReply("ERR wrong number of arguments for 'client|getredir' command")
+	}
+	id := c.GetTrackingID()
+	if id == "" {
+		return protocol.MakeIntReply(-1)
+	}
+	info := GetTrackingInfo(id)
+	redirect, _ := info["redirect"].(string)
+	if redirect == "" || redirect == "0" {
+		return protocol.MakeIntReply(0)
+	}
+	n, err := strconv.ParseInt(redirect, 10, 64)
+	if err != nil {
+		return protocol.MakeIntReply(0)
+	}
+	return protocol.MakeIntReply(n)
+}
+
+// execClientGetRedir is kept for legacy no-connection dispatch; prefer Conn variant.
 func execClientGetRedir(args [][]byte) redis.Reply {
 	if len(args) != 0 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'client|getredir' command")
 	}
-
-	// Return 0 if not redirected
-	return protocol.MakeIntReply(0)
+	return protocol.MakeIntReply(-1)
 }
 
 // execClientUnblock unblocks a client blocked on keys

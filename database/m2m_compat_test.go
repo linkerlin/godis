@@ -54,7 +54,7 @@ func TestM2mObjectEncodingExtras(t *testing.T) {
 	asserts.AssertBulkReply(t, db.Exec(nil, utils.ToCmdLine("OBJECT", "ENCODING", "j")), "json")
 
 	asserts.AssertStatusReply(t, db.Exec(nil, utils.ToCmdLine("BF.RESERVE", "bf", "0.01", "100")), "OK")
-	asserts.AssertBulkReply(t, db.Exec(nil, utils.ToCmdLine("OBJECT", "ENCODING", "bf")), "bloomflate")
+	asserts.AssertBulkReply(t, db.Exec(nil, utils.ToCmdLine("OBJECT", "ENCODING", "bf")), "bloomfilter")
 
 	asserts.AssertStatusReply(t, db.Exec(nil, utils.ToCmdLine("CF.RESERVE", "cf", "100")), "OK")
 	asserts.AssertBulkReply(t, db.Exec(nil, utils.ToCmdLine("OBJECT", "ENCODING", "cf")), "cuckoo")

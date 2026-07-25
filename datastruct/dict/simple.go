@@ -1,6 +1,7 @@
 package dict
 
 import (
+	"math/rand"
 	"sort"
 
 	"github.com/linkerlin/godis/lib/wildcard"
@@ -94,32 +95,37 @@ func (dict *SimpleDict) ForEach(consumer Consumer) {
 
 // RandomKeys randomly returns keys of the given number, may contain duplicated key
 func (dict *SimpleDict) RandomKeys(limit int) []string {
+	if limit <= 0 || len(dict.m) == 0 {
+		return nil
+	}
+	keys := make([]string, 0, len(dict.m))
+	for k := range dict.m {
+		keys = append(keys, k)
+	}
 	result := make([]string, limit)
 	for i := 0; i < limit; i++ {
-		for k := range dict.m {
-			result[i] = k
-			break
-		}
+		result[i] = keys[rand.Intn(len(keys))]
 	}
 	return result
 }
 
 // RandomDistinctKeys randomly returns keys of the given number, won't contain duplicated key
 func (dict *SimpleDict) RandomDistinctKeys(limit int) []string {
-	size := limit
-	if size > len(dict.m) {
-		size = len(dict.m)
+	if limit <= 0 || len(dict.m) == 0 {
+		return nil
 	}
-	result := make([]string, size)
-	i := 0
+	keys := make([]string, 0, len(dict.m))
 	for k := range dict.m {
-		if i == size {
-			break
-		}
-		result[i] = k
-		i++
+		keys = append(keys, k)
 	}
-	return result
+	if limit > len(keys) {
+		limit = len(keys)
+	}
+	for i := 0; i < limit; i++ {
+		j := i + rand.Intn(len(keys)-i)
+		keys[i], keys[j] = keys[j], keys[i]
+	}
+	return keys[:limit]
 }
 
 // Clear removes all keys in dict

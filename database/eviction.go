@@ -57,6 +57,26 @@ func (em *EvictionManager) Touch(key string) {
 	em.mu.Unlock()
 }
 
+// SeedIdle sets last-access so OBJECT IDLETIME reports approximately idleSec.
+func (em *EvictionManager) SeedIdle(key string, idleSec int64) {
+	if em == nil || idleSec < 0 {
+		return
+	}
+	em.mu.Lock()
+	em.lastAccess[key] = time.Now().Add(-time.Duration(idleSec) * time.Second)
+	em.mu.Unlock()
+}
+
+// SeedFreq sets LFU access count for OBJECT FREQ / eviction.
+func (em *EvictionManager) SeedFreq(key string, freq uint64) {
+	if em == nil {
+		return
+	}
+	em.mu.Lock()
+	em.accessCount[key] = freq
+	em.mu.Unlock()
+}
+
 // Forget drops metadata when a key is removed.
 func (em *EvictionManager) Forget(key string) {
 	if em == nil {

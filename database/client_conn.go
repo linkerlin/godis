@@ -41,7 +41,7 @@ func execClientConn(c redis.Connection, db *DB, args [][]byte) redis.Reply {
 	case "CACHING":
 		return execClientCachingConn(c, args[1:])
 	case "GETREDIR":
-		return execClientGetRedir(args[1:])
+		return execClientGetRedirConn(c, args[1:])
 	case "TRACKINGINFO":
 		return execClientTrackingInfoConn(c, args[1:])
 	case "NO-EVICT":
@@ -91,11 +91,6 @@ func execClientTrackingConn(c redis.Connection, args [][]byte) redis.Reply {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'client|tracking' command")
 	}
 
-	// CLIENT TRACKING requires RESP3 because invalidations are sent as Push messages.
-	if c.GetProtocolVersion() != 3 {
-		return protocol.MakeErrReply("ERR CLIENT TRACKING is only supported in RESP3 mode")
-	}
-
 	mode := strings.ToUpper(string(args[0]))
 	if mode == "OFF" {
 		if id := c.GetTrackingID(); id != "" {
@@ -141,6 +136,11 @@ func execClientTrackingConn(c redis.Connection, args [][]byte) redis.Reply {
 		default:
 			return protocol.MakeSyntaxErrReply()
 		}
+	}
+
+	// RESP3 can receive Push invalidations locally; RESP2 requires REDIRECT to a RESP3 peer.
+	if c.GetProtocolVersion() != 3 && redirectID == "" {
+		return protocol.MakeErrReply("ERR CLIENT TRACKING in RESP2 requires REDIRECT")
 	}
 
 	if prev := c.GetTrackingID(); prev != "" {

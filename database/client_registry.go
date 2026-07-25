@@ -38,6 +38,19 @@ func RangeClients(fn func(redis.Connection) bool) {
 	})
 }
 
+// FindClientByID returns a registered connection with the given client id, or nil.
+func FindClientByID(id int64) redis.Connection {
+	var found redis.Connection
+	RangeClients(func(c redis.Connection) bool {
+		if c.GetClientID() == id {
+			found = c
+			return false
+		}
+		return true
+	})
+	return found
+}
+
 func clientAddr(c redis.Connection) string {
 	addr := c.RemoteAddr()
 	if addr == "" {

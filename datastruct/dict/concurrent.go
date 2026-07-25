@@ -318,20 +318,27 @@ func (shard *shard) RandomKey() string {
 	shard.mutex.RLock()
 	defer shard.mutex.RUnlock()
 
+	n := len(shard.m)
+	if n == 0 {
+		return ""
+	}
+	target := rand.Intn(n)
+	i := 0
 	for key := range shard.m {
-		return key
+		if i == target {
+			return key
+		}
+		i++
 	}
 	return ""
 }
 
 // RandomKeys randomly returns keys of the given number, may contain duplicated key
 func (dict *ConcurrentDict) RandomKeys(limit int) []string {
-	size := dict.Len()
-	if limit >= size {
-		return dict.Keys()
+	if limit <= 0 || dict.Len() == 0 {
+		return nil
 	}
 	shardCount := len(dict.table)
-
 	result := make([]string, limit)
 	nR := rand.New(rand.NewSource(time.Now().UnixNano()))
 	for i := 0; i < limit; {

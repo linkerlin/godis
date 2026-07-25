@@ -2,6 +2,7 @@ package database
 
 import (
 	"fmt"
+	"math/rand"
 	"runtime"
 	"strconv"
 	"strings"
@@ -49,17 +50,23 @@ func execMemoryUsage(server *Server, c redis.Connection, args [][]byte) redis.Re
 	}
 
 	key := string(args[0])
+	samples := 5 // Redis default
 	for i := 1; i < len(args); i += 2 {
 		if i+1 >= len(args) {
 			return protocol.MakeErrReply("ERR syntax error")
 		}
 		option := strings.ToUpper(string(args[i]))
-		if _, err := strconv.Atoi(string(args[i+1])); err != nil {
+		n, err := strconv.Atoi(string(args[i+1]))
+		if err != nil {
 			return protocol.MakeErrReply("ERR value is not an integer or out of range")
 		}
 		if option != "SAMPLES" {
 			return protocol.MakeErrReply("ERR syntax error")
 		}
+		if n < 0 {
+			return protocol.MakeErrReply("ERR value is not an integer or out of range")
+		}
+		samples = n
 	}
 
 	dbIndex := 0
@@ -74,10 +81,10 @@ func execMemoryUsage(server *Server, c redis.Connection, args [][]byte) redis.Re
 	if !exists {
 		return &protocol.NullBulkReply{}
 	}
-	return protocol.MakeIntReply(estimateEntityBytes(key, entity.Data))
+	return protocol.MakeIntReply(estimateEntityBytes(key, entity.Data, samples))
 }
 
-func estimateEntityBytes(key string, data interface{}) int64 {
+func estimateEntityBytes(key string, data interface{}, samples int) int64 {
 	size := int64(len(key) + 64)
 	switch v := data.(type) {
 	case []byte:
@@ -87,29 +94,17 @@ func estimateEntityBytes(key string, data interface{}) int64 {
 			size += int64(len(b))
 		}
 	case *set.Set:
-		size += int64(v.Len() * 16)
+		size += estimateSetBytes(v, samples)
 	case *sortedset.SortedSet:
-		size += int64(v.Len() * 24)
+		size += estimateZSetBytes(v, samples)
 	case list.List:
-		size += int64(v.Len() * 16)
+		size += estimateListBytes(v, samples)
 	case *stream.Stream:
 		size += int64(v.Len() * 64)
 	case *dict.ExpireDict:
-		v.ForEach(func(field string, val interface{}) bool {
-			size += int64(len(field) + 32) // field + expire metadata
-			if b, ok := val.([]byte); ok {
-				size += int64(len(b))
-			}
-			return true
-		})
+		size += estimateExpireDictBytes(v, samples)
 	case dict.Dict:
-		v.ForEach(func(field string, val interface{}) bool {
-			size += int64(len(field) + 16)
-			if b, ok := val.([]byte); ok {
-				size += int64(len(b))
-			}
-			return true
-		})
+		size += estimateDictBytes(v, samples)
 	case *timeseries.TimeSeries:
 		size += int64(v.Len()*16 + len(v.GetLabels())*16)
 	case *vector.VectorSet:
@@ -122,6 +117,130 @@ func estimateEntityBytes(key string, data interface{}) int64 {
 		size += 128
 	}
 	return size
+}
+
+// estimateFromSamples averages sampled element sizes and scales to totalCount.
+// samples==0 means sample all elements (Redis semantics).
+func estimateFromSamples(totalCount int, samples int, elemSize func(i int) int64) int64 {
+	if totalCount <= 0 {
+		return 0
+	}
+	n := samples
+	if n <= 0 || n > totalCount {
+		n = totalCount
+	}
+	var sum int64
+	if n == totalCount {
+		for i := 0; i < totalCount; i++ {
+			sum += elemSize(i)
+		}
+		return sum
+	}
+	// Sample n distinct indices
+	idxs := make([]int, totalCount)
+	for i := range idxs {
+		idxs[i] = i
+	}
+	for i := 0; i < n; i++ {
+		j := i + rand.Intn(totalCount-i)
+		idxs[i], idxs[j] = idxs[j], idxs[i]
+		sum += elemSize(idxs[i])
+	}
+	avg := sum / int64(n)
+	return avg * int64(totalCount)
+}
+
+func estimateDictBytes(d dict.Dict, samples int) int64 {
+	n := d.Len()
+	if n == 0 {
+		return 0
+	}
+	take := samples
+	if take <= 0 || take > n {
+		take = n
+	}
+	fields := d.RandomDistinctKeys(take)
+	var sum int64
+	for _, field := range fields {
+		sz := int64(len(field) + 16)
+		if raw, ok := d.Get(field); ok {
+			if b, ok := raw.([]byte); ok {
+				sz += int64(len(b))
+			}
+		}
+		sum += sz
+	}
+	return (sum / int64(len(fields))) * int64(n)
+}
+
+func estimateExpireDictBytes(ed *dict.ExpireDict, samples int) int64 {
+	n := ed.Len()
+	if n == 0 {
+		return 0
+	}
+	take := samples
+	if take <= 0 || take > n {
+		take = n
+	}
+	fields := ed.RandomDistinctKeys(take)
+	var sum int64
+	for _, field := range fields {
+		sz := int64(len(field) + 32)
+		if raw, ok := ed.Get(field); ok {
+			if b, ok := raw.([]byte); ok {
+				sz += int64(len(b))
+			}
+		}
+		sum += sz
+	}
+	return (sum / int64(len(fields))) * int64(n)
+}
+
+func estimateSetBytes(s *set.Set, samples int) int64 {
+	n := s.Len()
+	if n == 0 {
+		return 0
+	}
+	take := samples
+	if take <= 0 || take > n {
+		take = n
+	}
+	members := s.RandomDistinctMembers(take)
+	var sum int64
+	for _, m := range members {
+		sum += int64(len(m) + 16)
+	}
+	return (sum / int64(len(members))) * int64(n)
+}
+
+func estimateZSetBytes(z *sortedset.SortedSet, samples int) int64 {
+	n := int(z.Len())
+	if n == 0 {
+		return 0
+	}
+	take := samples
+	if take <= 0 || take > n {
+		take = n
+	}
+	// Sample by rank indices
+	return estimateFromSamples(n, take, func(i int) int64 {
+		elems := z.RangeByRank(int64(i), int64(i+1), false)
+		if len(elems) == 0 {
+			return 24
+		}
+		return int64(len(elems[0].Member) + 24)
+	})
+}
+
+func estimateListBytes(l list.List, samples int) int64 {
+	n := l.Len()
+	return estimateFromSamples(n, samples, func(i int) int64 {
+		v := l.Get(i)
+		if b, ok := v.([]byte); ok {
+			return int64(len(b) + 16)
+		}
+		return 16
+	})
 }
 
 func execMemoryStats() redis.Reply {

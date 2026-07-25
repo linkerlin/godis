@@ -17,6 +17,7 @@ type trackingTestConn struct {
 	clientID   int64
 	clientName string
 	trackingID string
+	protocol   int
 	writes     [][]byte
 	mu         sync.Mutex
 }
@@ -73,8 +74,13 @@ func (c *trackingTestConn) SetACLUser(string)              {}
 func (c *trackingTestConn) GetACLUser() string             { return "" }
 func (c *trackingTestConn) SetACLAuthenticated(bool)       {}
 func (c *trackingTestConn) IsACLAuthenticated() bool       { return false }
-func (c *trackingTestConn) SetProtocolVersion(int)         {}
-func (c *trackingTestConn) GetProtocolVersion() int        { return 3 }
+func (c *trackingTestConn) SetProtocolVersion(v int)  { c.protocol = v }
+func (c *trackingTestConn) GetProtocolVersion() int {
+	if c.protocol == 0 {
+		return 3
+	}
+	return c.protocol
+}
 
 func (c *trackingTestConn) lastWrite() string {
 	c.mu.Lock()

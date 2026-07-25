@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/hdt3213/rdb/crc64jones"
@@ -61,18 +62,36 @@ func execRestore(db *DB, args [][]byte) redis.Reply {
 	serializedData := args[2]
 	replace := false
 	absTTL := false
+	var idleSec int64 = -1
+	var freqVal int64 = -1
 
 	for i := 3; i < len(args); i++ {
-		arg := string(args[i])
+		arg := strings.ToUpper(string(args[i]))
 		switch arg {
 		case "REPLACE":
 			replace = true
 		case "ABSTTL":
 			absTTL = true
-		case "IDLETIME", "FREQ":
-			if i+1 < len(args) {
-				i++
+		case "IDLETIME":
+			if i+1 >= len(args) {
+				return protocol.MakeSyntaxErrReply()
 			}
+			n, err := strconv.ParseInt(string(args[i+1]), 10, 64)
+			if err != nil || n < 0 {
+				return protocol.MakeErrReply("ERR Invalid IDLETIME value, must be >= 0")
+			}
+			idleSec = n
+			i++
+		case "FREQ":
+			if i+1 >= len(args) {
+				return protocol.MakeSyntaxErrReply()
+			}
+			n, err := strconv.ParseInt(string(args[i+1]), 10, 64)
+			if err != nil || n < 0 {
+				return protocol.MakeErrReply("ERR Invalid FREQ value, must be >= 0")
+			}
+			freqVal = n
+			i++
 		default:
 			return protocol.MakeErrReply("ERR syntax error")
 		}
@@ -100,6 +119,15 @@ func execRestore(db *DB, args [][]byte) redis.Reply {
 		db.Expire(key, expireTime)
 	} else {
 		db.Persist(key)
+	}
+
+	if db.evictionManager != nil {
+		if idleSec >= 0 {
+			db.evictionManager.SeedIdle(key, idleSec)
+		}
+		if freqVal >= 0 {
+			db.evictionManager.SeedFreq(key, uint64(freqVal))
+		}
 	}
 
 	db.addAof(utils.ToCmdLine3("restore", args...))

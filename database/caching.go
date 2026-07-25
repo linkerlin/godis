@@ -292,6 +292,14 @@ func (cc *ClientCache) invalidationSender(clientID string) {
 			cc.mu.RLock()
 			targetConn, hasConn = cc.connections[redirectID]
 			cc.mu.RUnlock()
+			if !hasConn {
+				if rid, err := strconv.ParseInt(redirectID, 10, 64); err == nil {
+					if c := FindClientByID(rid); c != nil {
+						targetConn = c
+						hasConn = true
+					}
+				}
+			}
 		}
 
 		select {

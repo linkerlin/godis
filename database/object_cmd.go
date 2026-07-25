@@ -83,7 +83,7 @@ func getObjectEncoding(data interface{}) string {
 	case *json.JSONValue:
 		return "json"
 	case *probabilistic.BloomFilter:
-		return "bloomflate"
+		return "bloomfilter"
 	case *probabilistic.CuckooFilter:
 		return "cuckoo"
 	case *probabilistic.CountMinSketch:

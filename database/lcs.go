@@ -48,23 +48,21 @@ func execLCS(db *DB, args [][]byte) redis.Reply {
 		}
 	}
 
-	// Get both strings
-	entity1, exists := db.GetEntity(key1)
-	if !exists {
-		return protocol.MakeEmptyMultiBulkReply()
+	// Missing keys are treated as empty strings (Redis semantics).
+	var str1, str2 []byte
+	if entity1, exists := db.GetEntity(key1); exists {
+		b, ok := entity1.Data.([]byte)
+		if !ok {
+			return protocol.MakeErrReply("WRONGTYPE Operation against a key holding the wrong kind of value")
+		}
+		str1 = b
 	}
-	str1, ok := entity1.Data.([]byte)
-	if !ok {
-		return protocol.MakeErrReply("WRONGTYPE Operation against a key holding the wrong kind of value")
-	}
-
-	entity2, exists := db.GetEntity(key2)
-	if !exists {
-		return protocol.MakeEmptyMultiBulkReply()
-	}
-	str2, ok := entity2.Data.([]byte)
-	if !ok {
-		return protocol.MakeErrReply("WRONGTYPE Operation against a key holding the wrong kind of value")
+	if entity2, exists := db.GetEntity(key2); exists {
+		b, ok := entity2.Data.([]byte)
+		if !ok {
+			return protocol.MakeErrReply("WRONGTYPE Operation against a key holding the wrong kind of value")
+		}
+		str2 = b
 	}
 
 	// Compute LCS
