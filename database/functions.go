@@ -219,26 +219,25 @@ func execFunctionStats(db *DB, args [][]byte) redis.Reply {
 	}
 
 	if funcEngine == nil {
-		return protocol.MakeMultiBulkReply([][]byte{
-			[]byte("running_script"),
-			protocol.MakeEmptyMultiBulkReply().ToBytes(),
-			[]byte("engines"),
-			protocol.MakeEmptyMultiBulkReply().ToBytes(),
+		return protocol.MakeMultiRawReply([]redis.Reply{
+			protocol.MakeBulkReply([]byte("running_script")),
+			protocol.MakeEmptyMultiBulkReply(),
+			protocol.MakeBulkReply([]byte("engines")),
+			protocol.MakeEmptyMultiBulkReply(),
 		})
 	}
 
 	stats := funcEngine.Stats()
+	engines := protocol.MakeMultiRawReply([]redis.Reply{
+		protocol.MakeBulkReply([]byte("lua")),
+		protocol.MakeMultiBulkReply([][]byte{
+			[]byte("libraries_count"),
+			[]byte(fmt.Sprintf("%d", stats["libraries"])),
+			[]byte("functions_count"),
+			[]byte(fmt.Sprintf("%d", stats["functions"])),
+		}),
+	})
 
-	var engines [][]byte
-	engines = append(engines, []byte("lua"))
-	engines = append(engines, protocol.MakeMultiBulkReply([][]byte{
-		[]byte("libraries_count"),
-		[]byte(fmt.Sprintf("%d", stats["libraries"])),
-		[]byte("functions_count"),
-		[]byte(fmt.Sprintf("%d", stats["functions"])),
-	}).ToBytes())
-
-	// Check for running function
 	var runningScriptReply redis.Reply = protocol.MakeEmptyMultiBulkReply()
 	if running := funcEngine.GetRunningFunction(); running != nil {
 		runningScriptReply = protocol.MakeMultiBulkReply([][]byte{
@@ -249,14 +248,12 @@ func execFunctionStats(db *DB, args [][]byte) redis.Reply {
 		})
 	}
 
-	reply := [][]byte{
-		[]byte("running_script"),
-		runningScriptReply.ToBytes(),
-		[]byte("engines"),
-		protocol.MakeMultiBulkReply(engines).ToBytes(),
-	}
-
-	return protocol.MakeMultiBulkReply(reply)
+	return protocol.MakeMultiRawReply([]redis.Reply{
+		protocol.MakeBulkReply([]byte("running_script")),
+		runningScriptReply,
+		protocol.MakeBulkReply([]byte("engines")),
+		engines,
+	})
 }
 
 // Godis FUNCTION DUMP envelope (godis-internal; not Redis wire-compatible).

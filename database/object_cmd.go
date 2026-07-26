@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/linkerlin/godis/config"
 	"github.com/linkerlin/godis/datastruct/dict"
 	"github.com/linkerlin/godis/datastruct/json"
 	"github.com/linkerlin/godis/datastruct/list"
@@ -164,6 +165,13 @@ func execObjectIdleTime(db *DB, key string) redis.Reply {
 
 // execObjectFreq returns the access frequency of the key (LFU)
 func execObjectFreq(db *DB, key string) redis.Reply {
+	pol := ""
+	if config.Properties != nil {
+		pol = strings.ToLower(config.Properties.MaxmemoryPolicy)
+	}
+	if pol != "allkeys-lfu" && pol != "volatile-lfu" {
+		return protocol.MakeErrReply("ERR An LFU maxmemory policy is not selected, access frequency not tracked. Please note that when switching between policies at runtime LRU and LFU data will take some time to adjust.")
+	}
 	raw, ok := db.data.GetWithLock(key)
 	if !ok {
 		return protocol.MakeNullBulkReply()

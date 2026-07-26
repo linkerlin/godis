@@ -231,6 +231,7 @@ func clientConnType(c redis.Connection) string {
 // execClientListConn lists registered clients (CLIENT LIST).
 func execClientListConn(c redis.Connection, args [][]byte) redis.Reply {
 	typeFilter := ""
+	userFilter := ""
 	idFilter := map[int64]struct{}{}
 	for i := 0; i < len(args); {
 		opt := strings.ToUpper(string(args[i]))
@@ -249,6 +250,12 @@ func execClientListConn(c redis.Connection, args [][]byte) redis.Reply {
 				return protocol.MakeErrReply("ERR Unknown client type '" + string(args[i+1]) + "'")
 			}
 			i += 2
+		case "USER":
+			if i+1 >= len(args) {
+				return protocol.MakeErrReply("ERR syntax error")
+			}
+			userFilter = string(args[i+1])
+			i += 2
 		case "ID":
 			i++
 			if i >= len(args) {
@@ -256,7 +263,7 @@ func execClientListConn(c redis.Connection, args [][]byte) redis.Reply {
 			}
 			for i < len(args) {
 				next := strings.ToUpper(string(args[i]))
-				if next == "TYPE" || next == "ID" {
+				if next == "TYPE" || next == "ID" || next == "USER" {
 					break
 				}
 				id, err := strconv.ParseInt(string(args[i]), 10, 64)
@@ -278,6 +285,15 @@ func execClientListConn(c redis.Connection, args [][]byte) redis.Reply {
 	RangeClients(func(other redis.Connection) bool {
 		if typeFilter != "" && clientConnType(other) != typeFilter {
 			return true
+		}
+		if userFilter != "" {
+			u := other.GetACLUser()
+			if u == "" {
+				u = "default"
+			}
+			if u != userFilter {
+				return true
+			}
 		}
 		if len(idFilter) > 0 {
 			if _, ok := idFilter[other.GetClientID()]; !ok {

@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/linkerlin/godis/config"
 	"github.com/linkerlin/godis/lib/utils"
 	"github.com/linkerlin/godis/redis/connection"
 	"github.com/linkerlin/godis/redis/protocol"
@@ -70,6 +71,9 @@ func TestM2ahRestoreIdleTimeFreq(t *testing.T) {
 
 	idle := server.Exec(c, utils.ToCmdLine("OBJECT", "IDLETIME", "rk2"))
 	asserts.AssertIntReplyGreaterThan(t, idle, 40)
+	oldPol := config.Properties.MaxmemoryPolicy
+	config.Properties.MaxmemoryPolicy = "allkeys-lfu"
+	defer func() { config.Properties.MaxmemoryPolicy = oldPol }()
 	freq := server.Exec(c, utils.ToCmdLine("OBJECT", "FREQ", "rk2"))
 	asserts.AssertIntReply(t, freq, 7)
 }

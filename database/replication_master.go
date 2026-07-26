@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/linkerlin/godis/config"
 	"github.com/linkerlin/godis/interface/redis"
 	"github.com/linkerlin/godis/lib/logger"
 	"github.com/linkerlin/godis/lib/sync/atomic"
@@ -592,6 +593,38 @@ func (server *Server) execWait(args [][]byte) redis.Reply {
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
+}
+
+// execWaitAOF WAITAOF numlocal numreplicas timeout — stub: report local AOF + synced replicas without waiting.
+func (server *Server) execWaitAOF(args [][]byte) redis.Reply {
+	if len(args) != 3 {
+		return protocol.MakeArgNumErrReply("waitaof")
+	}
+	numLocal, err := strconv.ParseInt(string(args[0]), 10, 64)
+	if err != nil {
+		return protocol.MakeErrReply("ERR value is not an integer or out of range")
+	}
+	numReplicas, err := strconv.ParseInt(string(args[1]), 10, 64)
+	if err != nil {
+		return protocol.MakeErrReply("ERR value is not an integer or out of range")
+	}
+	timeoutMs, err := strconv.ParseInt(string(args[2]), 10, 64)
+	if err != nil || timeoutMs < 0 {
+		return protocol.MakeErrReply("ERR timeout is not an integer or out of range")
+	}
+	_ = numLocal
+	_ = numReplicas
+	_ = timeoutMs
+
+	local := int64(0)
+	if config.Properties != nil && config.Properties.AppendOnly {
+		local = 1
+	}
+	replicas := server.countSyncedSlaves()
+	return protocol.MakeMultiRawReply([]redis.Reply{
+		protocol.MakeIntReply(local),
+		protocol.MakeIntReply(replicas),
+	})
 }
 
 func (server *Server) nudgeSlavesForWait() {

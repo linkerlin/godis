@@ -4,7 +4,6 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/linkerlin/godis/acl"
 	"github.com/linkerlin/godis/interface/redis"
 	"github.com/linkerlin/godis/lib/wildcard"
 	"github.com/linkerlin/godis/redis/protocol"
@@ -210,8 +209,8 @@ func getCommandList(args [][]byte) redis.Reply {
 
 	allowed := map[string]bool{}
 	if aclCat != "" {
-		cmds, ok := acl.CommandCategoryMap[aclCat]
-		if !ok {
+		cmds := commandsForACLCategory(aclCat)
+		if cmds == nil {
 			return protocol.MakeEmptyMultiBulkReply()
 		}
 		for _, c := range cmds {

@@ -2,6 +2,7 @@ package database
 
 import (
 	"crypto/rand"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -329,10 +330,13 @@ func execACLCat(args [][]byte) redis.Reply {
 	}
 
 	// List commands in a category
-	category := string(args[0])
-	cmds := acl.CommandCategoryMap[category]
+	category := strings.ToLower(string(args[0]))
+	if !strings.HasPrefix(category, "@") {
+		category = "@" + category
+	}
+	cmds := commandsForACLCategory(category)
 	if cmds == nil {
-		return protocol.MakeErrReply("ERR Unknown category '" + category + "'")
+		return protocol.MakeErrReply("ERR Unknown category '" + string(args[0]) + "'")
 	}
 
 	result := make([][]byte, len(cmds))
@@ -340,6 +344,53 @@ func execACLCat(args [][]byte) redis.Reply {
 		result[i] = []byte(cmd)
 	}
 	return protocol.MakeMultiBulkReply(result)
+}
+
+// commandsForACLCategory returns commands for an @category (static map or derived from cmd flags).
+func commandsForACLCategory(category string) []string {
+	if cmds := acl.CommandCategoryMap[category]; cmds != nil {
+		out := make([]string, len(cmds))
+		copy(out, cmds)
+		return out
+	}
+	switch category {
+	case "@fast":
+		return listCmdsBySign(redisFlagFast)
+	case "@blocking":
+		return listCmdsBySign(redisFlagBlocking)
+	case "@slow":
+		fast := map[string]bool{}
+		for _, n := range listCmdsBySign(redisFlagFast) {
+			fast[n] = true
+		}
+		out := make([]string, 0, len(cmdTable))
+		for name := range cmdTable {
+			if !fast[name] {
+				out = append(out, name)
+			}
+		}
+		sort.Strings(out)
+		return out
+	default:
+		return nil
+	}
+}
+
+func listCmdsBySign(sign string) []string {
+	out := make([]string, 0)
+	for name, cmd := range cmdTable {
+		if cmd.extra == nil {
+			continue
+		}
+		for _, s := range cmd.extra.signs {
+			if s == sign {
+				out = append(out, name)
+				break
+			}
+		}
+	}
+	sort.Strings(out)
+	return out
 }
 
 // execACLLog manages the ACL log

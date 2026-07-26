@@ -395,6 +395,8 @@ func (server *Server) Exec(c redis.Connection, cmdLine [][]byte) (result redis.R
 		return execLastSave(server, cmdLine[1:])
 	} else if cmdName == "wait" {
 		return server.execWait(cmdLine[1:])
+	} else if cmdName == "waitaof" {
+		return server.execWaitAOF(cmdLine[1:])
 	} else if cmdName == "select" {
 		if c != nil && c.InMultiState() {
 			return protocol.MakeErrReply("ERR cannot select database within MULTI")
