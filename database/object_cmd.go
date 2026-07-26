@@ -92,6 +92,10 @@ func getObjectEncoding(data interface{}) string {
 		if v.Len() <= 512 && setAllIntegerMembers(v) {
 			return "intset"
 		}
+		// Redis 7+: small non-intset sets use listpack (set-max-listpack-entries=128).
+		if v.Len() <= 128 {
+			return "listpack"
+		}
 		return "hashtable"
 	case *sortedset.SortedSet:
 		if v.Len() <= 128 {

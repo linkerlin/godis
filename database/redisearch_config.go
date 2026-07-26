@@ -18,6 +18,8 @@ var (
 		"MAXSEARCHRESULTS": "10000",
 		"DEFAULT_DIALECT":  "1",
 		"ON_TIMEOUT":       "FAIL",
+		"MINPREFIX":        "2",
+		"MAXEXPANSIONS":    "200",
 	}
 )
 
@@ -53,7 +55,7 @@ func execFTConfig(db *DB, args [][]byte) redis.Reply {
 		if _, ok := ftConfig[key]; !ok {
 			return protocol.MakeErrReply(fmt.Sprintf("ERR Unknown option '%s'", string(args[1])))
 		}
-		if key == "TIMEOUT" || key == "MAXSEARCHRESULTS" {
+		if key == "TIMEOUT" || key == "MAXSEARCHRESULTS" || key == "MINPREFIX" || key == "MAXEXPANSIONS" {
 			if _, err := strconv.Atoi(val); err != nil {
 				return protocol.MakeErrReply("ERR Invalid value for option")
 			}

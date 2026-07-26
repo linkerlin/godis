@@ -87,7 +87,7 @@ func TestM2bnObjectListpackIntset(t *testing.T) {
 	asserts.AssertBulkReply(t, db.Exec(nil, utils.ToCmdLine("OBJECT", "ENCODING", "si")), "intset")
 
 	_ = db.Exec(nil, utils.ToCmdLine("SADD", "ss", "a", "b"))
-	asserts.AssertBulkReply(t, db.Exec(nil, utils.ToCmdLine("OBJECT", "ENCODING", "ss")), "hashtable")
+	asserts.AssertBulkReply(t, db.Exec(nil, utils.ToCmdLine("OBJECT", "ENCODING", "ss")), "listpack")
 }
 
 func TestM2bnLuaSetrespConfigAndSmembers(t *testing.T) {

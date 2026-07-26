@@ -41,9 +41,30 @@ func (server *Server) execConfig(args [][]byte) redis.Reply {
 			return reply
 		}
 		return protocol.MakeOkReply()
+	case "HELP":
+		return execConfigHelp(args[1:])
 	default:
 		return protocol.MakeErrReply(fmt.Sprintf("ERR Unknown subcommand or wrong number of arguments for '%s'", subCmd))
 	}
+}
+
+func execConfigHelp(args [][]byte) redis.Reply {
+	if len(args) != 0 {
+		return protocol.MakeErrReply("ERR wrong number of arguments for 'config|help' command")
+	}
+	return protocol.MakeMultiBulkReply([][]byte{
+		[]byte("CONFIG <subcommand> [<arg> [value] [opt] ...]. Subcommands are:"),
+		[]byte("GET <pattern>"),
+		[]byte("    Return parameters matching the pattern."),
+		[]byte("SET <parameter> <value> [<parameter> <value> ...]"),
+		[]byte("    Set configuration parameters."),
+		[]byte("RESETSTAT"),
+		[]byte("    Reset statistics reported by INFO."),
+		[]byte("REWRITE"),
+		[]byte("    Rewrite the configuration file with the current configuration."),
+		[]byte("HELP"),
+		[]byte("    Print this help."),
+	})
 }
 
 // execConfigGet handles CONFIG GET
@@ -108,6 +129,11 @@ func getConfigMatches(pattern string) []configPair {
 		{"slowlog-max-len", strconv.Itoa(config.Properties.SlowLogMaxLen)},
 		{"acllog-max-len", strconv.Itoa(config.Properties.AclLogMaxLen)},
 		{"cluster-enabled", boolToString(config.Properties.ClusterEnable)},
+		{"cluster-as-seed", boolToString(config.Properties.ClusterAsSeed)},
+		{"cluster-seed", config.Properties.ClusterSeed},
+		{"raft-listen-address", config.Properties.RaftListenAddr},
+		{"raft-advertise-address", config.Properties.RaftAdvertiseAddr},
+		{"master-in-cluster", config.Properties.MasterInCluster},
 		{"repl-timeout", strconv.Itoa(config.Properties.ReplTimeout)},
 		{"use-gnet", boolToString(config.Properties.UseGnet)},
 		{"search-backend", config.Properties.SearchBackend},

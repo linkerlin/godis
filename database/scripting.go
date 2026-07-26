@@ -488,6 +488,28 @@ func execScriptFinish(db *DB, args [][]byte) redis.Reply {
 	return protocol.MakeOkReply()
 }
 
+// execScriptHelp returns help for SCRIPT subcommands.
+func execScriptHelp(db *DB, args [][]byte) redis.Reply {
+	if len(args) != 0 {
+		return protocol.MakeErrReply("ERR wrong number of arguments for 'script|help' command")
+	}
+	return protocol.MakeMultiBulkReply([][]byte{
+		[]byte("SCRIPT <subcommand> [<arg> [value] [opt] ...]. Subcommands are:"),
+		[]byte("EXISTS <sha1> [<sha1> ...]"),
+		[]byte("    Return information about the existence of the scripts in the script cache."),
+		[]byte("FLUSH [ASYNC|SYNC]"),
+		[]byte("    Flush the Lua scripts cache."),
+		[]byte("KILL"),
+		[]byte("    Kill the currently executing Lua script."),
+		[]byte("LOAD <script>"),
+		[]byte("    Load a script into the scripts cache."),
+		[]byte("DEBUG YES|SYNC|NO"),
+		[]byte("    Set the debug mode for subsequent scripts executed with EVAL."),
+		[]byte("HELP"),
+		[]byte("    Print this help."),
+	})
+}
+
 // execScriptInfo shows current debug info
 // SCRIPT INFO
 func execScriptInfo(db *DB, args [][]byte) redis.Reply {
@@ -552,5 +574,7 @@ func init() {
 	registerCommand("Script|Finish", execScriptFinish, nil, nil, 1, flagAdmin).
 		attachCommandExtra([]string{redisFlagAdmin}, 0, 0, 0)
 	registerCommand("Script|Info", execScriptInfo, nil, nil, 1, flagAdmin).
+		attachCommandExtra([]string{redisFlagAdmin}, 0, 0, 0)
+	registerCommand("Script|Help", execScriptHelp, nil, nil, 1, flagAdmin).
 		attachCommandExtra([]string{redisFlagAdmin}, 0, 0, 0)
 }
