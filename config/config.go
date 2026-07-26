@@ -40,13 +40,15 @@ type ServerProperties struct {
 	SlaveAnnouncePort int    `cfg:"slave-announce-port"`
 	SlaveAnnounceIP   string `cfg:"slave-announce-ip"`
 	ReplTimeout       int    `cfg:"repl-timeout"`
-	UseGnet           bool   `cfg:"use-gnet"`
-	SearchBackend     string `cfg:"search-backend"`
-	VectorBackend     string `cfg:"vector-backend"`
-	SearchSQLitePath  string `cfg:"search-sqlite-path"`
-	SqliteMmapSize    int64  `cfg:"sqlite-mmap-size"`
-	MetricsAddr       string `cfg:"metrics-addr"`
-	AclFile           string `cfg:"aclfile"`
+	// LuaTimeLimit is script busy timeout in milliseconds (Redis lua-time-limit; 0 = no limit).
+	LuaTimeLimit     int64  `cfg:"lua-time-limit"`
+	UseGnet          bool   `cfg:"use-gnet"`
+	SearchBackend    string `cfg:"search-backend"`
+	VectorBackend    string `cfg:"vector-backend"`
+	SearchSQLitePath string `cfg:"search-sqlite-path"`
+	SqliteMmapSize   int64  `cfg:"sqlite-mmap-size"`
+	MetricsAddr      string `cfg:"metrics-addr"`
+	AclFile          string `cfg:"aclfile"`
 
 	SlowLogSlowerThan int64 `cfg:"slowlog-log-slower-than"`
 	SlowLogMaxLen     int   `cfg:"slowlog-max-len"`
@@ -126,16 +128,17 @@ func init() {
 
 	// default config
 	Properties = &ServerProperties{
-		Bind:             "127.0.0.1",
-		Port:             6379,
-		AppendOnly:       false,
-		SearchBackend:    "native",
-		VectorBackend:    "native",
-		Hz:               10,
-		TCPKeepAlive:     300,
-		ProtectedMode:    true,
-		ReplicaReadOnly:  true,
-		RunID:            utils.RandString(40),
+		Bind:            "127.0.0.1",
+		Port:            6379,
+		AppendOnly:      false,
+		SearchBackend:   "native",
+		VectorBackend:   "native",
+		Hz:              10,
+		TCPKeepAlive:    300,
+		ProtectedMode:   true,
+		ReplicaReadOnly: true,
+		LuaTimeLimit:    5000,
+		RunID:           utils.RandString(40),
 	}
 }
 

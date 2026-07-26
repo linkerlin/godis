@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/linkerlin/godis/config"
 	"github.com/linkerlin/godis/lib/logger"
 	lua "github.com/yuin/gopher-lua"
 )
@@ -164,8 +165,18 @@ func (e *GopherEngine) EvalWithContext(ctx context.Context, script string, keys 
 	L := e.statePool.Get()
 	defer e.statePool.Put(L)
 
-	// Create script execution context with timeout
-	execCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	// Create script execution context with timeout (CONFIG lua-time-limit, ms; 0 = no limit).
+	var execCtx context.Context
+	var cancel context.CancelFunc
+	limitMs := int64(5000)
+	if config.Properties != nil {
+		limitMs = config.Properties.LuaTimeLimit
+	}
+	if limitMs > 0 {
+		execCtx, cancel = context.WithTimeout(ctx, time.Duration(limitMs)*time.Millisecond)
+	} else {
+		execCtx, cancel = context.WithCancel(ctx)
+	}
 	defer cancel()
 
 	// Set context for cancellation support

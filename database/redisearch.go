@@ -537,6 +537,7 @@ func execFTSearch(db *DB, args [][]byte) redis.Reply {
 		name   string // reply key (AS alias or source)
 	}
 	returnFields := []returnFieldSpec{}
+	returnSpecified := false
 	var inKeys map[string]struct{}
 
 	for i := 2; i < len(args); i++ {
@@ -764,6 +765,7 @@ func execFTSearch(db *DB, args [][]byte) redis.Reply {
 			if err != nil {
 				return protocol.MakeErrReply("ERR Invalid return count")
 			}
+			returnSpecified = true
 			i += 2
 			for j := 0; j < count && i < len(args); j++ {
 				nextArg := strings.ToUpper(string(args[i]))
@@ -897,7 +899,7 @@ func execFTSearch(db *DB, args [][]byte) redis.Reply {
 				return s
 			}
 
-			if len(returnFields) > 0 {
+			if returnSpecified {
 				for _, rf := range returnFields {
 					if val, ok := result.Fields[rf.source]; ok {
 						fields = append(fields, []byte(rf.name))
@@ -905,7 +907,7 @@ func execFTSearch(db *DB, args [][]byte) redis.Reply {
 					}
 				}
 			} else {
-				// Return all fields
+				// Return all fields when RETURN omitted
 				for k, v := range result.Fields {
 					fields = append(fields, []byte(k))
 					fields = append(fields, []byte(formatVal(k, v)))

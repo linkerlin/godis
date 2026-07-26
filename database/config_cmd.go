@@ -79,6 +79,9 @@ func getConfigMatches(pattern string) []configPair {
 		{"appendfsync", config.Properties.AppendFsync},
 		{"aof-use-rdb-preamble", boolToString(config.Properties.AofUseRdbPreamble)},
 		{"masterauth", config.Properties.MasterAuth},
+		{"slave-announce-ip", config.Properties.SlaveAnnounceIP},
+		{"slave-announce-port", strconv.Itoa(config.Properties.SlaveAnnouncePort)},
+		{"lua-time-limit", strconv.FormatInt(config.Properties.LuaTimeLimit, 10)},
 		{"dir", configDir()},
 		{"dbfilename", config.Properties.RDBFilename},
 		{"rdbfilename", config.Properties.RDBFilename}, // alias
@@ -187,6 +190,20 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 			config.Properties.AofUseRdbPreamble = b
 		case "masterauth":
 			config.Properties.MasterAuth = value
+		case "slave-announce-ip":
+			config.Properties.SlaveAnnounceIP = value
+		case "slave-announce-port":
+			n, err := strconv.Atoi(value)
+			if err != nil || n < 0 || n > 65535 {
+				return protocol.MakeErrReply(fmt.Sprintf("ERR Invalid value for '%s'", key))
+			}
+			config.Properties.SlaveAnnouncePort = n
+		case "lua-time-limit":
+			n, err := strconv.ParseInt(value, 10, 64)
+			if err != nil || n < 0 {
+				return protocol.MakeErrReply(fmt.Sprintf("ERR Invalid value for '%s'", key))
+			}
+			config.Properties.LuaTimeLimit = n
 		case "maxclients":
 			n, err := strconv.Atoi(value)
 			if err != nil || n < 0 {

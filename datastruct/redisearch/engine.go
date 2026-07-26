@@ -252,9 +252,8 @@ func (e *RediSearchEngine) Search(query string, opts *SearchOptions) (*SearchRes
 		results = append(results, result)
 	}
 
-	// Sort results. When SORTBY is requested, sort by that field's numeric
-	// value (RediSearch SORTBY on a NUMERIC field); otherwise sort by relevance.
-	// A deterministic tiebreaker (document ID) keeps paginated queries stable.
+	// Sort results. SORTBY uses numeric compare when both values parse as
+	// numbers; otherwise lexicographic (TEXT/SORTABLE). Tiebreak by doc ID.
 	var cmp func(a, b *SearchResult) int
 	if opts != nil && opts.SortBy != "" {
 		field := opts.SortBy
@@ -269,6 +268,22 @@ func (e *RediSearchEngine) Search(query string, opts *SearchOptions) (*SearchRes
 					}
 					return -1
 				} else if va > vb {
+					if desc {
+						return -1
+					}
+					return 1
+				}
+				return 0
+			}
+			sa, oka := strField(a, field)
+			sb, okb := strField(b, field)
+			if oka && okb {
+				if sa < sb {
+					if desc {
+						return 1
+					}
+					return -1
+				} else if sa > sb {
 					if desc {
 						return -1
 					}
@@ -352,6 +367,23 @@ func numField(r *SearchResult, field string) (float64, bool) {
 	return v, true
 }
 
+func strField(r *SearchResult, field string) (string, bool) {
+	if r == nil {
+		return "", false
+	}
+	if r.Fields != nil {
+		if raw, ok := r.Fields[field]; ok {
+			return fmt.Sprintf("%v", raw), true
+		}
+	}
+	if r.Document != nil && r.Document.Fields != nil {
+		if raw, ok := r.Document.Fields[field]; ok {
+			return fmt.Sprintf("%v", raw), true
+		}
+	}
+	return "", false
+}
+
 // SearchOptions holds search options (legacy alias kept for callers).
 type SearchOptions struct {
 	Offset       int
@@ -367,13 +399,13 @@ type SearchOptions struct {
 	InOrder      bool
 	TimeoutMs    int // soft deadline in ms; cancellation mid-scan
 	// Deadline overrides TimeoutMs when set (tests / callers with absolute time).
-	Deadline time.Time
-	InFields     []string
-	Summarize    bool
+	Deadline        time.Time
+	InFields        []string
+	Summarize       bool
 	SummarizeFields []string
 	SummarizeLen    int // max chars per field; 0 = default 20
-	GeoFilter    *GeoFilterOptions
-	Filters      []FieldFilter
+	GeoFilter       *GeoFilterOptions
+	Filters         []FieldFilter
 	// Highlight options
 	Highlight         bool
 	HighlightFields   []string
@@ -528,15 +560,15 @@ type AggregationRequest struct {
 	Verbatim  bool
 	TimeoutMs int // soft deadline in ms
 	// Deadline overrides TimeoutMs when set.
-	Deadline  time.Time
-	GroupBy   []string      // Support multiple group by fields
-	Having    *HavingClause // HAVING clause for group filtering
-	Reduce    []Reducer
-	SortBy    string
-	SortDesc  bool
-	Offset    int
-	Limit     int
-	Filter    string // FILTER expression
+	Deadline time.Time
+	GroupBy  []string      // Support multiple group by fields
+	Having   *HavingClause // HAVING clause for group filtering
+	Reduce   []Reducer
+	SortBy   string
+	SortDesc bool
+	Offset   int
+	Limit    int
+	Filter   string // FILTER expression
 }
 
 // HavingClause represents a HAVING clause for group filtering

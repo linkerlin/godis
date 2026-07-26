@@ -51,9 +51,9 @@ func noteSyncPartialErr() {
 
 // Sliding 1-second window for INFO instantaneous_ops_per_sec.
 var (
-	opsWindowSec      int64
-	opsWindowCount    int64
-	opsLastSecCount   int64
+	opsWindowSec    int64
+	opsWindowCount  int64
+	opsLastSecCount int64
 )
 
 func noteOps() {
@@ -537,11 +537,13 @@ func genCommandStatsInfo() string {
 	for cmdName, stat := range stats {
 		if stat.calls > 0 {
 			sb.WriteString(fmt.Sprintf(
-				"cmdstat_%s:calls=%d,usec=%d,usec_per_call=%.2f\r\n",
+				"cmdstat_%s:calls=%d,usec=%d,usec_per_call=%.2f,rejected_calls=%d,failed_calls=%d\r\n",
 				cmdName,
 				stat.calls,
 				stat.usec,
 				stat.usecPerCall,
+				stat.rejectedKeys,
+				stat.failedCalls,
 			))
 		}
 	}
