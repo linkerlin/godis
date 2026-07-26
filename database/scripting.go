@@ -121,7 +121,7 @@ func execEval(db *DB, args [][]byte) redis.Reply {
 	// Redis caches EVAL scripts so EVALSHA works afterwards
 	scriptEngine.LoadScript(script)
 
-	return scripting.ConvertToRedisReply(result)
+	return scripting.ConvertToRedisReplyWithResp(result, scriptEngine.GetRespVersion())
 }
 
 // execEvalSha executes a script by SHA1
@@ -169,7 +169,7 @@ func execEvalSha(db *DB, args [][]byte) redis.Reply {
 		return protocol.MakeErrReply(err.Error())
 	}
 
-	return scripting.ConvertToRedisReply(result)
+	return scripting.ConvertToRedisReplyWithResp(result, scriptEngine.GetRespVersion())
 }
 
 // execScriptExists checks if scripts exist

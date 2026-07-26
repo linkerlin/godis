@@ -166,10 +166,27 @@ func formatClientListLine(c redis.Connection) string {
 	}
 	watching := len(c.GetWatching())
 	redir := clientListRedir(c)
+	argvMem, multiMem, totMem := clientListMemEstimates(c, cmd)
 	return fmt.Sprintf(
-		"id=%d addr=%s laddr=%s fd=0 name=%s age=%d idle=%d flags=%s db=%d sub=%d psub=%d ssub=%d user=%s multi=%d watching=%d qbuf=0 qbuf-free=0 obl=0 oll=0 omem=0 events=r cmd=%s resp=%d redir=%d lib-name=%s lib-ver=%s",
-		c.GetClientID(), clientAddr(c), clientLocalAddr(c), c.GetClientName(), age, idle, flags, c.GetDBIndex(), subN, psubN, ssubN, user, multi, watching, cmd, respVer, redir, libName, libVer,
+		"id=%d addr=%s laddr=%s fd=0 name=%s age=%d idle=%d flags=%s db=%d sub=%d psub=%d ssub=%d user=%s multi=%d watching=%d qbuf=0 qbuf-free=0 argv-mem=%d multi-mem=%d obl=0 oll=0 omem=0 tot-mem=%d events=r cmd=%s resp=%d redir=%d lib-name=%s lib-ver=%s",
+		c.GetClientID(), clientAddr(c), clientLocalAddr(c), c.GetClientName(), age, idle, flags, c.GetDBIndex(), subN, psubN, ssubN, user, multi, watching, argvMem, multiMem, totMem, cmd, respVer, redir, libName, libVer,
 	)
+}
+
+// clientListMemEstimates returns coarse argv-mem / multi-mem / tot-mem (not Redis-precise).
+func clientListMemEstimates(c redis.Connection, cmd string) (argvMem, multiMem, totMem int64) {
+	if cmd != "" && cmd != "NULL" {
+		argvMem = int64(len(cmd))
+	}
+	if c.InMultiState() {
+		for _, line := range c.GetQueuedCmdLine() {
+			for _, a := range line {
+				multiMem += int64(len(a))
+			}
+		}
+	}
+	totMem = argvMem + multiMem + int64(len(c.GetClientName()))
+	return
 }
 
 // clientListRedir mirrors CLIENT GETREDIR: -1 off, 0 on/no redirect, else target id.

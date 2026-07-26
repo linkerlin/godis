@@ -404,7 +404,12 @@ func genPersistenceInfo(db *Server) string {
 		"aof_last_bgrewrite_status:%s\r\n"+
 		"aof_last_write_status:%s\r\n"+
 		"aof_current_size:%d\r\n"+
-		"aof_base_size:%d\r\n",
+		"aof_base_size:%d\r\n"+
+		"aof_pending_rewrite:%d\r\n"+
+		"aof_buffer_length:%d\r\n"+
+		"aof_rewrite_buffer_length:%d\r\n"+
+		"aof_pending_bio_fsync:%d\r\n"+
+		"aof_delayed_fsync:%d\r\n",
 		0,
 		db.DirtyChanges(),
 		rdbBgsaveInProgress,
@@ -421,6 +426,11 @@ func genPersistenceInfo(db *Server) string {
 		"ok",
 		aofSize,
 		aofSize,
+		0,
+		0,
+		0,
+		0,
+		0,
 	)
 }
 

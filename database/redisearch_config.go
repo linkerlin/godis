@@ -68,6 +68,17 @@ func execFTConfig(db *DB, args [][]byte) redis.Reply {
 	}
 }
 
+func getFTConfigInt(key string) int {
+	ftConfigMu.RLock()
+	defer ftConfigMu.RUnlock()
+	n, _ := strconv.Atoi(ftConfig[key])
+	return n
+}
+
+func validFTDialect(d int) bool {
+	return d >= 1 && d <= 4
+}
+
 func init() {
 	registerCommand("FT.Config", execFTConfig, prepareNoKeys, nil, -2, flagAdmin).
 		attachCommandExtra([]string{redisFlagAdmin}, 0, 0, 0)

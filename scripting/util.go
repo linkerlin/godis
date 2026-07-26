@@ -163,10 +163,20 @@ func goValueToLua(L *lua.LState, v interface{}) lua.LValue {
 	}
 }
 
-// ConvertToRedisReply converts a Go value to Redis reply
-// This function is kept for backward compatibility
+// ConvertToRedisReply converts a Go value to Redis reply (RESP2 script semantics).
 func ConvertToRedisReply(v interface{}) redis.Reply {
+	return ConvertToRedisReplyWithResp(v, 2)
+}
+
+// ConvertToRedisReplyWithResp converts a Lua result using redis.setresp version (2 or 3).
+func ConvertToRedisReplyWithResp(v interface{}, respVer int) redis.Reply {
+	if respVer != 3 {
+		respVer = 2
+	}
 	if v == nil {
+		if respVer == 3 {
+			return &protocol.NullReply{}
+		}
 		return &protocol.NullBulkReply{}
 	}
 
@@ -180,8 +190,14 @@ func ConvertToRedisReply(v interface{}) redis.Reply {
 	case int64:
 		return protocol.MakeIntReply(val)
 	case float64:
+		if respVer == 3 {
+			return protocol.MakeDoubleReply(val)
+		}
 		return protocol.MakeBulkReply([]byte(fmt.Sprintf("%g", val)))
 	case bool:
+		if respVer == 3 {
+			return protocol.MakeBooleanReply(val)
+		}
 		if val {
 			return protocol.MakeIntReply(1)
 		}
@@ -189,23 +205,28 @@ func ConvertToRedisReply(v interface{}) redis.Reply {
 	case []interface{}:
 		replies := make([]redis.Reply, 0, len(val))
 		for _, elem := range val {
-			replies = append(replies, ConvertToRedisReply(elem))
+			replies = append(replies, ConvertToRedisReplyWithResp(elem, respVer))
 		}
 		return protocol.MakeMultiRawReply(replies)
 	case map[string]interface{}:
-		// Check for error reply (used by pcall / redis.error_reply)
 		if errVal, ok := val["err"]; ok {
 			return protocol.MakeErrReply(fmt.Sprint(errVal))
 		}
-		// Check for status reply (redis.status_reply)
 		if okVal, ok := val["ok"]; ok {
 			return protocol.MakeStatusReply(fmt.Sprint(okVal))
 		}
+		if respVer == 3 {
+			m := protocol.MakeMapReply()
+			for k, vv := range val {
+				m.Put(k, ConvertToRedisReplyWithResp(vv, respVer))
+			}
+			return m
+		}
 		replies := make([]redis.Reply, 0, len(val)*2)
-		for k, v := range val {
+		for k, vv := range val {
 			replies = append(replies,
 				protocol.MakeBulkReply([]byte(k)),
-				ConvertToRedisReply(v),
+				ConvertToRedisReplyWithResp(vv, respVer),
 			)
 		}
 		return protocol.MakeMultiRawReply(replies)

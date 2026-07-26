@@ -62,7 +62,7 @@ func execFTExplain(db *DB, args [][]byte) redis.Reply {
 			if i+1 >= len(args) {
 				return protocol.MakeSyntaxErrReply()
 			}
-			if _, err := strconv.Atoi(string(args[i+1])); err != nil {
+			if d, err := strconv.Atoi(string(args[i+1])); err != nil || !validFTDialect(d) {
 				return protocol.MakeErrReply("ERR Invalid DIALECT value")
 			}
 			i++

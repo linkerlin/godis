@@ -41,7 +41,7 @@ type GopherEngine struct {
 	// Full debugger
 	debugger *FullDebugger
 
-	// Preferred RESP major version from redis.setresp (2 or 3); informational for now.
+	// Preferred RESP major version from redis.setresp (2 or 3).
 	respVersion int
 
 	// Script replication flags from redis.set_repl (0=REPL_NONE … 3=REPL_ALL).
@@ -157,9 +157,10 @@ func (e *GopherEngine) Eval(script string, keys []string, args []string) (interf
 
 // EvalWithContext executes a Lua script with context (for timeout/cancellation)
 func (e *GopherEngine) EvalWithContext(ctx context.Context, script string, keys []string, args []string) (interface{}, error) {
-	// Reset replication flags per script (Redis default REPL_ALL).
+	// Reset replication flags and RESP version per script (Redis defaults).
 	e.mu.Lock()
 	e.replFlags = replFlagAll
+	e.respVersion = 2
 	e.mu.Unlock()
 
 	L := e.statePool.Get()
@@ -527,6 +528,16 @@ func (e *GopherEngine) GetReplFlags() int {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
 	return e.replFlags
+}
+
+// GetRespVersion returns the preferred RESP major version from redis.setresp.
+func (e *GopherEngine) GetRespVersion() int {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	if e.respVersion == 0 {
+		return 2
+	}
+	return e.respVersion
 }
 
 // luaRedisSetErrorHandler implements redis.set_error_handler(fn|nil) — stores callback; not invoked yet.

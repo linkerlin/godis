@@ -81,6 +81,7 @@ func getConfigMatches(pattern string) []configPair {
 		{"masterauth", config.Properties.MasterAuth},
 		{"slave-announce-ip", config.Properties.SlaveAnnounceIP},
 		{"slave-announce-port", strconv.Itoa(config.Properties.SlaveAnnouncePort)},
+		{"announce-host", config.Properties.AnnounceHost},
 		{"lua-time-limit", strconv.FormatInt(config.Properties.LuaTimeLimit, 10)},
 		{"dir", configDir()},
 		{"dbfilename", config.Properties.RDBFilename},
@@ -190,6 +191,8 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 			config.Properties.AofUseRdbPreamble = b
 		case "masterauth":
 			config.Properties.MasterAuth = value
+		case "announce-host":
+			config.Properties.AnnounceHost = value
 		case "slave-announce-ip":
 			config.Properties.SlaveAnnounceIP = value
 		case "slave-announce-port":

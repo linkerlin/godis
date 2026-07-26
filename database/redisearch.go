@@ -565,7 +565,11 @@ func execFTSearch(db *DB, args [][]byte) redis.Reply {
 			if i+1 >= len(args) {
 				return protocol.MakeSyntaxErrReply()
 			}
-			i++ // accept dialect version; query engine is fixed
+			d, err := strconv.Atoi(string(args[i+1]))
+			if err != nil || !validFTDialect(d) {
+				return protocol.MakeErrReply("ERR Invalid DIALECT value")
+			}
+			i++ // dialect recorded for validation; query engine is fixed
 		case "SLOP":
 			if i+1 >= len(args) {
 				return protocol.MakeSyntaxErrReply()
@@ -820,6 +824,16 @@ func execFTSearch(db *DB, args [][]byte) redis.Reply {
 		default:
 			return protocol.MakeSyntaxErrReply()
 		}
+	}
+
+	// Apply FT.CONFIG defaults / caps (MAXSEARCHRESULTS, TIMEOUT).
+	if opts.TimeoutMs == 0 {
+		if t := getFTConfigInt("TIMEOUT"); t > 0 {
+			opts.TimeoutMs = t
+		}
+	}
+	if max := getFTConfigInt("MAXSEARCHRESULTS"); max > 0 && opts.Limit > max {
+		opts.Limit = max
 	}
 
 	// Search

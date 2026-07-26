@@ -95,6 +95,14 @@ func (e *Engine) ShouldSuppressAOF() bool {
 	return false
 }
 
+// GetRespVersion returns redis.setresp version (2 or 3) after the last Eval.
+func (e *Engine) GetRespVersion() int {
+	if e.gopherEngine != nil {
+		return e.gopherEngine.GetRespVersion()
+	}
+	return 2
+}
+
 // SetEngineType changes the engine type at runtime
 func (e *Engine) SetEngineType(engineType EngineType) {
 	e.mu.Lock()
@@ -268,10 +276,9 @@ func computeScriptSHA(script string) string {
 	return hex.EncodeToString(h.Sum(nil))
 }
 
-// ConvertToRedisReply converts Go value to Redis reply
-// This is a convenience wrapper for external callers
+// ConvertToRedisReply converts Go value to Redis reply using current setresp version.
 func (e *Engine) ConvertToRedisReply(v interface{}) redis.Reply {
-	return ConvertToRedisReply(v)
+	return ConvertToRedisReplyWithResp(v, e.GetRespVersion())
 }
 
 // init determines the engine type from environment variable
