@@ -636,6 +636,57 @@ func formatACLUserReply(user *acl.User) redis.Reply {
 	}
 	result = append(result, protocol.MakeMultiBulkReply(keyReplies).ToBytes())
 
+	// Channels (&pattern)
+	result = append(result, []byte("channels"))
+	var chReplies [][]byte
+	for _, ch := range user.Channels {
+		if !ch.Allowed {
+			continue
+		}
+		chReplies = append(chReplies, []byte("&"+ch.Pattern))
+	}
+	result = append(result, protocol.MakeMultiBulkReply(chReplies).ToBytes())
+
+	// Selectors (Redis 7+); empty array when none
+	result = append(result, []byte("selectors"))
+	var selNested [][]byte
+	for _, sel := range user.Selectors {
+		if sel == nil {
+			continue
+		}
+		var parts [][]byte
+		parts = append(parts, []byte("commands"))
+		var cmdParts [][]byte
+		if sel.Commands != nil && sel.Commands.AllCommands {
+			cmdParts = append(cmdParts, []byte("+@all"))
+		}
+		if sel.Commands != nil {
+			for cmd := range sel.Commands.AllowedCommands {
+				cmdParts = append(cmdParts, []byte("+"+cmd))
+			}
+		}
+		parts = append(parts, protocol.MakeMultiBulkReply(cmdParts).ToBytes())
+		parts = append(parts, []byte("keys"))
+		var keyParts [][]byte
+		for _, kp := range sel.KeyPatterns {
+			if !kp.Allowed {
+				continue
+			}
+			keyParts = append(keyParts, []byte("~"+kp.Pattern))
+		}
+		parts = append(parts, protocol.MakeMultiBulkReply(keyParts).ToBytes())
+		parts = append(parts, []byte("channels"))
+		var chParts [][]byte
+		for _, ch := range sel.Channels {
+			if ch.Allowed {
+				chParts = append(chParts, []byte("&"+ch.Pattern))
+			}
+		}
+		parts = append(parts, protocol.MakeMultiBulkReply(chParts).ToBytes())
+		selNested = append(selNested, protocol.MakeMultiBulkReply(parts).ToBytes())
+	}
+	result = append(result, protocol.MakeMultiBulkReply(selNested).ToBytes())
+
 	return protocol.MakeMultiBulkReply(result)
 }
 

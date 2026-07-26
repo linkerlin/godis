@@ -83,6 +83,9 @@ type ServerProperties struct {
 	// ActiveDefrag is a Redis-compatible CONFIG stub (no real defrag).
 	ActiveDefrag bool `cfg:"activedefrag"`
 
+	// BusyReplyThreshold is Redis busy-reply-threshold (ms); stub for CONFIG GET/SET.
+	BusyReplyThreshold int64 `cfg:"busy-reply-threshold"`
+
 	// ReplBacklogSize is Redis repl-backlog-size (bytes); used when allocating master backlog.
 	ReplBacklogSize int64 `cfg:"repl-backlog-size"`
 

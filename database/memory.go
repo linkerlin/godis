@@ -36,7 +36,7 @@ func execMemory(server *Server, c redis.Connection, args [][]byte) redis.Reply {
 		runtime.GC()
 		return protocol.MakeOkReply()
 	case "DOCTOR":
-		return protocol.MakeBulkReply([]byte("I'm fine, no issues to report."))
+		return protocol.MakeBulkReply([]byte("Hi Sam, I can't find any memory issue in your instance. I can only account for what occurs on this base."))
 	case "MALLOC-STATS":
 		return protocol.MakeBulkReply([]byte("Stats not available in Go runtime"))
 	case "HELP":

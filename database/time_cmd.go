@@ -2,6 +2,7 @@ package database
 
 import (
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/linkerlin/godis/interface/redis"
@@ -23,9 +24,24 @@ func execTime(args [][]byte) redis.Reply {
 }
 
 // execLolwut returns a short Redis-compatible easter-egg banner.
+// LOLWUT [VERSION version]
 func execLolwut(args [][]byte) redis.Reply {
-	_ = args
-	msg := "Godis ver. redis-compat\n" +
+	ver := 0
+	if len(args) > 0 {
+		if len(args) != 2 || !strings.EqualFold(string(args[0]), "VERSION") {
+			return protocol.MakeSyntaxErrReply()
+		}
+		n, err := strconv.Atoi(string(args[1]))
+		if err != nil || n < 0 {
+			return protocol.MakeErrReply("ERR Invalid version")
+		}
+		ver = n
+	}
+	msg := "Godis ver. redis-compat"
+	if ver > 0 {
+		msg += " (LOLWUT style " + strconv.Itoa(ver) + ")"
+	}
+	msg += "\n" +
 		"A Go Redis-compatible server.\n" +
 		"For more information visit https://github.com/linkerlin/godis\n"
 	return protocol.MakeBulkReply([]byte(msg))

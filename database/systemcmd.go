@@ -253,7 +253,10 @@ func GenGodisInfoString(section string, db *Server) []byte {
 			"uptime_in_seconds:%d\r\n"+
 			"uptime_in_days:%d\r\n"+
 			"hz:%d\r\n"+
+			"configured_hz:%d\r\n"+
 			"lru_clock:%d\r\n"+
+			"executable:%s\r\n"+
+			"multiplexing_api:%s\r\n"+
 			"config_file:%s\r\n",
 			godisVersion,
 			godisVersion,
@@ -269,7 +272,10 @@ func GenGodisInfoString(section string, db *Server) []byte {
 			int64(startUpTimeFromNow.Seconds()),
 			int64(startUpTimeFromNow.Hours()/24),
 			getServerHz(),
+			getServerHz(),
 			getLRUClock(),
+			os.Args[0],
+			"go",
 			config.GetConfigFilePath())
 		return []byte(s)
 	case "client":
