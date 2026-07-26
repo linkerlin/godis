@@ -40,7 +40,7 @@ func TestM2axObjectEncodingInt(t *testing.T) {
 	asserts.AssertStatusReply(t, db.Exec(nil, utils.ToCmdLine("SET", "n", "42")), "OK")
 	asserts.AssertBulkReply(t, db.Exec(nil, utils.ToCmdLine("OBJECT", "ENCODING", "n")), "int")
 	asserts.AssertStatusReply(t, db.Exec(nil, utils.ToCmdLine("SET", "s", "hello")), "OK")
-	asserts.AssertBulkReply(t, db.Exec(nil, utils.ToCmdLine("OBJECT", "ENCODING", "s")), "raw")
+	asserts.AssertBulkReply(t, db.Exec(nil, utils.ToCmdLine("OBJECT", "ENCODING", "s")), "embstr")
 }
 
 func TestM2axProtoMaxBulkLen(t *testing.T) {

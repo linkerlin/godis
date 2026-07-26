@@ -31,7 +31,7 @@ func execMemory(server *Server, c redis.Connection, args [][]byte) redis.Reply {
 	case "USAGE":
 		return execMemoryUsage(server, c, args[1:])
 	case "STATS":
-		return execMemoryStats()
+		return execMemoryStats(server)
 	case "PURGE":
 		runtime.GC()
 		return protocol.MakeOkReply()
@@ -268,29 +268,53 @@ func estimateListBytes(l list.List, samples int) int64 {
 	})
 }
 
-func execMemoryStats() redis.Reply {
+func execMemoryStats(server *Server) redis.Reply {
 	var m runtime.MemStats
 	runtime.ReadMemStats(&m)
+
+	keyCount := int64(0)
+	if server != nil {
+		for _, holder := range server.dbSet {
+			db := holder.Load().(*DB)
+			keyCount += int64(db.data.Len())
+		}
+	}
+	dataset := keyCount * bytesPerKeyEstimate
+	overhead := int64(m.Sys) - dataset
+	if overhead < 0 {
+		overhead = 0
+	}
+	frag := 1.0
+	if m.Alloc > 0 {
+		frag = float64(m.Sys) / float64(m.Alloc)
+	}
 
 	stats := []redis.Reply{
 		protocol.MakeBulkReply([]byte("peak.allocated")),
 		protocol.MakeIntReply(int64(m.TotalAlloc)),
 		protocol.MakeBulkReply([]byte("total.allocated")),
 		protocol.MakeIntReply(int64(m.Alloc)),
-		protocol.MakeBulkReply([]byte("total.system")),
-		protocol.MakeIntReply(int64(m.Sys)),
+		protocol.MakeBulkReply([]byte("startup.allocated")),
+		protocol.MakeIntReply(int64(memoryStartupBytes)),
 		protocol.MakeBulkReply([]byte("keys.count")),
-		protocol.MakeIntReply(int64(m.HeapObjects)),
+		protocol.MakeIntReply(keyCount),
+		protocol.MakeBulkReply([]byte("dataset.bytes")),
+		protocol.MakeIntReply(dataset),
+		protocol.MakeBulkReply([]byte("overhead.total")),
+		protocol.MakeIntReply(overhead),
+		protocol.MakeBulkReply([]byte("allocator.allocated")),
+		protocol.MakeIntReply(int64(m.HeapAlloc)),
+		protocol.MakeBulkReply([]byte("allocator.active")),
+		protocol.MakeIntReply(int64(m.HeapSys)),
+		protocol.MakeBulkReply([]byte("allocator.resident")),
+		protocol.MakeIntReply(int64(m.Sys)),
+		protocol.MakeBulkReply([]byte("fragmentation")),
+		protocol.MakeBulkReply([]byte(fmt.Sprintf("%.2f", frag))),
+		// Go-specific extras retained for debugging
 		protocol.MakeBulkReply([]byte("heap.allocated")),
 		protocol.MakeIntReply(int64(m.HeapAlloc)),
-		protocol.MakeBulkReply([]byte("heap.system")),
-		protocol.MakeIntReply(int64(m.HeapSys)),
-		protocol.MakeBulkReply([]byte("heap.free")),
-		protocol.MakeIntReply(int64(m.HeapIdle)),
 		protocol.MakeBulkReply([]byte("gc.runs")),
 		protocol.MakeIntReply(int64(m.NumGC)),
-		protocol.MakeBulkReply([]byte("gc.used_cpu")),
-		protocol.MakeIntReply(int64(m.GCCPUFraction * 100000)),
 	}
 
 	return protocol.MakeMultiRawReply(stats)

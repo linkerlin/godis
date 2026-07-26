@@ -538,6 +538,7 @@ func execFTSearch(db *DB, args [][]byte) redis.Reply {
 	}
 	returnFields := []returnFieldSpec{}
 	returnSpecified := false
+	dialectSpecified := false
 	var inKeys map[string]struct{}
 
 	for i := 2; i < len(args); i++ {
@@ -569,6 +570,7 @@ func execFTSearch(db *DB, args [][]byte) redis.Reply {
 			if err != nil || !validFTDialect(d) {
 				return protocol.MakeErrReply("ERR Invalid DIALECT value")
 			}
+			dialectSpecified = true
 			i++ // dialect recorded for validation; query engine is fixed
 		case "SLOP":
 			if i+1 >= len(args) {
@@ -826,7 +828,16 @@ func execFTSearch(db *DB, args [][]byte) redis.Reply {
 		}
 	}
 
-	// Apply FT.CONFIG defaults / caps (MAXSEARCHRESULTS, TIMEOUT).
+	// Apply FT.CONFIG defaults / caps (MAXSEARCHRESULTS, TIMEOUT, DEFAULT_DIALECT).
+	if !dialectSpecified {
+		d := getFTConfigInt("DEFAULT_DIALECT")
+		if d == 0 {
+			d = 1
+		}
+		if !validFTDialect(d) {
+			return protocol.MakeErrReply("ERR Invalid DIALECT value")
+		}
+	}
 	if opts.TimeoutMs == 0 {
 		if t := getFTConfigInt("TIMEOUT"); t > 0 {
 			opts.TimeoutMs = t
@@ -1196,6 +1207,10 @@ func execFTAggregate(db *DB, args [][]byte) redis.Reply {
 		default:
 			return protocol.MakeSyntaxErrReply()
 		}
+	}
+
+	if max := getFTConfigInt("MAXSEARCHRESULTS"); max > 0 && req.Limit > max {
+		req.Limit = max
 	}
 
 	// Execute aggregation

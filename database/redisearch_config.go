@@ -51,8 +51,14 @@ func execFTConfig(db *DB, args [][]byte) redis.Reply {
 		if _, ok := ftConfig[key]; !ok {
 			return protocol.MakeErrReply(fmt.Sprintf("ERR Unknown option '%s'", string(args[1])))
 		}
-		if key == "TIMEOUT" || key == "MAXSEARCHRESULTS" || key == "DEFAULT_DIALECT" {
+		if key == "TIMEOUT" || key == "MAXSEARCHRESULTS" {
 			if _, err := strconv.Atoi(val); err != nil {
+				return protocol.MakeErrReply("ERR Invalid value for option")
+			}
+		}
+		if key == "DEFAULT_DIALECT" {
+			d, err := strconv.Atoi(val)
+			if err != nil || !validFTDialect(d) {
 				return protocol.MakeErrReply("ERR Invalid value for option")
 			}
 		}

@@ -16,6 +16,15 @@ import (
 	"github.com/linkerlin/godis/tcp"
 )
 
+// memoryStartupBytes is a coarse baseline for used_memory_startup (captured once).
+var memoryStartupBytes uint64
+
+func init() {
+	var m runtime.MemStats
+	runtime.ReadMemStats(&m)
+	memoryStartupBytes = m.Sys
+}
+
 // Server stats for INFO command
 type ServerStats struct {
 	TotalCommandsProcessed   uint64
@@ -233,28 +242,54 @@ func GenGodisInfoString(section string, db *Server) []byte {
 		if maxMem > 0 {
 			maxMemU = uint64(maxMem)
 		}
+		peak := m.TotalAlloc
+		if m.Sys > peak {
+			peak = m.Sys
+		}
+		peakPerc := 0.0
+		if peak > 0 {
+			peakPerc = float64(m.Alloc) * 100.0 / float64(peak)
+		}
+		fragBytes := int64(m.Sys) - int64(m.Alloc)
+		if fragBytes < 0 {
+			fragBytes = 0
+		}
 		s := fmt.Sprintf("# Memory\r\n"+
 			"used_memory:%d\r\n"+
 			"used_memory_human:%s\r\n"+
 			"used_memory_rss:%d\r\n"+
+			"used_memory_rss_human:%s\r\n"+
 			"used_memory_peak:%d\r\n"+
 			"used_memory_peak_human:%s\r\n"+
+			"used_memory_peak_perc:%.2f\r\n"+
+			"used_memory_startup:%d\r\n"+
 			"used_memory_lua:%d\r\n"+
 			"maxmemory:%d\r\n"+
 			"maxmemory_human:%s\r\n"+
 			"maxmemory_policy:%s\r\n"+
+			"allocator_allocated:%d\r\n"+
+			"allocator_active:%d\r\n"+
+			"allocator_resident:%d\r\n"+
 			"mem_fragmentation_ratio:%.2f\r\n"+
+			"mem_fragmentation_bytes:%d\r\n"+
 			"mem_allocator:%s\r\n",
-			m.TotalAlloc,
-			humanReadableSize(m.TotalAlloc),
+			m.Alloc,
+			humanReadableSize(m.Alloc),
 			m.Sys,
-			m.TotalAlloc, // Simplified peak
-			humanReadableSize(m.TotalAlloc),
+			humanReadableSize(m.Sys),
+			peak,
+			humanReadableSize(peak),
+			peakPerc,
+			memoryStartupBytes,
 			scripting.GetGlobalLuaMemory(),
 			maxMem,
 			humanReadableSize(maxMemU),
 			maxMemPolicy,
-			float64(m.Sys)/float64(m.TotalAlloc),
+			m.HeapAlloc,
+			m.HeapSys,
+			m.Sys,
+			float64(m.Sys)/float64(max(m.Alloc, 1)),
+			fragBytes,
 			"go",
 		)
 		return []byte(s)

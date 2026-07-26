@@ -54,7 +54,7 @@ func TestM2fObjectEncodingHash(t *testing.T) {
 	db.Exec(nil, utils.ToCmdLine("HSET", "h", "f", "v"))
 	asserts.AssertBulkReply(t, db.Exec(nil, utils.ToCmdLine("OBJECT", "ENCODING", "h")), "hashtable")
 	db.Exec(nil, utils.ToCmdLine("SET", "s", "x"))
-	asserts.AssertBulkReply(t, db.Exec(nil, utils.ToCmdLine("OBJECT", "ENCODING", "s")), "raw")
+	asserts.AssertBulkReply(t, db.Exec(nil, utils.ToCmdLine("OBJECT", "ENCODING", "s")), "embstr")
 }
 
 func TestM2fEasyCompatFixes(t *testing.T) {

@@ -50,7 +50,7 @@ func makeFuncDBExec() func(cmd string, args ...string) (interface{}, error) {
 			}
 			return nil, fmt.Errorf("%s", strings.TrimRight(string(result.ToBytes()), "\r\n"))
 		}
-		return redisReplyToGo(result), nil
+		return redisReplyToGo(result, cmd), nil
 	}
 }
 

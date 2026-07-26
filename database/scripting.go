@@ -44,7 +44,7 @@ func InitScriptingEngine(db *DB) {
 				}
 				return nil, fmt.Errorf("%s", strings.TrimRight(string(result.ToBytes()), "\r\n"))
 			}
-			return redisReplyToGo(result), nil
+			return redisReplyToGo(result, cmd), nil
 		}
 
 		scriptEngine = scripting.NewEngine(dbExec)
@@ -286,9 +286,13 @@ func execScriptDebug(db *DB, args [][]byte) redis.Reply {
 }
 
 // Helper function to convert Redis reply to Go value
-func redisReplyToGo(reply redis.Reply) interface{} {
+func redisReplyToGo(reply redis.Reply, cmd string) interface{} {
 	if reply == nil {
 		return nil
+	}
+	respVer := 2
+	if scriptEngine != nil {
+		respVer = scriptEngine.GetRespVersion()
 	}
 
 	switch r := reply.(type) {
@@ -296,14 +300,28 @@ func redisReplyToGo(reply redis.Reply) interface{} {
 		if r.Arg == nil {
 			return false // nil bulk → Lua false
 		}
-		// Try to parse as integer first (HINCRBY, etc. return numbers as bulk strings)
 		if i, err := strconv.ParseInt(string(r.Arg), 10, 64); err == nil {
 			return i
 		}
 		return string(r.Arg)
 	case *protocol.NullBulkReply:
-		return false // Lua false (standard Redis Lua returns false for nil)
+		return false
+	case *protocol.NullReply:
+		return nil
+	case *protocol.BooleanReply:
+		return r.Value
+	case *protocol.DoubleReply:
+		return r.Value
+	case *protocol.MapReply:
+		result := make(map[string]interface{}, len(r.Data))
+		for k, v := range r.Data {
+			result[k] = redisReplyToGo(v, cmd)
+		}
+		return result
 	case *protocol.EmptyMultiBulkReply:
+		if respVer == 3 && isHashFlatCmd(cmd) {
+			return map[string]interface{}{}
+		}
 		return []interface{}{}
 	case *protocol.IntReply:
 		return r.Code
@@ -314,21 +332,37 @@ func redisReplyToGo(reply redis.Reply) interface{} {
 	case *protocol.PongReply:
 		return "PONG"
 	case *protocol.MultiBulkReply:
+		if respVer == 3 && isHashFlatCmd(cmd) && len(r.Args)%2 == 0 {
+			m := make(map[string]interface{}, len(r.Args)/2)
+			for i := 0; i+1 < len(r.Args); i += 2 {
+				m[string(r.Args[i])] = redisReplyToGo(protocol.MakeBulkReply(r.Args[i+1]), cmd)
+			}
+			return m
+		}
 		result := make([]interface{}, len(r.Args))
 		for i, arg := range r.Args {
-			result[i] = redisReplyToGo(protocol.MakeBulkReply(arg))
+			result[i] = redisReplyToGo(protocol.MakeBulkReply(arg), cmd)
 		}
 		return result
 	case *protocol.MultiRawReply:
 		result := make([]interface{}, len(r.Replies))
 		for i, sub := range r.Replies {
-			result[i] = redisReplyToGo(sub)
+			result[i] = redisReplyToGo(sub, cmd)
 		}
 		return result
 	case *protocol.StandardErrReply:
 		return fmt.Errorf("%s", r.Status)
 	default:
 		return string(reply.ToBytes())
+	}
+}
+
+func isHashFlatCmd(cmd string) bool {
+	switch strings.ToLower(cmd) {
+	case "hgetall":
+		return true
+	default:
+		return false
 	}
 }
 

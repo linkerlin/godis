@@ -71,6 +71,10 @@ func getObjectEncoding(data interface{}) string {
 		if _, err := strconv.ParseInt(string(v), 10, 64); err == nil {
 			return "int"
 		}
+		// Redis embstr for short strings (OBJ_ENCODING_EMBSTR_SIZE_LIMIT = 44).
+		if len(v) <= 44 {
+			return "embstr"
+		}
 		return "raw"
 	case list.List:
 		return "quicklist"
