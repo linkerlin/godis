@@ -4,6 +4,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/linkerlin/godis/acl"
 	"github.com/linkerlin/godis/interface/redis"
 	"github.com/linkerlin/godis/lib/wildcard"
 	"github.com/linkerlin/godis/redis/protocol"
@@ -180,6 +181,7 @@ func getKeysAndFlags(args [][]byte) redis.Reply {
 
 func getCommandList(args [][]byte) redis.Reply {
 	pattern := "*"
+	aclCat := ""
 	for i := 0; i < len(args); i++ {
 		opt := strings.ToUpper(string(args[i]))
 		if opt == "FILTERBY" {
@@ -187,18 +189,34 @@ func getCommandList(args [][]byte) redis.Reply {
 				return protocol.MakeSyntaxErrReply()
 			}
 			kind := strings.ToUpper(string(args[i+1]))
-			if kind != "PATTERN" {
-				// MODULE / ACLCAT accepted as no-match-all for unknown kinds
-				if kind == "MODULE" || kind == "ACLCAT" {
-					return protocol.MakeEmptyMultiBulkReply()
+			switch kind {
+			case "PATTERN":
+				pattern = string(args[i+2])
+			case "MODULE":
+				return protocol.MakeEmptyMultiBulkReply()
+			case "ACLCAT":
+				aclCat = strings.ToLower(string(args[i+2]))
+				if !strings.HasPrefix(aclCat, "@") {
+					aclCat = "@" + aclCat
 				}
+			default:
 				return protocol.MakeSyntaxErrReply()
 			}
-			pattern = string(args[i+2])
 			i += 2
 			continue
 		}
 		return protocol.MakeSyntaxErrReply()
+	}
+
+	allowed := map[string]bool{}
+	if aclCat != "" {
+		cmds, ok := acl.CommandCategoryMap[aclCat]
+		if !ok {
+			return protocol.MakeEmptyMultiBulkReply()
+		}
+		for _, c := range cmds {
+			allowed[strings.ToLower(strings.TrimSpace(c))] = true
+		}
 	}
 
 	match, err := wildcard.CompilePattern(pattern)
@@ -207,6 +225,9 @@ func getCommandList(args [][]byte) redis.Reply {
 	}
 	names := make([]string, 0, len(cmdTable))
 	for name := range cmdTable {
+		if aclCat != "" && !allowed[name] {
+			continue
+		}
 		if pattern == "*" || match.IsMatch(name) {
 			names = append(names, name)
 		}

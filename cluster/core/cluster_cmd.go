@@ -32,7 +32,7 @@ func execCluster(cluster *Cluster, c redis.Connection, cmdLine CmdLine) redis.Re
 	case "HELP":
 		return execClusterHelp()
 	default:
-		return protocol.MakeErrReply(fmt.Sprintf("ERR Unknown subcommand '%s'", subCmd))
+		return protocol.MakeErrReply(fmt.Sprintf("ERR Unknown subcommand or wrong number of arguments for '%s'. Try CLUSTER HELP.", subCmd))
 	}
 }
 

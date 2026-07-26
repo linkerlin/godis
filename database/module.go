@@ -24,12 +24,14 @@ func execModule(args [][]byte) redis.Reply {
 		return execModuleList()
 	case "LOAD":
 		return execModuleLoad(args[1:])
+	case "LOADEX":
+		return execModuleLoadEx(args[1:])
 	case "UNLOAD":
 		return execModuleUnload(args[1:])
 	case "HELP":
 		return execModuleHelp()
 	default:
-		return protocol.MakeErrReply("ERR Unknown subcommand or wrong number of arguments for '" + subCmd + "'")
+		return protocol.MakeErrReply("ERR Unknown subcommand or wrong number of arguments for '" + subCmd + "'. Try MODULE HELP.")
 	}
 }
 
@@ -51,6 +53,14 @@ func execModuleLoad(args [][]byte) redis.Reply {
 	return protocol.MakeErrReply("ERR Godis does not support dynamic module loading. All features are built-in.")
 }
 
+// execModuleLoadEx MODULE LOADEX path [CONFIG name value ...] [ARGS ...] — reject like LOAD.
+func execModuleLoadEx(args [][]byte) redis.Reply {
+	if len(args) < 1 {
+		return protocol.MakeErrReply("ERR wrong number of arguments for 'module|loadex' command")
+	}
+	return protocol.MakeErrReply("ERR Godis does not support dynamic module loading. All features are built-in.")
+}
+
 // execModuleUnload 卸载模块
 func execModuleUnload(args [][]byte) redis.Reply {
 	if len(args) < 1 {
@@ -66,6 +76,7 @@ func execModuleHelp() redis.Reply {
 	help := []string{
 		"MODULE LIST - Return all loaded modules.",
 		"MODULE LOAD <path> [arg ...] - Load a module (not supported in Godis).",
+		"MODULE LOADEX <path> [CONFIG name value ...] [ARGS ...] - Load a module with configs (not supported in Godis).",
 		"MODULE UNLOAD <name> - Unload a module (not supported in Godis).",
 		"MODULE HELP - Display this help text.",
 	}

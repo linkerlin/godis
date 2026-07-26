@@ -129,6 +129,7 @@ func getConfigMatches(pattern string) []configPair {
 		{"hz", strconv.Itoa(getServerHz())},
 		{"notify-keyspace-events", config.Properties.NotifyKeyspaceEvents},
 		{"activedefrag", boolToString(config.Properties.ActiveDefrag)},
+		{"repl-backlog-size", strconv.FormatInt(getReplBacklogSizeConfig(), 10)},
 		{"slowlog-log-slower-than", strconv.FormatInt(config.Properties.SlowLogSlowerThan, 10)},
 		{"slowlog-max-len", strconv.Itoa(config.Properties.SlowLogMaxLen)},
 		{"acllog-max-len", strconv.Itoa(config.Properties.AclLogMaxLen)},
@@ -432,6 +433,12 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 				return protocol.MakeErrReply("ERR invalid activedefrag value")
 			}
 			config.Properties.ActiveDefrag = b
+		case "repl-backlog-size":
+			n, err := strconv.ParseInt(value, 10, 64)
+			if err != nil || n <= 0 {
+				return protocol.MakeErrReply(fmt.Sprintf("ERR Invalid value for '%s'", key))
+			}
+			config.Properties.ReplBacklogSize = n
 		default:
 			return protocol.MakeErrReply(fmt.Sprintf("ERR Unsupported CONFIG parameter: %s", key))
 		}
@@ -444,6 +451,13 @@ func boolToString(b bool) string {
 		return "yes"
 	}
 	return "no"
+}
+
+func getReplBacklogSizeConfig() int64 {
+	if config.Properties != nil && config.Properties.ReplBacklogSize > 0 {
+		return config.Properties.ReplBacklogSize
+	}
+	return 10 * 1024 * 1024 // align with maxBacklogSize
 }
 
 func configDir() string {

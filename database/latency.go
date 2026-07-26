@@ -114,10 +114,12 @@ func execLatency(args [][]byte) redis.Reply {
 		}
 		latencyMonitor.Reset()
 		return protocol.MakeOkReply()
+	case "HISTOGRAM":
+		return execLatencyHistogram(args[1:])
 	case "HELP":
 		return execLatencyHelp()
 	default:
-		return protocol.MakeErrReply(fmt.Sprintf("ERR Unknown subcommand or wrong number of arguments for '%s'", subCmd))
+		return protocol.MakeErrReply(fmt.Sprintf("ERR Unknown subcommand or wrong number of arguments for '%s'. Try LATENCY HELP.", subCmd))
 	}
 }
 
@@ -260,6 +262,12 @@ func execLatencyReset(eventNames [][]byte) redis.Reply {
 	return protocol.MakeOkReply()
 }
 
+// execLatencyHistogram LATENCY HISTOGRAM [command ...] — empty stub (no per-command samples yet).
+func execLatencyHistogram(args [][]byte) redis.Reply {
+	_ = args
+	return protocol.MakeEmptyMultiBulkReply()
+}
+
 // execLatencyHelp 获取帮助信息
 func execLatencyHelp() redis.Reply {
 	help := []string{
@@ -268,6 +276,7 @@ func execLatencyHelp() redis.Reply {
 		"LATENCY DOCTOR - Return a human readable latency analysis report.",
 		"LATENCY GRAPH <event> - Return an ASCII latency graph for the specified event.",
 		"LATENCY RESET [event ...] - Reset latency data of one or more events.",
+		"LATENCY HISTOGRAM [command ...] - Return latency histogram for commands (empty until sampled).",
 		"LATENCY HELP - Display this help text.",
 	}
 

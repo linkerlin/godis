@@ -83,6 +83,9 @@ type ServerProperties struct {
 	// ActiveDefrag is a Redis-compatible CONFIG stub (no real defrag).
 	ActiveDefrag bool `cfg:"activedefrag"`
 
+	// ReplBacklogSize is Redis repl-backlog-size (bytes); used when allocating master backlog.
+	ReplBacklogSize int64 `cfg:"repl-backlog-size"`
+
 	ClusterEnable     bool   `cfg:"cluster-enable"`
 	ClusterAsSeed     bool   `cfg:"cluster-as-seed"`
 	ClusterSeed       string `cfg:"cluster-seed"`
