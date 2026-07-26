@@ -384,10 +384,16 @@ func execClientHelp(args [][]byte) redis.Reply {
 		"    Set the current connection name.",
 		"TRACKING ON|OFF [REDIRECT id] [BCAST] [...]",
 		"    Enable/disable tracking for the current connection.",
+		"TRACKINGINFO",
+		"    Return information about server tracking of the current connection.",
+		"SETINFO <attr> <value>",
+		"    Set client library information (lib-name / lib-ver).",
 		"UNBLOCK client-id [TIMEOUT|ERROR]",
 		"    Unblock a client blocked in a blocking command from a different connection.",
 		"UNPAUSE",
 		"    Stop the current client pause.",
+		"HELP",
+		"    Print this help.",
 	}
 
 	result := make([][]byte, len(help))

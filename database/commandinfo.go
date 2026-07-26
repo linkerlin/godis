@@ -45,8 +45,29 @@ func execCommand(args [][]byte) redis.Reply {
 			return protocol.MakeErrReply("ERR wrong number of arguments for 'command|" + subCommand + "'")
 		}
 		return getKeys(args[1:])
+	} else if subCommand == "help" {
+		if len(args) != 1 {
+			return protocol.MakeErrReply("ERR wrong number of arguments for 'command|help' command")
+		}
+		return protocol.MakeMultiBulkReply([][]byte{
+			[]byte("COMMAND <subcommand> [<arg> [value] [opt] ...]. Subcommands are:"),
+			[]byte("(no subcommand)"),
+			[]byte("    Return details about all Redis commands."),
+			[]byte("COUNT"),
+			[]byte("    Return the total number of commands in this Redis server."),
+			[]byte("LIST"),
+			[]byte("    Return a list of command names."),
+			[]byte("INFO [<command-name> ...]"),
+			[]byte("    Return details about multiple Redis commands."),
+			[]byte("DOCS [<command-name> ...]"),
+			[]byte("    Return documentary information about multiple Redis commands."),
+			[]byte("GETKEYS <full-command>"),
+			[]byte("    Return the keys from a full Redis command."),
+			[]byte("HELP"),
+			[]byte("    Print this help."),
+		})
 	} else {
-		return protocol.MakeErrReply("ERR Unknown subcommand or wrong number of arguments for '" + subCommand + "'")
+		return protocol.MakeErrReply("ERR Unknown subcommand or wrong number of arguments for '" + subCommand + "'. Try COMMAND HELP.")
 	}
 }
 

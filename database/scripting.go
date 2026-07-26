@@ -373,7 +373,8 @@ func isMapFlatCmd(cmd string, args []string) bool {
 		return true
 	case "zpopmin", "zpopmax":
 		return true // always member/score pairs
-	case "zrange", "zrevrange", "zrangebyscore", "zrevrangebyscore", "zrandmember":
+	case "zrange", "zrevrange", "zrangebyscore", "zrevrangebyscore", "zrandmember",
+		"zunion", "zinter", "zdiff":
 		for _, a := range args {
 			if strings.EqualFold(a, "WITHSCORES") {
 				return true
@@ -394,7 +395,7 @@ func isMapFlatCmd(cmd string, args []string) bool {
 
 func isSetFlatCmd(cmd string) bool {
 	switch strings.ToLower(cmd) {
-	case "smembers", "sinter", "sunion", "sdiff":
+	case "smembers", "sinter", "sunion", "sdiff", "keys":
 		return true
 	default:
 		return false

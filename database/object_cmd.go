@@ -77,6 +77,9 @@ func getObjectEncoding(data interface{}) string {
 		}
 		return "raw"
 	case list.List:
+		if v.Len() <= 128 {
+			return "listpack"
+		}
 		return "quicklist"
 	case *dict.ConcurrentDict, *dict.SimpleDict, *dict.ExpireDict:
 		if d, ok := data.(dict.Dict); ok && d.Len() <= 128 {

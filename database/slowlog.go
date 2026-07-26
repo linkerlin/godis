@@ -187,8 +187,23 @@ func (sl *SlowLogger) HandleSlowlogCommand(args [][]byte) redis.Reply {
 	case "reset":
 		sl.Reset()
 		return protocol.MakeOkReply()
+	case "help":
+		if argsLen != 2 {
+			return protocol.MakeErrReply("ERR wrong number of arguments for 'slowlog|help' command")
+		}
+		return protocol.MakeMultiBulkReply([][]byte{
+			[]byte("SLOWLOG <subcommand> [<arg> [value] [opt] ...]. Subcommands are:"),
+			[]byte("GET [<count>]"),
+			[]byte("    Return top <count> entries from the slowlog (default: 10)."),
+			[]byte("LEN"),
+			[]byte("    Return the length of the slowlog."),
+			[]byte("RESET"),
+			[]byte("    Reset the slowlog."),
+			[]byte("HELP"),
+			[]byte("    Print this help."),
+		})
 	default:
-		return protocol.MakeErrReply("ERR Unknown subcommand or wrong number of arguments for '" + subCmd + "'")
+		return protocol.MakeErrReply("ERR Unknown subcommand or wrong number of arguments for '" + subCmd + "'. Try SLOWLOG HELP.")
 	}
 }
 
