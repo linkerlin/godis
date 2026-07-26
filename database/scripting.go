@@ -355,6 +355,20 @@ func redisReplyToGo(reply redis.Reply, cmd string, args ...string) interface{} {
 	case *protocol.PongReply:
 		return "PONG"
 	case *protocol.MultiRawReply:
+		if respVer == 3 && isStreamRangeCmd(cmd) {
+			result := make([]interface{}, len(r.Replies))
+			for i, sub := range r.Replies {
+				entry, ok := sub.(*protocol.MultiRawReply)
+				if !ok || len(entry.Replies) != 2 {
+					result[i] = redisReplyToGo(sub, cmd, args...)
+					continue
+				}
+				id := redisReplyToGo(entry.Replies[0], cmd, args...)
+				fields := streamFieldsToGo(entry.Replies[1], cmd, args...)
+				result[i] = []interface{}{id, fields}
+			}
+			return result
+		}
 		result := make([]interface{}, len(r.Replies))
 		for i, sub := range r.Replies {
 			result[i] = redisReplyToGo(sub, cmd, args...)
@@ -364,6 +378,28 @@ func redisReplyToGo(reply redis.Reply, cmd string, args ...string) interface{} {
 		return fmt.Errorf("%s", r.Status)
 	default:
 		return string(reply.ToBytes())
+	}
+}
+
+func streamFieldsToGo(reply redis.Reply, cmd string, args ...string) interface{} {
+	fr, ok := reply.(*protocol.MultiRawReply)
+	if !ok || len(fr.Replies)%2 != 0 {
+		return redisReplyToGo(reply, cmd, args...)
+	}
+	m := make(map[string]interface{}, len(fr.Replies)/2)
+	for i := 0; i+1 < len(fr.Replies); i += 2 {
+		k := fmt.Sprint(redisReplyToGo(fr.Replies[i], cmd, args...))
+		m[k] = redisReplyToGo(fr.Replies[i+1], cmd, args...)
+	}
+	return m
+}
+
+func isStreamRangeCmd(cmd string) bool {
+	switch strings.ToLower(cmd) {
+	case "xrange", "xrevrange":
+		return true
+	default:
+		return false
 	}
 }
 

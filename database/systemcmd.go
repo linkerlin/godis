@@ -4,7 +4,9 @@ import (
 	"fmt"
 	"os"
 	"runtime"
+	"sort"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -38,6 +40,55 @@ type ServerStats struct {
 }
 
 var serverStats = &ServerStats{}
+
+// errorReplyCounts tracks INFO errorstats by error prefix (ERR, WRONGTYPE, …).
+var (
+	errorReplyMu     sync.Mutex
+	errorReplyCounts = map[string]uint64{}
+)
+
+func recordErrorReply(reply redis.Reply) {
+	if reply == nil || !protocol.IsErrorReply(reply) {
+		return
+	}
+	b := reply.ToBytes()
+	if len(b) < 2 || b[0] != '-' {
+		return
+	}
+	s := string(b[1:])
+	if i := strings.IndexByte(s, '\r'); i >= 0 {
+		s = s[:i]
+	}
+	code := s
+	if i := strings.IndexByte(s, ' '); i > 0 {
+		code = s[:i]
+	}
+	if code == "" {
+		code = "ERR"
+	}
+	errorReplyMu.Lock()
+	errorReplyCounts[code]++
+	errorReplyMu.Unlock()
+}
+
+func genErrorStatsInfo() string {
+	errorReplyMu.Lock()
+	defer errorReplyMu.Unlock()
+	var b strings.Builder
+	b.WriteString("# Errorstats\r\n")
+	if len(errorReplyCounts) == 0 {
+		return b.String()
+	}
+	keys := make([]string, 0, len(errorReplyCounts))
+	for k := range errorReplyCounts {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		fmt.Fprintf(&b, "errorstat_%s:count=%d\r\n", k, errorReplyCounts[k])
+	}
+	return b.String()
+}
 
 // Replication sync counters for INFO stats (Redis-compatible field names).
 var (
@@ -99,6 +150,9 @@ func resetServerStats() {
 	atomic.StoreUint64(&serverStats.KeyspaceHits, 0)
 	atomic.StoreUint64(&serverStats.KeyspaceMisses, 0)
 	serverStats.ExpiredStale = 0
+	errorReplyMu.Lock()
+	errorReplyCounts = map[string]uint64{}
+	errorReplyMu.Unlock()
 	ResetCommandStats()
 	resetOpsWindow()
 	stats.Reset()
@@ -121,15 +175,23 @@ func Ping(c redis.Connection, args [][]byte) redis.Reply {
 
 // Info the information of the godis server returned by the INFO command
 func Info(db *Server, args [][]byte) redis.Reply {
+	defaultSections := [...]string{"server", "client", "memory", "persistence", "stats", "replication", "cpu", "commandstats", "errorstats", "cluster", "keyspace"}
+	allSections := [...]string{"server", "client", "memory", "persistence", "stats", "replication", "cpu", "commandstats", "errorstats", "cluster", "modules", "latency", "keyspace"}
 	if len(args) == 0 {
-		infoCommandList := [...]string{"server", "client", "memory", "persistence", "stats", "replication", "cpu", "commandstats", "errorstats", "cluster", "keyspace"}
 		var allSection []byte
-		for _, s := range infoCommandList {
+		for _, s := range defaultSections {
 			allSection = append(allSection, GenGodisInfoString(s, db)...)
 		}
 		return protocol.MakeBulkReply(allSection)
 	} else if len(args) == 1 {
 		section := strings.ToLower(string(args[0]))
+		if section == "everything" || section == "all" {
+			var buf []byte
+			for _, s := range allSections {
+				buf = append(buf, GenGodisInfoString(s, db)...)
+			}
+			return protocol.MakeBulkReply(buf)
+		}
 		switch section {
 		case "server":
 			reply := GenGodisInfoString("server", db)
@@ -152,6 +214,10 @@ func Info(db *Server, args [][]byte) redis.Reply {
 			return protocol.MakeBulkReply(GenGodisInfoString("errorstats", db))
 		case "cluster":
 			return protocol.MakeBulkReply(GenGodisInfoString("cluster", db))
+		case "modules":
+			return protocol.MakeBulkReply(GenGodisInfoString("modules", db))
+		case "latency":
+			return protocol.MakeBulkReply(GenGodisInfoString("latency", db))
 		case "keyspace":
 			return protocol.MakeBulkReply(GenGodisInfoString("keyspace", db))
 		default:
@@ -405,8 +471,11 @@ func GenGodisInfoString(section string, db *Server) []byte {
 		s := genCommandStatsInfo()
 		return []byte(s)
 	case "errorstats":
-		// Stub: accept INFO errorstats; counts not tracked yet.
-		return []byte("# Errorstats\r\n")
+		return []byte(genErrorStatsInfo())
+	case "modules":
+		return []byte("# Modules\r\n")
+	case "latency":
+		return []byte("# Latency\r\nlatency_monitor_threshold:0\r\n")
 	case "keyspace":
 		dbCount := config.Properties.Databases
 		var serv []byte

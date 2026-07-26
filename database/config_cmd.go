@@ -102,6 +102,8 @@ func getConfigMatches(pattern string) []configPair {
 		{"masterauth", config.Properties.MasterAuth},
 		{"slave-announce-ip", config.Properties.SlaveAnnounceIP},
 		{"slave-announce-port", strconv.Itoa(config.Properties.SlaveAnnouncePort)},
+		{"replica-announce-ip", config.Properties.SlaveAnnounceIP},
+		{"replica-announce-port", strconv.Itoa(config.Properties.SlaveAnnouncePort)},
 		{"announce-host", config.Properties.AnnounceHost},
 		{"lua-time-limit", strconv.FormatInt(config.Properties.LuaTimeLimit, 10)},
 		{"dir", configDir()},
@@ -126,6 +128,7 @@ func getConfigMatches(pattern string) []configPair {
 		{"tcp-backlog", strconv.Itoa(config.Properties.TCPBacklog)},
 		{"hz", strconv.Itoa(getServerHz())},
 		{"notify-keyspace-events", config.Properties.NotifyKeyspaceEvents},
+		{"activedefrag", boolToString(config.Properties.ActiveDefrag)},
 		{"slowlog-log-slower-than", strconv.FormatInt(config.Properties.SlowLogSlowerThan, 10)},
 		{"slowlog-max-len", strconv.Itoa(config.Properties.SlowLogMaxLen)},
 		{"acllog-max-len", strconv.Itoa(config.Properties.AclLogMaxLen)},
@@ -226,9 +229,9 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 			config.Properties.MasterAuth = value
 		case "announce-host":
 			config.Properties.AnnounceHost = value
-		case "slave-announce-ip":
+		case "slave-announce-ip", "replica-announce-ip":
 			config.Properties.SlaveAnnounceIP = value
-		case "slave-announce-port":
+		case "slave-announce-port", "replica-announce-port":
 			n, err := strconv.Atoi(value)
 			if err != nil || n < 0 || n > 65535 {
 				return protocol.MakeErrReply(fmt.Sprintf("ERR Invalid value for '%s'", key))
@@ -423,6 +426,12 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 		case "notify-keyspace-events":
 			// Stub: store flags string only; keyspace notifications not implemented.
 			config.Properties.NotifyKeyspaceEvents = value
+		case "activedefrag":
+			ok, b := config.ParseConfigBool(value)
+			if !ok {
+				return protocol.MakeErrReply("ERR invalid activedefrag value")
+			}
+			config.Properties.ActiveDefrag = b
 		default:
 			return protocol.MakeErrReply(fmt.Sprintf("ERR Unsupported CONFIG parameter: %s", key))
 		}

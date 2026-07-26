@@ -197,6 +197,7 @@ func (server *Server) Exec(c redis.Connection, cmdLine [][]byte) (result redis.R
 		}
 		if result != nil && protocol.IsErrorReply(result) {
 			atomic.AddUint64(&serverStats.TotalErrorReplies, 1)
+			recordErrorReply(result)
 		}
 	}()
 

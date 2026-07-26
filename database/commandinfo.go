@@ -45,6 +45,11 @@ func execCommand(args [][]byte) redis.Reply {
 			return protocol.MakeErrReply("ERR wrong number of arguments for 'command|" + subCommand + "'")
 		}
 		return getKeys(args[1:])
+	} else if subCommand == "getkeysandflags" {
+		if len(args) < 2 {
+			return protocol.MakeErrReply("ERR wrong number of arguments for 'command|" + subCommand + "'")
+		}
+		return getKeysAndFlags(args[1:])
 	} else if subCommand == "help" {
 		if len(args) != 1 {
 			return protocol.MakeErrReply("ERR wrong number of arguments for 'command|help' command")
@@ -63,6 +68,8 @@ func execCommand(args [][]byte) redis.Reply {
 			[]byte("    Return documentary information about multiple Redis commands."),
 			[]byte("GETKEYS <full-command>"),
 			[]byte("    Return the keys from a full Redis command."),
+			[]byte("GETKEYSANDFLAGS <full-command>"),
+			[]byte("    Return the keys and access flags from a full Redis command."),
 			[]byte("HELP"),
 			[]byte("    Print this help."),
 		})
@@ -122,6 +129,53 @@ func getKeys(args [][]byte) redis.Reply {
 		resp[i] = []byte(key)
 	}
 	return protocol.MakeMultiBulkReply(resp)
+}
+
+// getKeysAndFlags implements COMMAND GETKEYSANDFLAGS.
+func getKeysAndFlags(args [][]byte) redis.Reply {
+	cmdLine, cmdName, ok := ResolveCommandLine(args)
+	if !ok {
+		return protocol.MakeErrReply("ERR Invalid command specified")
+	}
+	cmd := cmdTable[cmdName]
+	if !validateArity(cmd.arity, cmdLine) {
+		return protocol.MakeArgNumErrReply(cmdName)
+	}
+	if cmd.prepare == nil {
+		return protocol.MakeErrReply("ERR The command has no key arguments")
+	}
+	writeKeys, readKeys := cmd.prepare(cmdLine[1:])
+	writeSet := make(map[string]bool, len(writeKeys))
+	for _, k := range writeKeys {
+		writeSet[k] = true
+	}
+	readSet := make(map[string]bool, len(readKeys))
+	for _, k := range readKeys {
+		readSet[k] = true
+	}
+	seen := make(map[string]bool)
+	ordered := make([]string, 0, len(writeKeys)+len(readKeys))
+	for _, k := range append(append([]string{}, writeKeys...), readKeys...) {
+		if seen[k] {
+			continue
+		}
+		seen[k] = true
+		ordered = append(ordered, k)
+	}
+	replies := make([]redis.Reply, 0, len(ordered))
+	for _, k := range ordered {
+		flag := "R"
+		if writeSet[k] && readSet[k] {
+			flag = "RW"
+		} else if writeSet[k] {
+			flag = "W"
+		}
+		replies = append(replies, protocol.MakeMultiRawReply([]redis.Reply{
+			protocol.MakeBulkReply([]byte(k)),
+			protocol.MakeMultiBulkReply([][]byte{[]byte(flag)}),
+		}))
+	}
+	return protocol.MakeMultiRawReply(replies)
 }
 
 func getCommandList(args [][]byte) redis.Reply {

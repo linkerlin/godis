@@ -80,6 +80,9 @@ type ServerProperties struct {
 	// NotifyKeyspaceEvents is a Redis-compatible CONFIG stub (events not emitted yet).
 	NotifyKeyspaceEvents string `cfg:"notify-keyspace-events"`
 
+	// ActiveDefrag is a Redis-compatible CONFIG stub (no real defrag).
+	ActiveDefrag bool `cfg:"activedefrag"`
+
 	ClusterEnable     bool   `cfg:"cluster-enable"`
 	ClusterAsSeed     bool   `cfg:"cluster-as-seed"`
 	ClusterSeed       string `cfg:"cluster-seed"`
