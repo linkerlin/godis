@@ -168,7 +168,7 @@ func formatClientListLine(c redis.Connection) string {
 	redir := clientListRedir(c)
 	argvMem, multiMem, totMem := clientListMemEstimates(c, cmd)
 	return fmt.Sprintf(
-		"id=%d addr=%s laddr=%s fd=0 name=%s age=%d idle=%d flags=%s db=%d sub=%d psub=%d ssub=%d user=%s multi=%d watching=%d qbuf=0 qbuf-free=0 argv-mem=%d multi-mem=%d obl=0 oll=0 omem=0 tot-mem=%d events=r cmd=%s resp=%d redir=%d lib-name=%s lib-ver=%s",
+		"id=%d addr=%s laddr=%s fd=0 name=%s age=%d idle=%d flags=%s db=%d sub=%d psub=%d ssub=%d user=%s multi=%d watching=%d qbuf=0 qbuf-free=16384 argv-mem=%d multi-mem=%d obl=0 oll=0 omem=0 tot-mem=%d events=r cmd=%s resp=%d redir=%d lib-name=%s lib-ver=%s",
 		c.GetClientID(), clientAddr(c), clientLocalAddr(c), c.GetClientName(), age, idle, flags, c.GetDBIndex(), subN, psubN, ssubN, user, multi, watching, argvMem, multiMem, totMem, cmd, respVer, redir, libName, libVer,
 	)
 }

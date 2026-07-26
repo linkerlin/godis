@@ -288,6 +288,13 @@ func execMemoryStats(server *Server) redis.Reply {
 	if m.Alloc > 0 {
 		frag = float64(m.Sys) / float64(m.Alloc)
 	}
+	datasetPct := 0.0
+	if m.Alloc > 0 {
+		datasetPct = float64(dataset) * 100.0 / float64(m.Alloc)
+		if datasetPct > 100 {
+			datasetPct = 100
+		}
+	}
 
 	stats := []redis.Reply{
 		protocol.MakeBulkReply([]byte("peak.allocated")),
@@ -300,7 +307,13 @@ func execMemoryStats(server *Server) redis.Reply {
 		protocol.MakeIntReply(keyCount),
 		protocol.MakeBulkReply([]byte("dataset.bytes")),
 		protocol.MakeIntReply(dataset),
+		protocol.MakeBulkReply([]byte("keys.bytes-per-key")),
+		protocol.MakeIntReply(bytesPerKeyEstimate),
+		protocol.MakeBulkReply([]byte("dataset.percentage")),
+		protocol.MakeBulkReply([]byte(fmt.Sprintf("%.2f", datasetPct))),
 		protocol.MakeBulkReply([]byte("overhead.total")),
+		protocol.MakeIntReply(overhead),
+		protocol.MakeBulkReply([]byte("overhead.hashtable.main")),
 		protocol.MakeIntReply(overhead),
 		protocol.MakeBulkReply([]byte("allocator.allocated")),
 		protocol.MakeIntReply(int64(m.HeapAlloc)),

@@ -318,21 +318,15 @@ func redisReplyToGo(reply redis.Reply, cmd string) interface{} {
 			result[k] = redisReplyToGo(v, cmd)
 		}
 		return result
-	case *protocol.EmptyMultiBulkReply:
-		if respVer == 3 && isHashFlatCmd(cmd) {
-			return map[string]interface{}{}
-		}
-		return []interface{}{}
-	case *protocol.IntReply:
-		return r.Code
-	case *protocol.StatusReply:
-		return r.Status
-	case *protocol.OkReply:
-		return "OK"
-	case *protocol.PongReply:
-		return "PONG"
 	case *protocol.MultiBulkReply:
-		if respVer == 3 && isHashFlatCmd(cmd) && len(r.Args)%2 == 0 {
+		if respVer == 3 && isSetFlatCmd(cmd) {
+			m := make(map[string]interface{}, len(r.Args))
+			for _, arg := range r.Args {
+				m[string(arg)] = true
+			}
+			return m
+		}
+		if respVer == 3 && isMapFlatCmd(cmd) && len(r.Args)%2 == 0 {
 			m := make(map[string]interface{}, len(r.Args)/2)
 			for i := 0; i+1 < len(r.Args); i += 2 {
 				m[string(r.Args[i])] = redisReplyToGo(protocol.MakeBulkReply(r.Args[i+1]), cmd)
@@ -344,6 +338,22 @@ func redisReplyToGo(reply redis.Reply, cmd string) interface{} {
 			result[i] = redisReplyToGo(protocol.MakeBulkReply(arg), cmd)
 		}
 		return result
+	case *protocol.EmptyMultiBulkReply:
+		if respVer == 3 && isMapFlatCmd(cmd) {
+			return map[string]interface{}{}
+		}
+		if respVer == 3 && isSetFlatCmd(cmd) {
+			return map[string]interface{}{}
+		}
+		return []interface{}{}
+	case *protocol.IntReply:
+		return r.Code
+	case *protocol.StatusReply:
+		return r.Status
+	case *protocol.OkReply:
+		return "OK"
+	case *protocol.PongReply:
+		return "PONG"
 	case *protocol.MultiRawReply:
 		result := make([]interface{}, len(r.Replies))
 		for i, sub := range r.Replies {
@@ -357,9 +367,18 @@ func redisReplyToGo(reply redis.Reply, cmd string) interface{} {
 	}
 }
 
-func isHashFlatCmd(cmd string) bool {
+func isMapFlatCmd(cmd string) bool {
 	switch strings.ToLower(cmd) {
-	case "hgetall":
+	case "hgetall", "config":
+		return true
+	default:
+		return false
+	}
+}
+
+func isSetFlatCmd(cmd string) bool {
+	switch strings.ToLower(cmd) {
+	case "smembers", "sinter", "sunion", "sdiff":
 		return true
 	default:
 		return false

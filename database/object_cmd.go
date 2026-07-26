@@ -79,10 +79,19 @@ func getObjectEncoding(data interface{}) string {
 	case list.List:
 		return "quicklist"
 	case *dict.ConcurrentDict, *dict.SimpleDict, *dict.ExpireDict:
+		if d, ok := data.(dict.Dict); ok && d.Len() <= 128 {
+			return "listpack"
+		}
 		return "hashtable"
 	case dict.Dict:
+		if v.Len() <= 128 {
+			return "listpack"
+		}
 		return "hashtable"
 	case *set.Set:
+		if v.Len() <= 512 && setAllIntegerMembers(v) {
+			return "intset"
+		}
 		return "hashtable"
 	case *sortedset.SortedSet:
 		return "skiplist"
@@ -109,6 +118,21 @@ func getObjectEncoding(data interface{}) string {
 	default:
 		return "unknown"
 	}
+}
+
+func setAllIntegerMembers(s *set.Set) bool {
+	if s == nil || s.Len() == 0 {
+		return true
+	}
+	ok := true
+	s.ForEach(func(member string) bool {
+		if _, err := strconv.ParseInt(member, 10, 64); err != nil {
+			ok = false
+			return false
+		}
+		return true
+	})
+	return ok
 }
 
 // execObjectIdleTime returns the idle time of the key

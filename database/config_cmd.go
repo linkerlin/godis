@@ -109,6 +109,12 @@ func getConfigMatches(pattern string) []configPair {
 		{"acllog-max-len", strconv.Itoa(config.Properties.AclLogMaxLen)},
 		{"cluster-enabled", boolToString(config.Properties.ClusterEnable)},
 		{"repl-timeout", strconv.Itoa(config.Properties.ReplTimeout)},
+		{"use-gnet", boolToString(config.Properties.UseGnet)},
+		{"search-backend", config.Properties.SearchBackend},
+		{"vector-backend", config.Properties.VectorBackend},
+		{"metrics-addr", config.Properties.MetricsAddr},
+		{"search-sqlite-path", config.Properties.SearchSQLitePath},
+		{"sqlite-mmap-size", strconv.FormatInt(config.Properties.SqliteMmapSize, 10)},
 	}
 
 	for _, cfg := range configs {
@@ -359,6 +365,34 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 				return protocol.MakeErrReply(fmt.Sprintf("ERR Invalid value for '%s'", key))
 			}
 			config.Properties.ReplTimeout = n
+		case "use-gnet":
+			ok, b := config.ParseConfigBool(value)
+			if !ok {
+				return protocol.MakeErrReply("ERR invalid use-gnet value")
+			}
+			config.Properties.UseGnet = b
+		case "search-backend":
+			v := strings.ToLower(strings.TrimSpace(value))
+			if v != "native" && v != "sqlite" {
+				return protocol.MakeErrReply("ERR Invalid argument '" + value + "' for CONFIG SET 'search-backend'")
+			}
+			config.Properties.SearchBackend = v
+		case "vector-backend":
+			v := strings.ToLower(strings.TrimSpace(value))
+			if v != "native" && v != "sqlite" {
+				return protocol.MakeErrReply("ERR Invalid argument '" + value + "' for CONFIG SET 'vector-backend'")
+			}
+			config.Properties.VectorBackend = v
+		case "metrics-addr":
+			config.Properties.MetricsAddr = value
+		case "search-sqlite-path":
+			config.Properties.SearchSQLitePath = value
+		case "sqlite-mmap-size":
+			n, err := strconv.ParseInt(value, 10, 64)
+			if err != nil || n < 0 {
+				return protocol.MakeErrReply(fmt.Sprintf("ERR Invalid value for '%s'", key))
+			}
+			config.Properties.SqliteMmapSize = n
 		default:
 			return protocol.MakeErrReply(fmt.Sprintf("ERR Unsupported CONFIG parameter: %s", key))
 		}

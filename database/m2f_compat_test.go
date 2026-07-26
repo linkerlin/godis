@@ -52,7 +52,7 @@ func TestM2fSScanZScanCursor(t *testing.T) {
 func TestM2fObjectEncodingHash(t *testing.T) {
 	db := makeTestDB()
 	db.Exec(nil, utils.ToCmdLine("HSET", "h", "f", "v"))
-	asserts.AssertBulkReply(t, db.Exec(nil, utils.ToCmdLine("OBJECT", "ENCODING", "h")), "hashtable")
+	asserts.AssertBulkReply(t, db.Exec(nil, utils.ToCmdLine("OBJECT", "ENCODING", "h")), "listpack")
 	db.Exec(nil, utils.ToCmdLine("SET", "s", "x"))
 	asserts.AssertBulkReply(t, db.Exec(nil, utils.ToCmdLine("OBJECT", "ENCODING", "s")), "embstr")
 }
