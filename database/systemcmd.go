@@ -450,18 +450,56 @@ func genReplicationInfo(db *Server) string {
 		db.masterStatus.mu.RUnlock()
 	}
 
-	return fmt.Sprintf("# Replication\r\n"+
-		"role:%s\r\n"+
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("# Replication\r\n"+
+		"role:%s\r\n", role))
+
+	if role == "slave" && db.slaveStatus != nil {
+		db.slaveStatus.mutex.Lock()
+		host := db.slaveStatus.masterHost
+		port := db.slaveStatus.masterPort
+		lastRecv := db.slaveStatus.lastRecvTime
+		masterConn := db.slaveStatus.masterConn
+		slaveOffset := db.slaveStatus.replOffset
+		db.slaveStatus.mutex.Unlock()
+
+		linkStatus := "down"
+		lastIO := int64(-1)
+		if masterConn != nil && !lastRecv.IsZero() {
+			linkStatus = "up"
+			lastIO = int64(time.Since(lastRecv).Seconds())
+			if lastIO < 0 {
+				lastIO = 0
+			}
+		} else if masterConn != nil {
+			linkStatus = "up"
+		}
+		ro := 0
+		if config.Properties.ReplicaReadOnly {
+			ro = 1
+		}
+		sb.WriteString(fmt.Sprintf(
+			"master_host:%s\r\n"+
+				"master_port:%d\r\n"+
+				"master_link_status:%s\r\n"+
+				"master_last_io_seconds_ago:%d\r\n"+
+				"master_sync_in_progress:0\r\n"+
+				"slave_read_only:%d\r\n"+
+				"slave_repl_offset:%d\r\n",
+			host, port, linkStatus, lastIO, ro, slaveOffset,
+		))
+	}
+
+	sb.WriteString(fmt.Sprintf(
 		"connected_slaves:%d\r\n"+
-		"master_replid:%s\r\n"+
-		"master_replid2:%s\r\n"+
-		"master_repl_offset:%d\r\n"+
-		"second_repl_offset:%d\r\n"+
-		"repl_backlog_active:%d\r\n"+
-		"repl_backlog_size:%d\r\n"+
-		"repl_backlog_first_byte_offset:%d\r\n"+
-		"repl_backlog_histlen:%d\r\n",
-		role,
+			"master_replid:%s\r\n"+
+			"master_replid2:%s\r\n"+
+			"master_repl_offset:%d\r\n"+
+			"second_repl_offset:%d\r\n"+
+			"repl_backlog_active:%d\r\n"+
+			"repl_backlog_size:%d\r\n"+
+			"repl_backlog_first_byte_offset:%d\r\n"+
+			"repl_backlog_histlen:%d\r\n",
 		slaves,
 		config.Properties.RunID,
 		"",
@@ -471,7 +509,8 @@ func genReplicationInfo(db *Server) string {
 		backlogSize,
 		backlogFirstOffset,
 		backlogHistLen,
-	)
+	))
+	return sb.String()
 }
 
 // genCPUInfo generates CPU section for INFO

@@ -122,6 +122,12 @@ func formatClientListLine(c redis.Connection) string {
 	if ne, ok := c.(interface{ GetNoEvict() bool }); ok && ne.GetNoEvict() {
 		flagParts = append(flagParts, 'e')
 	}
+	if nt, ok := c.(interface{ GetNoTouch() bool }); ok && nt.GetNoTouch() {
+		flagParts = append(flagParts, 'T')
+	}
+	if IsMonitorClient(c) {
+		flagParts = append(flagParts, 'O')
+	}
 	if len(flagParts) == 0 {
 		flagParts = append(flagParts, 'N')
 	}
@@ -159,10 +165,29 @@ func formatClientListLine(c redis.Connection) string {
 		multi = len(c.GetQueuedCmdLine())
 	}
 	watching := len(c.GetWatching())
+	redir := clientListRedir(c)
 	return fmt.Sprintf(
-		"id=%d addr=%s laddr=%s fd=0 name=%s age=%d idle=%d flags=%s db=%d sub=%d psub=%d ssub=%d user=%s multi=%d watching=%d qbuf=0 qbuf-free=0 obl=0 oll=0 omem=0 events=r cmd=%s resp=%d lib-name=%s lib-ver=%s",
-		c.GetClientID(), clientAddr(c), clientLocalAddr(c), c.GetClientName(), age, idle, flags, c.GetDBIndex(), subN, psubN, ssubN, user, multi, watching, cmd, respVer, libName, libVer,
+		"id=%d addr=%s laddr=%s fd=0 name=%s age=%d idle=%d flags=%s db=%d sub=%d psub=%d ssub=%d user=%s multi=%d watching=%d qbuf=0 qbuf-free=0 obl=0 oll=0 omem=0 events=r cmd=%s resp=%d redir=%d lib-name=%s lib-ver=%s",
+		c.GetClientID(), clientAddr(c), clientLocalAddr(c), c.GetClientName(), age, idle, flags, c.GetDBIndex(), subN, psubN, ssubN, user, multi, watching, cmd, respVer, redir, libName, libVer,
 	)
+}
+
+// clientListRedir mirrors CLIENT GETREDIR: -1 off, 0 on/no redirect, else target id.
+func clientListRedir(c redis.Connection) int64 {
+	id := c.GetTrackingID()
+	if id == "" || !IsTrackingEnabled(id) {
+		return -1
+	}
+	info := GetTrackingInfo(id)
+	redirect, _ := info["redirect"].(string)
+	if redirect == "" || redirect == "0" {
+		return 0
+	}
+	n, err := strconv.ParseInt(redirect, 10, 64)
+	if err != nil {
+		return 0
+	}
+	return n
 }
 
 // clientConnType maps a connection to Redis CLIENT LIST TYPE labels.

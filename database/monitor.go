@@ -80,6 +80,16 @@ func RemoveMonitorClient(conn redis.Connection) {
 	delete(monitorManager.clients, conn)
 }
 
+// IsMonitorClient reports whether conn is in MONITOR mode (CLIENT LIST flag O).
+func IsMonitorClient(conn redis.Connection) bool {
+	if conn == nil {
+		return false
+	}
+	monitorManager.mu.RLock()
+	defer monitorManager.mu.RUnlock()
+	return monitorManager.clients[conn]
+}
+
 func init() {
 	registerCommand("Monitor", execMonitor, noPrepare, nil, 1, flagAdmin).
 		attachCommandExtra([]string{redisFlagAdmin, redisFlagNoScript}, 0, 0, 0)

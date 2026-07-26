@@ -526,8 +526,8 @@ func execFTSearch(db *DB, args [][]byte) redis.Reply {
 		return protocol.MakeErrReply(fmt.Sprintf("ERR Index '%s' does not exist", indexName))
 	}
 
-	// Parse options
-	opts := &redisearch.SearchOptions{}
+	// Parse options (Redis default LIMIT 0 10 when omitted)
+	opts := &redisearch.SearchOptions{Limit: 10}
 	noContent := false
 	withScores := false
 	withPayloads := false

@@ -77,6 +77,8 @@ func getConfigMatches(pattern string) []configPair {
 		{"appendonly", boolToString(config.Properties.AppendOnly)},
 		{"appendfilename", config.Properties.AppendFilename},
 		{"appendfsync", config.Properties.AppendFsync},
+		{"aof-use-rdb-preamble", boolToString(config.Properties.AofUseRdbPreamble)},
+		{"masterauth", config.Properties.MasterAuth},
 		{"dir", configDir()},
 		{"dbfilename", config.Properties.RDBFilename},
 		{"rdbfilename", config.Properties.RDBFilename}, // alias
@@ -177,6 +179,14 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 			if server.persister != nil {
 				server.persister.SetFsync(v)
 			}
+		case "aof-use-rdb-preamble":
+			ok, b := config.ParseConfigBool(value)
+			if !ok {
+				return protocol.MakeErrReply("ERR invalid aof-use-rdb-preamble value")
+			}
+			config.Properties.AofUseRdbPreamble = b
+		case "masterauth":
+			config.Properties.MasterAuth = value
 		case "maxclients":
 			n, err := strconv.Atoi(value)
 			if err != nil || n < 0 {
