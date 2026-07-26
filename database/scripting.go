@@ -371,9 +371,18 @@ func isMapFlatCmd(cmd string, args []string) bool {
 	switch strings.ToLower(cmd) {
 	case "hgetall", "config":
 		return true
-	case "zrange", "zrevrange", "zrangebyscore", "zrevrangebyscore":
+	case "zpopmin", "zpopmax":
+		return true // always member/score pairs
+	case "zrange", "zrevrange", "zrangebyscore", "zrevrangebyscore", "zrandmember":
 		for _, a := range args {
 			if strings.EqualFold(a, "WITHSCORES") {
+				return true
+			}
+		}
+		return false
+	case "hrandfield":
+		for _, a := range args {
+			if strings.EqualFold(a, "WITHVALUES") {
 				return true
 			}
 		}

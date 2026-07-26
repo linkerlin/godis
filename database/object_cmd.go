@@ -94,6 +94,9 @@ func getObjectEncoding(data interface{}) string {
 		}
 		return "hashtable"
 	case *sortedset.SortedSet:
+		if v.Len() <= 128 {
+			return "listpack"
+		}
 		return "skiplist"
 	case *stream.Stream:
 		return "stream"

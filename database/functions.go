@@ -643,6 +643,34 @@ func atoi(s string) (int, error) {
 	return n, err
 }
 
+// execFunctionHelp returns help for FUNCTION subcommands.
+func execFunctionHelp(db *DB, args [][]byte) redis.Reply {
+	if len(args) != 0 {
+		return protocol.MakeErrReply("ERR wrong number of arguments for 'function|help' command")
+	}
+	return protocol.MakeMultiBulkReply([][]byte{
+		[]byte("FUNCTION <subcommand> [<arg> [value] [opt] ...]. Subcommands are:"),
+		[]byte("LOAD [REPLACE] <LIBRARY CODE>"),
+		[]byte("    Create a new library with the given library code."),
+		[]byte("LIST [LIBRARYNAME <pattern>] [WITHCODE]"),
+		[]byte("    Return general information on libraries."),
+		[]byte("DELETE <LIBRARY NAME>"),
+		[]byte("    Delete the given library."),
+		[]byte("FLUSH [ASYNC|SYNC]"),
+		[]byte("    Delete all libraries."),
+		[]byte("KILL"),
+		[]byte("    Kill the currently executing function."),
+		[]byte("STATS"),
+		[]byte("    Return function runtime stats."),
+		[]byte("DUMP"),
+		[]byte("    Dump all libraries into a serialized payload."),
+		[]byte("RESTORE <PAYLOAD> [FLUSH|APPEND|REPLACE]"),
+		[]byte("    Restore libraries from a payload."),
+		[]byte("HELP"),
+		[]byte("    Print this help."),
+	})
+}
+
 func init() {
 	// Initialize functions engine (without DB - will be set on first use)
 	InitFunctionsEngine(nil)
@@ -663,6 +691,8 @@ func init() {
 		attachCommandExtra([]string{redisFlagReadonly}, 0, 0, 0)
 	registerCommand("Function|Restore", execFunctionRestore, noPrepare, nil, -2, flagWrite).
 		attachCommandExtra([]string{redisFlagWrite}, 0, 0, 0)
+	registerCommand("Function|Help", execFunctionHelp, noPrepare, nil, 1, flagReadOnly).
+		attachCommandExtra([]string{redisFlagReadonly}, 0, 0, 0)
 	registerCommand("FCall", execFCall, prepareFirstKey, nil, -3, flagWrite).
 		attachCommandExtra([]string{redisFlagWrite}, 1, 1, 1)
 	registerCommand("FCall|RO", execFCallRO, prepareFirstKey, nil, -3, flagReadOnly).

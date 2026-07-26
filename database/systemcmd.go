@@ -254,6 +254,25 @@ func GenGodisInfoString(section string, db *Server) []byte {
 		if fragBytes < 0 {
 			fragBytes = 0
 		}
+		keyCount := int64(0)
+		if db != nil {
+			for _, holder := range db.dbSet {
+				dbi := holder.Load().(*DB)
+				keyCount += int64(dbi.data.Len())
+			}
+		}
+		dataset := uint64(keyCount * bytesPerKeyEstimate)
+		overhead := uint64(0)
+		if m.Alloc > dataset {
+			overhead = m.Alloc - dataset
+		}
+		datasetPerc := 0.0
+		if m.Alloc > 0 {
+			datasetPerc = float64(dataset) * 100.0 / float64(m.Alloc)
+			if datasetPerc > 100 {
+				datasetPerc = 100
+			}
+		}
 		s := fmt.Sprintf("# Memory\r\n"+
 			"used_memory:%d\r\n"+
 			"used_memory_human:%s\r\n"+
@@ -263,6 +282,9 @@ func GenGodisInfoString(section string, db *Server) []byte {
 			"used_memory_peak_human:%s\r\n"+
 			"used_memory_peak_perc:%.2f\r\n"+
 			"used_memory_startup:%d\r\n"+
+			"used_memory_dataset:%d\r\n"+
+			"used_memory_dataset_perc:%.2f\r\n"+
+			"used_memory_overhead:%d\r\n"+
 			"used_memory_lua:%d\r\n"+
 			"maxmemory:%d\r\n"+
 			"maxmemory_human:%s\r\n"+
@@ -281,6 +303,9 @@ func GenGodisInfoString(section string, db *Server) []byte {
 			humanReadableSize(peak),
 			peakPerc,
 			memoryStartupBytes,
+			dataset,
+			datasetPerc,
+			overhead,
 			scripting.GetGlobalLuaMemory(),
 			maxMem,
 			humanReadableSize(maxMemU),

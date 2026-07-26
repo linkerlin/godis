@@ -295,6 +295,18 @@ func execMemoryStats(server *Server) redis.Reply {
 			datasetPct = 100
 		}
 	}
+	expireCount := int64(0)
+	if server != nil {
+		for _, holder := range server.dbSet {
+			db := holder.Load().(*DB)
+			expireCount += int64(db.ttlMap.Len())
+		}
+	}
+	overheadExpires := expireCount * bytesPerKeyEstimate
+	fragBytes := int64(m.Sys) - int64(m.Alloc)
+	if fragBytes < 0 {
+		fragBytes = 0
+	}
 
 	stats := []redis.Reply{
 		protocol.MakeBulkReply([]byte("peak.allocated")),
@@ -315,6 +327,8 @@ func execMemoryStats(server *Server) redis.Reply {
 		protocol.MakeIntReply(overhead),
 		protocol.MakeBulkReply([]byte("overhead.hashtable.main")),
 		protocol.MakeIntReply(overhead),
+		protocol.MakeBulkReply([]byte("overhead.hashtable.expires")),
+		protocol.MakeIntReply(overheadExpires),
 		protocol.MakeBulkReply([]byte("allocator.allocated")),
 		protocol.MakeIntReply(int64(m.HeapAlloc)),
 		protocol.MakeBulkReply([]byte("allocator.active")),
@@ -323,6 +337,8 @@ func execMemoryStats(server *Server) redis.Reply {
 		protocol.MakeIntReply(int64(m.Sys)),
 		protocol.MakeBulkReply([]byte("fragmentation")),
 		protocol.MakeBulkReply([]byte(fmt.Sprintf("%.2f", frag))),
+		protocol.MakeBulkReply([]byte("fragmentation.bytes")),
+		protocol.MakeIntReply(fragBytes),
 		// Go-specific extras retained for debugging
 		protocol.MakeBulkReply([]byte("heap.allocated")),
 		protocol.MakeIntReply(int64(m.HeapAlloc)),
