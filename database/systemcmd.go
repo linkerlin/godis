@@ -384,7 +384,8 @@ func GenGodisInfoString(section string, db *Server) []byte {
 			keys, expiresKeys, _ := db.GetDBSize(i)
 			if keys != 0 {
 				ttlSampleAverage, _ := db.GetAvgTTL(i, 20)
-				serv = append(serv, getDbSize(i, keys, expiresKeys, ttlSampleAverage)...)
+				subexpiry, _ := db.CountSubexpiry(i)
+				serv = append(serv, getDbSize(i, keys, expiresKeys, ttlSampleAverage, subexpiry)...)
 			}
 		}
 		prefix := []byte("# Keyspace\r\n")
@@ -710,8 +711,8 @@ func getGodisRuninngTime() time.Duration {
 	return time.Since(config.EachTimeServerInfo.StartUpTime) / time.Second
 }
 
-func getDbSize(dbIndex, keys, expiresKeys int, ttl int64) []byte {
-	s := fmt.Sprintf("db%d:keys=%d,expires=%d,avg_ttl=%d\r\n",
-		dbIndex, keys, expiresKeys, ttl)
+func getDbSize(dbIndex, keys, expiresKeys int, ttl int64, subexpiry int) []byte {
+	s := fmt.Sprintf("db%d:keys=%d,expires=%d,avg_ttl=%d,subexpiry=%d\r\n",
+		dbIndex, keys, expiresKeys, ttl, subexpiry)
 	return []byte(s)
 }

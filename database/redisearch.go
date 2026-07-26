@@ -850,7 +850,7 @@ func execFTSearch(db *DB, args [][]byte) redis.Reply {
 	// Search
 	results, err := engine.Search(query, opts)
 	if err != nil {
-		return protocol.MakeErrReply(fmt.Sprintf("ERR %v", err))
+		return ftTimeoutReply(err)
 	}
 
 	if len(inKeys) > 0 {
@@ -1216,6 +1216,9 @@ func execFTAggregate(db *DB, args [][]byte) redis.Reply {
 	// Execute aggregation
 	result, err := engine.Aggregate(req)
 	if err != nil {
+		if err == redisearch.ErrTimeout && strings.EqualFold(getFTConfigString("ON_TIMEOUT"), "RETURN") {
+			return protocol.MakeMultiBulkReply([][]byte{[]byte("0")})
+		}
 		return protocol.MakeErrReply(fmt.Sprintf("ERR %v", err))
 	}
 

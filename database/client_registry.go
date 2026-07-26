@@ -128,6 +128,9 @@ func formatClientListLine(c redis.Connection) string {
 	if IsMonitorClient(c) {
 		flagParts = append(flagParts, 'O')
 	}
+	if rm, ok := c.(interface{ GetReplyMode() string }); ok && rm.GetReplyMode() == "off" {
+		flagParts = append(flagParts, 'n')
+	}
 	if len(flagParts) == 0 {
 		flagParts = append(flagParts, 'N')
 	}

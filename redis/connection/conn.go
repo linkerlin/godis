@@ -281,6 +281,18 @@ func (c *Connection) SetReplyMode(mode string) {
 	}
 }
 
+// GetReplyMode returns "on", "off", or "skip" without consuming SKIP.
+func (c *Connection) GetReplyMode() string {
+	switch c.replyMode {
+	case replyModeOff:
+		return "off"
+	case replyModeSkip:
+		return "skip"
+	default:
+		return "on"
+	}
+}
+
 // ShouldSuppressReply reports whether the next write should be skipped.
 // SKIP suppresses once then returns to ON. OFF suppresses until ON.
 func (c *Connection) ShouldSuppressReply() bool {

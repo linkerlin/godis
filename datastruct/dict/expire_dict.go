@@ -306,6 +306,14 @@ func (ed *ExpireDict) Len() int {
 	return ed.data.Len()
 }
 
+// ExpireFieldCount returns how many fields currently have a per-field TTL.
+func (ed *ExpireDict) ExpireFieldCount() int {
+	if ed == nil || ed.expire == nil {
+		return 0
+	}
+	return ed.expire.Len()
+}
+
 // ForEach 遍历所有字段
 func (ed *ExpireDict) ForEach(consumer Consumer) {
 	ed.data.ForEach(func(key string, val interface{}) bool {

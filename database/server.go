@@ -803,30 +803,53 @@ func (server *Server) startReplCron() {
 	}(server)
 }
 
-// GetAvgTTL Calculate the average expiration time of keys
+// GetAvgTTL calculates the average remaining TTL in milliseconds for keys that
+// have an expiration (Redis INFO keyspace avg_ttl semantics).
 func (server *Server) GetAvgTTL(dbIndex, randomKeyCount int) (int64, error) {
-	var ttlCount int64
+	var ttlSum int64
+	var withExpire int64
 	db, err := server.selectDBSafe(dbIndex)
 	if err != nil {
 		return 0, err
 	}
 	keys := db.data.RandomKeys(randomKeyCount)
+	now := time.Now()
 	for _, k := range keys {
-		t := time.Now()
 		rawExpireTime, ok := db.ttlMap.Get(k)
 		if !ok {
 			continue
 		}
 		expireTime, _ := rawExpireTime.(time.Time)
-		// if the key has already reached its expiration time during calculation, ignore it
-		if expireTime.Sub(t).Microseconds() > 0 {
-			ttlCount += expireTime.Sub(t).Microseconds()
+		remain := expireTime.Sub(now).Milliseconds()
+		if remain > 0 {
+			ttlSum += remain
+			withExpire++
 		}
 	}
-	if len(keys) == 0 {
+	if withExpire == 0 {
 		return 0, nil
 	}
-	return ttlCount / int64(len(keys)), nil
+	return ttlSum / withExpire, nil
+}
+
+// CountSubexpiry counts hash fields that have a per-field TTL (INFO keyspace subexpiry).
+func (server *Server) CountSubexpiry(dbIndex int) (int, error) {
+	db, err := server.selectDBSafe(dbIndex)
+	if err != nil {
+		return 0, err
+	}
+	n := 0
+	db.data.ForEach(func(_ string, raw interface{}) bool {
+		entity, ok := raw.(*database.DataEntity)
+		if !ok || entity == nil {
+			return true
+		}
+		if ed, ok := entity.Data.(*dict.ExpireDict); ok {
+			n += ed.ExpireFieldCount()
+		}
+		return true
+	})
+	return n, nil
 }
 
 func (server *Server) SetKeyInsertedCallback(cb database.KeyEventCallback) {

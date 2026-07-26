@@ -44,7 +44,7 @@ func InitScriptingEngine(db *DB) {
 				}
 				return nil, fmt.Errorf("%s", strings.TrimRight(string(result.ToBytes()), "\r\n"))
 			}
-			return redisReplyToGo(result, cmd), nil
+			return redisReplyToGo(result, cmd, args...), nil
 		}
 
 		scriptEngine = scripting.NewEngine(dbExec)
@@ -286,7 +286,7 @@ func execScriptDebug(db *DB, args [][]byte) redis.Reply {
 }
 
 // Helper function to convert Redis reply to Go value
-func redisReplyToGo(reply redis.Reply, cmd string) interface{} {
+func redisReplyToGo(reply redis.Reply, cmd string, args ...string) interface{} {
 	if reply == nil {
 		return nil
 	}
@@ -315,7 +315,7 @@ func redisReplyToGo(reply redis.Reply, cmd string) interface{} {
 	case *protocol.MapReply:
 		result := make(map[string]interface{}, len(r.Data))
 		for k, v := range r.Data {
-			result[k] = redisReplyToGo(v, cmd)
+			result[k] = redisReplyToGo(v, cmd, args...)
 		}
 		return result
 	case *protocol.MultiBulkReply:
@@ -326,20 +326,20 @@ func redisReplyToGo(reply redis.Reply, cmd string) interface{} {
 			}
 			return m
 		}
-		if respVer == 3 && isMapFlatCmd(cmd) && len(r.Args)%2 == 0 {
+		if respVer == 3 && isMapFlatCmd(cmd, args) && len(r.Args)%2 == 0 {
 			m := make(map[string]interface{}, len(r.Args)/2)
 			for i := 0; i+1 < len(r.Args); i += 2 {
-				m[string(r.Args[i])] = redisReplyToGo(protocol.MakeBulkReply(r.Args[i+1]), cmd)
+				m[string(r.Args[i])] = redisReplyToGo(protocol.MakeBulkReply(r.Args[i+1]), cmd, args...)
 			}
 			return m
 		}
 		result := make([]interface{}, len(r.Args))
 		for i, arg := range r.Args {
-			result[i] = redisReplyToGo(protocol.MakeBulkReply(arg), cmd)
+			result[i] = redisReplyToGo(protocol.MakeBulkReply(arg), cmd, args...)
 		}
 		return result
 	case *protocol.EmptyMultiBulkReply:
-		if respVer == 3 && isMapFlatCmd(cmd) {
+		if respVer == 3 && isMapFlatCmd(cmd, args) {
 			return map[string]interface{}{}
 		}
 		if respVer == 3 && isSetFlatCmd(cmd) {
@@ -357,7 +357,7 @@ func redisReplyToGo(reply redis.Reply, cmd string) interface{} {
 	case *protocol.MultiRawReply:
 		result := make([]interface{}, len(r.Replies))
 		for i, sub := range r.Replies {
-			result[i] = redisReplyToGo(sub, cmd)
+			result[i] = redisReplyToGo(sub, cmd, args...)
 		}
 		return result
 	case *protocol.StandardErrReply:
@@ -367,10 +367,17 @@ func redisReplyToGo(reply redis.Reply, cmd string) interface{} {
 	}
 }
 
-func isMapFlatCmd(cmd string) bool {
+func isMapFlatCmd(cmd string, args []string) bool {
 	switch strings.ToLower(cmd) {
 	case "hgetall", "config":
 		return true
+	case "zrange", "zrevrange", "zrangebyscore", "zrevrangebyscore":
+		for _, a := range args {
+			if strings.EqualFold(a, "WITHSCORES") {
+				return true
+			}
+		}
+		return false
 	default:
 		return false
 	}

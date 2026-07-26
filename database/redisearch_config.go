@@ -6,6 +6,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/linkerlin/godis/datastruct/redisearch"
 	"github.com/linkerlin/godis/interface/redis"
 	"github.com/linkerlin/godis/redis/protocol"
 )
@@ -16,6 +17,7 @@ var (
 		"TIMEOUT":          "0",
 		"MAXSEARCHRESULTS": "10000",
 		"DEFAULT_DIALECT":  "1",
+		"ON_TIMEOUT":       "FAIL",
 	}
 )
 
@@ -62,6 +64,13 @@ func execFTConfig(db *DB, args [][]byte) redis.Reply {
 				return protocol.MakeErrReply("ERR Invalid value for option")
 			}
 		}
+		if key == "ON_TIMEOUT" {
+			u := strings.ToUpper(val)
+			if u != "FAIL" && u != "RETURN" {
+				return protocol.MakeErrReply("ERR Invalid value for option")
+			}
+			val = u
+		}
 		ftConfig[key] = val
 		return protocol.MakeOkReply()
 	case "HELP":
@@ -79,6 +88,20 @@ func getFTConfigInt(key string) int {
 	defer ftConfigMu.RUnlock()
 	n, _ := strconv.Atoi(ftConfig[key])
 	return n
+}
+
+func getFTConfigString(key string) string {
+	ftConfigMu.RLock()
+	defer ftConfigMu.RUnlock()
+	return ftConfig[key]
+}
+
+// ftTimeoutReply maps FT soft-timeout errors according to ON_TIMEOUT (FAIL|RETURN).
+func ftTimeoutReply(err error) redis.Reply {
+	if err == redisearch.ErrTimeout && strings.EqualFold(getFTConfigString("ON_TIMEOUT"), "RETURN") {
+		return protocol.MakeMultiRawReply([]redis.Reply{protocol.MakeIntReply(0)})
+	}
+	return protocol.MakeErrReply(fmt.Sprintf("ERR %v", err))
 }
 
 func validFTDialect(d int) bool {
