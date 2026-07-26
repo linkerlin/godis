@@ -173,6 +173,17 @@ func (sh *ShardedHub) Channels() []string {
 	return out
 }
 
+// NumSub returns the subscriber count for a sharded channel.
+func (sh *ShardedHub) NumSub(channel string) int {
+	sh.mu.RLock()
+	defer sh.mu.RUnlock()
+	slot := sh.getSlot(channel)
+	if m, ok := sh.slots[slot]; ok {
+		return len(m[channel])
+	}
+	return 0
+}
+
 // GetSlot returns the slot for a channel
 func (sh *ShardedHub) GetSlot(channel string) int {
 	return sh.getSlot(channel)

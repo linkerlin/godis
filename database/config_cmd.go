@@ -125,6 +125,7 @@ func getConfigMatches(pattern string) []configPair {
 		{"save", config.Properties.Save},
 		{"tcp-backlog", strconv.Itoa(config.Properties.TCPBacklog)},
 		{"hz", strconv.Itoa(getServerHz())},
+		{"notify-keyspace-events", config.Properties.NotifyKeyspaceEvents},
 		{"slowlog-log-slower-than", strconv.FormatInt(config.Properties.SlowLogSlowerThan, 10)},
 		{"slowlog-max-len", strconv.Itoa(config.Properties.SlowLogMaxLen)},
 		{"acllog-max-len", strconv.Itoa(config.Properties.AclLogMaxLen)},
@@ -419,6 +420,9 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 				return protocol.MakeErrReply(fmt.Sprintf("ERR Invalid value for '%s'", key))
 			}
 			config.Properties.SqliteMmapSize = n
+		case "notify-keyspace-events":
+			// Stub: store flags string only; keyspace notifications not implemented.
+			config.Properties.NotifyKeyspaceEvents = value
 		default:
 			return protocol.MakeErrReply(fmt.Sprintf("ERR Unsupported CONFIG parameter: %s", key))
 		}

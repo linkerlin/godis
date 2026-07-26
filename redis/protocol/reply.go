@@ -175,7 +175,11 @@ func MakeErrReply(status string) *StandardErrReply {
 
 // IsErrorReply returns true if the given protocol is error
 func IsErrorReply(reply redis.Reply) bool {
-	return reply.ToBytes()[0] == '-'
+	if reply == nil {
+		return false
+	}
+	b := reply.ToBytes()
+	return len(b) > 0 && b[0] == '-'
 }
 
 func Try2ErrorReply(reply redis.Reply) error {

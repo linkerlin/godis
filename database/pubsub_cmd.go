@@ -25,10 +25,16 @@ func execPubsub(hub *pubsub.Hub, args [][]byte) redis.Reply {
 		return execPubsubNumsub(hub, args[1:])
 	case "NUMPAT":
 		return execPubsubNumpat(hub)
+	case "SHARDCHANNELS":
+		return execPubsubShardChannels(args[1:])
+	case "NUMSHARDCHANNELS":
+		return protocol.MakeIntReply(int64(len(shardedHub.Channels())))
+	case "SHARDNUMSUB":
+		return execPubsubShardNumsub(args[1:])
 	case "HELP":
 		return execPubsubHelp()
 	default:
-		return protocol.MakeErrReply("ERR Unknown subcommand or wrong number of arguments for '" + subCmd + "'")
+		return protocol.MakeErrReply("ERR Unknown subcommand or wrong number of arguments for '" + subCmd + "'. Try PUBSUB HELP.")
 	}
 }
 
@@ -76,6 +82,34 @@ func execPubsubNumpat(hub *pubsub.Hub) redis.Reply {
 	return protocol.MakeIntReply(int64(n))
 }
 
+func execPubsubShardChannels(args [][]byte) redis.Reply {
+	pattern := "*"
+	if len(args) > 0 {
+		pattern = string(args[0])
+	}
+	match, err := wildcard.CompilePattern(pattern)
+	if err != nil {
+		return protocol.MakeErrReply("ERR illegal wildcard")
+	}
+	channels := make([][]byte, 0)
+	for _, ch := range shardedHub.Channels() {
+		if pattern == "*" || match.IsMatch(ch) {
+			channels = append(channels, []byte(ch))
+		}
+	}
+	return protocol.MakeMultiBulkReply(channels)
+}
+
+func execPubsubShardNumsub(args [][]byte) redis.Reply {
+	result := make([][]byte, 0, len(args)*2)
+	for _, arg := range args {
+		ch := string(arg)
+		result = append(result, []byte(ch))
+		result = append(result, []byte(strconv.Itoa(shardedHub.NumSub(ch))))
+	}
+	return protocol.MakeMultiBulkReply(result)
+}
+
 func execPubsubHelp() redis.Reply {
 	help := []string{
 		"PUBSUB <subcommand> [<arg> [value] [opt] ...]. Subcommands are:",
@@ -85,6 +119,12 @@ func execPubsubHelp() redis.Reply {
 		"    Return the number of subscribers for the specified channels.",
 		"NUMPAT",
 		"    Return the total number of unique pattern subscriptions.",
+		"SHARDCHANNELS [<pattern>]",
+		"    Return the currently active shard channels matching the pattern.",
+		"NUMSHARDCHANNELS",
+		"    Return the number of active shard channels.",
+		"SHARDNUMSUB [shardchannel [shardchannel ...]]",
+		"    Return the number of subscribers for the specified shard channels.",
 		"HELP",
 		"    Print this help.",
 	}

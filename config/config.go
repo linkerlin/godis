@@ -77,6 +77,9 @@ type ServerProperties struct {
 	// Hz is Redis server cron frequency (INFO hz / CONFIG hz); Godis uses it as a reported value.
 	Hz int `cfg:"hz"`
 
+	// NotifyKeyspaceEvents is a Redis-compatible CONFIG stub (events not emitted yet).
+	NotifyKeyspaceEvents string `cfg:"notify-keyspace-events"`
+
 	ClusterEnable     bool   `cfg:"cluster-enable"`
 	ClusterAsSeed     bool   `cfg:"cluster-as-seed"`
 	ClusterSeed       string `cfg:"cluster-seed"`

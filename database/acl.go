@@ -396,6 +396,8 @@ func execACLHelp(args [][]byte) redis.Reply {
 		"    Return the currently active usernames.",
 		"WHOAMI",
 		"    Return the username the current connection is authenticated with.",
+		"HELP",
+		"    Print this help.",
 	}
 
 	result := make([][]byte, len(help))

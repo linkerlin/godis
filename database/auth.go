@@ -335,7 +335,7 @@ func HelloWithRole(c redis.Connection, args [][]byte, role string) redis.Reply {
 		m.Put("version", protocol.MakeBulkReply([]byte("8.0.0")))
 		m.Put("proto", protocol.MakeBulkReply([]byte(strconv.Itoa(protoVersion))))
 		m.Put("id", protocol.MakeBulkReply([]byte(clientID)))
-		m.Put("mode", protocol.MakeBulkReply([]byte("standalone")))
+		m.Put("mode", protocol.MakeBulkReply([]byte(getRedisMode())))
 		m.Put("role", protocol.MakeBulkReply([]byte(role)))
 		m.Put("modules", protocol.MakeEmptyMultiBulkReply())
 		return m
@@ -346,7 +346,7 @@ func HelloWithRole(c redis.Connection, args [][]byte, role string) redis.Reply {
 	result = append(result, []byte("version"), []byte("8.0.0"))
 	result = append(result, []byte("proto"), []byte(strconv.Itoa(protoVersion)))
 	result = append(result, []byte("id"), []byte(clientID))
-	result = append(result, []byte("mode"), []byte("standalone"))
+	result = append(result, []byte("mode"), []byte(getRedisMode()))
 	result = append(result, []byte("role"), []byte(role))
 	result = append(result, []byte("modules"))
 	result = append(result, protocol.MakeEmptyMultiBulkReply().ToBytes())
