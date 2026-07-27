@@ -86,7 +86,7 @@ func TestSlowLogger_SetMaxLen(t *testing.T) {
 	logger := NewSlowLogger(5, 0)
 	for i := 0; i < 5; i++ {
 		start := time.Now()
-		logger.Record(start, utils.ToCmdLine("CMD", strconv.Itoa(i)), "client")
+		logger.Record(start, utils.ToCmdLine("CMD", strconv.Itoa(i)), "client", "")
 	}
 	if logger.Len() != 5 {
 		t.Fatalf("expected 5 entries, got %d", logger.Len())

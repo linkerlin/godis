@@ -125,6 +125,10 @@ func getConfigMatches(pattern string) []configPair {
 		{"lazyfree-lazy-eviction", boolToString(config.Properties.LazyfreeLazyEviction)},
 		{"lazyfree-lazy-expire", boolToString(getLazyfreeLazyExpire())},
 		{"lazyfree-lazy-server-del", boolToString(getLazyfreeLazyServerDel())},
+		{"lazyfree-lazy-user-del", boolToString(getLazyfreeLazyUserDel())},
+		{"lazyfree-lazy-user-flush", boolToString(getLazyfreeLazyUserFlush())},
+		{"replica-lazy-flush", boolToString(getReplicaLazyFlush())},
+		{"aof-load-truncated", boolToString(getAofLoadTruncated())},
 		{"jemalloc-bg-thread", boolToString(getJemallocBgThread())},
 		{"proto-max-bulk-len", strconv.FormatInt(config.Properties.ProtoMaxBulkLen, 10)},
 		{"save", config.Properties.Save},
@@ -368,6 +372,30 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 				return protocol.MakeErrReply("ERR invalid jemalloc-bg-thread value")
 			}
 			config.Properties.JemallocBgThread = b
+		case "lazyfree-lazy-user-del":
+			ok, b := config.ParseConfigBool(value)
+			if !ok {
+				return protocol.MakeErrReply("ERR invalid lazyfree-lazy-user-del value")
+			}
+			config.Properties.LazyfreeLazyUserDel = b
+		case "lazyfree-lazy-user-flush":
+			ok, b := config.ParseConfigBool(value)
+			if !ok {
+				return protocol.MakeErrReply("ERR invalid lazyfree-lazy-user-flush value")
+			}
+			config.Properties.LazyfreeLazyUserFlush = b
+		case "replica-lazy-flush":
+			ok, b := config.ParseConfigBool(value)
+			if !ok {
+				return protocol.MakeErrReply("ERR invalid replica-lazy-flush value")
+			}
+			config.Properties.ReplicaLazyFlush = b
+		case "aof-load-truncated":
+			ok, b := config.ParseConfigBool(value)
+			if !ok {
+				return protocol.MakeErrReply("ERR invalid aof-load-truncated value")
+			}
+			config.Properties.AofLoadTruncated = b
 		case "proto-max-bulk-len":
 			n, err := strconv.ParseInt(value, 10, 64)
 			if err != nil || n < 0 {
@@ -528,6 +556,34 @@ func getJemallocBgThread() bool {
 		return false
 	}
 	return config.Properties.JemallocBgThread
+}
+
+func getLazyfreeLazyUserDel() bool {
+	if config.Properties == nil {
+		return false
+	}
+	return config.Properties.LazyfreeLazyUserDel
+}
+
+func getLazyfreeLazyUserFlush() bool {
+	if config.Properties == nil {
+		return false
+	}
+	return config.Properties.LazyfreeLazyUserFlush
+}
+
+func getReplicaLazyFlush() bool {
+	if config.Properties == nil {
+		return false
+	}
+	return config.Properties.ReplicaLazyFlush
+}
+
+func getAofLoadTruncated() bool {
+	if config.Properties == nil {
+		return false
+	}
+	return config.Properties.AofLoadTruncated
 }
 
 func configDir() string {

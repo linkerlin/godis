@@ -11,11 +11,12 @@ import (
 )
 
 type SlowLogEntry struct {
-	ID        int64
-	Timestamp time.Time
-	Duration  int64
-	Command   [][]byte
-	PeerId    string
+	ID         int64
+	Timestamp  time.Time
+	Duration   int64
+	Command    [][]byte
+	PeerId     string
+	ClientName string
 }
 
 // SlowLogger Slow query logger
@@ -42,7 +43,7 @@ func NewSlowLogger(maxEntries int, threshold int64) *SlowLogger {
 	}
 }
 
-func (sl *SlowLogger) Record(start time.Time, args [][]byte, client string) {
+func (sl *SlowLogger) Record(start time.Time, args [][]byte, peerAddr, clientName string) {
 	if sl == nil || len(sl.entries) == 0 {
 		return
 	}
@@ -57,11 +58,12 @@ func (sl *SlowLogger) Record(start time.Time, args [][]byte, client string) {
 	defer sl.mu.Unlock()
 
 	entry := &SlowLogEntry{
-		ID:        sl.nextID,
-		Timestamp: start,
-		Duration:  micros,
-		Command:   args,
-		PeerId:    client,
+		ID:         sl.nextID,
+		Timestamp:  start,
+		Duration:   micros,
+		Command:    args,
+		PeerId:     peerAddr,
+		ClientName: clientName,
 	}
 
 	sl.nextID++
@@ -210,12 +212,13 @@ func (sl *SlowLogger) HandleSlowlogCommand(args [][]byte) redis.Reply {
 func formatSlowlogEntries(entries []*SlowLogEntry) redis.Reply {
 	result := make([]redis.Reply, 0, len(entries))
 	for _, log := range entries {
-		logList := make([]redis.Reply, 0)
+		logList := make([]redis.Reply, 0, 6)
 		logList = append(logList, protocol.MakeIntReply(log.ID),
 			protocol.MakeIntReply(log.Timestamp.Unix()),
 			protocol.MakeIntReply(int64(log.Duration)),
 			protocol.MakeMultiBulkReply(log.Command),
-			protocol.MakeBulkReply([]byte(log.PeerId)))
+			protocol.MakeBulkReply([]byte(log.PeerId)),
+			protocol.MakeBulkReply([]byte(log.ClientName)))
 		result = append(result, protocol.MakeMultiRawReply(logList))
 	}
 	return protocol.MakeMultiRawReply(result)

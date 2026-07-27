@@ -440,9 +440,9 @@ func isSetFlatCmd(cmd string, args []string) bool {
 			}
 		}
 		return true
-	case "srandmember":
+	case "srandmember", "spop":
 		if len(args) >= 2 {
-			if n, err := strconv.Atoi(args[1]); err == nil && n > 1 {
+			if n, err := strconv.Atoi(args[1]); err == nil && n > 0 {
 				return true
 			}
 		}

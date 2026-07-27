@@ -243,11 +243,13 @@ func GenGodisInfoString(section string, db *Server) []byte {
 			"godis_version:%s\r\n"+
 			"redis_git_sha1:%s\r\n"+
 			"redis_git_dirty:%d\r\n"+
+			"redis_build_id:%s\r\n"+
 			"redis_mode:%s\r\n"+
 			"godis_mode:%s\r\n"+
 			"os:%s %s\r\n"+
 			"arch_bits:%d\r\n"+
 			"atomicvar_api:%s\r\n"+
+			"gcc_version:%s\r\n"+
 			"go_version:%s\r\n"+
 			"process_id:%d\r\n"+
 			"process_supervised:%s\r\n"+
@@ -261,16 +263,19 @@ func GenGodisInfoString(section string, db *Server) []byte {
 			"lru_clock:%d\r\n"+
 			"executable:%s\r\n"+
 			"multiplexing_api:%s\r\n"+
+			"monotonic_clock:%s\r\n"+
 			"config_file:%s\r\n",
 			godisVersion,
 			godisVersion,
 			"00000000",
 			0,
+			"0000000000000000",
 			getRedisMode(),
 			getGodisRunningMode(),
 			runtime.GOOS, runtime.GOARCH,
 			32<<(^uint(0)>>63),
 			"go-atomic",
+			"0",
 			runtime.Version(),
 			os.Getpid(),
 			"no",
@@ -284,6 +289,7 @@ func GenGodisInfoString(section string, db *Server) []byte {
 			getLRUClock(),
 			os.Args[0],
 			"go",
+			"go-time",
 			config.GetConfigFilePath())
 		return []byte(s)
 	case "client":

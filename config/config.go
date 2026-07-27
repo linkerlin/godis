@@ -93,6 +93,10 @@ type ServerProperties struct {
 	LazyfreeLazyExpire    bool `cfg:"lazyfree-lazy-expire"`
 	LazyfreeLazyServerDel bool `cfg:"lazyfree-lazy-server-del"`
 	JemallocBgThread      bool `cfg:"jemalloc-bg-thread"`
+	LazyfreeLazyUserDel   bool `cfg:"lazyfree-lazy-user-del"`
+	LazyfreeLazyUserFlush bool `cfg:"lazyfree-lazy-user-flush"`
+	ReplicaLazyFlush      bool `cfg:"replica-lazy-flush"`
+	AofLoadTruncated      bool `cfg:"aof-load-truncated"`
 
 	// ReplBacklogSize is Redis repl-backlog-size (bytes); used when allocating master backlog.
 	ReplBacklogSize int64 `cfg:"repl-backlog-size"`

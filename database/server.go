@@ -463,7 +463,7 @@ func (server *Server) Exec(c redis.Connection, cmdLine [][]byte) (result redis.R
 
 	exec := selectedDB.Exec(c, cmdLine)
 	// Record slow query logs
-	server.slogLogger.Record(GodisExecCommandStartUnixTime, cmdLine, c.Name())
+	server.slogLogger.Record(GodisExecCommandStartUnixTime, cmdLine, c.RemoteAddr(), c.GetClientName())
 	return exec
 }
 

@@ -68,7 +68,7 @@ func (cluster *Cluster) Exec(c redis.Connection, cmdLine [][]byte) (result redis
 		return protocol.MakeErrReply("ERR unknown command '" + cmdName + "', or not supported in cluster mode")
 	}
 	exec := cmdFunc(cluster, c, cmdLine)
-	cluster.slogLogger.Record(GodisExecCommandStartUnixTime, cmdLine, c.Name())
+	cluster.slogLogger.Record(GodisExecCommandStartUnixTime, cmdLine, c.RemoteAddr(), c.GetClientName())
 	return exec
 
 }

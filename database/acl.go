@@ -534,7 +534,7 @@ func execACLDryRun(db *DB, args [][]byte) redis.Reply {
 				return protocol.MakeErrReply("ERR this user has no permissions to access channel '" + ch + "'")
 			}
 		}
-	case "SUBSCRIBE", "PSUBSCRIBE", "SSUBSCRIBE":
+	case "SUBSCRIBE", "PSUBSCRIBE", "SSUBSCRIBE", "UNSUBSCRIBE", "PUNSUBSCRIBE", "SUNSUBSCRIBE":
 		for i := 2; i < len(args); i++ {
 			ch := string(args[i])
 			if !user.CheckChannel(ch) {

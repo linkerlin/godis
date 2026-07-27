@@ -15,7 +15,7 @@ func TestSlowLogger_Record(t *testing.T) {
 
 	start := time.Now().Add(-time.Minute)
 	for i := 0; i < 10; i++ {
-		logger.Record(start, utils.ToCmdLine("GET", strconv.Itoa(i)), "127.0.0.1:12345")
+		logger.Record(start, utils.ToCmdLine("GET", strconv.Itoa(i)), "127.0.0.1:12345", "")
 	}
 
 	if logger.Len() != 5 {
@@ -31,7 +31,7 @@ func TestSlowLogger_Record(t *testing.T) {
 
 	logger2 := NewSlowLogger(5, 1000)
 	start = time.Now()
-	logger2.Record(start, utils.ToCmdLine("SET", "key2"), "127.0.0.1:12346")
+	logger2.Record(start, utils.ToCmdLine("SET", "key2"), "127.0.0.1:12346", "")
 	if logger2.Len() != 0 {
 		t.Errorf("Below threshold query should not be recorded, got %d entries", logger.Len())
 	}
@@ -43,7 +43,7 @@ func TestSlowLogger_GetEntries(t *testing.T) {
 	for i := 0; i < 5; i++ {
 		start := time.Now()
 		time.Sleep(2 * time.Millisecond)
-		logger.Record(start, utils.ToCmdLine("CMD", strconv.Itoa(i)), "client")
+		logger.Record(start, utils.ToCmdLine("CMD", strconv.Itoa(i)), "client", "")
 	}
 
 	entries := logger.GetEntries(10)
@@ -80,7 +80,7 @@ func TestSlowLogger_Len(t *testing.T) {
 	for i := 0; i < 3; i++ {
 		start := time.Now()
 		time.Sleep(2 * time.Millisecond)
-		logger.Record(start, utils.ToCmdLine("LEN_CMD", strconv.Itoa(i)), "client")
+		logger.Record(start, utils.ToCmdLine("LEN_CMD", strconv.Itoa(i)), "client", "")
 	}
 
 	if logger.Len() != 3 {
@@ -94,7 +94,7 @@ func TestSlowLogger_Reset(t *testing.T) {
 	for i := 0; i < 5; i++ {
 		start := time.Now()
 		time.Sleep(2 * time.Millisecond)
-		logger.Record(start, utils.ToCmdLine("RESET_CMD", strconv.Itoa(i)), "client")
+		logger.Record(start, utils.ToCmdLine("RESET_CMD", strconv.Itoa(i)), "client", "")
 	}
 
 	// Before resetting
@@ -112,7 +112,7 @@ func TestSlowLogger_Reset(t *testing.T) {
 	// Verify ID reset
 	start := time.Now()
 	time.Sleep(2 * time.Millisecond)
-	logger.Record(start, utils.ToCmdLine("NEW_CMD", "after reset"), "client")
+	logger.Record(start, utils.ToCmdLine("NEW_CMD", "after reset"), "client", "")
 	if logger.GetEntries(1)[0].ID != 1 {
 		t.Errorf("After reset, ID should start from 1, got %d", logger.GetEntries(1)[0].ID)
 	}
@@ -124,7 +124,7 @@ func TestSlowLogger_MaxEntries(t *testing.T) {
 	for i := 0; i < 5; i++ {
 		start := time.Now()
 		time.Sleep(2 * time.Millisecond)
-		logger.Record(start, utils.ToCmdLine("MAX_CMD", strconv.Itoa(i)), "client")
+		logger.Record(start, utils.ToCmdLine("MAX_CMD", strconv.Itoa(i)), "client", "")
 	}
 
 	if logger.Len() != 3 {
@@ -150,7 +150,7 @@ func TestSlowLogger_HandleSlowlogCommand(t *testing.T) {
 	for i := 0; i < 5; i++ {
 		start := time.Now()
 		time.Sleep(2 * time.Millisecond)
-		logger.Record(start, utils.ToCmdLine("CMD", strconv.Itoa(i)), "client")
+		logger.Record(start, utils.ToCmdLine("CMD", strconv.Itoa(i)), "client", "")
 	}
 
 	// get
@@ -172,8 +172,8 @@ func TestSlowLogger_HandleSlowlogCommand(t *testing.T) {
 				t.Fatalf("Entry %d: Expected MultiRawReply, got %T", i, entryReply)
 			}
 
-			if len(entryMulti.Replies) != 5 {
-				t.Errorf("Entry %d: Expected 5 fields, got %d", i, len(entryMulti.Replies))
+			if len(entryMulti.Replies) != 6 {
+				t.Errorf("Entry %d: Expected 6 fields, got %d", i, len(entryMulti.Replies))
 			}
 
 			// Verify that the first field is ID
