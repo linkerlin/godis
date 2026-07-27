@@ -86,6 +86,9 @@ type ServerProperties struct {
 	// BusyReplyThreshold is Redis busy-reply-threshold (ms); stub for CONFIG GET/SET.
 	BusyReplyThreshold int64 `cfg:"busy-reply-threshold"`
 
+	// DynamicHz is Redis dynamic-hz; stub for CONFIG GET/SET (default yes).
+	DynamicHz bool `cfg:"dynamic-hz"`
+
 	// ReplBacklogSize is Redis repl-backlog-size (bytes); used when allocating master backlog.
 	ReplBacklogSize int64 `cfg:"repl-backlog-size"`
 
@@ -149,6 +152,7 @@ func init() {
 		TCPKeepAlive:    300,
 		ProtectedMode:   true,
 		ReplicaReadOnly: true,
+		DynamicHz:       true,
 		LuaTimeLimit:    5000,
 		RunID:           utils.RandString(40),
 	}

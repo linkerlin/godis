@@ -130,6 +130,7 @@ func getConfigMatches(pattern string) []configPair {
 		{"notify-keyspace-events", config.Properties.NotifyKeyspaceEvents},
 		{"activedefrag", boolToString(config.Properties.ActiveDefrag)},
 		{"busy-reply-threshold", strconv.FormatInt(getBusyReplyThreshold(), 10)},
+		{"dynamic-hz", boolToString(getDynamicHz())},
 		{"repl-backlog-size", strconv.FormatInt(getReplBacklogSizeConfig(), 10)},
 		{"slowlog-log-slower-than", strconv.FormatInt(config.Properties.SlowLogSlowerThan, 10)},
 		{"slowlog-max-len", strconv.Itoa(config.Properties.SlowLogMaxLen)},
@@ -440,6 +441,12 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 				return protocol.MakeErrReply(fmt.Sprintf("ERR Invalid value for '%s'", key))
 			}
 			config.Properties.BusyReplyThreshold = n
+		case "dynamic-hz":
+			ok, b := config.ParseConfigBool(value)
+			if !ok {
+				return protocol.MakeErrReply("ERR invalid dynamic-hz value")
+			}
+			config.Properties.DynamicHz = b
 		case "repl-backlog-size":
 			n, err := strconv.ParseInt(value, 10, 64)
 			if err != nil || n <= 0 {
@@ -472,6 +479,13 @@ func getBusyReplyThreshold() int64 {
 		return config.Properties.BusyReplyThreshold
 	}
 	return 5000 // Redis default
+}
+
+func getDynamicHz() bool {
+	if config.Properties == nil {
+		return true
+	}
+	return config.Properties.DynamicHz
 }
 
 func configDir() string {

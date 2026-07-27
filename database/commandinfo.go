@@ -2,6 +2,7 @@ package database
 
 import (
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/linkerlin/godis/interface/redis"
@@ -118,17 +119,41 @@ func getKeys(args [][]byte) redis.Reply {
 	if !validateArity(cmd.arity, cmdLine) {
 		return protocol.MakeArgNumErrReply(cmdName)
 	}
+	if err := validateEvalKeyArgs(cmdName, cmdLine); err != nil {
+		return err
+	}
 
 	if cmd.prepare == nil {
 		return protocol.MakeErrReply("ERR The command has no key arguments")
 	}
 	writeKeys, readKeys := cmd.prepare(cmdLine[1:])
 	keys := append(writeKeys, readKeys...)
+	if len(keys) == 0 && (cmd.extra == nil || cmd.extra.firstKey == 0) {
+		return protocol.MakeErrReply("ERR The command has no key arguments")
+	}
 	resp := make([][]byte, len(keys))
 	for i, key := range keys {
 		resp[i] = []byte(key)
 	}
 	return protocol.MakeMultiBulkReply(resp)
+}
+
+// validateEvalKeyArgs checks EVAL/EVALSHA numkeys vs remaining args for COMMAND GETKEYS*.
+func validateEvalKeyArgs(cmdName string, cmdLine [][]byte) redis.Reply {
+	if cmdName != "eval" && cmdName != "evalsha" {
+		return nil
+	}
+	if len(cmdLine) < 3 {
+		return protocol.MakeArgNumErrReply(cmdName)
+	}
+	numKeys, err := strconv.Atoi(string(cmdLine[2]))
+	if err != nil || numKeys < 0 {
+		return protocol.MakeErrReply("ERR value is not an integer or out of range")
+	}
+	if len(cmdLine) < 3+numKeys {
+		return protocol.MakeErrReply("ERR Number of keys can't be greater than number of args")
+	}
+	return nil
 }
 
 // getKeysAndFlags implements COMMAND GETKEYSANDFLAGS.
@@ -140,6 +165,9 @@ func getKeysAndFlags(args [][]byte) redis.Reply {
 	cmd := cmdTable[cmdName]
 	if !validateArity(cmd.arity, cmdLine) {
 		return protocol.MakeArgNumErrReply(cmdName)
+	}
+	if err := validateEvalKeyArgs(cmdName, cmdLine); err != nil {
+		return err
 	}
 	if cmd.prepare == nil {
 		return protocol.MakeErrReply("ERR The command has no key arguments")
@@ -161,6 +189,9 @@ func getKeysAndFlags(args [][]byte) redis.Reply {
 		}
 		seen[k] = true
 		ordered = append(ordered, k)
+	}
+	if len(ordered) == 0 && (cmd.extra == nil || cmd.extra.firstKey == 0) {
+		return protocol.MakeErrReply("ERR The command has no key arguments")
 	}
 	replies := make([]redis.Reply, 0, len(ordered))
 	for _, k := range ordered {

@@ -171,11 +171,7 @@ func (cmd *command) toDescReply() redis.Reply {
 }
 
 func (cmd *command) toDocsReply() redis.Reply {
-	// COMMAND DOCS reply format:
-	// 1) "summary" - short description
-	// 2) "since" - Redis version
-	// 3) "group" - command group
-	// 4) "complexity" - time complexity
+	// COMMAND DOCS reply format (flat array of field/value pairs).
 	var result [][]byte
 
 	result = append(result, []byte("summary"))
@@ -183,11 +179,47 @@ func (cmd *command) toDocsReply() redis.Reply {
 	result = append(result, []byte("since"))
 	result = append(result, []byte("6.0.0"))
 	result = append(result, []byte("group"))
-	result = append(result, []byte("generic"))
+	result = append(result, []byte(cmd.docsGroup()))
 	result = append(result, []byte("complexity"))
 	result = append(result, []byte("O(1)"))
+	result = append(result, []byte("doc_flags"))
+	result = append(result, protocol.MakeEmptyMultiBulkReply().ToBytes())
 
 	return protocol.MakeMultiBulkReply(result)
+}
+
+func (cmd *command) docsGroup() string {
+	if g, ok := knownDocsGroups[cmd.name]; ok {
+		return g
+	}
+	if cmd.extra != nil {
+		for _, s := range cmd.extra.signs {
+			switch s {
+			case redisFlagPubSub:
+				return "pubsub"
+			case redisFlagAdmin:
+				return "server"
+			}
+		}
+	}
+	return "generic"
+}
+
+// knownDocsGroups maps common command names to Redis COMMAND DOCS groups.
+var knownDocsGroups = map[string]string{
+	"get": "string", "set": "string", "setex": "string", "psetex": "string", "setnx": "string",
+	"mget": "string", "mset": "string", "incr": "string", "decr": "string", "append": "string", "strlen": "string",
+	"hget": "hash", "hset": "hash", "hgetall": "hash", "hdel": "hash", "hkeys": "hash", "hvals": "hash",
+	"lpush": "list", "rpush": "list", "lrange": "list", "llen": "list", "lpop": "list", "rpop": "list",
+	"sadd": "set", "smembers": "set", "srem": "set", "scard": "set",
+	"zadd": "sorted_set", "zrange": "sorted_set", "zscore": "sorted_set", "zcard": "sorted_set",
+	"xadd": "stream", "xread": "stream", "xrange": "stream",
+	"eval": "scripting", "evalsha": "scripting",
+	"auth": "connection", "ping": "connection", "hello": "connection", "select": "connection", "echo": "connection",
+	"info": "server", "config": "server", "client": "server", "memory": "server", "acl": "server",
+	"multi": "transactions", "exec": "transactions", "discard": "transactions", "watch": "transactions",
+	"subscribe": "pubsub", "publish": "pubsub", "psubscribe": "pubsub", "pubsub": "pubsub",
+	"del": "generic", "expire": "generic", "ttl": "generic", "keys": "generic", "type": "generic", "exists": "generic",
 }
 
 func (cmd *command) attachCommandExtra(signs []string, firstKey int, lastKey int, keyStep int) {

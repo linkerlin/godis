@@ -431,7 +431,7 @@ func isMapFlatCmd(cmd string, args []string) bool {
 
 func isSetFlatCmd(cmd string) bool {
 	switch strings.ToLower(cmd) {
-	case "smembers", "sinter", "sunion", "sdiff", "keys":
+	case "smembers", "sinter", "sunion", "sdiff", "keys", "hkeys":
 		return true
 	default:
 		return false

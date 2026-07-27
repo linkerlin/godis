@@ -524,12 +524,22 @@ func execACLDryRun(db *DB, args [][]byte) redis.Reply {
 		return protocol.MakeErrReply("ERR this user has no permissions to run the '" + command + "' command")
 	}
 
-	// Channel check for PUBLISH / SUBSCRIBE when args present.
+	// Channel check for PUBLISH / SUBSCRIBE family when channel args present.
 	cmdUpper := strings.ToUpper(command)
-	if (cmdUpper == "PUBLISH" || cmdUpper == "SPUBLISH") && len(args) >= 3 {
-		ch := string(args[2])
-		if !user.CheckChannel(ch) {
-			return protocol.MakeErrReply("ERR this user has no permissions to access channel '" + ch + "'")
+	switch cmdUpper {
+	case "PUBLISH", "SPUBLISH":
+		if len(args) >= 3 {
+			ch := string(args[2])
+			if !user.CheckChannel(ch) {
+				return protocol.MakeErrReply("ERR this user has no permissions to access channel '" + ch + "'")
+			}
+		}
+	case "SUBSCRIBE", "PSUBSCRIBE", "SSUBSCRIBE":
+		for i := 2; i < len(args); i++ {
+			ch := string(args[i])
+			if !user.CheckChannel(ch) {
+				return protocol.MakeErrReply("ERR this user has no permissions to access channel '" + ch + "'")
+			}
 		}
 	}
 
