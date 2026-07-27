@@ -447,6 +447,19 @@ func isSetFlatCmd(cmd string, args []string) bool {
 			}
 		}
 		return false
+	case "zrandmember":
+		if len(args) < 2 {
+			return false
+		}
+		for _, a := range args {
+			if strings.EqualFold(a, "WITHSCORES") {
+				return false
+			}
+		}
+		if n, err := strconv.Atoi(args[1]); err == nil && n > 0 {
+			return true
+		}
+		return false
 	default:
 		return false
 	}

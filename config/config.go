@@ -98,6 +98,11 @@ type ServerProperties struct {
 	ReplicaLazyFlush      bool `cfg:"replica-lazy-flush"`
 	AofLoadTruncated      bool `cfg:"aof-load-truncated"`
 
+	// ActiveRehashing / SanitizeDumpPayload / IgnoreWarnings are Redis CONFIG stubs.
+	ActiveRehashing       bool   `cfg:"activerehashing"`
+	SanitizeDumpPayload   bool   `cfg:"sanitize-dump-payload"`
+	IgnoreWarnings        string `cfg:"ignore-warnings"`
+
 	// ReplBacklogSize is Redis repl-backlog-size (bytes); used when allocating master backlog.
 	ReplBacklogSize int64 `cfg:"repl-backlog-size"`
 
@@ -162,6 +167,7 @@ func init() {
 		ProtectedMode:   true,
 		ReplicaReadOnly: true,
 		DynamicHz:       true,
+		ActiveRehashing: true,
 		LuaTimeLimit:    5000,
 		RunID:           utils.RandString(40),
 	}

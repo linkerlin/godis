@@ -303,7 +303,8 @@ func GenGodisInfoString(section string, db *Server) []byte {
 			"tracking_total_keys:%d\r\n"+
 			"pubsub_clients:%d\r\n"+
 			"watching_clients:%d\r\n"+
-			"clients_in_timeout_table:%d\r\n",
+			"clients_in_timeout_table:%d\r\n"+
+			"io_threads_active:%d\r\n",
 			atomic.LoadInt32(&tcp.ClientCounter),
 			0, // cluster_connections
 			config.Properties.MaxClients,
@@ -313,6 +314,7 @@ func GenGodisInfoString(section string, db *Server) []byte {
 			countPubsubClients(),
 			countWatchingClients(),
 			blockedClients, // clients_in_timeout_table ≈ blocked waiters
+			0,             // io_threads_active (single-threaded Go net)
 		)
 		return []byte(s)
 	case "memory":
@@ -383,6 +385,8 @@ func GenGodisInfoString(section string, db *Server) []byte {
 			"allocator_allocated:%d\r\n"+
 			"allocator_active:%d\r\n"+
 			"allocator_resident:%d\r\n"+
+			"allocator_frag_ratio:%.2f\r\n"+
+			"mem_not_counted_for_evict:%d\r\n"+
 			"mem_fragmentation_ratio:%.2f\r\n"+
 			"mem_fragmentation_bytes:%d\r\n"+
 			"mem_allocator:%s\r\n",
@@ -406,6 +410,8 @@ func GenGodisInfoString(section string, db *Server) []byte {
 			m.HeapAlloc,
 			m.HeapSys,
 			m.Sys,
+			float64(m.HeapSys)/float64(max(m.HeapAlloc, 1)),
+			0, // mem_not_counted_for_evict
 			float64(m.Sys)/float64(max(m.Alloc, 1)),
 			fragBytes,
 			"go",

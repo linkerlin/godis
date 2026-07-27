@@ -130,6 +130,9 @@ func getConfigMatches(pattern string) []configPair {
 		{"replica-lazy-flush", boolToString(getReplicaLazyFlush())},
 		{"aof-load-truncated", boolToString(getAofLoadTruncated())},
 		{"jemalloc-bg-thread", boolToString(getJemallocBgThread())},
+		{"activerehashing", boolToString(getActiveRehashing())},
+		{"sanitize-dump-payload", boolToString(getSanitizeDumpPayload())},
+		{"ignore-warnings", getIgnoreWarnings()},
 		{"proto-max-bulk-len", strconv.FormatInt(config.Properties.ProtoMaxBulkLen, 10)},
 		{"save", config.Properties.Save},
 		{"tcp-backlog", strconv.Itoa(config.Properties.TCPBacklog)},
@@ -396,6 +399,20 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 				return protocol.MakeErrReply("ERR invalid aof-load-truncated value")
 			}
 			config.Properties.AofLoadTruncated = b
+		case "activerehashing":
+			ok, b := config.ParseConfigBool(value)
+			if !ok {
+				return protocol.MakeErrReply("ERR invalid activerehashing value")
+			}
+			config.Properties.ActiveRehashing = b
+		case "sanitize-dump-payload":
+			ok, b := config.ParseConfigBool(value)
+			if !ok {
+				return protocol.MakeErrReply("ERR invalid sanitize-dump-payload value")
+			}
+			config.Properties.SanitizeDumpPayload = b
+		case "ignore-warnings":
+			config.Properties.IgnoreWarnings = value
 		case "proto-max-bulk-len":
 			n, err := strconv.ParseInt(value, 10, 64)
 			if err != nil || n < 0 {
@@ -584,6 +601,27 @@ func getAofLoadTruncated() bool {
 		return false
 	}
 	return config.Properties.AofLoadTruncated
+}
+
+func getActiveRehashing() bool {
+	if config.Properties == nil {
+		return true
+	}
+	return config.Properties.ActiveRehashing
+}
+
+func getSanitizeDumpPayload() bool {
+	if config.Properties == nil {
+		return false
+	}
+	return config.Properties.SanitizeDumpPayload
+}
+
+func getIgnoreWarnings() string {
+	if config.Properties == nil {
+		return ""
+	}
+	return config.Properties.IgnoreWarnings
 }
 
 func configDir() string {

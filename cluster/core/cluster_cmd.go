@@ -24,6 +24,11 @@ func execCluster(cluster *Cluster, c redis.Connection, cmdLine CmdLine) redis.Re
 		return execClusterInfo(cluster)
 	case "SLOTS":
 		return execClusterSlots(cluster)
+	case "MYID":
+		if cluster == nil {
+			return protocol.MakeErrReply("ERR This instance has cluster support disabled")
+		}
+		return protocol.MakeBulkReply([]byte(cluster.SelfID()))
 	case "KEYSLOT":
 		if len(cmdLine) < 3 {
 			return protocol.MakeErrReply("ERR wrong number of arguments for 'cluster|keyslot' command")
@@ -107,6 +112,8 @@ func execClusterHelp() redis.Reply {
 		"    Return information about the cluster state.",
 		"CLUSTER SLOTS",
 		"    Return information about slots range mappings.",
+		"CLUSTER MYID",
+		"    Return the node id of this node.",
 		"CLUSTER KEYSLOT key",
 		"    Return the hash slot for the specified key.",
 		"CLUSTER HELP",
