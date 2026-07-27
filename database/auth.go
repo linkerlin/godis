@@ -330,11 +330,12 @@ func HelloWithRole(c redis.Connection, args [][]byte, role string) redis.Reply {
 	}
 
 	if protoVersion == 3 {
+		idNum, _ := strconv.ParseInt(clientID, 10, 64)
 		m := protocol.MakeMapReply()
 		m.Put("server", protocol.MakeBulkReply([]byte("godis")))
 		m.Put("version", protocol.MakeBulkReply([]byte("8.0.0")))
-		m.Put("proto", protocol.MakeBulkReply([]byte(strconv.Itoa(protoVersion))))
-		m.Put("id", protocol.MakeBulkReply([]byte(clientID)))
+		m.Put("proto", protocol.MakeIntReply(int64(protoVersion)))
+		m.Put("id", protocol.MakeIntReply(idNum))
 		m.Put("mode", protocol.MakeBulkReply([]byte(getRedisMode())))
 		m.Put("role", protocol.MakeBulkReply([]byte(role)))
 		m.Put("modules", protocol.MakeEmptyMultiBulkReply())

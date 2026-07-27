@@ -173,29 +173,29 @@ func execEvalSha(db *DB, args [][]byte) redis.Reply {
 }
 
 // execScriptExists checks if scripts exist
-// SCRIPT EXISTS sha1 [sha1 ...]
+// SCRIPT EXISTS sha1 [sha1 ...] — returns array of integers (0/1).
 func execScriptExists(db *DB, args [][]byte) redis.Reply {
 	if len(args) < 1 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'script|exists' command")
 	}
 
+	replies := make([]redis.Reply, len(args))
 	if scriptEngine == nil {
-		return protocol.MakeEmptyMultiBulkReply()
+		for i := range replies {
+			replies[i] = protocol.MakeIntReply(0)
+		}
+		return protocol.MakeMultiRawReply(replies)
 	}
 
 	shas := make([]string, len(args))
 	for i, arg := range args {
 		shas[i] = string(arg)
 	}
-
 	exists := scriptEngine.Exists(shas)
-
-	result := make([][]byte, len(exists))
 	for i, e := range exists {
-		result[i] = []byte(strconv.Itoa(e))
+		replies[i] = protocol.MakeIntReply(int64(e))
 	}
-
-	return protocol.MakeMultiBulkReply(result)
+	return protocol.MakeMultiRawReply(replies)
 }
 
 // execScriptLoad loads a script
@@ -432,6 +432,13 @@ func isMapFlatCmd(cmd string, args []string) bool {
 func isSetFlatCmd(cmd string, args []string) bool {
 	switch strings.ToLower(cmd) {
 	case "smembers", "sinter", "sunion", "sdiff", "keys", "hkeys", "hvals":
+		return true
+	case "zunion", "zinter", "zdiff":
+		for _, a := range args {
+			if strings.EqualFold(a, "WITHSCORES") {
+				return false
+			}
+		}
 		return true
 	case "srandmember":
 		if len(args) >= 2 {

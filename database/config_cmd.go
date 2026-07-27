@@ -123,6 +123,9 @@ func getConfigMatches(pattern string) []configPair {
 		{"replica-read-only", boolToString(config.Properties.ReplicaReadOnly)},
 		{"slave-read-only", boolToString(config.Properties.ReplicaReadOnly)},
 		{"lazyfree-lazy-eviction", boolToString(config.Properties.LazyfreeLazyEviction)},
+		{"lazyfree-lazy-expire", boolToString(getLazyfreeLazyExpire())},
+		{"lazyfree-lazy-server-del", boolToString(getLazyfreeLazyServerDel())},
+		{"jemalloc-bg-thread", boolToString(getJemallocBgThread())},
 		{"proto-max-bulk-len", strconv.FormatInt(config.Properties.ProtoMaxBulkLen, 10)},
 		{"save", config.Properties.Save},
 		{"tcp-backlog", strconv.Itoa(config.Properties.TCPBacklog)},
@@ -347,6 +350,24 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 				return protocol.MakeErrReply("ERR invalid lazyfree-lazy-eviction value")
 			}
 			config.Properties.LazyfreeLazyEviction = b
+		case "lazyfree-lazy-expire":
+			ok, b := config.ParseConfigBool(value)
+			if !ok {
+				return protocol.MakeErrReply("ERR invalid lazyfree-lazy-expire value")
+			}
+			config.Properties.LazyfreeLazyExpire = b
+		case "lazyfree-lazy-server-del":
+			ok, b := config.ParseConfigBool(value)
+			if !ok {
+				return protocol.MakeErrReply("ERR invalid lazyfree-lazy-server-del value")
+			}
+			config.Properties.LazyfreeLazyServerDel = b
+		case "jemalloc-bg-thread":
+			ok, b := config.ParseConfigBool(value)
+			if !ok {
+				return protocol.MakeErrReply("ERR invalid jemalloc-bg-thread value")
+			}
+			config.Properties.JemallocBgThread = b
 		case "proto-max-bulk-len":
 			n, err := strconv.ParseInt(value, 10, 64)
 			if err != nil || n < 0 {
@@ -486,6 +507,27 @@ func getDynamicHz() bool {
 		return true
 	}
 	return config.Properties.DynamicHz
+}
+
+func getLazyfreeLazyExpire() bool {
+	if config.Properties == nil {
+		return false
+	}
+	return config.Properties.LazyfreeLazyExpire
+}
+
+func getLazyfreeLazyServerDel() bool {
+	if config.Properties == nil {
+		return false
+	}
+	return config.Properties.LazyfreeLazyServerDel
+}
+
+func getJemallocBgThread() bool {
+	if config.Properties == nil {
+		return false
+	}
+	return config.Properties.JemallocBgThread
 }
 
 func configDir() string {

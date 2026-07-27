@@ -89,6 +89,11 @@ type ServerProperties struct {
 	// DynamicHz is Redis dynamic-hz; stub for CONFIG GET/SET (default yes).
 	DynamicHz bool `cfg:"dynamic-hz"`
 
+	// LazyfreeLazyExpire / LazyfreeLazyServerDel / JemallocBgThread are Redis CONFIG stubs.
+	LazyfreeLazyExpire    bool `cfg:"lazyfree-lazy-expire"`
+	LazyfreeLazyServerDel bool `cfg:"lazyfree-lazy-server-del"`
+	JemallocBgThread      bool `cfg:"jemalloc-bg-thread"`
+
 	// ReplBacklogSize is Redis repl-backlog-size (bytes); used when allocating master backlog.
 	ReplBacklogSize int64 `cfg:"repl-backlog-size"`
 

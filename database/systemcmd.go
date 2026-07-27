@@ -241,12 +241,16 @@ func GenGodisInfoString(section string, db *Server) []byte {
 		s := fmt.Sprintf("# Server\r\n"+
 			"redis_version:%s\r\n"+
 			"godis_version:%s\r\n"+
+			"redis_git_sha1:%s\r\n"+
+			"redis_git_dirty:%d\r\n"+
 			"redis_mode:%s\r\n"+
 			"godis_mode:%s\r\n"+
 			"os:%s %s\r\n"+
 			"arch_bits:%d\r\n"+
+			"atomicvar_api:%s\r\n"+
 			"go_version:%s\r\n"+
 			"process_id:%d\r\n"+
+			"process_supervised:%s\r\n"+
 			"run_id:%s\r\n"+
 			"tcp_port:%d\r\n"+
 			"server_time_usec:%d\r\n"+
@@ -260,12 +264,16 @@ func GenGodisInfoString(section string, db *Server) []byte {
 			"config_file:%s\r\n",
 			godisVersion,
 			godisVersion,
+			"00000000",
+			0,
 			getRedisMode(),
 			getGodisRunningMode(),
 			runtime.GOOS, runtime.GOARCH,
 			32<<(^uint(0)>>63),
+			"go-atomic",
 			runtime.Version(),
 			os.Getpid(),
+			"no",
 			config.Properties.RunID,
 			config.Properties.Port,
 			time.Now().UnixMicro(),
