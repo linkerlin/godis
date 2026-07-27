@@ -347,6 +347,7 @@ func GenGodisInfoString(section string, db *Server) []byte {
 				datasetPerc = 100
 			}
 		}
+		totalSys := getTotalSystemMemoryBytes()
 		s := fmt.Sprintf("# Memory\r\n"+
 			"used_memory:%d\r\n"+
 			"used_memory_human:%s\r\n"+
@@ -363,6 +364,8 @@ func GenGodisInfoString(section string, db *Server) []byte {
 			"maxmemory:%d\r\n"+
 			"maxmemory_human:%s\r\n"+
 			"maxmemory_policy:%s\r\n"+
+			"total_system_memory:%d\r\n"+
+			"total_system_memory_human:%s\r\n"+
 			"allocator_allocated:%d\r\n"+
 			"allocator_active:%d\r\n"+
 			"allocator_resident:%d\r\n"+
@@ -384,6 +387,8 @@ func GenGodisInfoString(section string, db *Server) []byte {
 			maxMem,
 			humanReadableSize(maxMemU),
 			maxMemPolicy,
+			totalSys,
+			humanReadableSize(totalSys),
 			m.HeapAlloc,
 			m.HeapSys,
 			m.Sys,

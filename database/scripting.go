@@ -319,7 +319,7 @@ func redisReplyToGo(reply redis.Reply, cmd string, args ...string) interface{} {
 		}
 		return result
 	case *protocol.MultiBulkReply:
-		if respVer == 3 && isSetFlatCmd(cmd) {
+		if respVer == 3 && isSetFlatCmd(cmd, args) {
 			m := make(map[string]interface{}, len(r.Args))
 			for _, arg := range r.Args {
 				m[string(arg)] = true
@@ -342,7 +342,7 @@ func redisReplyToGo(reply redis.Reply, cmd string, args ...string) interface{} {
 		if respVer == 3 && isMapFlatCmd(cmd, args) {
 			return map[string]interface{}{}
 		}
-		if respVer == 3 && isSetFlatCmd(cmd) {
+		if respVer == 3 && isSetFlatCmd(cmd, args) {
 			return map[string]interface{}{}
 		}
 		return []interface{}{}
@@ -429,10 +429,17 @@ func isMapFlatCmd(cmd string, args []string) bool {
 	}
 }
 
-func isSetFlatCmd(cmd string) bool {
+func isSetFlatCmd(cmd string, args []string) bool {
 	switch strings.ToLower(cmd) {
-	case "smembers", "sinter", "sunion", "sdiff", "keys", "hkeys":
+	case "smembers", "sinter", "sunion", "sdiff", "keys", "hkeys", "hvals":
 		return true
+	case "srandmember":
+		if len(args) >= 2 {
+			if n, err := strconv.Atoi(args[1]); err == nil && n > 1 {
+				return true
+			}
+		}
+		return false
 	default:
 		return false
 	}

@@ -170,10 +170,22 @@ func formatClientListLine(c redis.Connection) string {
 	watching := len(c.GetWatching())
 	redir := clientListRedir(c)
 	argvMem, multiMem, totMem := clientListMemEstimates(c, cmd)
+	caps := clientCapabilities(c)
 	return fmt.Sprintf(
-		"id=%d addr=%s laddr=%s fd=0 name=%s age=%d idle=%d flags=%s db=%d sub=%d psub=%d ssub=%d user=%s multi=%d watching=%d qbuf=0 qbuf-free=16384 argv-mem=%d multi-mem=%d obl=0 oll=0 omem=0 tot-mem=%d events=r cmd=%s resp=%d redir=%d lib-name=%s lib-ver=%s",
-		c.GetClientID(), clientAddr(c), clientLocalAddr(c), c.GetClientName(), age, idle, flags, c.GetDBIndex(), subN, psubN, ssubN, user, multi, watching, argvMem, multiMem, totMem, cmd, respVer, redir, libName, libVer,
+		"id=%d addr=%s laddr=%s fd=0 name=%s age=%d idle=%d flags=%s db=%d sub=%d psub=%d ssub=%d user=%s multi=%d watching=%d qbuf=0 qbuf-free=16384 argv-mem=%d multi-mem=%d obl=0 oll=0 omem=0 tot-mem=%d events=r cmd=%s resp=%d redir=%d lib-name=%s lib-ver=%s capabilities=%s",
+		c.GetClientID(), clientAddr(c), clientLocalAddr(c), c.GetClientName(), age, idle, flags, c.GetDBIndex(), subN, psubN, ssubN, user, multi, watching, argvMem, multiMem, totMem, cmd, respVer, redir, libName, libVer, caps,
 	)
+}
+
+func clientCapabilities(c redis.Connection) string {
+	respVer := c.GetProtocolVersion()
+	if respVer <= 0 {
+		respVer = 2
+	}
+	if respVer >= 3 {
+		return "resp3"
+	}
+	return ""
 }
 
 // clientListMemEstimates returns coarse argv-mem / multi-mem / tot-mem (not Redis-precise).
