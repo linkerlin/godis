@@ -294,6 +294,46 @@ func (dict *ConcurrentDict) ForEach(consumer Consumer) {
 	}
 }
 
+// ForEachSkippingLockedKeys behaves like ForEach, except it does not attempt
+// to (re-)acquire the shard lock for any key in alreadyWriteLocked. Use this
+// from command handlers that run while already holding a write lock (via
+// RWLocks) on one of their own keys, e.g. FT.CREATE scanning the keyspace
+// while the index name itself is write-locked: a plain ForEach would try to
+// RLock that same shard and deadlock against the write lock already held by
+// the same goroutine (sync.RWMutex is not reentrant).
+func (dict *ConcurrentDict) ForEachSkippingLockedKeys(alreadyWriteLocked []string, consumer Consumer) {
+	if dict == nil {
+		panic("dict is nil")
+	}
+
+	skip := make(map[uint32]struct{}, len(alreadyWriteLocked))
+	for _, key := range alreadyWriteLocked {
+		skip[dict.spread(key)] = struct{}{}
+	}
+
+	for i, s := range dict.table {
+		_, locked := skip[uint32(i)]
+		if !locked {
+			s.mutex.RLock()
+		}
+		f := func() bool {
+			if !locked {
+				defer s.mutex.RUnlock()
+			}
+			for key, value := range s.m {
+				continues := consumer(key, value)
+				if !continues {
+					return false
+				}
+			}
+			return true
+		}
+		if !f() {
+			break
+		}
+	}
+}
+
 // Keys returns all keys in dict
 func (dict *ConcurrentDict) Keys() []string {
 	keys := make([]string, dict.Len())

@@ -107,15 +107,22 @@ func TestM2bfClientListCmd(t *testing.T) {
 	}
 }
 
-func TestM2bfFTAggregateApplyRejected(t *testing.T) {
+// TestM2bfFTAggregateApply verifies FT.AGGREGATE APPLY is now supported
+// (RediSearch Phase B); see TestFTAggregateApplyExpression in
+// redisearch_phase_b_test.go for expression-value coverage.
+func TestM2bfFTAggregateApply(t *testing.T) {
 	db := makeTestDB()
 	asserts.AssertStatusReply(t, db.Exec(nil, utils.ToCmdLine(
 		"FT.CREATE", "m2bf", "ON", "HASH", "PREFIX", "1", "f:", "SCHEMA", "n", "NUMERIC",
 	)), "OK")
+	_ = db.Exec(nil, utils.ToCmdLine("FT.ADD", "m2bf", "f:1", "FIELDS", "n", "10"))
 	r := db.Exec(nil, utils.ToCmdLine(
 		"FT.AGGREGATE", "m2bf", "*", "APPLY", "@n/2", "AS", "half",
 	))
-	if !protocol.IsErrorReply(r) || !strings.Contains(string(r.ToBytes()), "APPLY") {
-		t.Fatalf("APPLY should be rejected: %s", r.ToBytes())
+	if protocol.IsErrorReply(r) {
+		t.Fatalf("APPLY should be supported: %s", r.ToBytes())
+	}
+	if !strings.Contains(string(r.ToBytes()), "half") {
+		t.Fatalf("expected computed field 'half' in reply: %s", r.ToBytes())
 	}
 }

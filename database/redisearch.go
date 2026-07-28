@@ -5,7 +5,9 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
+	Dict "github.com/linkerlin/godis/datastruct/dict"
 	godisjson "github.com/linkerlin/godis/datastruct/json"
 	"github.com/linkerlin/godis/datastruct/redisearch"
 	"github.com/linkerlin/godis/interface/database"
@@ -223,6 +225,66 @@ func removeJSONFromIndex(db *DB, key string) {
 	}
 }
 
+// backfillIndexFromExistingKeys scans the whole keyspace and indexes every
+// already-existing key that matches the new index's prefixes/type, mirroring
+// RediSearch's synchronous initial index build. Called from FT.CREATE unless
+// SKIPINITIALSCAN was given.
+//
+// FT.CREATE holds a write lock on indexName (via writeFirstKey) for the
+// duration of execFTCreate, so the scan must skip re-locking that key's shard
+// to avoid deadlocking against the lock the current goroutine already holds.
+func backfillIndexFromExistingKeys(db *DB, indexName string, engine *redisearch.RediSearchEngine, meta *indexMeta) {
+	db.ForEachSkippingLockedKeys([]string{indexName}, func(key string, entity *database.DataEntity, _ *time.Time) bool {
+		if entity == nil || !indexMatchesKey(meta.prefixes, key) {
+			return true
+		}
+		switch meta.onType {
+		case "JSON":
+			jv, ok := entity.Data.(*godisjson.JSONValue)
+			if !ok {
+				return true
+			}
+			fields := make(map[string]interface{}, len(meta.schema))
+			for _, f := range meta.schema {
+				path := f.Path
+				if path == "" {
+					path = f.Name
+				}
+				if !strings.HasPrefix(path, "$") {
+					path = "$." + path
+				}
+				val, err := jv.Get(path)
+				if err != nil || val == nil {
+					continue
+				}
+				fields[f.Name] = val
+			}
+			engine.DeleteDocument(key)
+			_ = engine.AddDocument(key, fields, 1.0, nil)
+		default:
+			dict, ok := entity.Data.(Dict.Dict)
+			if !ok {
+				return true
+			}
+			fields := make(map[string]interface{}, len(meta.schema))
+			for _, f := range meta.schema {
+				raw, ok := dict.Get(f.Name)
+				if !ok {
+					continue
+				}
+				if b, ok := raw.([]byte); ok {
+					fields[f.Name] = string(b)
+				} else {
+					fields[f.Name] = raw
+				}
+			}
+			engine.DeleteDocument(key)
+			_ = engine.AddDocument(key, fields, 1.0, nil)
+		}
+		return true
+	})
+}
+
 // execFTCreate creates a new search index
 // FT.CREATE index [ON HASH | JSON] [PREFIX count prefix ...] SCHEMA field [TEXT [NOSTEM] | NUMERIC | TAG | GEO] [SORTABLE] [NOINDEX] ...
 func execFTCreate(db *DB, args [][]byte) redis.Reply {
@@ -242,6 +304,9 @@ func execFTCreate(db *DB, args [][]byte) redis.Reply {
 	var prefix []string
 	onType := "HASH" // Redis default
 	schemaStart := 1
+	skipInitialScan := false
+	var stopWords []string
+	hasStopWords := false
 
 	for i := 1; i < len(args); i++ {
 		arg := strings.ToUpper(string(args[i]))
@@ -274,6 +339,27 @@ func execFTCreate(db *DB, args [][]byte) redis.Reply {
 				i++
 			}
 			i--
+		case "SKIPINITIALSCAN":
+			skipInitialScan = true
+		case "STOPWORDS":
+			if i+1 >= len(args) {
+				return protocol.MakeSyntaxErrReply()
+			}
+			count, err := strconv.Atoi(string(args[i+1]))
+			if err != nil || count < 0 {
+				return protocol.MakeErrReply("ERR Invalid stopwords count")
+			}
+			i += 2
+			stopWords = make([]string, 0, count)
+			for j := 0; j < count && i < len(args); j++ {
+				if reply := validateBulkBytes(args[i]); reply != nil {
+					return reply
+				}
+				stopWords = append(stopWords, string(args[i]))
+				i++
+			}
+			hasStopWords = true
+			i--
 		case "SCHEMA":
 			schemaStart = i + 1
 			i = len(args) // Break out
@@ -294,7 +380,9 @@ func execFTCreate(db *DB, args [][]byte) redis.Reply {
 
 	// Create engine
 	config := &redisearch.EngineConfig{
-		Name: indexName,
+		Name:         indexName,
+		StopWords:    stopWords,
+		HasStopWords: hasStopWords,
 	}
 
 	engine := redisearch.NewRediSearchEngine(config)
@@ -315,6 +403,11 @@ func execFTCreate(db *DB, args [][]byte) redis.Reply {
 
 	// Also store in DB for persistence tracking
 	db.PutEntity(indexName, &database.DataEntity{Data: engine})
+
+	// RediSearch indexes existing matching keys synchronously unless told not to.
+	if !skipInitialScan {
+		backfillIndexFromExistingKeys(db, indexName, engine, meta)
+	}
 
 	db.addAof(utils.ToCmdLine3("ft.create", args...))
 	return protocol.MakeOkReply()
@@ -847,6 +940,11 @@ func execFTSearch(db *DB, args [][]byte) redis.Reply {
 		opts.Limit = max
 	}
 
+	// Expand query terms into their FT.SYNADD synonyms for this index.
+	engine.SetSynonymExpander(func(term string) []string {
+		return getSynonyms(indexName, term)
+	})
+
 	// Search
 	results, err := engine.Search(query, opts)
 	if err != nil {
@@ -999,6 +1097,9 @@ func execFTAggregate(db *DB, args [][]byte) redis.Reply {
 		Offset: 0,
 		Limit:  10,
 	}
+	withCursor := false
+	cursorCount := 10
+	sawGroupBy := false
 
 	for i := 2; i < len(args); {
 		arg := strings.ToUpper(string(args[i]))
@@ -1010,7 +1111,20 @@ func execFTAggregate(db *DB, args [][]byte) redis.Reply {
 			continue
 
 		case "WITHCURSOR":
-			return protocol.MakeErrReply("ERR WITHCURSOR is not supported")
+			withCursor = true
+			i++
+			if i < len(args) && strings.EqualFold(string(args[i]), "COUNT") {
+				if i+1 >= len(args) {
+					return protocol.MakeSyntaxErrReply()
+				}
+				n, err := strconv.Atoi(string(args[i+1]))
+				if err != nil || n <= 0 {
+					return protocol.MakeErrReply("ERR Invalid COUNT value")
+				}
+				cursorCount = n
+				i += 2
+			}
+			continue
 
 		case "TIMEOUT":
 			if i+1 >= len(args) {
@@ -1025,7 +1139,16 @@ func execFTAggregate(db *DB, args [][]byte) redis.Reply {
 			continue
 
 		case "APPLY":
-			return protocol.MakeErrReply("ERR APPLY is not supported")
+			if i+3 >= len(args) || !strings.EqualFold(string(args[i+2]), "AS") {
+				return protocol.MakeSyntaxErrReply()
+			}
+			req.Apply = append(req.Apply, redisearch.ApplyClause{
+				Expr:     string(args[i+1]),
+				As:       string(args[i+3]),
+				PreGroup: !sawGroupBy,
+			})
+			i += 4
+			continue
 
 		case "LOAD":
 			if i+1 >= len(args) {
@@ -1053,6 +1176,7 @@ func execFTAggregate(db *DB, args [][]byte) redis.Reply {
 			continue
 
 		case "GROUPBY":
+			sawGroupBy = true
 			if i+1 >= len(args) {
 				return protocol.MakeSyntaxErrReply()
 			}
@@ -1222,24 +1346,174 @@ func execFTAggregate(db *DB, args [][]byte) redis.Reply {
 		return protocol.MakeErrReply(fmt.Sprintf("ERR %v", err))
 	}
 
+	if withCursor {
+		rows := make([][]byte, 0, len(result.Groups))
+		for _, group := range result.Groups {
+			rows = append(rows, aggRowBytes(group))
+		}
+		return ftBuildCursorPage(indexName, result.Total, rows, cursorCount)
+	}
+
 	// Build response
 	var reply [][]byte
 	reply = append(reply, []byte(strconv.Itoa(result.Total)))
 
 	for _, group := range result.Groups {
-		var fields [][]byte
-
-		fields = append(fields, []byte(fmt.Sprintf("%v", group.By)))
-
-		for k, v := range group.Fields {
-			fields = append(fields, []byte(k))
-			fields = append(fields, []byte(fmt.Sprintf("%v", v)))
-		}
-
-		reply = append(reply, protocol.MakeMultiBulkReply(fields).ToBytes())
+		reply = append(reply, aggRowBytes(group))
 	}
 
 	return protocol.MakeMultiBulkReply(reply)
+}
+
+// aggRowBytes encodes one aggregation result row in the wire format used by
+// execFTAggregate: an optional leading GROUPBY key (skipped when the row came
+// from a passthrough, non-grouped document) followed by field/value pairs.
+func aggRowBytes(group *redisearch.Group) []byte {
+	var fields [][]byte
+	if group.By != nil {
+		fields = append(fields, []byte(fmt.Sprintf("%v", group.By)))
+	}
+	for k, v := range group.Fields {
+		fields = append(fields, []byte(k))
+		fields = append(fields, []byte(fmt.Sprintf("%v", v)))
+	}
+	return protocol.MakeMultiBulkReply(fields).ToBytes()
+}
+
+// ftCursorEntry holds the not-yet-delivered page of an FT.AGGREGATE WITHCURSOR
+// result, keyed by an opaque cursor id.
+type ftCursorEntry struct {
+	indexName  string
+	total      int
+	rows       [][]byte
+	lastAccess time.Time
+}
+
+const ftCursorIdleTimeout = time.Minute
+
+var (
+	ftCursorMu      sync.Mutex
+	ftCursorStore   = make(map[uint64]*ftCursorEntry)
+	ftCursorCounter uint64
+)
+
+// ftSweepExpiredCursorsLocked drops cursors idle for longer than
+// ftCursorIdleTimeout. Caller must hold ftCursorMu.
+func ftSweepExpiredCursorsLocked() {
+	if len(ftCursorStore) == 0 {
+		return
+	}
+	now := time.Now()
+	for id, entry := range ftCursorStore {
+		if now.Sub(entry.lastAccess) > ftCursorIdleTimeout {
+			delete(ftCursorStore, id)
+		}
+	}
+}
+
+// ftBuildCursorPage slices off up to count rows to return immediately,
+// storing the remainder (if any) under a freshly minted cursor id. Returns
+// the Redis reply shape `[[total, row, row, ...], cursorID]`, with cursorID
+// 0 once the result set is exhausted.
+func ftBuildCursorPage(indexName string, total int, rows [][]byte, count int) redis.Reply {
+	if count <= 0 {
+		count = 10
+	}
+	pageRows := rows
+	remaining := ([][]byte)(nil)
+	if count < len(rows) {
+		pageRows = rows[:count]
+		remaining = rows[count:]
+	}
+
+	innerArgs := make([][]byte, 0, 1+len(pageRows))
+	innerArgs = append(innerArgs, []byte(strconv.Itoa(total)))
+	innerArgs = append(innerArgs, pageRows...)
+	inner := protocol.MakeMultiBulkReply(innerArgs)
+
+	var cursorID uint64
+	ftCursorMu.Lock()
+	ftSweepExpiredCursorsLocked()
+	if len(remaining) > 0 {
+		ftCursorCounter++
+		cursorID = ftCursorCounter
+		ftCursorStore[cursorID] = &ftCursorEntry{
+			indexName:  indexName,
+			total:      total,
+			rows:       remaining,
+			lastAccess: time.Now(),
+		}
+	}
+	ftCursorMu.Unlock()
+
+	return protocol.MakeMultiRawReply([]redis.Reply{inner, protocol.MakeIntReply(int64(cursorID))})
+}
+
+// execFTCursor handles FT.CURSOR READ/DEL for paging through a stored
+// FT.AGGREGATE WITHCURSOR result set.
+// FT.CURSOR READ index cursor [COUNT n]
+// FT.CURSOR DEL index cursor
+func execFTCursor(db *DB, args [][]byte) redis.Reply {
+	if len(args) < 3 {
+		return protocol.MakeErrReply("ERR wrong number of arguments for 'ft.cursor' command")
+	}
+	sub := strings.ToUpper(string(args[0]))
+	indexName := resolveSearchIndex(string(args[1]))
+	cursorID, err := strconv.ParseUint(string(args[2]), 10, 64)
+	if err != nil {
+		return protocol.MakeErrReply("ERR Cursor not found")
+	}
+
+	switch sub {
+	case "READ":
+		count := 0
+		if len(args) >= 5 && strings.EqualFold(string(args[3]), "COUNT") {
+			n, err := strconv.Atoi(string(args[4]))
+			if err != nil || n <= 0 {
+				return protocol.MakeErrReply("ERR Invalid COUNT value")
+			}
+			count = n
+		}
+
+		ftCursorMu.Lock()
+		entry, ok := ftCursorStore[cursorID]
+		if ok {
+			delete(ftCursorStore, cursorID)
+		}
+		ftCursorMu.Unlock()
+
+		if !ok || entry.indexName != indexName {
+			return protocol.MakeErrReply("ERR Cursor not found")
+		}
+		if count <= 0 {
+			count = 10
+		}
+		return ftBuildCursorPage(indexName, entry.total, entry.rows, count)
+
+	case "DEL":
+		ftCursorMu.Lock()
+		_, ok := ftCursorStore[cursorID]
+		if ok {
+			delete(ftCursorStore, cursorID)
+		}
+		ftCursorMu.Unlock()
+		if !ok {
+			return protocol.MakeErrReply("ERR Cursor not found")
+		}
+		return protocol.MakeOkReply()
+
+	default:
+		return protocol.MakeErrReply("ERR unknown subcommand for 'ft.cursor'")
+	}
+}
+
+// prepareFTCursor read-locks the index name (args[1]) so FT.CURSOR doesn't
+// race with FT.DROPINDEX/FT.CREATE on the same index.
+func prepareFTCursor(args [][]byte) ([]string, []string) {
+	if len(args) < 2 {
+		return nil, nil
+	}
+	return nil, []string{string(args[1])}
 }
 
 // execFTInfo returns information about an index
@@ -1472,6 +1746,8 @@ func init() {
 		attachCommandExtra([]string{redisFlagReadonly}, 1, 1, 1)
 	registerCommand("FT.Aggregate", execFTAggregate, readFirstKey, nil, -3, flagReadOnly).
 		attachCommandExtra([]string{redisFlagReadonly}, 1, 1, 1)
+	registerCommand("FT.Cursor", execFTCursor, prepareFTCursor, nil, -4, flagReadOnly).
+		attachCommandExtra([]string{redisFlagReadonly}, 2, 2, 1)
 	registerCommand("FT.Info", execFTInfo, readFirstKey, nil, 2, flagReadOnly).
 		attachCommandExtra([]string{redisFlagReadonly}, 1, 1, 1)
 	registerCommand("FT._List", execFTList, prepareNoKeys, nil, 1, flagReadOnly).

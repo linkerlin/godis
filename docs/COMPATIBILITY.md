@@ -13,7 +13,7 @@
 | Stream / Bitmap / Geo | 中–高 | XCLAIM/XAUTOCLAIM/BITOP/BITFIELD；**XREAD BLOCK 真阻塞** |
 | FAILOVER | 最小子集 | 选项解析 + 无副本错误；完整协调切换仍缺 |
 | JSON / Vector / Time Series | 中–高 | 子集 + 持续补全；Vector 保留 VS* 与 Redis 名双名 |
-| RediSearch (FT.*) | 中–高 | SEARCH/AGGREGATE/ALIAS/ALTER/EXPLAIN/CONFIG/PROFILE 等 |
+| RediSearch (FT.*) | 中–高 | Phase A/B：初始扫描、STOPWORDS、同义词、内联 GEO、AGGREGATE WITHCURSOR/APPLY；见下文 |
 | 集群 (CLUSTER *) | 低–中 | 槽位算法与官方不兼容（**延期**）；子集命令 |
 | ACL / 安全 | 中–高 | ACL 引擎；CONFIG `aclfile` 可存取（M2bh）；文件见 ACL LOAD/SAVE |
 | 配置 | 中–高 | 布尔解析；CONFIG SET 含 maxmemory/save/tcp-backlog；**eviction 写路径已接**（键数估算）；部分 CF-3 为存取桩 |
@@ -21,7 +21,11 @@
 
 **M2 里程碑：** 至 **M2cm**。M2cl：Pub/Sub RESP3 Push、Lua HKEYS/HVALS/SSCAN→Array、DEBUG 桩。**M2cm**：UNWATCH 可在 MULTI 内排队；CLIENT LIST 字段 `watch=`（及 tot-net-in/out、rbs/rbp）；ACL GETUSER 完整 `#`+SHA256；CLUSTER ADDSLOTS/DELSLOTS/SETSLOT 桩。
 
-仍延期：集群 CRC16/MOVED、HLL 互通、真 HNSW、完整 FAILOVER 协调、精确 `used_memory`、FUNCTION DUMP 官方互通、MIGRATE 等（见计划文档）。
+**RediSearch Phase A（2026-07-29）：** FT.CREATE 初始扫描回填 + SKIPINITIALSCAN；按 index 的 STOPWORDS（含 `STOPWORDS 0` 关闭过滤）；FT.SEARCH 查询词按 FT.SYNADD 同义词组展开；`@field:[lon lat radius unit]` 内联 GEO 范围查询。
+
+**RediSearch Phase B（2026-07-29）：** FT.AGGREGATE `WITHCURSOR [COUNT n]` + `FT.CURSOR READ/DEL`（内存游标表，按 COUNT 分页，耗尽返回游标 0，空闲 1 分钟惰性回收）；FT.AGGREGATE `APPLY <expr> AS <name>` 最小表达式子集（`@field` 引用、数字字面量、`+ - * /` 标准优先级、括号、一元负号、非数值 `+` 退化为字符串拼接），按出现位置分为 GROUPBY 前（作用于逐文档字段，供后续 REDUCE 引用）与 GROUPBY 后（作用于结果行）；顺带修正：无 GROUPBY 且无 REDUCE 时按文档逐行返回（此前会错误地把所有文档折叠成一个空字段分组）。不含 FT.SEARCH WITHCURSOR（仍延期，见下）。
+
+仍延期：集群 CRC16/MOVED、HLL 互通、真 HNSW、完整 FAILOVER 协调、精确 `used_memory`、FUNCTION DUMP 官方互通、MIGRATE、RediSearch Phase C（SEARCH WITHCURSOR / 真 BM25 / FT+KNN / 完整 DIALECT）等（见计划文档）。
 
 ## 已知差异（抽样，以代码为准）
 
@@ -113,6 +117,10 @@
 | MONITOR | ✅ 流式广播（`BroadcastMonitor`） |
 | FAILOVER | ✅ 最小子集（ABORT/FORCE/TO/TIMEOUT）；完整协调切换仍缺 |
 | CLIENT UNBLOCK | ✅ 可唤醒 BLPOP/BZPOP/XREAD 等 |
+| FT.CREATE SKIPINITIALSCAN | ✅ 缺省对已存在且匹配前缀/类型的键同步初始建库；给出该选项则跳过 |
+| FT.CREATE STOPWORDS | ✅ 按 index 定制停用词表；`STOPWORDS 0` 关闭该索引的停用词过滤 |
+| FT.SEARCH 同义词展开 | ✅ 查询词按 FT.SYNADD/SYNUPDATE 分组展开为 `term \| syn1 \| syn2`（不含短语内部展开） |
+| FT.SEARCH 内联 GEO | ✅ `@field:[lon lat radius unit]` 语法（此前仅支持顶层 GEOFILTER 选项） |
 
 ### 曾误标为「未实现」、现已有（勿再当缺口）
 
@@ -131,4 +139,4 @@ UNWATCH、WAIT（简版）、BITOP、BITFIELD、SMOVE、LPOS、XCLAIM、SHUTDOWN
 
 ---
 
-**最后更新：** 2026-07-25
+**最后更新：** 2026-07-29（RediSearch Phase B）

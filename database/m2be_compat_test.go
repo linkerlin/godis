@@ -68,9 +68,11 @@ func TestM2beFTReturnASAndWithCursor(t *testing.T) {
 	if !protocol.IsErrorReply(bad) || !strings.Contains(string(bad.ToBytes()), "WITHCURSOR") {
 		t.Fatalf("WITHCURSOR: %s", bad.ToBytes())
 	}
-	bad = db.Exec(nil, utils.ToCmdLine("FT.AGGREGATE", "m2be", "*", "WITHCURSOR"))
-	if !protocol.IsErrorReply(bad) || !strings.Contains(string(bad.ToBytes()), "WITHCURSOR") {
-		t.Fatalf("AGGREGATE WITHCURSOR: %s", bad.ToBytes())
+	// FT.AGGREGATE WITHCURSOR is implemented in RediSearch Phase B: see
+	// TestFTAggregateWithCursorPages in redisearch_phase_b_test.go.
+	agg := db.Exec(nil, utils.ToCmdLine("FT.AGGREGATE", "m2be", "*", "WITHCURSOR"))
+	if protocol.IsErrorReply(agg) {
+		t.Fatalf("AGGREGATE WITHCURSOR should be supported: %s", agg.ToBytes())
 	}
 }
 

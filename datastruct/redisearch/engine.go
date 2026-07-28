@@ -26,6 +26,14 @@ type RediSearchEngine struct {
 	// Autocomplete for suggestions
 	autocomplete *Autocomplete
 
+	// stopFilter holds this index's STOPWORDS override; nil means the index's
+	// default English stopword list applies (see NewInvertedIndex).
+	stopFilter *StopWordFilter
+
+	// synonymExpander optionally expands a query term into synonym alternatives
+	// (e.g. FT.SYNADD groups); nil disables synonym expansion.
+	synonymExpander func(term string) []string
+
 	// Options
 	defaultLanguage string
 	scoreField      string
@@ -40,13 +48,19 @@ type EngineConfig struct {
 	DefaultLanguage string
 	ScoreField      string
 	PayloadField    string
+	// StopWords and HasStopWords implement FT.CREATE ... STOPWORDS count [word ...].
+	// HasStopWords distinguishes "not specified" (use default English list) from
+	// an explicit list, including STOPWORDS 0 (empty list disables filtering).
+	StopWords    []string
+	HasStopWords bool
 }
 
 // NewRediSearchEngine creates a new search engine
 func NewRediSearchEngine(config *EngineConfig) *RediSearchEngine {
-	return &RediSearchEngine{
+	idx := NewInvertedIndex()
+	e := &RediSearchEngine{
 		name:            config.Name,
-		index:           NewInvertedIndex(),
+		index:           idx,
 		schema:          make(map[string]*Field),
 		geoIndices:      make(map[string]*GeoIndex),
 		autocomplete:    NewAutocomplete(),
@@ -54,6 +68,19 @@ func NewRediSearchEngine(config *EngineConfig) *RediSearchEngine {
 		scoreField:      config.ScoreField,
 		payloadField:    config.PayloadField,
 	}
+	if config.HasStopWords {
+		e.stopFilter = NewStopWordFilterFrom(config.StopWords)
+		idx.stopFilter = e.stopFilter
+	}
+	return e
+}
+
+// SetSynonymExpander configures a callback used by Search to expand query
+// terms into synonym alternatives (term OR syn1 OR syn2 ...).
+func (e *RediSearchEngine) SetSynonymExpander(expand func(term string) []string) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.synonymExpander = expand
 }
 
 // Name returns the engine name
@@ -204,6 +231,9 @@ func (e *RediSearchEngine) Search(query string, opts *SearchOptions) (*SearchRes
 			node = ExpandInFields(node, opts.InFields)
 		}
 	}
+	if e.synonymExpander != nil {
+		node = ExpandSynonyms(node, e.synonymExpander)
+	}
 
 	// Execute query (* = all documents, same as AGGREGATE)
 	var docIDs []string
@@ -213,6 +243,7 @@ func (e *RediSearchEngine) Search(query string, opts *SearchOptions) (*SearchRes
 		}
 	} else {
 		docIDs = node.Evaluate(e.index)
+		docIDs = e.filterByGeoNodes(docIDs, node)
 	}
 
 	// Apply geo filter if specified
@@ -514,8 +545,30 @@ func (e *RediSearchEngine) Aggregate(req *AggregationRequest) (*AggregationResul
 		}
 	}
 
-	// Apply GROUPBY
-	groups := e.groupBy(docs, req.GroupBy, req.Reduce)
+	// Apply APPLY clauses that appeared before GROUPBY, against each
+	// document's own fields (so a following GROUPBY/REDUCE can reference
+	// the computed field).
+	var preApply, postApply []ApplyClause
+	for _, ac := range req.Apply {
+		if ac.PreGroup {
+			preApply = append(preApply, ac)
+		} else {
+			postApply = append(postApply, ac)
+		}
+	}
+	docs = applyPreGroupClauses(docs, preApply)
+
+	// Apply GROUPBY. When neither GROUPBY nor REDUCE is given, RediSearch
+	// returns one row per matching document instead of collapsing them.
+	var groups []*Group
+	if len(req.GroupBy) == 0 && len(req.Reduce) == 0 {
+		groups = passthroughGroups(docs)
+	} else {
+		groups = e.groupBy(docs, req.GroupBy, req.Reduce)
+	}
+
+	// Apply APPLY clauses that appeared after GROUPBY, against each result row.
+	applyPostGroupClauses(groups, postApply)
 
 	// Apply HAVING clause
 	if req.Having != nil {
@@ -568,7 +621,8 @@ type AggregationRequest struct {
 	SortDesc bool
 	Offset   int
 	Limit    int
-	Filter   string // FILTER expression
+	Filter   string        // FILTER expression
+	Apply    []ApplyClause // APPLY <expr> AS <name> clauses, in pipeline order
 }
 
 // HavingClause represents a HAVING clause for group filtering
@@ -1157,6 +1211,38 @@ func (e *RediSearchEngine) applyGeoFilter(docIDs []string, opts *GeoFilterOption
 	}
 
 	return results
+}
+
+// filterByGeoNodes narrows docIDs by every inline @field:[lon lat radius unit]
+// GEO range clause found in the query AST. GeoRangeNode.Evaluate can only see
+// the presence of the field (it has no access to geoIndices), so the actual
+// radius test happens here as a post-filter, once per GeoRangeNode found.
+func (e *RediSearchEngine) filterByGeoNodes(docIDs []string, node QueryNode) []string {
+	geoNodes := collectGeoRangeNodes(node)
+	for _, gn := range geoNodes {
+		docIDs = e.geoRangeFilter(docIDs, gn)
+	}
+	return docIDs
+}
+
+// geoRangeFilter keeps only the docIDs whose geo field falls within gn's radius.
+func (e *RediSearchEngine) geoRangeFilter(docIDs []string, gn *GeoRangeNode) []string {
+	geoIndex, ok := e.geoIndices[gn.Field]
+	if !ok {
+		return nil
+	}
+	filter := &GeoFilter{
+		Center: GeoPoint{Lat: gn.Lat, Lon: gn.Lon},
+		Radius: gn.Radius,
+		Unit:   gn.Unit,
+	}
+	out := make([]string, 0, len(docIDs))
+	for _, id := range docIDs {
+		if pt, ok := geoIndex.points[id]; ok && filter.Matches(pt) {
+			out = append(out, id)
+		}
+	}
+	return out
 }
 
 // AddGeoPoint adds a geo point for a document

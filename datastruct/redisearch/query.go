@@ -367,6 +367,105 @@ func parseNumericRange(field, raw string) QueryNode {
 	return node
 }
 
+// GeoRangeNode represents an inline @field:[lon lat radius unit] GEO range
+// query. Evaluate only narrows to documents that have the field at all
+// (InvertedIndex has no access to geo indices); the real radius test is
+// applied by RediSearchEngine.filterByGeoNodes as a post-filter over Search's
+// result set, mirroring how GeoFilterOptions/FieldFilter are applied.
+type GeoRangeNode struct {
+	Field  string
+	Lon    float64
+	Lat    float64
+	Radius float64
+	Unit   string // m, km, mi, ft
+}
+
+// Evaluate returns every document that has a value for the geo field; the
+// actual radius filtering happens afterwards in RediSearchEngine.
+func (n *GeoRangeNode) Evaluate(idx *InvertedIndex) []string {
+	return idx.FieldPresentDocIDs(n.Field)
+}
+
+// collectGeoRangeNodes walks a query AST and collects every GeoRangeNode leaf
+// so Search can apply each as an additional radius filter over the result set.
+func collectGeoRangeNodes(node QueryNode) []*GeoRangeNode {
+	var out []*GeoRangeNode
+	var walk func(QueryNode)
+	walk = func(n QueryNode) {
+		switch v := n.(type) {
+		case *GeoRangeNode:
+			out = append(out, v)
+		case *AndNode:
+			walk(v.Left)
+			walk(v.Right)
+		case *OrNode:
+			walk(v.Left)
+			walk(v.Right)
+		case *NotNode:
+			walk(v.Child)
+		case *OptionalNode:
+			walk(v.Child)
+		}
+	}
+	walk(node)
+	return out
+}
+
+// ExpandSynonyms walks the query AST and replaces each TermNode with
+// "term OR syn1 OR syn2 ..." using expand to look up synonyms (e.g. from
+// FT.SYNADD groups). Terms are lowercased for case-insensitive matching.
+// Phrase terms are left untouched: substituting synonyms mid-phrase would
+// require a combinatorial expansion of exact phrases that isn't worth the
+// complexity for Phase A.
+func ExpandSynonyms(node QueryNode, expand func(string) []string) QueryNode {
+	if node == nil || expand == nil {
+		return node
+	}
+	switch n := node.(type) {
+	case *TermNode:
+		syns := expand(strings.ToLower(n.Term))
+		if len(syns) == 0 {
+			return n
+		}
+		var result QueryNode = n
+		for _, s := range syns {
+			result = &OrNode{Left: result, Right: &TermNode{Term: strings.ToLower(s), Field: n.Field}}
+		}
+		return result
+	case *AndNode:
+		return &AndNode{Left: ExpandSynonyms(n.Left, expand), Right: ExpandSynonyms(n.Right, expand)}
+	case *OrNode:
+		return &OrNode{Left: ExpandSynonyms(n.Left, expand), Right: ExpandSynonyms(n.Right, expand)}
+	case *NotNode:
+		return &NotNode{Child: ExpandSynonyms(n.Child, expand)}
+	case *OptionalNode:
+		return &OptionalNode{Child: ExpandSynonyms(n.Child, expand)}
+	case *PhraseNode:
+		return n
+	default:
+		return node
+	}
+}
+
+// parseRangeOrGeo turns the contents of "@field:[ ... ]" into a GeoRangeNode
+// when it looks like "lon lat radius unit" (exactly 4 tokens, last one a
+// recognized distance unit), otherwise falls back to a numeric range.
+func parseRangeOrGeo(field, raw string) QueryNode {
+	parts := strings.Fields(raw)
+	if len(parts) == 4 {
+		switch strings.ToLower(parts[3]) {
+		case "m", "km", "mi", "ft":
+			lon, err1 := strconv.ParseFloat(parts[0], 64)
+			lat, err2 := strconv.ParseFloat(parts[1], 64)
+			radius, err3 := strconv.ParseFloat(parts[2], 64)
+			if err1 == nil && err2 == nil && err3 == nil {
+				return &GeoRangeNode{Field: field, Lon: lon, Lat: lat, Radius: radius, Unit: strings.ToLower(parts[3])}
+			}
+		}
+	}
+	return parseNumericRange(field, raw)
+}
+
 // QueryParser parses query strings into query nodes
 type QueryParser struct {
 	tokenizer *StandardTokenizer
@@ -739,13 +838,14 @@ func (p *ExpressionParser) parsePrimary() (QueryNode, error) {
 
 	if p.match("[") {
 		// Numeric range: @field:[min max] (with optional "(" exclusive and -inf/+inf)
+		// or GEO range: @field:[lon lat radius unit]
 		rangeStart := p.pos
 		for p.pos < len(p.input) && p.input[p.pos] != ']' {
 			p.pos++
 		}
 		raw := p.input[rangeStart:p.pos]
 		p.match("]")
-		return parseNumericRange(field, strings.TrimSpace(raw)), nil
+		return parseRangeOrGeo(field, strings.TrimSpace(raw)), nil
 	}
 	
 	if p.match("\"") {

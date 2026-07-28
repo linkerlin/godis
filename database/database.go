@@ -522,3 +522,22 @@ func (db *DB) ForEach(cb func(key string, data *database.DataEntity, expiration 
 		return cb(key, entity, expiration)
 	})
 }
+
+// ForEachSkippingLockedKeys traverses all keys like ForEach, but avoids
+// re-locking shards already write-locked by the caller (see
+// ConcurrentDict.ForEachSkippingLockedKeys). Use from command handlers that
+// scan the whole keyspace while already holding a write lock on one of their
+// own keys, e.g. FT.CREATE's initial scan.
+func (db *DB) ForEachSkippingLockedKeys(alreadyWriteLocked []string, cb func(key string, data *database.DataEntity, expiration *time.Time) bool) {
+	db.data.ForEachSkippingLockedKeys(alreadyWriteLocked, func(key string, raw interface{}) bool {
+		entity, _ := raw.(*database.DataEntity)
+		var expiration *time.Time
+		rawExpireTime, ok := db.ttlMap.Get(key)
+		if ok {
+			expireTime, _ := rawExpireTime.(time.Time)
+			expiration = &expireTime
+		}
+
+		return cb(key, entity, expiration)
+	})
+}

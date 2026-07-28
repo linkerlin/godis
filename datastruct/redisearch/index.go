@@ -570,6 +570,24 @@ func (idx *InvertedIndex) TagSearch(field, tag string) []string {
 	return docIDs
 }
 
+// FieldPresentDocIDs returns IDs of documents that have any value stored for
+// field. Used by GeoRangeNode.Evaluate: the InvertedIndex has no access to
+// geoIndices (those live on RediSearchEngine), so Evaluate can only narrow to
+// "field is present" and the actual radius test happens as a post-filter in
+// RediSearchEngine.filterByGeoNodes.
+func (idx *InvertedIndex) FieldPresentDocIDs(field string) []string {
+	idx.mu.RLock()
+	defer idx.mu.RUnlock()
+
+	var docIDs []string
+	for id, doc := range idx.documents {
+		if _, ok := doc.Fields[field]; ok {
+			docIDs = append(docIDs, id)
+		}
+	}
+	return docIDs
+}
+
 // NumericRangeSearch returns doc IDs whose stored numeric field value falls
 // within [min, max] (inclusive by default; exclusive bounds via minEx/maxEx).
 // Numeric fields are stored on the document but not inverted-indexed, so this

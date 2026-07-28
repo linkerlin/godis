@@ -113,6 +113,18 @@ func (f *StopWordFilter) AddStopWord(word string) {
 	f.stopWords[strings.ToLower(word)] = true
 }
 
+// NewStopWordFilterFrom creates a filter from an explicit word list, as used
+// by FT.CREATE ... STOPWORDS count [word ...]. An empty (but non-nil) list
+// yields a filter that removes nothing, matching Redis's "STOPWORDS 0"
+// behavior of disabling stopword filtering for that index.
+func NewStopWordFilterFrom(words []string) *StopWordFilter {
+	sw := make(map[string]bool, len(words))
+	for _, w := range words {
+		sw[strings.ToLower(w)] = true
+	}
+	return &StopWordFilter{stopWords: sw}
+}
+
 // Stemmer performs word stemming (Porter Stemmer simplified)
 type Stemmer struct{}
 
