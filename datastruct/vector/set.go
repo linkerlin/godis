@@ -3,6 +3,7 @@ package vector
 import (
 	"container/heap"
 	"fmt"
+	"math"
 	"sort"
 	"sync"
 )
@@ -26,23 +27,78 @@ type SearchResult struct {
 	Attributes string // Redis VSETATTR JSON
 }
 
+const hnswQueryKey = "\x00__hnsw_query__"
+
 // VectorSet is a collection of vectors supporting similarity search
+// via an in-memory HNSW graph (float32, no quantization yet).
 type VectorSet struct {
 	vectors   map[string]*VectorItem
 	dimension int
 	mu        sync.RWMutex
-	
-	// Index for approximate nearest neighbor search
-	// Using simple flat index for now, can be upgraded to HNSW
-	indexed   bool
+
+	hnsw *HNSW
+	// pendingM / pendingEf are applied on first Add (or ConfigureHNSW).
+	pendingM  int
+	pendingEf int
 }
 
-// NewVectorSet creates a new VectorSet
+// NewVectorSet creates a new VectorSet with default HNSW parameters.
 func NewVectorSet() *VectorSet {
 	return &VectorSet{
 		vectors: make(map[string]*VectorItem),
-		indexed: false,
+		hnsw:    NewHNSW(defaultHNSWM, defaultHNSWEfConstruction),
 	}
+}
+
+// ConfigureHNSW sets M and/or efConstruction. M is locked after the first
+// element is inserted; efConstruction may be updated on later VADD EF.
+func (vs *VectorSet) ConfigureHNSW(m, efConstruction int) {
+	vs.mu.Lock()
+	defer vs.mu.Unlock()
+	if m > 0 {
+		vs.pendingM = m
+	}
+	if efConstruction > 0 {
+		vs.pendingEf = efConstruction
+	}
+	if vs.hnsw == nil || vs.hnsw.Len() == 0 {
+		mm, ef := vs.pendingM, vs.pendingEf
+		if mm <= 0 {
+			mm = defaultHNSWM
+		}
+		if ef <= 0 {
+			ef = defaultHNSWEfConstruction
+		}
+		vs.hnsw = NewHNSW(mm, ef)
+		return
+	}
+	if efConstruction > 0 {
+		vs.hnsw.SetEfConstruction(efConstruction)
+	}
+}
+
+// HNSWInfo returns graph metadata for VINFO.
+func (vs *VectorSet) HNSWInfo() (m, efConstruction int, maxUID uint64, maxLevel int) {
+	vs.mu.RLock()
+	defer vs.mu.RUnlock()
+	if vs.hnsw == nil {
+		return 0, 0, 0, 0
+	}
+	ml := vs.hnsw.MaxLevel()
+	if ml < 0 {
+		ml = 0
+	}
+	return vs.hnsw.M(), vs.hnsw.EfConstruction(), vs.hnsw.MaxNodeUID(), ml
+}
+
+// HNSWLinks returns per-layer neighbor ids for VLINKS.
+func (vs *VectorSet) HNSWLinks(id string) (layers [][]string, ok bool) {
+	vs.mu.RLock()
+	defer vs.mu.RUnlock()
+	if vs.hnsw == nil {
+		return nil, false
+	}
+	return vs.hnsw.Links(id)
 }
 
 // Add adds a vector to the set
@@ -50,14 +106,25 @@ func NewVectorSet() *VectorSet {
 func (vs *VectorSet) Add(id string, vec *Vector, metadata map[string]string) bool {
 	vs.mu.Lock()
 	defer vs.mu.Unlock()
-	
+
 	// Validate dimension consistency
 	if vs.dimension == 0 {
 		vs.dimension = vec.Dim
 	} else if vs.dimension != vec.Dim {
 		return false // Dimension mismatch
 	}
-	
+
+	if vs.hnsw == nil {
+		m, ef := vs.pendingM, vs.pendingEf
+		if m <= 0 {
+			m = defaultHNSWM
+		}
+		if ef <= 0 {
+			ef = defaultHNSWEfConstruction
+		}
+		vs.hnsw = NewHNSW(m, ef)
+	}
+
 	_, exists := vs.vectors[id]
 	item := &VectorItem{
 		ID:       id,
@@ -70,8 +137,7 @@ func (vs *VectorSet) Add(id string, vec *Vector, metadata map[string]string) boo
 		}
 	}
 	vs.vectors[id] = item
-	
-	vs.indexed = false // Invalidate index
+	vs.hnsw.Insert(id, vs.distFnLocked(CosineSimilarity))
 	return !exists
 }
 
@@ -124,11 +190,13 @@ func (vs *VectorSet) Get(id string) (*VectorItem, bool) {
 func (vs *VectorSet) Delete(id string) bool {
 	vs.mu.Lock()
 	defer vs.mu.Unlock()
-	
+
 	_, ok := vs.vectors[id]
 	if ok {
+		if vs.hnsw != nil {
+			vs.hnsw.Delete(id)
+		}
 		delete(vs.vectors, id)
-		vs.indexed = false
 	}
 	return ok
 }
@@ -162,34 +230,68 @@ const (
 	DotProduct
 )
 
-// SearchWithMetric performs k-NN search with specified metric
+// SearchWithMetric performs k-NN search with specified metric (default ef).
 func (vs *VectorSet) SearchWithMetric(query *Vector, k int, metric SearchMetric) []*SearchResult {
+	return vs.SearchWithMetricEF(query, k, metric, 0, false)
+}
+
+// SearchWithMetricEF performs k-NN with optional ef override.
+// If exact is true (VSIM TRUTH), falls back to a full scan.
+func (vs *VectorSet) SearchWithMetricEF(query *Vector, k int, metric SearchMetric, ef int, exact bool) []*SearchResult {
 	vs.mu.RLock()
 	defer vs.mu.RUnlock()
-	
+
 	if k <= 0 || len(vs.vectors) == 0 {
 		return nil
 	}
-	
-	// Use min-heap for efficient top-k
+
+	// Brute force when requested, when the graph is missing, for non-cosine
+	// metrics (graph is built on cosine distance), or when the set is tiny.
+	if exact || metric != CosineSimilarity || vs.hnsw == nil || vs.hnsw.Len() == 0 || len(vs.vectors) <= 64 {
+		return vs.bruteSearchLocked(query, k, metric)
+	}
+
+	ids := vs.hnsw.Search(hnswQueryKey, k, ef, vs.queryDistFnLocked(query, metric))
+	results := make([]*SearchResult, 0, len(ids))
+	for _, id := range ids {
+		item, ok := vs.vectors[id]
+		if !ok {
+			continue
+		}
+		score, distance := scoreDistance(item.Vector, query, metric)
+		results = append(results, &SearchResult{
+			ID:         id,
+			Vector:     item.Vector,
+			Score:      score,
+			Distance:   distance,
+			Metadata:   item.Metadata,
+			Attributes: item.Attributes,
+		})
+	}
+	return results
+}
+
+func scoreDistance(item, query *Vector, metric SearchMetric) (score, distance float32) {
+	switch metric {
+	case CosineSimilarity:
+		score = item.CosineSimilarity(query)
+		distance = 1 - score
+	case EuclideanDistance:
+		distance = item.EuclideanDistance(query)
+		score = -distance
+	case DotProduct:
+		score = item.DotProduct(query)
+		distance = -score
+	}
+	return
+}
+
+func (vs *VectorSet) bruteSearchLocked(query *Vector, k int, metric SearchMetric) []*SearchResult {
 	h := &searchResultHeap{}
 	heap.Init(h)
-	
+
 	for id, item := range vs.vectors {
-		var score, distance float32
-		
-		switch metric {
-		case CosineSimilarity:
-			score = item.Vector.CosineSimilarity(query)
-			distance = 1 - score
-		case EuclideanDistance:
-			distance = item.Vector.EuclideanDistance(query)
-			score = -distance // Negative so higher is better
-		case DotProduct:
-			score = item.Vector.DotProduct(query)
-			distance = -score
-		}
-		
+		score, distance := scoreDistance(item.Vector, query, metric)
 		result := &SearchResult{
 			ID:         id,
 			Vector:     item.Vector,
@@ -198,7 +300,6 @@ func (vs *VectorSet) SearchWithMetric(query *Vector, k int, metric SearchMetric)
 			Metadata:   item.Metadata,
 			Attributes: item.Attributes,
 		}
-		
 		if h.Len() < k {
 			heap.Push(h, result)
 		} else if (*h)[0].Score < score {
@@ -206,14 +307,46 @@ func (vs *VectorSet) SearchWithMetric(query *Vector, k int, metric SearchMetric)
 			heap.Push(h, result)
 		}
 	}
-	
-	// Extract results from heap (in reverse order)
+
 	results := make([]*SearchResult, h.Len())
 	for i := h.Len() - 1; i >= 0; i-- {
 		results[i] = heap.Pop(h).(*SearchResult)
 	}
-	
 	return results
+}
+
+// distFnLocked returns a pairwise distance over element ids (caller holds lock).
+func (vs *VectorSet) distFnLocked(metric SearchMetric) func(a, b string) float32 {
+	return func(a, b string) float32 {
+		ia, oa := vs.vectors[a]
+		ib, ob := vs.vectors[b]
+		if !oa || !ob {
+			return float32(math.MaxFloat32)
+		}
+		_, distance := scoreDistance(ia.Vector, ib.Vector, metric)
+		return distance
+	}
+}
+
+// queryDistFnLocked distances a synthetic query key against element ids.
+func (vs *VectorSet) queryDistFnLocked(query *Vector, metric SearchMetric) func(a, b string) float32 {
+	return func(a, b string) float32 {
+		resolve := func(id string) *Vector {
+			if id == hnswQueryKey {
+				return query
+			}
+			if item, ok := vs.vectors[id]; ok {
+				return item.Vector
+			}
+			return nil
+		}
+		va, vb := resolve(a), resolve(b)
+		if va == nil || vb == nil {
+			return float32(math.MaxFloat32)
+		}
+		_, distance := scoreDistance(va, vb, metric)
+		return distance
+	}
 }
 
 // SearchByID searches for similar vectors using an existing ID as query
@@ -296,10 +429,17 @@ func (vs *VectorSet) GetAllIDs() []string {
 func (vs *VectorSet) Clear() {
 	vs.mu.Lock()
 	defer vs.mu.Unlock()
-	
+
 	vs.vectors = make(map[string]*VectorItem)
 	vs.dimension = 0
-	vs.indexed = false
+	m, ef := defaultHNSWM, defaultHNSWEfConstruction
+	if vs.pendingM > 0 {
+		m = vs.pendingM
+	}
+	if vs.pendingEf > 0 {
+		ef = vs.pendingEf
+	}
+	vs.hnsw = NewHNSW(m, ef)
 }
 
 // ForEach iterates over all vectors

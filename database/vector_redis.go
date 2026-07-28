@@ -17,13 +17,13 @@ import (
 // Redis 8 Vector Set command aliases. Legacy VS* names remain registered.
 // Supported subset:
 //
-//	VADD key VALUES dim f1..fn ELE element [NX|XX] [SETATTR json]
-//	VSIM key VALUES dim f1..fn [COUNT n] [WITHSCORES]
+//	VADD key VALUES dim f1..fn ELE element [NX|XX] [SETATTR json] [M m] [EF ef]
+//	VSIM key VALUES dim f1..fn [COUNT n] [WITHSCORES] [EF ef] [TRUTH]
 //	VSIM key ELE element [COUNT n] [WITHSCORES]
-//	VREM / VCARD / VDIM / VEMB / VINFO / VISMEMBER
+//	VREM / VCARD / VDIM / VEMB / VINFO / VISMEMBER / VLINKS
 //
-// Accepted no-ops on VADD (not implemented): CAS, NOQUANT, Q8, BIN, TRUTH,
-// NOTHREAD, REDUCE, EF, M — parsed and ignored; no true HNSW/quantization.
+// Accepted no-ops (no quantization yet): CAS, NOQUANT, Q8, BIN, NOTHREAD, REDUCE.
+// HNSW graph is live: M/EF on VADD and EF/TRUTH on VSIM take effect.
 
 func execVAdd(db *DB, args [][]byte) redis.Reply {
 	if len(args) < 2 {
@@ -34,6 +34,7 @@ func execVAdd(db *DB, args [][]byte) redis.Reply {
 	var floats []float64
 	nx, xx := false, false
 	var setattr string
+	hnswM, hnswEF := 0, 0
 	i := 1
 	for i < len(args) {
 		tok := strings.ToUpper(string(args[i]))
@@ -80,10 +81,30 @@ func execVAdd(db *DB, args [][]byte) redis.Reply {
 			}
 			setattr = string(args[i+1])
 			i += 2
-		case "REDUCE", "EF", "M":
+		case "REDUCE":
 			if i+1 >= len(args) {
 				return protocol.MakeSyntaxErrReply()
 			}
+			i += 2
+		case "EF":
+			if i+1 >= len(args) {
+				return protocol.MakeSyntaxErrReply()
+			}
+			n, err := strconv.Atoi(string(args[i+1]))
+			if err != nil || n <= 0 {
+				return protocol.MakeErrReply("ERR EF must be a positive integer")
+			}
+			hnswEF = n
+			i += 2
+		case "M":
+			if i+1 >= len(args) {
+				return protocol.MakeSyntaxErrReply()
+			}
+			n, err := strconv.Atoi(string(args[i+1]))
+			if err != nil || n <= 0 {
+				return protocol.MakeErrReply("ERR M must be a positive integer")
+			}
+			hnswM = n
 			i += 2
 		default:
 			return protocol.MakeSyntaxErrReply()
@@ -111,6 +132,14 @@ func execVAdd(db *DB, args [][]byte) redis.Reply {
 		}
 	}
 
+	if currentVectorBackend().Name() != backendSQLite && (hnswM > 0 || hnswEF > 0) {
+		vs, errReply := db.getOrInitVectorSet(key)
+		if errReply != nil {
+			return errReply
+		}
+		vs.ConfigureHNSW(hnswM, hnswEF)
+	}
+
 	r := execVSAdd(db, [][]byte{[]byte(key), []byte(ele), []byte(formatFloatsCSV(floats))})
 	if setattr != "" && currentVectorBackend().Name() != backendSQLite && !protocol.IsErrorReply(r) {
 		if entity, exists := db.GetEntity(key); exists {
@@ -130,6 +159,8 @@ func execVSim(db *DB, args [][]byte) redis.Reply {
 	count := 10
 	withScores := false
 	withAttribs := false
+	exact := false
+	efSearch := 0
 	var filterExpr string
 	var floats []float64
 	var ele string
@@ -185,12 +216,25 @@ func execVSim(db *DB, args [][]byte) redis.Reply {
 			}
 			filterExpr = string(args[i+1])
 			i += 2
-		case "EPSILON", "EF":
+		case "EPSILON":
 			if i+1 >= len(args) {
 				return protocol.MakeSyntaxErrReply()
 			}
+			i += 2 // accept, post-filter not yet applied
+		case "EF":
+			if i+1 >= len(args) {
+				return protocol.MakeSyntaxErrReply()
+			}
+			n, err := strconv.Atoi(string(args[i+1]))
+			if err != nil || n <= 0 {
+				return protocol.MakeErrReply("ERR EF must be a positive integer")
+			}
+			efSearch = n
 			i += 2
-		case "TRUTH", "NOTHREAD":
+		case "TRUTH":
+			exact = true
+			i++
+		case "NOTHREAD":
 			i++
 		default:
 			return protocol.MakeSyntaxErrReply()
@@ -213,6 +257,10 @@ func execVSim(db *DB, args [][]byte) redis.Reply {
 		if searchLimit < count {
 			searchLimit = count
 		}
+		// Filtered queries need exactness or a wide ef to avoid missing hits.
+		if efSearch < searchLimit {
+			efSearch = searchLimit
+		}
 	}
 
 	var results []*vector.SearchResult
@@ -221,9 +269,9 @@ func execVSim(db *DB, args [][]byte) redis.Reply {
 		if !found {
 			return protocol.MakeEmptyMultiBulkReply()
 		}
-		results = vs.SearchWithMetric(item.Vector, searchLimit, vector.CosineSimilarity)
+		results = vs.SearchWithMetricEF(item.Vector, searchLimit, vector.CosineSimilarity, efSearch, exact)
 	} else if floats != nil {
-		results = vs.SearchWithMetric(vector.NewVectorFromFloat64(floats), searchLimit, vector.CosineSimilarity)
+		results = vs.SearchWithMetricEF(vector.NewVectorFromFloat64(floats), searchLimit, vector.CosineSimilarity, efSearch, exact)
 	} else {
 		return protocol.MakeErrReply("ERR VSIM requires VALUES or ELE")
 	}
@@ -358,6 +406,7 @@ func execVInfo(db *DB, args [][]byte) redis.Reply {
 	if !ok {
 		return &protocol.WrongTypeErrReply{}
 	}
+	m, efC, maxUID, maxLevel := vs.HNSWInfo()
 	return protocol.MakeMultiRawReply([]redis.Reply{
 		protocol.MakeBulkReply([]byte("quant-type")),
 		protocol.MakeBulkReply([]byte("f32")),
@@ -365,15 +414,14 @@ func execVInfo(db *DB, args [][]byte) redis.Reply {
 		protocol.MakeIntReply(int64(vs.Dimension())),
 		protocol.MakeBulkReply([]byte("size")),
 		protocol.MakeIntReply(int64(vs.Len())),
-		// Flat index stubs (no HNSW); shape matches Redis VINFO keys clients may read.
 		protocol.MakeBulkReply([]byte("hnsw-m")),
-		protocol.MakeIntReply(0),
+		protocol.MakeIntReply(int64(m)),
 		protocol.MakeBulkReply([]byte("hnsw-ef-construction")),
-		protocol.MakeIntReply(0),
+		protocol.MakeIntReply(int64(efC)),
 		protocol.MakeBulkReply([]byte("hnsw-max-node-uid")),
-		protocol.MakeIntReply(0),
+		protocol.MakeIntReply(int64(maxUID)),
 		protocol.MakeBulkReply([]byte("max-level")),
-		protocol.MakeIntReply(0),
+		protocol.MakeIntReply(int64(maxLevel)),
 	})
 }
 
@@ -506,7 +554,7 @@ func execVGetAttr(db *DB, args [][]byte) redis.Reply {
 	return protocol.MakeBulkReply([]byte(attr))
 }
 
-// execVLinks returns HNSW neighbors (flat index: empty neighbor list).
+// execVLinks returns HNSW neighbors per layer.
 // VLINKS key element [WITHSCORES]
 func execVLinks(db *DB, args [][]byte) redis.Reply {
 	if len(args) < 2 || len(args) > 3 {
@@ -527,14 +575,42 @@ func execVLinks(db *DB, args [][]byte) redis.Reply {
 	if !ok {
 		return &protocol.WrongTypeErrReply{}
 	}
-	if _, found := vs.Get(string(args[1])); !found {
+	ele := string(args[1])
+	item, found := vs.Get(ele)
+	if !found {
 		return &protocol.NullBulkReply{}
 	}
-	_ = withScores
-	// No HNSW graph yet: one empty layer (compatible shape for clients).
-	return protocol.MakeMultiRawReply([]redis.Reply{
-		protocol.MakeMultiBulkReply([][]byte{}),
-	})
+	layers, ok := vs.HNSWLinks(ele)
+	if !ok {
+		return protocol.MakeMultiRawReply([]redis.Reply{
+			protocol.MakeMultiBulkReply([][]byte{}),
+		})
+	}
+	replies := make([]redis.Reply, 0, len(layers))
+	for _, neighbors := range layers {
+		if !withScores {
+			args := make([][]byte, len(neighbors))
+			for i, nb := range neighbors {
+				args[i] = []byte(nb)
+			}
+			replies = append(replies, protocol.MakeMultiBulkReply(args))
+			continue
+		}
+		args := make([][]byte, 0, len(neighbors)*2)
+		for _, nb := range neighbors {
+			args = append(args, []byte(nb))
+			score := float32(0)
+			if other, ok := vs.Get(nb); ok && item.Vector != nil && other.Vector != nil {
+				score = item.Vector.CosineSimilarity(other.Vector)
+			}
+			args = append(args, []byte(strconv.FormatFloat(float64(score), 'f', -1, 32)))
+		}
+		replies = append(replies, protocol.MakeMultiBulkReply(args))
+	}
+	if len(replies) == 0 {
+		replies = append(replies, protocol.MakeMultiBulkReply([][]byte{}))
+	}
+	return protocol.MakeMultiRawReply(replies)
 }
 
 // execVRange returns elements in a lexicographical id range.

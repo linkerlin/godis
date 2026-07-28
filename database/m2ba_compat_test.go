@@ -98,7 +98,11 @@ func TestM2baVInfoHNSWStubsAndVAddNoop(t *testing.T) {
 	}
 	body := string(r.ToBytes())
 	if !strings.Contains(body, "hnsw-m") || !strings.Contains(body, "max-level") {
-		t.Fatalf("VINFO missing hnsw stubs: %s", body)
+		t.Fatalf("VINFO missing hnsw fields: %s", body)
+	}
+	// EF 200 on first VADD should surface in VINFO (real HNSW, not stub zeros).
+	if !strings.Contains(body, "200") {
+		t.Fatalf("VINFO should include ef-construction 200: %s", body)
 	}
 	_ = mr
 }
