@@ -116,6 +116,12 @@ type ServerProperties struct {
 	MinReplicasMaxLag          int    `cfg:"min-replicas-max-lag"`
 	ClusterRequireFullCoverage bool   `cfg:"cluster-require-full-coverage"`
 
+	// ReplicaOf is Redis CONFIG replicaof/slaveof string ("host port" or empty when master).
+	ReplicaOf string `cfg:"replicaof"`
+	// ReplicaServeStaleData / ReplicaPriority are Redis CONFIG stubs.
+	ReplicaServeStaleData bool `cfg:"replica-serve-stale-data"`
+	ReplicaPriority       int  `cfg:"replica-priority"`
+
 	// ReplBacklogSize is Redis repl-backlog-size (bytes); used when allocating master backlog.
 	ReplBacklogSize int64 `cfg:"repl-backlog-size"`
 
@@ -188,6 +194,8 @@ func init() {
 		ClientOutputBufferLimit: "normal 0 0 0 slave 268435456 67108864 60 pubsub 33554432 8388608 60",
 		MinReplicasMaxLag:          10,
 		ClusterRequireFullCoverage: true,
+		ReplicaServeStaleData:      true,
+		ReplicaPriority:            100,
 		LuaTimeLimit:               5000,
 		RunID:           utils.RandString(40),
 	}

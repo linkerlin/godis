@@ -591,7 +591,9 @@ func genPersistenceInfo(db *Server) string {
 		"aof_buffer_length:%d\r\n"+
 		"aof_rewrite_buffer_length:%d\r\n"+
 		"aof_pending_bio_fsync:%d\r\n"+
-		"aof_delayed_fsync:%d\r\n",
+		"aof_delayed_fsync:%d\r\n"+
+		"rdb_last_cow_size:%d\r\n"+
+		"aof_last_cow_size:%d\r\n",
 		0,
 		db.DirtyChanges(),
 		rdbBgsaveInProgress,
@@ -613,6 +615,8 @@ func genPersistenceInfo(db *Server) string {
 		0,
 		0,
 		0,
+		0, // rdb_last_cow_size
+		0, // aof_last_cow_size
 	)
 }
 
@@ -691,7 +695,9 @@ func genReplicationInfo(db *Server) string {
 			"repl_backlog_active:%d\r\n"+
 			"repl_backlog_size:%d\r\n"+
 			"repl_backlog_first_byte_offset:%d\r\n"+
-			"repl_backlog_histlen:%d\r\n",
+			"repl_backlog_histlen:%d\r\n"+
+			"instantaneous_input_repl_kbps:%.2f\r\n"+
+			"instantaneous_output_repl_kbps:%.2f\r\n",
 		slaves,
 		config.Properties.RunID,
 		"",
@@ -701,6 +707,8 @@ func genReplicationInfo(db *Server) string {
 		backlogSize,
 		backlogFirstOffset,
 		backlogHistLen,
+		0.0,
+		0.0,
 	))
 	return sb.String()
 }

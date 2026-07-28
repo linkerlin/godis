@@ -142,6 +142,10 @@ func getConfigMatches(pattern string) []configPair {
 		{"min-replicas-to-write", strconv.Itoa(getMinReplicasToWrite())},
 		{"min-replicas-max-lag", strconv.Itoa(getMinReplicasMaxLag())},
 		{"cluster-require-full-coverage", boolToString(getClusterRequireFullCoverage())},
+		{"replicaof", getReplicaOf()},
+		{"slaveof", getReplicaOf()},
+		{"replica-serve-stale-data", boolToString(getReplicaServeStaleData())},
+		{"replica-priority", strconv.Itoa(getReplicaPriority())},
 		{"proto-max-bulk-len", strconv.FormatInt(config.Properties.ProtoMaxBulkLen, 10)},
 		{"save", config.Properties.Save},
 		{"tcp-backlog", strconv.Itoa(config.Properties.TCPBacklog)},
@@ -472,6 +476,32 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 				return protocol.MakeErrReply("ERR invalid cluster-require-full-coverage value")
 			}
 			config.Properties.ClusterRequireFullCoverage = b
+		case "replicaof", "slaveof":
+			v := strings.TrimSpace(value)
+			if strings.EqualFold(v, "no one") || v == "" {
+				config.Properties.ReplicaOf = ""
+			} else {
+				parts := strings.Fields(v)
+				if len(parts) != 2 {
+					return protocol.MakeErrReply("ERR Invalid syntax for replicaof (need 'host port' or 'no one')")
+				}
+				if _, err := strconv.Atoi(parts[1]); err != nil {
+					return protocol.MakeErrReply("ERR Invalid master port for replicaof")
+				}
+				config.Properties.ReplicaOf = parts[0] + " " + parts[1]
+			}
+		case "replica-serve-stale-data":
+			ok, b := config.ParseConfigBool(value)
+			if !ok {
+				return protocol.MakeErrReply("ERR invalid replica-serve-stale-data value")
+			}
+			config.Properties.ReplicaServeStaleData = b
+		case "replica-priority":
+			n, err := strconv.Atoi(value)
+			if err != nil || n < 0 {
+				return protocol.MakeErrReply(fmt.Sprintf("ERR Invalid value for '%s'", key))
+			}
+			config.Properties.ReplicaPriority = n
 		case "proto-max-bulk-len":
 			n, err := strconv.ParseInt(value, 10, 64)
 			if err != nil || n < 0 {
@@ -744,6 +774,27 @@ func getClusterRequireFullCoverage() bool {
 		return true
 	}
 	return config.Properties.ClusterRequireFullCoverage
+}
+
+func getReplicaOf() string {
+	if config.Properties == nil {
+		return ""
+	}
+	return config.Properties.ReplicaOf
+}
+
+func getReplicaServeStaleData() bool {
+	if config.Properties == nil {
+		return true
+	}
+	return config.Properties.ReplicaServeStaleData
+}
+
+func getReplicaPriority() int {
+	if config.Properties == nil || config.Properties.ReplicaPriority <= 0 {
+		return 100
+	}
+	return config.Properties.ReplicaPriority
 }
 
 func configDir() string {

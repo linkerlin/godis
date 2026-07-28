@@ -52,6 +52,14 @@ func execCluster(cluster *Cluster, c redis.Connection, cmdLine CmdLine) redis.Re
 			return protocol.MakeErrReply("ERR This instance has cluster support disabled")
 		}
 		return protocol.MakeStatusReply("BUMPED 0")
+	case "REPLICAS", "SLAVES":
+		if len(cmdLine) != 3 {
+			return protocol.MakeErrReply(fmt.Sprintf("ERR wrong number of arguments for 'cluster|%s' command", strings.ToLower(subCmd)))
+		}
+		if cluster == nil {
+			return protocol.MakeErrReply("ERR This instance has cluster support disabled")
+		}
+		return protocol.MakeEmptyMultiBulkReply()
 	case "KEYSLOT":
 		if len(cmdLine) < 3 {
 			return protocol.MakeErrReply("ERR wrong number of arguments for 'cluster|keyslot' command")
@@ -199,6 +207,10 @@ func execClusterHelp() redis.Reply {
 		"    Return the number of failure reports for the specified node.",
 		"CLUSTER BUMPEPOCH",
 		"    Advance the cluster config epoch.",
+		"CLUSTER REPLICAS node-id",
+		"    List replica nodes of the specified master node.",
+		"CLUSTER SLAVES node-id",
+		"    Legacy alias for CLUSTER REPLICAS.",
 		"CLUSTER KEYSLOT key",
 		"    Return the hash slot for the specified key.",
 		"CLUSTER HELP",

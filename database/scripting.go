@@ -300,10 +300,16 @@ func redisReplyToGo(reply redis.Reply, cmd string, args ...string) interface{} {
 		if r.Arg == nil {
 			return false // nil bulk → Lua false
 		}
-		if i, err := strconv.ParseInt(string(r.Arg), 10, 64); err == nil {
+		s := string(r.Arg)
+		if i, err := strconv.ParseInt(s, 10, 64); err == nil {
 			return i
 		}
-		return string(r.Arg)
+		if respVer == 3 && isScoreBulkCmd(cmd, args) {
+			if f, err := strconv.ParseFloat(s, 64); err == nil {
+				return f
+			}
+		}
+		return s
 	case *protocol.NullBulkReply:
 		return false
 	case *protocol.NullReply:
@@ -408,6 +414,24 @@ func isStreamRangeCmd(cmd string) bool {
 	switch strings.ToLower(cmd) {
 	case "xrange", "xrevrange":
 		return true
+	default:
+		return false
+	}
+}
+
+// isScoreBulkCmd reports whether bulk string values for this command are scores under setresp(3).
+func isScoreBulkCmd(cmd string, args []string) bool {
+	switch strings.ToLower(cmd) {
+	case "zscore", "zmscore", "zpopmin", "zpopmax", "zscan":
+		return true
+	case "zrange", "zrevrange", "zrangebyscore", "zrevrangebyscore", "zrandmember",
+		"zunion", "zinter", "zdiff":
+		for _, a := range args {
+			if strings.EqualFold(a, "WITHSCORES") {
+				return true
+			}
+		}
+		return false
 	default:
 		return false
 	}
