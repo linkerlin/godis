@@ -120,12 +120,20 @@ type ServerProperties struct {
 	ClusterAllowReadsWhenDown  bool   `cfg:"cluster-allow-reads-when-down"`
 
 	// Persistence / AOF rewrite CONFIG stubs (GET/SET only).
-	StopWritesOnBgsaveError   bool  `cfg:"stop-writes-on-bgsave-error"`
-	RDBCompression            bool  `cfg:"rdbcompression"`
-	RDBChecksum               bool  `cfg:"rdbchecksum"`
-	NoAppendFsyncOnRewrite    bool  `cfg:"no-appendfsync-on-rewrite"`
-	AutoAofRewritePercentage  int   `cfg:"auto-aof-rewrite-percentage"`
-	AutoAofRewriteMinSize     int64 `cfg:"auto-aof-rewrite-min-size"`
+	StopWritesOnBgsaveError  bool  `cfg:"stop-writes-on-bgsave-error"`
+	RDBCompression           bool  `cfg:"rdbcompression"`
+	RDBChecksum              bool  `cfg:"rdbchecksum"`
+	NoAppendFsyncOnRewrite   bool  `cfg:"no-appendfsync-on-rewrite"`
+	AutoAofRewritePercentage int   `cfg:"auto-aof-rewrite-percentage"`
+	AutoAofRewriteMinSize    int64 `cfg:"auto-aof-rewrite-min-size"`
+
+	// IO / replication / eviction sample CONFIG stubs (GET/SET only).
+	IOThreads             int   `cfg:"io-threads"`
+	IOThreadsDoReads      bool  `cfg:"io-threads-do-reads"`
+	ReplDisklessSync      bool  `cfg:"repl-diskless-sync"`
+	ReplDisklessSyncDelay int   `cfg:"repl-diskless-sync-delay"`
+	MaxmemorySamples      int   `cfg:"maxmemory-samples"`
+	TrackingTableMaxKeys  int64 `cfg:"tracking-table-max-keys"`
 
 	// ReplicaOf is Redis CONFIG replicaof/slaveof string ("host port" or empty when master).
 	ReplicaOf string `cfg:"replicaof"`
@@ -212,6 +220,10 @@ func init() {
 		RDBChecksum:              true,
 		AutoAofRewritePercentage: 100,
 		AutoAofRewriteMinSize:    67108864,
+		IOThreads:                1,
+		ReplDisklessSyncDelay:    5,
+		MaxmemorySamples:         5,
+		TrackingTableMaxKeys:     1000000,
 		ReplicaServeStaleData:      true,
 		ReplicaPriority:            100,
 		LuaTimeLimit:               5000,

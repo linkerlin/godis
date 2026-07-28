@@ -1,6 +1,8 @@
 package database
 
 import (
+	"crypto/sha1"
+	"encoding/hex"
 	"fmt"
 	"strconv"
 	"strings"
@@ -182,9 +184,15 @@ func formatClientListLine(c redis.Connection) string {
 	argvMem, multiMem, totMem := clientListMemEstimates(c, cmd)
 	caps := clientCapabilities(c)
 	return fmt.Sprintf(
-		"id=%d addr=%s laddr=%s fd=0 name=%s age=%d idle=%d flags=%s db=%d sub=%d psub=%d ssub=%d user=%s multi=%d watching=%d qbuf=0 qbuf-free=16384 argv-mem=%d multi-mem=%d obl=0 oll=0 omem=0 tot-mem=%d events=r cmd=%s resp=%d redir=%d lib-name=%s lib-ver=%s capabilities=%s",
-		c.GetClientID(), clientAddr(c), clientLocalAddr(c), c.GetClientName(), age, idle, flags, c.GetDBIndex(), subN, psubN, ssubN, user, multi, watching, argvMem, multiMem, totMem, cmd, respVer, redir, libName, libVer, caps,
+		"id=%d addr=%s laddr=%s fd=0 name=%s age=%d idle=%d flags=%s db=%d sub=%d psub=%d ssub=%d user=%s multi=%d watching=%d qbuf=0 qbuf-free=16384 argv-mem=%d multi-mem=%d obl=0 oll=0 omem=0 tot-mem=%d events=r cmd=%s resp=%d redir=%d peerid=%s lib-name=%s lib-ver=%s capabilities=%s",
+		c.GetClientID(), clientAddr(c), clientLocalAddr(c), c.GetClientName(), age, idle, flags, c.GetDBIndex(), subN, psubN, ssubN, user, multi, watching, argvMem, multiMem, totMem, cmd, respVer, redir, clientPeerID(c), libName, libVer, caps,
 	)
+}
+
+// clientPeerID returns a stable 40-hex peer id for CLIENT LIST (Redis 7.2+ peerid=).
+func clientPeerID(c redis.Connection) string {
+	sum := sha1.Sum([]byte(fmt.Sprintf("%d:%s", c.GetClientID(), clientAddr(c))))
+	return hex.EncodeToString(sum[:])
 }
 
 func clientCapabilities(c redis.Connection) string {

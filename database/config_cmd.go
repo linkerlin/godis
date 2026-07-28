@@ -151,6 +151,12 @@ func getConfigMatches(pattern string) []configPair {
 		{"no-appendfsync-on-rewrite", boolToString(getNoAppendFsyncOnRewrite())},
 		{"auto-aof-rewrite-percentage", strconv.Itoa(getAutoAofRewritePercentage())},
 		{"auto-aof-rewrite-min-size", strconv.FormatInt(getAutoAofRewriteMinSize(), 10)},
+		{"io-threads", strconv.Itoa(getIOThreads())},
+		{"io-threads-do-reads", boolToString(getIOThreadsDoReads())},
+		{"repl-diskless-sync", boolToString(getReplDisklessSync())},
+		{"repl-diskless-sync-delay", strconv.Itoa(getReplDisklessSyncDelay())},
+		{"maxmemory-samples", strconv.Itoa(getMaxmemorySamples())},
+		{"tracking-table-max-keys", strconv.FormatInt(getTrackingTableMaxKeys(), 10)},
 		{"replicaof", getReplicaOf()},
 		{"slaveof", getReplicaOf()},
 		{"replica-serve-stale-data", boolToString(getReplicaServeStaleData())},
@@ -539,6 +545,42 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 				return protocol.MakeErrReply(fmt.Sprintf("ERR Invalid value for '%s'", key))
 			}
 			config.Properties.AutoAofRewriteMinSize = n
+		case "io-threads":
+			n, err := strconv.Atoi(value)
+			if err != nil || n < 1 {
+				return protocol.MakeErrReply(fmt.Sprintf("ERR Invalid value for '%s'", key))
+			}
+			config.Properties.IOThreads = n
+		case "io-threads-do-reads":
+			ok, b := config.ParseConfigBool(value)
+			if !ok {
+				return protocol.MakeErrReply("ERR invalid io-threads-do-reads value")
+			}
+			config.Properties.IOThreadsDoReads = b
+		case "repl-diskless-sync":
+			ok, b := config.ParseConfigBool(value)
+			if !ok {
+				return protocol.MakeErrReply("ERR invalid repl-diskless-sync value")
+			}
+			config.Properties.ReplDisklessSync = b
+		case "repl-diskless-sync-delay":
+			n, err := strconv.Atoi(value)
+			if err != nil || n < 0 {
+				return protocol.MakeErrReply(fmt.Sprintf("ERR Invalid value for '%s'", key))
+			}
+			config.Properties.ReplDisklessSyncDelay = n
+		case "maxmemory-samples":
+			n, err := strconv.Atoi(value)
+			if err != nil || n < 1 {
+				return protocol.MakeErrReply(fmt.Sprintf("ERR Invalid value for '%s'", key))
+			}
+			config.Properties.MaxmemorySamples = n
+		case "tracking-table-max-keys":
+			n, err := strconv.ParseInt(value, 10, 64)
+			if err != nil || n < 0 {
+				return protocol.MakeErrReply(fmt.Sprintf("ERR Invalid value for '%s'", key))
+			}
+			config.Properties.TrackingTableMaxKeys = n
 		case "replicaof", "slaveof":
 			v := strings.TrimSpace(value)
 			if strings.EqualFold(v, "no one") || v == "" {
@@ -900,6 +942,48 @@ func getAutoAofRewriteMinSize() int64 {
 		return 67108864
 	}
 	return config.Properties.AutoAofRewriteMinSize
+}
+
+func getIOThreads() int {
+	if config.Properties == nil || config.Properties.IOThreads < 1 {
+		return 1
+	}
+	return config.Properties.IOThreads
+}
+
+func getIOThreadsDoReads() bool {
+	if config.Properties == nil {
+		return false
+	}
+	return config.Properties.IOThreadsDoReads
+}
+
+func getReplDisklessSync() bool {
+	if config.Properties == nil {
+		return false
+	}
+	return config.Properties.ReplDisklessSync
+}
+
+func getReplDisklessSyncDelay() int {
+	if config.Properties == nil {
+		return 5
+	}
+	return config.Properties.ReplDisklessSyncDelay
+}
+
+func getMaxmemorySamples() int {
+	if config.Properties == nil || config.Properties.MaxmemorySamples < 1 {
+		return 5
+	}
+	return config.Properties.MaxmemorySamples
+}
+
+func getTrackingTableMaxKeys() int64 {
+	if config.Properties == nil {
+		return 1000000
+	}
+	return config.Properties.TrackingTableMaxKeys
 }
 
 func getReplicaOf() string {

@@ -505,18 +505,26 @@ func GenGodisInfoString(section string, db *Server) []byte {
 		return []byte(s)
 	case "cluster":
 		if getGodisRunningMode() == config.ClusterMode {
-			s := fmt.Sprintf("# Cluster\r\n"+
-				"cluster_enabled:%s\r\n",
-				"1",
-			)
-			return []byte(s)
-		} else {
-			s := fmt.Sprintf("# Cluster\r\n"+
-				"cluster_enabled:%s\r\n",
-				"0",
-			)
+			s := "# Cluster\r\n" +
+				"cluster_enabled:1\r\n" +
+				"cluster_state:ok\r\n" +
+				"cluster_slots_assigned:16384\r\n" +
+				"cluster_slots_ok:16384\r\n" +
+				"cluster_slots_pfail:0\r\n" +
+				"cluster_slots_fail:0\r\n" +
+				"cluster_known_nodes:1\r\n" +
+				"cluster_size:1\r\n" +
+				"cluster_current_epoch:0\r\n" +
+				"cluster_my_epoch:0\r\n" +
+				"cluster_stats_messages_sent:0\r\n" +
+				"cluster_stats_messages_received:0\r\n"
 			return []byte(s)
 		}
+		s := fmt.Sprintf("# Cluster\r\n"+
+			"cluster_enabled:%s\r\n",
+			"0",
+		)
+		return []byte(s)
 	case "persistence":
 		s := genPersistenceInfo(db)
 		return []byte(s)

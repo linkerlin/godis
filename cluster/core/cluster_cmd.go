@@ -127,6 +127,22 @@ func execCluster(cluster *Cluster, c redis.Connection, cmdLine CmdLine) redis.Re
 			return protocol.MakeErrReply("ERR This instance has cluster support disabled")
 		}
 		return protocol.MakeOkReply()
+	case "FLUSHSLOTS":
+		if len(cmdLine) != 2 {
+			return protocol.MakeErrReply("ERR wrong number of arguments for 'cluster|flushslots' command")
+		}
+		if cluster == nil {
+			return protocol.MakeErrReply("ERR This instance has cluster support disabled")
+		}
+		return protocol.MakeOkReply()
+	case "MYSHARDID":
+		if len(cmdLine) != 2 {
+			return protocol.MakeErrReply("ERR wrong number of arguments for 'cluster|myshardid' command")
+		}
+		if cluster == nil {
+			return protocol.MakeErrReply("ERR This instance has cluster support disabled")
+		}
+		return protocol.MakeBulkReply([]byte(cluster.SelfID()))
 	case "KEYSLOT":
 		if len(cmdLine) < 3 {
 			return protocol.MakeErrReply("ERR wrong number of arguments for 'cluster|keyslot' command")
@@ -290,6 +306,10 @@ func execClusterHelp() redis.Reply {
 		"    Reset a Redis Cluster node.",
 		"CLUSTER SAVECONFIG",
 		"    Force save the nodes.conf file.",
+		"CLUSTER FLUSHSLOTS",
+		"    Delete the node's own slots information.",
+		"CLUSTER MYSHARDID",
+		"    Return the shard id of this node.",
 		"CLUSTER KEYSLOT key",
 		"    Return the hash slot for the specified key.",
 		"CLUSTER HELP",

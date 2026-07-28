@@ -425,6 +425,13 @@ func isScoreBulkCmd(cmd string, args []string) bool {
 	case "zscore", "zmscore", "zpopmin", "zpopmax", "zscan", "geodist", "geopos",
 		"zincrby", "hincrbyfloat", "incrbyfloat":
 		return true
+	case "zrank", "zrevrank":
+		for _, a := range args {
+			if strings.EqualFold(a, "WITHSCORE") {
+				return true
+			}
+		}
+		return false
 	case "zrange", "zrevrange", "zrangebyscore", "zrevrangebyscore", "zrandmember",
 		"zunion", "zinter", "zdiff":
 		for _, a := range args {
