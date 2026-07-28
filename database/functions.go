@@ -201,11 +201,11 @@ func execFunctionKill(db *DB, args [][]byte) redis.Reply {
 	}
 
 	if funcEngine == nil {
-		return protocol.MakeErrReply("ERR no functions engine")
+		return protocol.MakeErrReply("NOTBUSY No scripts in execution right now.")
 	}
 
 	if err := funcEngine.KillRunningFunction(); err != nil {
-		return protocol.MakeErrReply(fmt.Sprintf("ERR %s", err))
+		return protocol.MakeErrReply("NOTBUSY No scripts in execution right now.")
 	}
 
 	return protocol.MakeOkReply()

@@ -29,6 +29,13 @@ func execCluster(cluster *Cluster, c redis.Connection, cmdLine CmdLine) redis.Re
 			return protocol.MakeErrReply("ERR This instance has cluster support disabled")
 		}
 		return protocol.MakeBulkReply([]byte(cluster.SelfID()))
+	case "COUNTKEYSINSLOT":
+		if len(cmdLine) != 3 {
+			return protocol.MakeErrReply("ERR wrong number of arguments for 'cluster|countkeysinslot' command")
+		}
+		return execClusterCountKeysInSlot(cluster, string(cmdLine[2]))
+	case "SHARDS":
+		return execClusterShards(cluster)
 	case "KEYSLOT":
 		if len(cmdLine) < 3 {
 			return protocol.MakeErrReply("ERR wrong number of arguments for 'cluster|keyslot' command")
@@ -103,6 +110,60 @@ func execClusterKeyslot(cluster *Cluster, key string) redis.Reply {
 	return protocol.MakeIntReply(int64(slot))
 }
 
+// execClusterCountKeysInSlot returns key count hosted in a slot on this node.
+func execClusterCountKeysInSlot(cluster *Cluster, slotStr string) redis.Reply {
+	if cluster == nil {
+		return protocol.MakeErrReply("ERR This instance has cluster support disabled")
+	}
+	slot, err := strconv.ParseInt(slotStr, 10, 64)
+	if err != nil || slot < 0 || slot > 16383 {
+		return protocol.MakeErrReply("ERR slot out of range or invalid")
+	}
+	if cluster.slotsManager == nil {
+		return protocol.MakeIntReply(0)
+	}
+	st := cluster.slotsManager.getSlot(uint32(slot))
+	if st == nil || st.keys == nil {
+		return protocol.MakeIntReply(0)
+	}
+	return protocol.MakeIntReply(int64(st.keys.Len()))
+}
+
+// execClusterShards returns a shallow Redis-compatible SHARDS view (single shard).
+func execClusterShards(cluster *Cluster) redis.Reply {
+	if cluster == nil {
+		return protocol.MakeErrReply("ERR This instance has cluster support disabled")
+	}
+	selfID := cluster.SelfID()
+	shard := protocol.MakeMultiRawReply([]redis.Reply{
+		protocol.MakeBulkReply([]byte("slots")),
+		protocol.MakeMultiRawReply([]redis.Reply{
+			protocol.MakeIntReply(0),
+			protocol.MakeIntReply(16383),
+		}),
+		protocol.MakeBulkReply([]byte("nodes")),
+		protocol.MakeMultiRawReply([]redis.Reply{
+			protocol.MakeMultiRawReply([]redis.Reply{
+				protocol.MakeBulkReply([]byte("id")),
+				protocol.MakeBulkReply([]byte(selfID)),
+				protocol.MakeBulkReply([]byte("endpoint")),
+				protocol.MakeBulkReply([]byte("127.0.0.1")),
+				protocol.MakeBulkReply([]byte("ip")),
+				protocol.MakeBulkReply([]byte("127.0.0.1")),
+				protocol.MakeBulkReply([]byte("port")),
+				protocol.MakeIntReply(6379),
+				protocol.MakeBulkReply([]byte("role")),
+				protocol.MakeBulkReply([]byte("master")),
+				protocol.MakeBulkReply([]byte("replication-offset")),
+				protocol.MakeIntReply(0),
+				protocol.MakeBulkReply([]byte("health")),
+				protocol.MakeBulkReply([]byte("online")),
+			}),
+		}),
+	})
+	return protocol.MakeMultiRawReply([]redis.Reply{shard})
+}
+
 // execClusterHelp 获取帮助
 func execClusterHelp() redis.Reply {
 	help := []string{
@@ -114,6 +175,10 @@ func execClusterHelp() redis.Reply {
 		"    Return information about slots range mappings.",
 		"CLUSTER MYID",
 		"    Return the node id of this node.",
+		"CLUSTER COUNTKEYSINSLOT slot",
+		"    Return the number of local keys in the specified hash slot.",
+		"CLUSTER SHARDS",
+		"    Return details about slots mappings and shard nodes.",
 		"CLUSTER KEYSLOT key",
 		"    Return the hash slot for the specified key.",
 		"CLUSTER HELP",

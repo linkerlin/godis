@@ -99,9 +99,15 @@ type ServerProperties struct {
 	AofLoadTruncated      bool `cfg:"aof-load-truncated"`
 
 	// ActiveRehashing / SanitizeDumpPayload / IgnoreWarnings are Redis CONFIG stubs.
-	ActiveRehashing       bool   `cfg:"activerehashing"`
-	SanitizeDumpPayload   bool   `cfg:"sanitize-dump-payload"`
-	IgnoreWarnings        string `cfg:"ignore-warnings"`
+	ActiveRehashing     bool   `cfg:"activerehashing"`
+	SanitizeDumpPayload bool   `cfg:"sanitize-dump-payload"`
+	IgnoreWarnings      string `cfg:"ignore-warnings"`
+
+	// ReplicaAnnounced / SetProcTitle / AlwaysShowLogo / LuaReplicateCommands are Redis CONFIG stubs.
+	ReplicaAnnounced      bool `cfg:"replica-announced"`
+	SetProcTitle          bool `cfg:"set-proc-title"`
+	AlwaysShowLogo        bool `cfg:"always-show-logo"`
+	LuaReplicateCommands  bool `cfg:"lua-replicate-commands"`
 
 	// ReplBacklogSize is Redis repl-backlog-size (bytes); used when allocating master backlog.
 	ReplBacklogSize int64 `cfg:"repl-backlog-size"`
@@ -166,9 +172,12 @@ func init() {
 		TCPKeepAlive:    300,
 		ProtectedMode:   true,
 		ReplicaReadOnly: true,
-		DynamicHz:       true,
-		ActiveRehashing: true,
-		LuaTimeLimit:    5000,
+		DynamicHz:            true,
+		ActiveRehashing:      true,
+		ReplicaAnnounced:     true,
+		SetProcTitle:         true,
+		LuaReplicateCommands: true,
+		LuaTimeLimit:         5000,
 		RunID:           utils.RandString(40),
 	}
 }

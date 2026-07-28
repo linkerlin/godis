@@ -30,6 +30,8 @@ func init() {
 // Server stats for INFO command
 type ServerStats struct {
 	TotalCommandsProcessed   uint64
+	TotalReadsProcessed      uint64
+	TotalWritesProcessed     uint64
 	TotalConnectionsReceived uint64
 	TotalErrorReplies        uint64
 	ExpiredKeys              uint64
@@ -143,6 +145,8 @@ func resetOpsWindow() {
 // resetServerStats clears INFO stats counters (CONFIG RESETSTAT).
 func resetServerStats() {
 	atomic.StoreUint64(&serverStats.TotalCommandsProcessed, 0)
+	atomic.StoreUint64(&serverStats.TotalReadsProcessed, 0)
+	atomic.StoreUint64(&serverStats.TotalWritesProcessed, 0)
 	atomic.StoreUint64(&serverStats.TotalConnectionsReceived, 0)
 	atomic.StoreUint64(&serverStats.TotalErrorReplies, 0)
 	atomic.StoreUint64(&serverStats.ExpiredKeys, 0)
@@ -437,6 +441,8 @@ func GenGodisInfoString(section string, db *Server) []byte {
 			"keyspace_hits:%d\r\n"+
 			"keyspace_misses:%d\r\n"+
 			"total_error_replies:%d\r\n"+
+			"total_reads_processed:%d\r\n"+
+			"total_writes_processed:%d\r\n"+
 			"pubsub_channels:%d\r\n"+
 			"pubsub_patterns:%d\r\n"+
 			"latest_fork_usec:%d\r\n"+
@@ -464,6 +470,8 @@ func GenGodisInfoString(section string, db *Server) []byte {
 			serverStats.KeyspaceHits,
 			serverStats.KeyspaceMisses,
 			atomic.LoadUint64(&serverStats.TotalErrorReplies),
+			atomic.LoadUint64(&serverStats.TotalReadsProcessed),
+			atomic.LoadUint64(&serverStats.TotalWritesProcessed),
 			getPubsubChannelsCount(db),
 			getPubsubPatternsCount(db),
 			0, // latest_fork_usec - N/A in Go

@@ -247,11 +247,11 @@ func execScriptKill(db *DB, args [][]byte) redis.Reply {
 	}
 
 	if scriptEngine == nil {
-		return protocol.MakeErrReply("ERR No scripts in execution right now.")
+		return protocol.MakeErrReply("NOTBUSY No scripts in execution right now.")
 	}
 
 	if err := scriptEngine.Kill(); err != nil {
-		return protocol.MakeErrReply("ERR No scripts in execution right now.")
+		return protocol.MakeErrReply("NOTBUSY No scripts in execution right now.")
 	}
 
 	return protocol.MakeOkReply()
@@ -369,6 +369,11 @@ func redisReplyToGo(reply redis.Reply, cmd string, args ...string) interface{} {
 			}
 			return result
 		}
+		if respVer == 3 && isScanSetCmd(cmd) && len(r.Replies) == 2 {
+			cursor := redisReplyToGo(r.Replies[0], cmd, args...)
+			members := scanMembersToSet(r.Replies[1])
+			return []interface{}{cursor, members}
+		}
 		result := make([]interface{}, len(r.Replies))
 		for i, sub := range r.Replies {
 			result[i] = redisReplyToGo(sub, cmd, args...)
@@ -400,6 +405,30 @@ func isStreamRangeCmd(cmd string) bool {
 		return true
 	default:
 		return false
+	}
+}
+
+func isScanSetCmd(cmd string) bool {
+	switch strings.ToLower(cmd) {
+	case "sscan", "scan":
+		return true
+	default:
+		return false
+	}
+}
+
+func scanMembersToSet(reply redis.Reply) interface{} {
+	switch r := reply.(type) {
+	case *protocol.MultiBulkReply:
+		m := make(map[string]interface{}, len(r.Args))
+		for _, arg := range r.Args {
+			m[string(arg)] = true
+		}
+		return m
+	case *protocol.EmptyMultiBulkReply:
+		return map[string]interface{}{}
+	default:
+		return map[string]interface{}{}
 	}
 }
 

@@ -133,6 +133,10 @@ func getConfigMatches(pattern string) []configPair {
 		{"activerehashing", boolToString(getActiveRehashing())},
 		{"sanitize-dump-payload", boolToString(getSanitizeDumpPayload())},
 		{"ignore-warnings", getIgnoreWarnings()},
+		{"replica-announced", boolToString(getReplicaAnnounced())},
+		{"set-proc-title", boolToString(getSetProcTitle())},
+		{"always-show-logo", boolToString(getAlwaysShowLogo())},
+		{"lua-replicate-commands", boolToString(getLuaReplicateCommands())},
 		{"proto-max-bulk-len", strconv.FormatInt(config.Properties.ProtoMaxBulkLen, 10)},
 		{"save", config.Properties.Save},
 		{"tcp-backlog", strconv.Itoa(config.Properties.TCPBacklog)},
@@ -413,6 +417,30 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 			config.Properties.SanitizeDumpPayload = b
 		case "ignore-warnings":
 			config.Properties.IgnoreWarnings = value
+		case "replica-announced":
+			ok, b := config.ParseConfigBool(value)
+			if !ok {
+				return protocol.MakeErrReply("ERR invalid replica-announced value")
+			}
+			config.Properties.ReplicaAnnounced = b
+		case "set-proc-title":
+			ok, b := config.ParseConfigBool(value)
+			if !ok {
+				return protocol.MakeErrReply("ERR invalid set-proc-title value")
+			}
+			config.Properties.SetProcTitle = b
+		case "always-show-logo":
+			ok, b := config.ParseConfigBool(value)
+			if !ok {
+				return protocol.MakeErrReply("ERR invalid always-show-logo value")
+			}
+			config.Properties.AlwaysShowLogo = b
+		case "lua-replicate-commands":
+			ok, b := config.ParseConfigBool(value)
+			if !ok {
+				return protocol.MakeErrReply("ERR invalid lua-replicate-commands value")
+			}
+			config.Properties.LuaReplicateCommands = b
 		case "proto-max-bulk-len":
 			n, err := strconv.ParseInt(value, 10, 64)
 			if err != nil || n < 0 {
@@ -622,6 +650,34 @@ func getIgnoreWarnings() string {
 		return ""
 	}
 	return config.Properties.IgnoreWarnings
+}
+
+func getReplicaAnnounced() bool {
+	if config.Properties == nil {
+		return true
+	}
+	return config.Properties.ReplicaAnnounced
+}
+
+func getSetProcTitle() bool {
+	if config.Properties == nil {
+		return true
+	}
+	return config.Properties.SetProcTitle
+}
+
+func getAlwaysShowLogo() bool {
+	if config.Properties == nil {
+		return false
+	}
+	return config.Properties.AlwaysShowLogo
+}
+
+func getLuaReplicateCommands() bool {
+	if config.Properties == nil {
+		return true
+	}
+	return config.Properties.LuaReplicateCommands
 }
 
 func configDir() string {
