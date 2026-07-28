@@ -75,6 +75,16 @@ func countWatchingClients() int {
 	return n
 }
 
+// countTotalWatchedKeys returns sum of WATCH keys across all connections.
+func countTotalWatchedKeys() int {
+	n := 0
+	RangeClients(func(c redis.Connection) bool {
+		n += len(c.GetWatching())
+		return true
+	})
+	return n
+}
+
 func clientAddr(c redis.Connection) string {
 	addr := c.RemoteAddr()
 	if addr == "" {

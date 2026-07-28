@@ -422,7 +422,8 @@ func isStreamRangeCmd(cmd string) bool {
 // isScoreBulkCmd reports whether bulk string values for this command are scores under setresp(3).
 func isScoreBulkCmd(cmd string, args []string) bool {
 	switch strings.ToLower(cmd) {
-	case "zscore", "zmscore", "zpopmin", "zpopmax", "zscan", "geodist", "geopos":
+	case "zscore", "zmscore", "zpopmin", "zpopmax", "zscan", "geodist", "geopos",
+		"zincrby", "hincrbyfloat", "incrbyfloat":
 		return true
 	case "zrange", "zrevrange", "zrangebyscore", "zrevrangebyscore", "zrandmember",
 		"zunion", "zinter", "zdiff":

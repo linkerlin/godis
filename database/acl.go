@@ -320,7 +320,7 @@ func execACLCat(args [][]byte) redis.Reply {
 			"@keyspace", "@read", "@write", "@set", "@sortedset", "@list", "@hash",
 			"@string", "@bitmap", "@hyperloglog", "@geo", "@stream", "@pubsub",
 			"@admin", "@fast", "@slow", "@blocking", "@dangerous", "@connection",
-			"@transaction", "@scripting", "@all",
+			"@transaction", "@scripting", "@all", "@json", "@search", "@vector",
 		}
 		result := make([][]byte, len(categories))
 		for i, cat := range categories {
@@ -378,9 +378,43 @@ func commandsForACLCategory(category string) []string {
 		}
 		sort.Strings(out)
 		return out
+	case "@json":
+		return listCmdsByPrefix("json.")
+	case "@search":
+		return listCmdsByPrefix("ft.")
+	case "@vector":
+		return listVectorCmds()
 	default:
 		return nil
 	}
+}
+
+func listCmdsByPrefix(prefix string) []string {
+	out := make([]string, 0)
+	for name := range cmdTable {
+		if strings.HasPrefix(name, prefix) {
+			out = append(out, name)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+func listVectorCmds() []string {
+	out := make([]string, 0)
+	for name := range cmdTable {
+		if strings.HasPrefix(name, "vs") {
+			out = append(out, name)
+			continue
+		}
+		switch name {
+		case "vadd", "vsim", "vrem", "vcard", "vdim", "vemb", "vinfo",
+			"vismember", "vrandmember", "vsetattr", "vgetattr", "vlinks", "vrange":
+			out = append(out, name)
+		}
+	}
+	sort.Strings(out)
+	return out
 }
 
 func listCmdsBySign(sign string) []string {

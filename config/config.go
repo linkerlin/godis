@@ -119,6 +119,14 @@ type ServerProperties struct {
 	ClusterMigrationBarrier    int    `cfg:"cluster-migration-barrier"`
 	ClusterAllowReadsWhenDown  bool   `cfg:"cluster-allow-reads-when-down"`
 
+	// Persistence / AOF rewrite CONFIG stubs (GET/SET only).
+	StopWritesOnBgsaveError   bool  `cfg:"stop-writes-on-bgsave-error"`
+	RDBCompression            bool  `cfg:"rdbcompression"`
+	RDBChecksum               bool  `cfg:"rdbchecksum"`
+	NoAppendFsyncOnRewrite    bool  `cfg:"no-appendfsync-on-rewrite"`
+	AutoAofRewritePercentage  int   `cfg:"auto-aof-rewrite-percentage"`
+	AutoAofRewriteMinSize     int64 `cfg:"auto-aof-rewrite-min-size"`
+
 	// ReplicaOf is Redis CONFIG replicaof/slaveof string ("host port" or empty when master).
 	ReplicaOf string `cfg:"replicaof"`
 	// ReplicaServeStaleData / ReplicaPriority are Redis CONFIG stubs.
@@ -199,6 +207,11 @@ func init() {
 		ClusterRequireFullCoverage: true,
 		ClusterNodeTimeout:         15000,
 		ClusterMigrationBarrier:    1,
+		StopWritesOnBgsaveError:  true,
+		RDBCompression:           true,
+		RDBChecksum:              true,
+		AutoAofRewritePercentage: 100,
+		AutoAofRewriteMinSize:    67108864,
 		ReplicaServeStaleData:      true,
 		ReplicaPriority:            100,
 		LuaTimeLimit:               5000,

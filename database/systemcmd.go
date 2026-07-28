@@ -310,6 +310,8 @@ func GenGodisInfoString(section string, db *Server) []byte {
 			"pubsub_clients:%d\r\n"+
 			"watching_clients:%d\r\n"+
 			"clients_in_timeout_table:%d\r\n"+
+			"unblocked_clients:%d\r\n"+
+			"total_watched_keys:%d\r\n"+
 			"io_threads_active:%d\r\n",
 			atomic.LoadInt32(&tcp.ClientCounter),
 			0, // cluster_connections
@@ -322,7 +324,9 @@ func GenGodisInfoString(section string, db *Server) []byte {
 			countPubsubClients(),
 			countWatchingClients(),
 			blockedClients, // clients_in_timeout_table ≈ blocked waiters
-			0,             // io_threads_active (single-threaded Go net)
+			0,             // unblocked_clients
+			countTotalWatchedKeys(),
+			0, // io_threads_active (single-threaded Go net)
 		)
 		return []byte(s)
 	case "memory":
@@ -728,11 +732,15 @@ func genCPUInfo() string {
 		"used_cpu_sys:%.2f\r\n"+
 		"used_cpu_user:%.2f\r\n"+
 		"used_cpu_sys_children:%.2f\r\n"+
-		"used_cpu_user_children:%.2f\r\n",
+		"used_cpu_user_children:%.2f\r\n"+
+		"used_cpu_sys_main_thread:%.2f\r\n"+
+		"used_cpu_user_main_thread:%.2f\r\n",
 		sysSec,
 		userSec,
 		0.0,
 		0.0,
+		sysSec,
+		userSec,
 	)
 }
 

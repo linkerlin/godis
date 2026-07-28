@@ -145,6 +145,12 @@ func getConfigMatches(pattern string) []configPair {
 		{"cluster-node-timeout", strconv.FormatInt(getClusterNodeTimeout(), 10)},
 		{"cluster-migration-barrier", strconv.Itoa(getClusterMigrationBarrier())},
 		{"cluster-allow-reads-when-down", boolToString(getClusterAllowReadsWhenDown())},
+		{"stop-writes-on-bgsave-error", boolToString(getStopWritesOnBgsaveError())},
+		{"rdbcompression", boolToString(getRDBCompression())},
+		{"rdbchecksum", boolToString(getRDBChecksum())},
+		{"no-appendfsync-on-rewrite", boolToString(getNoAppendFsyncOnRewrite())},
+		{"auto-aof-rewrite-percentage", strconv.Itoa(getAutoAofRewritePercentage())},
+		{"auto-aof-rewrite-min-size", strconv.FormatInt(getAutoAofRewriteMinSize(), 10)},
 		{"replicaof", getReplicaOf()},
 		{"slaveof", getReplicaOf()},
 		{"replica-serve-stale-data", boolToString(getReplicaServeStaleData())},
@@ -497,6 +503,42 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 				return protocol.MakeErrReply("ERR invalid cluster-allow-reads-when-down value")
 			}
 			config.Properties.ClusterAllowReadsWhenDown = b
+		case "stop-writes-on-bgsave-error":
+			ok, b := config.ParseConfigBool(value)
+			if !ok {
+				return protocol.MakeErrReply("ERR invalid stop-writes-on-bgsave-error value")
+			}
+			config.Properties.StopWritesOnBgsaveError = b
+		case "rdbcompression":
+			ok, b := config.ParseConfigBool(value)
+			if !ok {
+				return protocol.MakeErrReply("ERR invalid rdbcompression value")
+			}
+			config.Properties.RDBCompression = b
+		case "rdbchecksum":
+			ok, b := config.ParseConfigBool(value)
+			if !ok {
+				return protocol.MakeErrReply("ERR invalid rdbchecksum value")
+			}
+			config.Properties.RDBChecksum = b
+		case "no-appendfsync-on-rewrite":
+			ok, b := config.ParseConfigBool(value)
+			if !ok {
+				return protocol.MakeErrReply("ERR invalid no-appendfsync-on-rewrite value")
+			}
+			config.Properties.NoAppendFsyncOnRewrite = b
+		case "auto-aof-rewrite-percentage":
+			n, err := strconv.Atoi(value)
+			if err != nil {
+				return protocol.MakeErrReply(fmt.Sprintf("ERR Invalid value for '%s'", key))
+			}
+			config.Properties.AutoAofRewritePercentage = n
+		case "auto-aof-rewrite-min-size":
+			n, err := strconv.ParseInt(value, 10, 64)
+			if err != nil || n < 0 {
+				return protocol.MakeErrReply(fmt.Sprintf("ERR Invalid value for '%s'", key))
+			}
+			config.Properties.AutoAofRewriteMinSize = n
 		case "replicaof", "slaveof":
 			v := strings.TrimSpace(value)
 			if strings.EqualFold(v, "no one") || v == "" {
@@ -816,6 +858,48 @@ func getClusterAllowReadsWhenDown() bool {
 		return false
 	}
 	return config.Properties.ClusterAllowReadsWhenDown
+}
+
+func getStopWritesOnBgsaveError() bool {
+	if config.Properties == nil {
+		return true
+	}
+	return config.Properties.StopWritesOnBgsaveError
+}
+
+func getRDBCompression() bool {
+	if config.Properties == nil {
+		return true
+	}
+	return config.Properties.RDBCompression
+}
+
+func getRDBChecksum() bool {
+	if config.Properties == nil {
+		return true
+	}
+	return config.Properties.RDBChecksum
+}
+
+func getNoAppendFsyncOnRewrite() bool {
+	if config.Properties == nil {
+		return false
+	}
+	return config.Properties.NoAppendFsyncOnRewrite
+}
+
+func getAutoAofRewritePercentage() int {
+	if config.Properties == nil {
+		return 100
+	}
+	return config.Properties.AutoAofRewritePercentage
+}
+
+func getAutoAofRewriteMinSize() int64 {
+	if config.Properties == nil || config.Properties.AutoAofRewriteMinSize <= 0 {
+		return 67108864
+	}
+	return config.Properties.AutoAofRewriteMinSize
 }
 
 func getReplicaOf() string {

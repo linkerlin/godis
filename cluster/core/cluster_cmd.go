@@ -80,6 +80,53 @@ func execCluster(cluster *Cluster, c redis.Connection, cmdLine CmdLine) redis.Re
 			return protocol.MakeErrReply("ERR Invalid config epoch")
 		}
 		return protocol.MakeOkReply()
+	case "GETKEYSINSLOT":
+		if len(cmdLine) != 4 {
+			return protocol.MakeErrReply("ERR wrong number of arguments for 'cluster|getkeysinslot' command")
+		}
+		if cluster == nil {
+			return protocol.MakeErrReply("ERR This instance has cluster support disabled")
+		}
+		slot, err := strconv.ParseInt(string(cmdLine[2]), 10, 64)
+		if err != nil || slot < 0 || slot > 16383 {
+			return protocol.MakeErrReply("ERR Invalid slot")
+		}
+		count, err := strconv.ParseInt(string(cmdLine[3]), 10, 64)
+		if err != nil || count < 0 {
+			return protocol.MakeErrReply("ERR Invalid count")
+		}
+		_ = count
+		return protocol.MakeEmptyMultiBulkReply()
+	case "FORGET":
+		if len(cmdLine) != 3 {
+			return protocol.MakeErrReply("ERR wrong number of arguments for 'cluster|forget' command")
+		}
+		if cluster == nil {
+			return protocol.MakeErrReply("ERR This instance has cluster support disabled")
+		}
+		return protocol.MakeOkReply()
+	case "RESET":
+		if len(cmdLine) > 3 {
+			return protocol.MakeErrReply("ERR wrong number of arguments for 'cluster|reset' command")
+		}
+		if cluster == nil {
+			return protocol.MakeErrReply("ERR This instance has cluster support disabled")
+		}
+		if len(cmdLine) == 3 {
+			mode := strings.ToUpper(string(cmdLine[2]))
+			if mode != "HARD" && mode != "SOFT" {
+				return protocol.MakeErrReply("ERR Invalid RESET mode. Try HARD or SOFT")
+			}
+		}
+		return protocol.MakeOkReply()
+	case "SAVECONFIG":
+		if len(cmdLine) != 2 {
+			return protocol.MakeErrReply("ERR wrong number of arguments for 'cluster|saveconfig' command")
+		}
+		if cluster == nil {
+			return protocol.MakeErrReply("ERR This instance has cluster support disabled")
+		}
+		return protocol.MakeOkReply()
 	case "KEYSLOT":
 		if len(cmdLine) < 3 {
 			return protocol.MakeErrReply("ERR wrong number of arguments for 'cluster|keyslot' command")
@@ -235,6 +282,14 @@ func execClusterHelp() redis.Reply {
 		"    Return a list of cluster peer links.",
 		"CLUSTER SET-CONFIG-EPOCH epoch",
 		"    Set the config epoch for this node.",
+		"CLUSTER GETKEYSINSLOT slot count",
+		"    Return local keys in the specified hash slot.",
+		"CLUSTER FORGET node-id",
+		"    Remove a node from the nodes table.",
+		"CLUSTER RESET [HARD|SOFT]",
+		"    Reset a Redis Cluster node.",
+		"CLUSTER SAVECONFIG",
+		"    Force save the nodes.conf file.",
 		"CLUSTER KEYSLOT key",
 		"    Return the hash slot for the specified key.",
 		"CLUSTER HELP",
