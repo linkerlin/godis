@@ -406,6 +406,28 @@ func GetTotalTrackedKeys() int {
 	return len(clientCache.keyClients)
 }
 
+// GetTotalTrackedItems returns sum of tracked key entries across clients.
+func GetTotalTrackedItems() int {
+	clientCache.mu.RLock()
+	defer clientCache.mu.RUnlock()
+	n := 0
+	for _, keys := range clientCache.trackedKeys {
+		n += len(keys)
+	}
+	return n
+}
+
+// GetTotalTrackedPrefixes returns total configured tracking prefixes across clients.
+func GetTotalTrackedPrefixes() int {
+	clientCache.mu.RLock()
+	defer clientCache.mu.RUnlock()
+	n := 0
+	for _, prefs := range clientCache.prefixes {
+		n += len(prefs)
+	}
+	return n
+}
+
 // Hook into database write operations
 func init() {
 	// This would be called when keys are modified

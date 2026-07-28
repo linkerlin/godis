@@ -60,6 +60,26 @@ func execCluster(cluster *Cluster, c redis.Connection, cmdLine CmdLine) redis.Re
 			return protocol.MakeErrReply("ERR This instance has cluster support disabled")
 		}
 		return protocol.MakeEmptyMultiBulkReply()
+	case "LINKS":
+		if len(cmdLine) != 2 {
+			return protocol.MakeErrReply("ERR wrong number of arguments for 'cluster|links' command")
+		}
+		if cluster == nil {
+			return protocol.MakeErrReply("ERR This instance has cluster support disabled")
+		}
+		return protocol.MakeEmptyMultiBulkReply()
+	case "SET-CONFIG-EPOCH":
+		if len(cmdLine) != 3 {
+			return protocol.MakeErrReply("ERR wrong number of arguments for 'cluster|set-config-epoch' command")
+		}
+		if cluster == nil {
+			return protocol.MakeErrReply("ERR This instance has cluster support disabled")
+		}
+		epoch, err := strconv.ParseInt(string(cmdLine[2]), 10, 64)
+		if err != nil || epoch < 0 {
+			return protocol.MakeErrReply("ERR Invalid config epoch")
+		}
+		return protocol.MakeOkReply()
 	case "KEYSLOT":
 		if len(cmdLine) < 3 {
 			return protocol.MakeErrReply("ERR wrong number of arguments for 'cluster|keyslot' command")
@@ -211,6 +231,10 @@ func execClusterHelp() redis.Reply {
 		"    List replica nodes of the specified master node.",
 		"CLUSTER SLAVES node-id",
 		"    Legacy alias for CLUSTER REPLICAS.",
+		"CLUSTER LINKS",
+		"    Return a list of cluster peer links.",
+		"CLUSTER SET-CONFIG-EPOCH epoch",
+		"    Set the config epoch for this node.",
 		"CLUSTER KEYSLOT key",
 		"    Return the hash slot for the specified key.",
 		"CLUSTER HELP",

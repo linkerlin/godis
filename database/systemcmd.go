@@ -305,6 +305,8 @@ func GenGodisInfoString(section string, db *Server) []byte {
 			"blocked_clients:%d\r\n"+
 			"tracking_clients:%d\r\n"+
 			"tracking_total_keys:%d\r\n"+
+			"tracking_total_items:%d\r\n"+
+			"tracking_total_prefixes:%d\r\n"+
 			"pubsub_clients:%d\r\n"+
 			"watching_clients:%d\r\n"+
 			"clients_in_timeout_table:%d\r\n"+
@@ -315,6 +317,8 @@ func GenGodisInfoString(section string, db *Server) []byte {
 			blockedClients,
 			GetTrackingClientsCount(),
 			GetTotalTrackedKeys(),
+			GetTotalTrackedItems(),
+			GetTotalTrackedPrefixes(),
 			countPubsubClients(),
 			countWatchingClients(),
 			blockedClients, // clients_in_timeout_table ≈ blocked waiters
@@ -428,6 +432,8 @@ func GenGodisInfoString(section string, db *Server) []byte {
 			"instantaneous_ops_per_sec:%d\r\n"+
 			"total_net_input_bytes:%d\r\n"+
 			"total_net_output_bytes:%d\r\n"+
+			"total_net_repl_input_bytes:%d\r\n"+
+			"total_net_repl_output_bytes:%d\r\n"+
 			"instantaneous_input_kbps:%.2f\r\n"+
 			"instantaneous_output_kbps:%.2f\r\n"+
 			"rejected_connections:%d\r\n"+
@@ -461,6 +467,8 @@ func GenGodisInfoString(section string, db *Server) []byte {
 			getInstantaneousOpsPerSec(),
 			getNetInputBytes(),
 			getNetOutputBytes(),
+			uint64(0), // total_net_repl_input_bytes
+			uint64(0), // total_net_repl_output_bytes
 			getInstantaneousInputKbps(),
 			getInstantaneousOutputKbps(),
 			tcp.GetRejectedConnections(),

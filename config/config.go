@@ -115,6 +115,9 @@ type ServerProperties struct {
 	MinReplicasToWrite         int    `cfg:"min-replicas-to-write"`
 	MinReplicasMaxLag          int    `cfg:"min-replicas-max-lag"`
 	ClusterRequireFullCoverage bool   `cfg:"cluster-require-full-coverage"`
+	ClusterNodeTimeout         int64  `cfg:"cluster-node-timeout"`
+	ClusterMigrationBarrier    int    `cfg:"cluster-migration-barrier"`
+	ClusterAllowReadsWhenDown  bool   `cfg:"cluster-allow-reads-when-down"`
 
 	// ReplicaOf is Redis CONFIG replicaof/slaveof string ("host port" or empty when master).
 	ReplicaOf string `cfg:"replicaof"`
@@ -194,6 +197,8 @@ func init() {
 		ClientOutputBufferLimit: "normal 0 0 0 slave 268435456 67108864 60 pubsub 33554432 8388608 60",
 		MinReplicasMaxLag:          10,
 		ClusterRequireFullCoverage: true,
+		ClusterNodeTimeout:         15000,
+		ClusterMigrationBarrier:    1,
 		ReplicaServeStaleData:      true,
 		ReplicaPriority:            100,
 		LuaTimeLimit:               5000,

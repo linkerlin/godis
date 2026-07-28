@@ -142,6 +142,9 @@ func getConfigMatches(pattern string) []configPair {
 		{"min-replicas-to-write", strconv.Itoa(getMinReplicasToWrite())},
 		{"min-replicas-max-lag", strconv.Itoa(getMinReplicasMaxLag())},
 		{"cluster-require-full-coverage", boolToString(getClusterRequireFullCoverage())},
+		{"cluster-node-timeout", strconv.FormatInt(getClusterNodeTimeout(), 10)},
+		{"cluster-migration-barrier", strconv.Itoa(getClusterMigrationBarrier())},
+		{"cluster-allow-reads-when-down", boolToString(getClusterAllowReadsWhenDown())},
 		{"replicaof", getReplicaOf()},
 		{"slaveof", getReplicaOf()},
 		{"replica-serve-stale-data", boolToString(getReplicaServeStaleData())},
@@ -476,6 +479,24 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 				return protocol.MakeErrReply("ERR invalid cluster-require-full-coverage value")
 			}
 			config.Properties.ClusterRequireFullCoverage = b
+		case "cluster-node-timeout":
+			n, err := strconv.ParseInt(value, 10, 64)
+			if err != nil || n < 0 {
+				return protocol.MakeErrReply(fmt.Sprintf("ERR Invalid value for '%s'", key))
+			}
+			config.Properties.ClusterNodeTimeout = n
+		case "cluster-migration-barrier":
+			n, err := strconv.Atoi(value)
+			if err != nil || n < 0 {
+				return protocol.MakeErrReply(fmt.Sprintf("ERR Invalid value for '%s'", key))
+			}
+			config.Properties.ClusterMigrationBarrier = n
+		case "cluster-allow-reads-when-down":
+			ok, b := config.ParseConfigBool(value)
+			if !ok {
+				return protocol.MakeErrReply("ERR invalid cluster-allow-reads-when-down value")
+			}
+			config.Properties.ClusterAllowReadsWhenDown = b
 		case "replicaof", "slaveof":
 			v := strings.TrimSpace(value)
 			if strings.EqualFold(v, "no one") || v == "" {
@@ -774,6 +795,27 @@ func getClusterRequireFullCoverage() bool {
 		return true
 	}
 	return config.Properties.ClusterRequireFullCoverage
+}
+
+func getClusterNodeTimeout() int64 {
+	if config.Properties == nil || config.Properties.ClusterNodeTimeout <= 0 {
+		return 15000
+	}
+	return config.Properties.ClusterNodeTimeout
+}
+
+func getClusterMigrationBarrier() int {
+	if config.Properties == nil {
+		return 1
+	}
+	return config.Properties.ClusterMigrationBarrier
+}
+
+func getClusterAllowReadsWhenDown() bool {
+	if config.Properties == nil {
+		return false
+	}
+	return config.Properties.ClusterAllowReadsWhenDown
 }
 
 func getReplicaOf() string {
