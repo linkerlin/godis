@@ -19,9 +19,12 @@ func TestM2bxLuaHKeysSetresp(t *testing.T) {
 	r := db.Exec(nil, utils.ToCmdLine("EVAL", `
 redis.setresp(3)
 local t = redis.call('HKEYS', KEYS[1])
-return tostring(t['a'] == true) .. ':' .. tostring(t['b'] == true)
+local n = 0
+for _ in ipairs(t) do n = n + 1 end
+table.sort(t)
+return tostring(n) .. ':' .. t[1] .. ':' .. t[2]
 `, "1", "h"))
-	asserts.AssertBulkReply(t, r, "true:true")
+	asserts.AssertBulkReply(t, r, "2:a:b")
 }
 
 func TestM2bxCommandDocsGroupFlags(t *testing.T) {

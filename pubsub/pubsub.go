@@ -1,8 +1,6 @@
 package pubsub
 
 import (
-	"strconv"
-
 	"github.com/linkerlin/godis/datastruct/list"
 	"github.com/linkerlin/godis/interface/redis"
 	"github.com/linkerlin/godis/lib/utils"
@@ -11,38 +9,39 @@ import (
 )
 
 var (
-	_subscribe         = "subscribe"
-	_unsubscribe       = "unsubscribe"
-	_psubscribe        = "psubscribe"
-	_punsubscribe      = "punsubscribe"
-	messageBytes       = []byte("message")
-	pmessageBytes      = []byte("pmessage")
-	unSubscribeNothing = []byte("*3\r\n$11\r\nunsubscribe\r\n$-1\r\n:0\r\n")
-	unSubscribeNothing3 = []byte("*3\r\n$11\r\nunsubscribe\r\n_\r\n:0\r\n")
-	pUnSubNothing      = []byte("*3\r\n$12\r\npunsubscribe\r\n$-1\r\n:0\r\n")
-	pUnSubNothing3     = []byte("*3\r\n$12\r\npunsubscribe\r\n_\r\n:0\r\n")
+	_subscribe    = "subscribe"
+	_unsubscribe  = "unsubscribe"
+	_psubscribe   = "psubscribe"
+	_punsubscribe = "punsubscribe"
+	_message      = "message"
+	_pmessage     = "pmessage"
 )
 
-func writeUnSubNothing(c redis.Connection, psub bool) {
-	if c.GetProtocolVersion() == 3 {
-		if psub {
-			_, _ = c.Write(pUnSubNothing3)
-		} else {
-			_, _ = c.Write(unSubscribeNothing3)
-		}
+// writePush writes a Push-type reply, formatted as a RESP2 array for
+// RESP2 connections or a RESP3 `>` push for connections that negotiated
+// HELLO 3. kind is the push type (e.g. "subscribe", "message").
+func writePush(c redis.Connection, kind string, elems ...redis.Reply) {
+	if c == nil {
 		return
 	}
-	if psub {
-		_, _ = c.Write(pUnSubNothing)
+	p := protocol.MakePushReply(kind, elems)
+	if c.GetProtocolVersion() == 3 {
+		_, _ = c.Write(p.ToRESP3())
 	} else {
-		_, _ = c.Write(unSubscribeNothing)
+		_, _ = c.Write(p.ToBytes())
 	}
 }
 
-func makeMsg(t string, channel string, code int64) []byte {
-	return []byte("*3\r\n$" + strconv.FormatInt(int64(len(t)), 10) + protocol.CRLF + t + protocol.CRLF +
-		"$" + strconv.FormatInt(int64(len(channel)), 10) + protocol.CRLF + channel + protocol.CRLF +
-		":" + strconv.FormatInt(code, 10) + protocol.CRLF)
+func writeUnSubNothing(c redis.Connection, psub bool) {
+	kind := _unsubscribe
+	if psub {
+		kind = _punsubscribe
+	}
+	writePush(c, kind, protocol.MakeNullBulkReply(), protocol.MakeIntReply(0))
+}
+
+func makeMsg(c redis.Connection, kind string, channel string, code int64) {
+	writePush(c, kind, protocol.MakeBulkReply([]byte(channel)), protocol.MakeIntReply(code))
 }
 
 /*
@@ -103,7 +102,7 @@ func Subscribe(hub *Hub, c redis.Connection, args [][]byte) redis.Reply {
 
 	for _, channel := range channels {
 		subscribe0(hub, channel, c)
-		_, _ = c.Write(makeMsg(_subscribe, channel, int64(c.SubsCount())))
+		makeMsg(c, _subscribe, channel, int64(c.SubsCount()))
 	}
 	return &protocol.NoReply{}
 }
@@ -145,7 +144,7 @@ func UnSubscribe(db *Hub, c redis.Connection, args [][]byte) redis.Reply {
 
 	for _, channel := range channels {
 		unsubscribe0(db, channel, c)
-		_, _ = c.Write(makeMsg(_unsubscribe, channel, int64(c.SubsCount())))
+		makeMsg(c, _unsubscribe, channel, int64(c.SubsCount()))
 	}
 	return &protocol.NoReply{}
 }
@@ -193,7 +192,7 @@ func PSubscribe(hub *Hub, c redis.Connection, args [][]byte) redis.Reply {
 	for _, b := range args {
 		pattern := string(b)
 		psubscribe0(hub, pattern, c)
-		_, _ = c.Write(makeMsg(_psubscribe, pattern, int64(c.SubsCount())))
+		makeMsg(c, _psubscribe, pattern, int64(c.SubsCount()))
 	}
 	return &protocol.NoReply{}
 }
@@ -215,7 +214,7 @@ func PUnSubscribe(hub *Hub, c redis.Connection, args [][]byte) redis.Reply {
 	}
 	for _, pattern := range patterns {
 		punsubscribe0(hub, pattern, c)
-		_, _ = c.Write(makeMsg(_punsubscribe, pattern, int64(c.SubsCount())))
+		makeMsg(c, _punsubscribe, pattern, int64(c.SubsCount()))
 	}
 	return &protocol.NoReply{}
 }
@@ -235,11 +234,7 @@ func Publish(hub *Hub, args [][]byte) redis.Reply {
 		subscribers, _ := raw.(*list.LinkedList)
 		subscribers.ForEach(func(i int, c interface{}) bool {
 			client, _ := c.(redis.Connection)
-			replyArgs := make([][]byte, 3)
-			replyArgs[0] = messageBytes
-			replyArgs[1] = []byte(channel)
-			replyArgs[2] = message
-			_, _ = client.Write(protocol.MakeMultiBulkReply(replyArgs).ToBytes())
+			writePush(client, _message, protocol.MakeBulkReply([]byte(channel)), protocol.MakeBulkReply(message))
 			return true
 		})
 		channelReceivers = int64(subscribers.Len())
@@ -255,8 +250,7 @@ func Publish(hub *Hub, args [][]byte) redis.Reply {
 		}
 		subscribers.ForEach(func(i int, c interface{}) bool {
 			client, _ := c.(redis.Connection)
-			replyArgs := [][]byte{pmessageBytes, []byte(pattern), []byte(channel), message}
-			_, _ = client.Write(protocol.MakeMultiBulkReply(replyArgs).ToBytes())
+			writePush(client, _pmessage, protocol.MakeBulkReply([]byte(pattern)), protocol.MakeBulkReply([]byte(channel)), protocol.MakeBulkReply(message))
 			patternReceivers++
 			return true
 		})

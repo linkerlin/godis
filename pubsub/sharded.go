@@ -1,7 +1,6 @@
 package pubsub
 
 import (
-	"strconv"
 	"sync"
 
 	"github.com/linkerlin/godis/interface/redis"
@@ -66,10 +65,7 @@ func (sh *ShardedHub) Subscribe(conn redis.Connection, channels []string) redis.
 			conn.Subscribe(channel)
 		}
 		count := sh.subCount(conn)
-		msg := []byte("*3\r\n$10\r\nssubscribe\r\n$" +
-			strconv.Itoa(len(channel)) + "\r\n" + channel + "\r\n:" +
-			strconv.Itoa(count) + "\r\n")
-		_, _ = conn.Write(msg)
+		writePush(conn, "ssubscribe", protocol.MakeBulkReply([]byte(channel)), protocol.MakeIntReply(int64(count)))
 	}
 	return &protocol.NoReply{}
 }
@@ -93,7 +89,7 @@ func (sh *ShardedHub) Unsubscribe(conn redis.Connection, channels []string) redi
 		}
 		channels = all
 		if len(channels) == 0 {
-			_, _ = conn.Write([]byte("*3\r\n$12\r\nsunsubscribe\r\n$-1\r\n:0\r\n"))
+			writePush(conn, "sunsubscribe", protocol.MakeNullBulkReply(), protocol.MakeIntReply(0))
 			return &protocol.NoReply{}
 		}
 	}
@@ -117,10 +113,7 @@ func (sh *ShardedHub) Unsubscribe(conn redis.Connection, channels []string) redi
 			conn.UnSubscribe(channel)
 		}
 		count := sh.subCount(conn)
-		msg := []byte("*3\r\n$12\r\nsunsubscribe\r\n$" +
-			strconv.Itoa(len(channel)) + "\r\n" + channel + "\r\n:" +
-			strconv.Itoa(count) + "\r\n")
-		_, _ = conn.Write(msg)
+		writePush(conn, "sunsubscribe", protocol.MakeBulkReply([]byte(channel)), protocol.MakeIntReply(int64(count)))
 	}
 	return &protocol.NoReply{}
 }
@@ -146,7 +139,11 @@ func (sh *ShardedHub) Publish(channel string, message []byte) int {
 		if conn == nil {
 			continue
 		}
-		_, _ = conn.Write(reply.ToBytes())
+		if conn.GetProtocolVersion() == 3 {
+			_, _ = conn.Write(reply.ToRESP3())
+		} else {
+			_, _ = conn.Write(reply.ToBytes())
+		}
 		n++
 	}
 	return n
@@ -216,7 +213,11 @@ func (sh *ShardedHub) AfterClientClose(conn redis.Connection) {
 	}
 }
 
-// MakeSMessageReply creates a sharded message reply
-func MakeSMessageReply(channel string, message []byte) *protocol.MultiBulkReply {
-	return protocol.MakeMultiBulkReply([][]byte{[]byte("smessage"), []byte(channel), message})
+// MakeSMessageReply creates a sharded message push reply, formatted as a
+// RESP2 array via ToBytes() or a RESP3 push via ToRESP3().
+func MakeSMessageReply(channel string, message []byte) *protocol.PushReply {
+	return protocol.MakePushReply("smessage", []redis.Reply{
+		protocol.MakeBulkReply([]byte(channel)),
+		protocol.MakeBulkReply(message),
+	})
 }

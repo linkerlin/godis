@@ -19,7 +19,14 @@
 | 配置 | 中–高 | 布尔解析；CONFIG SET 含 maxmemory/save/tcp-backlog；**eviction 写路径已接**（键数估算）；部分 CF-3 为存取桩 |
 | 概率数据结构 (BF/CF/CMS…) | 中–高 | 见 `database/probabilistic.go`；CF EXPANSION 已接扩容 |
 
-**M2 里程碑：** 至 **M2ck** 已含 **M2cg**（CONFIG 持久化/AOF 改写桩、CLUSTER GETKEYSINSLOT/FORGET/RESET/SAVECONFIG、INFO unblocked_clients/total_watched_keys/cpu main_thread、ACL CAT @json/@search/@vector、Lua ZINCRBY/HINCRBYFLOAT/INCRBYFLOAT number）、**M2ch**（CONFIG io-threads/repl-diskless/maxmemory-samples/tracking-table-max-keys、INFO cluster 段、CLIENT LIST peerid、CLUSTER FLUSHSLOTS/MYSHARDID、Lua ZRANK/ZREVRANK WITHSCORE number）、**M2ci**（CONFIG repl-backlog-ttl 等、DEBUG OBJECT、INFO total_blocking_keys、ACL CAT @bloom/@cuckoo/@timeseries、CLUSTER ADDSLOTSRANGE/DELSLOTSRANGE）、**M2cj**（CONFIG listpack/intset 编码阈值、CLUSTER REPLICATE/FAILOVER 桩、INFO mem_clients*、CLIENT LIST tot-cmds、ACL CAT @cms/@topk/@tdigest）与 **M2ck**（CONFIG cluster-announce/stream-node-max-entries/hash-max-listpack-value/set-max-listpack/oom-score-adj、CLUSTER GETNAME/SETNAME、INFO eventloop_*、COMMAND DOCS syscmd、Lua GEOSEARCH WITHDIST number）等。仍延期：集群 CRC16/MOVED、HLL 互通、真 HNSW、完整 FAILOVER 协调、精确 `used_memory`、FUNCTION DUMP 官方互通、MIGRATE 等（见计划文档）。
+**M2 里程碑：** 至 **M2cl**，在 M2cg–M2ck（CONFIG/CLUSTER/INFO/ACL CAT/Lua number 语义等，见计划文档）基础上，**M2cl** 修复：
+
+- **Pub/Sub RESP3 Push（关键修复）**：SUBSCRIBE/UNSUBSCRIBE/PSUBSCRIBE/PUNSUBSCRIBE 确认、MESSAGE/PMESSAGE、Sharded SSUBSCRIBE/SUNSUBSCRIBE/SMESSAGE 此前无论协议版本恒发 RESP2 `*` 数组；现按每连接 `GetProtocolVersion()` 输出 RESP3 `>` Push 或 RESP2 `*` 数组（`pubsub/pubsub.go`、`pubsub/sharded.go` 新增 `writePush` 辅助函数，经 `protocol.MakePushReply(...).ToBytes()/.ToRESP3()`）。
+- **Lua setresp(3) 语义修正**：HKEYS/HVALS/SSCAN 成员列表官方仍为 **Array**（非 set），此前 M2bx/M2by/M2cc 曾误转换为 Lua set；现已改回数组，仅真正的 set 命令（SMEMBERS/SINTER/SUNION/SDIFF/KEYS 等）保留 set 转换。
+- **DEBUG 新增无副作用桩**：SET-ACTIVE-EXPIRE、RELOAD、CHANGE-REPL-ID、JMAP、FLUSHALL（不真正清库）、DIGEST（固定 40 位零 hex）、DIGEST-VALUE（按键存在性返回固定摘要或 null）、STRINGMATCH-LEN（真实 glob 匹配）。
+- 修复 `TestCommandInfo` 断言文案与实际 `... Try COMMAND HELP.` 不符的问题。
+
+仍延期：集群 CRC16/MOVED、HLL 互通、真 HNSW、完整 FAILOVER 协调、精确 `used_memory`、FUNCTION DUMP 官方互通、MIGRATE 等（见计划文档）。
 
 ## 已知差异（抽样，以代码为准）
 

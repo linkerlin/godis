@@ -18,9 +18,12 @@ func TestM2byLuaHValsSetresp(t *testing.T) {
 	r := db.Exec(nil, utils.ToCmdLine("EVAL", `
 redis.setresp(3)
 local t = redis.call('HVALS', KEYS[1])
-return tostring(t['1'] == true) .. ':' .. tostring(t['2'] == true)
+local n = 0
+for _ in ipairs(t) do n = n + 1 end
+table.sort(t)
+return tostring(n) .. ':' .. t[1] .. ':' .. t[2]
 `, "1", "h"))
-	asserts.AssertBulkReply(t, r, "true:true")
+	asserts.AssertBulkReply(t, r, "2:1:2")
 }
 
 func TestM2byLuaSRandMemberSetresp(t *testing.T) {

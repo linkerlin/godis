@@ -375,11 +375,6 @@ func redisReplyToGo(reply redis.Reply, cmd string, args ...string) interface{} {
 			}
 			return result
 		}
-		if respVer == 3 && isScanSetCmd(cmd) && len(r.Replies) == 2 {
-			cursor := redisReplyToGo(r.Replies[0], cmd, args...)
-			members := scanMembersToSet(r.Replies[1])
-			return []interface{}{cursor, members}
-		}
 		if respVer == 3 && isScanMapCmd(cmd) && len(r.Replies) == 2 {
 			cursor := redisReplyToGo(r.Replies[0], cmd, args...)
 			pairs := scanPairsToMap(r.Replies[1], cmd, args...)
@@ -453,36 +448,12 @@ func isScoreBulkCmd(cmd string, args []string) bool {
 	}
 }
 
-func isScanSetCmd(cmd string) bool {
-	switch strings.ToLower(cmd) {
-	case "sscan", "scan":
-		return true
-	default:
-		return false
-	}
-}
-
 func isScanMapCmd(cmd string) bool {
 	switch strings.ToLower(cmd) {
 	case "hscan", "zscan":
 		return true
 	default:
 		return false
-	}
-}
-
-func scanMembersToSet(reply redis.Reply) interface{} {
-	switch r := reply.(type) {
-	case *protocol.MultiBulkReply:
-		m := make(map[string]interface{}, len(r.Args))
-		for _, arg := range r.Args {
-			m[string(arg)] = true
-		}
-		return m
-	case *protocol.EmptyMultiBulkReply:
-		return map[string]interface{}{}
-	default:
-		return map[string]interface{}{}
 	}
 }
 
@@ -529,7 +500,7 @@ func isMapFlatCmd(cmd string, args []string) bool {
 
 func isSetFlatCmd(cmd string, args []string) bool {
 	switch strings.ToLower(cmd) {
-	case "smembers", "sinter", "sunion", "sdiff", "keys", "hkeys", "hvals":
+	case "smembers", "sinter", "sunion", "sdiff", "keys":
 		return true
 	case "zunion", "zinter", "zdiff":
 		for _, a := range args {

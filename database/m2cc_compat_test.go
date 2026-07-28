@@ -99,7 +99,10 @@ func TestM2ccLuaSScanSetrespMembersSet(t *testing.T) {
 redis.setresp(3)
 local t = redis.call('SSCAN', KEYS[1], '0', 'COUNT', '10')
 local members = t[2]
-return tostring(members['a'] == true) .. ':' .. tostring(members['b'] == true)
+local n = 0
+for _ in ipairs(members) do n = n + 1 end
+table.sort(members)
+return tostring(n) .. ':' .. members[1] .. ':' .. members[2] .. ':' .. members[3]
 `, "1", "s"))
-	asserts.AssertBulkReply(t, r, "true:true")
+	asserts.AssertBulkReply(t, r, "3:a:b:c")
 }
