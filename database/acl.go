@@ -322,6 +322,7 @@ func execACLCat(args [][]byte) redis.Reply {
 			"@admin", "@fast", "@slow", "@blocking", "@dangerous", "@connection",
 			"@transaction", "@scripting", "@all",
 			"@json", "@search", "@vector", "@bloom", "@cuckoo", "@timeseries",
+			"@cms", "@topk", "@tdigest",
 		}
 		result := make([][]byte, len(categories))
 		for i, cat := range categories {
@@ -391,6 +392,12 @@ func commandsForACLCategory(category string) []string {
 		return listCmdsByPrefix("cf.")
 	case "@timeseries":
 		return listCmdsByPrefix("ts.")
+	case "@cms":
+		return listCmdsByPrefix("cms.")
+	case "@topk":
+		return listCmdsByPrefix("topk.")
+	case "@tdigest":
+		return listCmdsByPrefix("tdigest.")
 	default:
 		return nil
 	}

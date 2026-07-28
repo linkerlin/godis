@@ -401,6 +401,10 @@ func GenGodisInfoString(section string, db *Server) []byte {
 			"mem_not_counted_for_evict:%d\r\n"+
 			"mem_fragmentation_ratio:%.2f\r\n"+
 			"mem_fragmentation_bytes:%d\r\n"+
+			"mem_clients_slaves:%d\r\n"+
+			"mem_clients_normal:%d\r\n"+
+			"mem_cluster_links:%d\r\n"+
+			"active_defrag_running:%d\r\n"+
 			"mem_allocator:%s\r\n",
 			m.Alloc,
 			humanReadableSize(m.Alloc),
@@ -426,6 +430,10 @@ func GenGodisInfoString(section string, db *Server) []byte {
 			0, // mem_not_counted_for_evict
 			float64(m.Sys)/float64(max(m.Alloc, 1)),
 			fragBytes,
+			0, // mem_clients_slaves
+			0, // mem_clients_normal
+			0, // mem_cluster_links
+			0, // active_defrag_running
 			"go",
 		)
 		return []byte(s)

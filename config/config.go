@@ -143,6 +143,14 @@ type ServerProperties struct {
 	ClusterReplicaValidityFactor int  `cfg:"cluster-replica-validity-factor"`
 	HashMaxListpackEntries       int  `cfg:"hash-max-listpack-entries"`
 
+	// Encoding / structure size CONFIG stubs (GET/SET only).
+	ListMaxListpackSize    int   `cfg:"list-max-listpack-size"`
+	SetMaxIntsetEntries    int   `cfg:"set-max-intset-entries"`
+	ZSetMaxListpackEntries int   `cfg:"zset-max-listpack-entries"`
+	ZSetMaxListpackValue   int   `cfg:"zset-max-listpack-value"`
+	StreamNodeMaxBytes     int64 `cfg:"stream-node-max-bytes"`
+	HLLSparseMaxBytes      int   `cfg:"hll-sparse-max-bytes"`
+
 	// ReplicaOf is Redis CONFIG replicaof/slaveof string ("host port" or empty when master).
 	ReplicaOf string `cfg:"replicaof"`
 	// ReplicaServeStaleData / ReplicaPriority are Redis CONFIG stubs.
@@ -238,6 +246,12 @@ func init() {
 		ClusterAllowReplicaMigration: true,
 		ClusterReplicaValidityFactor: 10,
 		HashMaxListpackEntries:       512,
+		ListMaxListpackSize:    -2,
+		SetMaxIntsetEntries:    512,
+		ZSetMaxListpackEntries: 128,
+		ZSetMaxListpackValue:   64,
+		StreamNodeMaxBytes:     4096,
+		HLLSparseMaxBytes:      3000,
 		ReplicaServeStaleData:      true,
 		ReplicaPriority:            100,
 		LuaTimeLimit:               5000,

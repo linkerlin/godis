@@ -163,6 +163,12 @@ func getConfigMatches(pattern string) []configPair {
 		{"cluster-allow-replica-migration", boolToString(getClusterAllowReplicaMigration())},
 		{"cluster-replica-validity-factor", strconv.Itoa(getClusterReplicaValidityFactor())},
 		{"hash-max-listpack-entries", strconv.Itoa(getHashMaxListpackEntries())},
+		{"list-max-listpack-size", strconv.Itoa(getListMaxListpackSize())},
+		{"set-max-intset-entries", strconv.Itoa(getSetMaxIntsetEntries())},
+		{"zset-max-listpack-entries", strconv.Itoa(getZSetMaxListpackEntries())},
+		{"zset-max-listpack-value", strconv.Itoa(getZSetMaxListpackValue())},
+		{"stream-node-max-bytes", strconv.FormatInt(getStreamNodeMaxBytes(), 10)},
+		{"hll-sparse-max-bytes", strconv.Itoa(getHLLSparseMaxBytes())},
 		{"replicaof", getReplicaOf()},
 		{"slaveof", getReplicaOf()},
 		{"replica-serve-stale-data", boolToString(getReplicaServeStaleData())},
@@ -623,6 +629,42 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 				return protocol.MakeErrReply(fmt.Sprintf("ERR Invalid value for '%s'", key))
 			}
 			config.Properties.HashMaxListpackEntries = n
+		case "list-max-listpack-size":
+			n, err := strconv.Atoi(value)
+			if err != nil {
+				return protocol.MakeErrReply(fmt.Sprintf("ERR Invalid value for '%s'", key))
+			}
+			config.Properties.ListMaxListpackSize = n
+		case "set-max-intset-entries":
+			n, err := strconv.Atoi(value)
+			if err != nil || n < 0 {
+				return protocol.MakeErrReply(fmt.Sprintf("ERR Invalid value for '%s'", key))
+			}
+			config.Properties.SetMaxIntsetEntries = n
+		case "zset-max-listpack-entries":
+			n, err := strconv.Atoi(value)
+			if err != nil || n < 0 {
+				return protocol.MakeErrReply(fmt.Sprintf("ERR Invalid value for '%s'", key))
+			}
+			config.Properties.ZSetMaxListpackEntries = n
+		case "zset-max-listpack-value":
+			n, err := strconv.Atoi(value)
+			if err != nil || n < 0 {
+				return protocol.MakeErrReply(fmt.Sprintf("ERR Invalid value for '%s'", key))
+			}
+			config.Properties.ZSetMaxListpackValue = n
+		case "stream-node-max-bytes":
+			n, err := strconv.ParseInt(value, 10, 64)
+			if err != nil || n < 0 {
+				return protocol.MakeErrReply(fmt.Sprintf("ERR Invalid value for '%s'", key))
+			}
+			config.Properties.StreamNodeMaxBytes = n
+		case "hll-sparse-max-bytes":
+			n, err := strconv.Atoi(value)
+			if err != nil || n < 0 {
+				return protocol.MakeErrReply(fmt.Sprintf("ERR Invalid value for '%s'", key))
+			}
+			config.Properties.HLLSparseMaxBytes = n
 		case "replicaof", "slaveof":
 			v := strings.TrimSpace(value)
 			if strings.EqualFold(v, "no one") || v == "" {
@@ -1068,6 +1110,48 @@ func getHashMaxListpackEntries() int {
 		return 512
 	}
 	return config.Properties.HashMaxListpackEntries
+}
+
+func getListMaxListpackSize() int {
+	if config.Properties == nil {
+		return -2
+	}
+	return config.Properties.ListMaxListpackSize
+}
+
+func getSetMaxIntsetEntries() int {
+	if config.Properties == nil || config.Properties.SetMaxIntsetEntries <= 0 {
+		return 512
+	}
+	return config.Properties.SetMaxIntsetEntries
+}
+
+func getZSetMaxListpackEntries() int {
+	if config.Properties == nil || config.Properties.ZSetMaxListpackEntries <= 0 {
+		return 128
+	}
+	return config.Properties.ZSetMaxListpackEntries
+}
+
+func getZSetMaxListpackValue() int {
+	if config.Properties == nil || config.Properties.ZSetMaxListpackValue <= 0 {
+		return 64
+	}
+	return config.Properties.ZSetMaxListpackValue
+}
+
+func getStreamNodeMaxBytes() int64 {
+	if config.Properties == nil || config.Properties.StreamNodeMaxBytes <= 0 {
+		return 4096
+	}
+	return config.Properties.StreamNodeMaxBytes
+}
+
+func getHLLSparseMaxBytes() int {
+	if config.Properties == nil || config.Properties.HLLSparseMaxBytes <= 0 {
+		return 3000
+	}
+	return config.Properties.HLLSparseMaxBytes
 }
 
 func getReplicaOf() string {

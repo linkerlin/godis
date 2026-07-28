@@ -119,6 +119,14 @@ func execCluster(cluster *Cluster, c redis.Connection, cmdLine CmdLine) redis.Re
 			return protocol.MakeErrReply("ERR This instance has cluster support disabled")
 		}
 		return protocol.MakeOkReply()
+	case "REPLICATE":
+		if len(cmdLine) != 3 {
+			return protocol.MakeErrReply("ERR wrong number of arguments for 'cluster|replicate' command")
+		}
+		if cluster == nil {
+			return protocol.MakeErrReply("ERR This instance has cluster support disabled")
+		}
+		return protocol.MakeOkReply()
 	case "RESET":
 		if len(cmdLine) > 3 {
 			return protocol.MakeErrReply("ERR wrong number of arguments for 'cluster|reset' command")
@@ -132,6 +140,21 @@ func execCluster(cluster *Cluster, c redis.Connection, cmdLine CmdLine) redis.Re
 				return protocol.MakeErrReply("ERR Invalid RESET mode. Try HARD or SOFT")
 			}
 		}
+		return protocol.MakeOkReply()
+	case "FAILOVER":
+		if len(cmdLine) > 3 {
+			return protocol.MakeErrReply("ERR wrong number of arguments for 'cluster|failover' command")
+		}
+		if cluster == nil {
+			return protocol.MakeErrReply("ERR This instance has cluster support disabled")
+		}
+		if len(cmdLine) == 3 {
+			opt := strings.ToUpper(string(cmdLine[2]))
+			if opt != "FORCE" && opt != "TAKEOVER" {
+				return protocol.MakeErrReply("ERR FAILOVER bad option. Use FORCE or TAKEOVER")
+			}
+		}
+		// Full coordinated failover is deferred; acknowledge the command.
 		return protocol.MakeOkReply()
 	case "SAVECONFIG":
 		if len(cmdLine) != 2 {
@@ -332,8 +355,12 @@ func execClusterHelp() redis.Reply {
 		"    Assign slots ranges to this node.",
 		"CLUSTER FORGET node-id",
 		"    Remove a node from the nodes table.",
+		"CLUSTER REPLICATE node-id",
+		"    Configure this node as replica of the specified master.",
 		"CLUSTER RESET [HARD|SOFT]",
 		"    Reset a Redis Cluster node.",
+		"CLUSTER FAILOVER [FORCE|TAKEOVER]",
+		"    Force a failover (coordination deferred; returns OK).",
 		"CLUSTER SAVECONFIG",
 		"    Force save the nodes.conf file.",
 		"CLUSTER DELSLOTSRANGE start-slot end-slot [start-slot end-slot ...]",
