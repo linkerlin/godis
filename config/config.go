@@ -135,6 +135,14 @@ type ServerProperties struct {
 	MaxmemorySamples      int   `cfg:"maxmemory-samples"`
 	TrackingTableMaxKeys  int64 `cfg:"tracking-table-max-keys"`
 
+	// Replication / AOF / hash encoding CONFIG stubs (GET/SET only).
+	ReplBacklogTTL               int  `cfg:"repl-backlog-ttl"`
+	ReplicaIgnoreMaxmemory       bool `cfg:"replica-ignore-maxmemory"`
+	AofRewriteIncrementalFsync   bool `cfg:"aof-rewrite-incremental-fsync"`
+	ClusterAllowReplicaMigration bool `cfg:"cluster-allow-replica-migration"`
+	ClusterReplicaValidityFactor int  `cfg:"cluster-replica-validity-factor"`
+	HashMaxListpackEntries       int  `cfg:"hash-max-listpack-entries"`
+
 	// ReplicaOf is Redis CONFIG replicaof/slaveof string ("host port" or empty when master).
 	ReplicaOf string `cfg:"replicaof"`
 	// ReplicaServeStaleData / ReplicaPriority are Redis CONFIG stubs.
@@ -224,6 +232,12 @@ func init() {
 		ReplDisklessSyncDelay:    5,
 		MaxmemorySamples:         5,
 		TrackingTableMaxKeys:     1000000,
+		ReplBacklogTTL:               3600,
+		ReplicaIgnoreMaxmemory:       true,
+		AofRewriteIncrementalFsync:   true,
+		ClusterAllowReplicaMigration: true,
+		ClusterReplicaValidityFactor: 10,
+		HashMaxListpackEntries:       512,
 		ReplicaServeStaleData:      true,
 		ReplicaPriority:            100,
 		LuaTimeLimit:               5000,

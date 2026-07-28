@@ -97,6 +97,20 @@ func execCluster(cluster *Cluster, c redis.Connection, cmdLine CmdLine) redis.Re
 		}
 		_ = count
 		return protocol.MakeEmptyMultiBulkReply()
+	case "ADDSLOTSRANGE":
+		if len(cmdLine) < 4 || (len(cmdLine)-2)%2 != 0 {
+			return protocol.MakeErrReply("ERR wrong number of arguments for 'cluster|addslotsrange' command")
+		}
+		if cluster == nil {
+			return protocol.MakeErrReply("ERR This instance has cluster support disabled")
+		}
+		for i := 2; i < len(cmdLine); i++ {
+			n, err := strconv.ParseInt(string(cmdLine[i]), 10, 64)
+			if err != nil || n < 0 || n > 16383 {
+				return protocol.MakeErrReply("ERR Invalid or out of range slot")
+			}
+		}
+		return protocol.MakeOkReply()
 	case "FORGET":
 		if len(cmdLine) != 3 {
 			return protocol.MakeErrReply("ERR wrong number of arguments for 'cluster|forget' command")
@@ -125,6 +139,20 @@ func execCluster(cluster *Cluster, c redis.Connection, cmdLine CmdLine) redis.Re
 		}
 		if cluster == nil {
 			return protocol.MakeErrReply("ERR This instance has cluster support disabled")
+		}
+		return protocol.MakeOkReply()
+	case "DELSLOTSRANGE":
+		if len(cmdLine) < 4 || (len(cmdLine)-2)%2 != 0 {
+			return protocol.MakeErrReply("ERR wrong number of arguments for 'cluster|delslotsrange' command")
+		}
+		if cluster == nil {
+			return protocol.MakeErrReply("ERR This instance has cluster support disabled")
+		}
+		for i := 2; i < len(cmdLine); i++ {
+			n, err := strconv.ParseInt(string(cmdLine[i]), 10, 64)
+			if err != nil || n < 0 || n > 16383 {
+				return protocol.MakeErrReply("ERR Invalid or out of range slot")
+			}
 		}
 		return protocol.MakeOkReply()
 	case "FLUSHSLOTS":
@@ -300,12 +328,16 @@ func execClusterHelp() redis.Reply {
 		"    Set the config epoch for this node.",
 		"CLUSTER GETKEYSINSLOT slot count",
 		"    Return local keys in the specified hash slot.",
+		"CLUSTER ADDSLOTSRANGE start-slot end-slot [start-slot end-slot ...]",
+		"    Assign slots ranges to this node.",
 		"CLUSTER FORGET node-id",
 		"    Remove a node from the nodes table.",
 		"CLUSTER RESET [HARD|SOFT]",
 		"    Reset a Redis Cluster node.",
 		"CLUSTER SAVECONFIG",
 		"    Force save the nodes.conf file.",
+		"CLUSTER DELSLOTSRANGE start-slot end-slot [start-slot end-slot ...]",
+		"    Remove slots ranges from this node.",
 		"CLUSTER FLUSHSLOTS",
 		"    Delete the node's own slots information.",
 		"CLUSTER MYSHARDID",

@@ -457,6 +457,8 @@ func GenGodisInfoString(section string, db *Server) []byte {
 			"pubsub_patterns:%d\r\n"+
 			"latest_fork_usec:%d\r\n"+
 			"total_forks:%d\r\n"+
+			"total_blocking_keys:%d\r\n"+
+			"total_blocking_keys_on_keys:%d\r\n"+
 			"current_cow_size:%d\r\n"+
 			"current_cow_size_age:%d\r\n"+
 			"current_fork_perc:%.2f\r\n"+
@@ -492,6 +494,8 @@ func GenGodisInfoString(section string, db *Server) []byte {
 			getPubsubPatternsCount(db),
 			0,   // latest_fork_usec - N/A in Go
 			0,   // total_forks
+			0,   // total_blocking_keys
+			0,   // total_blocking_keys_on_keys
 			0,   // current_cow_size
 			0,   // current_cow_size_age
 			0.0, // current_fork_perc

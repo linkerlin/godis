@@ -157,6 +157,12 @@ func getConfigMatches(pattern string) []configPair {
 		{"repl-diskless-sync-delay", strconv.Itoa(getReplDisklessSyncDelay())},
 		{"maxmemory-samples", strconv.Itoa(getMaxmemorySamples())},
 		{"tracking-table-max-keys", strconv.FormatInt(getTrackingTableMaxKeys(), 10)},
+		{"repl-backlog-ttl", strconv.Itoa(getReplBacklogTTL())},
+		{"replica-ignore-maxmemory", boolToString(getReplicaIgnoreMaxmemory())},
+		{"aof-rewrite-incremental-fsync", boolToString(getAofRewriteIncrementalFsync())},
+		{"cluster-allow-replica-migration", boolToString(getClusterAllowReplicaMigration())},
+		{"cluster-replica-validity-factor", strconv.Itoa(getClusterReplicaValidityFactor())},
+		{"hash-max-listpack-entries", strconv.Itoa(getHashMaxListpackEntries())},
 		{"replicaof", getReplicaOf()},
 		{"slaveof", getReplicaOf()},
 		{"replica-serve-stale-data", boolToString(getReplicaServeStaleData())},
@@ -581,6 +587,42 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 				return protocol.MakeErrReply(fmt.Sprintf("ERR Invalid value for '%s'", key))
 			}
 			config.Properties.TrackingTableMaxKeys = n
+		case "repl-backlog-ttl":
+			n, err := strconv.Atoi(value)
+			if err != nil || n < 0 {
+				return protocol.MakeErrReply(fmt.Sprintf("ERR Invalid value for '%s'", key))
+			}
+			config.Properties.ReplBacklogTTL = n
+		case "replica-ignore-maxmemory":
+			ok, b := config.ParseConfigBool(value)
+			if !ok {
+				return protocol.MakeErrReply("ERR invalid replica-ignore-maxmemory value")
+			}
+			config.Properties.ReplicaIgnoreMaxmemory = b
+		case "aof-rewrite-incremental-fsync":
+			ok, b := config.ParseConfigBool(value)
+			if !ok {
+				return protocol.MakeErrReply("ERR invalid aof-rewrite-incremental-fsync value")
+			}
+			config.Properties.AofRewriteIncrementalFsync = b
+		case "cluster-allow-replica-migration":
+			ok, b := config.ParseConfigBool(value)
+			if !ok {
+				return protocol.MakeErrReply("ERR invalid cluster-allow-replica-migration value")
+			}
+			config.Properties.ClusterAllowReplicaMigration = b
+		case "cluster-replica-validity-factor":
+			n, err := strconv.Atoi(value)
+			if err != nil || n < 0 {
+				return protocol.MakeErrReply(fmt.Sprintf("ERR Invalid value for '%s'", key))
+			}
+			config.Properties.ClusterReplicaValidityFactor = n
+		case "hash-max-listpack-entries":
+			n, err := strconv.Atoi(value)
+			if err != nil || n < 0 {
+				return protocol.MakeErrReply(fmt.Sprintf("ERR Invalid value for '%s'", key))
+			}
+			config.Properties.HashMaxListpackEntries = n
 		case "replicaof", "slaveof":
 			v := strings.TrimSpace(value)
 			if strings.EqualFold(v, "no one") || v == "" {
@@ -984,6 +1026,48 @@ func getTrackingTableMaxKeys() int64 {
 		return 1000000
 	}
 	return config.Properties.TrackingTableMaxKeys
+}
+
+func getReplBacklogTTL() int {
+	if config.Properties == nil {
+		return 3600
+	}
+	return config.Properties.ReplBacklogTTL
+}
+
+func getReplicaIgnoreMaxmemory() bool {
+	if config.Properties == nil {
+		return true
+	}
+	return config.Properties.ReplicaIgnoreMaxmemory
+}
+
+func getAofRewriteIncrementalFsync() bool {
+	if config.Properties == nil {
+		return true
+	}
+	return config.Properties.AofRewriteIncrementalFsync
+}
+
+func getClusterAllowReplicaMigration() bool {
+	if config.Properties == nil {
+		return true
+	}
+	return config.Properties.ClusterAllowReplicaMigration
+}
+
+func getClusterReplicaValidityFactor() int {
+	if config.Properties == nil {
+		return 10
+	}
+	return config.Properties.ClusterReplicaValidityFactor
+}
+
+func getHashMaxListpackEntries() int {
+	if config.Properties == nil || config.Properties.HashMaxListpackEntries <= 0 {
+		return 512
+	}
+	return config.Properties.HashMaxListpackEntries
 }
 
 func getReplicaOf() string {
