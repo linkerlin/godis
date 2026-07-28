@@ -111,6 +111,62 @@ func execCluster(cluster *Cluster, c redis.Connection, cmdLine CmdLine) redis.Re
 			}
 		}
 		return protocol.MakeOkReply()
+	case "ADDSLOTS":
+		if len(cmdLine) < 3 {
+			return protocol.MakeErrReply("ERR wrong number of arguments for 'cluster|addslots' command")
+		}
+		if cluster == nil {
+			return protocol.MakeErrReply("ERR This instance has cluster support disabled")
+		}
+		for i := 2; i < len(cmdLine); i++ {
+			n, err := strconv.ParseInt(string(cmdLine[i]), 10, 64)
+			if err != nil || n < 0 || n > 16383 {
+				return protocol.MakeErrReply("ERR Invalid or out of range slot")
+			}
+		}
+		return protocol.MakeOkReply()
+	case "DELSLOTS":
+		if len(cmdLine) < 3 {
+			return protocol.MakeErrReply("ERR wrong number of arguments for 'cluster|delslots' command")
+		}
+		if cluster == nil {
+			return protocol.MakeErrReply("ERR This instance has cluster support disabled")
+		}
+		for i := 2; i < len(cmdLine); i++ {
+			n, err := strconv.ParseInt(string(cmdLine[i]), 10, 64)
+			if err != nil || n < 0 || n > 16383 {
+				return protocol.MakeErrReply("ERR Invalid or out of range slot")
+			}
+		}
+		return protocol.MakeOkReply()
+	case "SETSLOT":
+		if len(cmdLine) < 4 {
+			return protocol.MakeErrReply("ERR wrong number of arguments for 'cluster|setslot' command")
+		}
+		if cluster == nil {
+			return protocol.MakeErrReply("ERR This instance has cluster support disabled")
+		}
+		slot, err := strconv.ParseInt(string(cmdLine[2]), 10, 64)
+		if err != nil || slot < 0 || slot > 16383 {
+			return protocol.MakeErrReply("ERR Invalid or out of range slot")
+		}
+		sub := strings.ToUpper(string(cmdLine[3]))
+		switch sub {
+		case "MIGRATING", "IMPORTING":
+			if len(cmdLine) != 5 {
+				return protocol.MakeErrReply("ERR wrong number of arguments for 'cluster|setslot' command")
+			}
+		case "STABLE", "NODE":
+			if sub == "NODE" && len(cmdLine) != 5 {
+				return protocol.MakeErrReply("ERR wrong number of arguments for 'cluster|setslot' command")
+			}
+			if sub == "STABLE" && len(cmdLine) != 4 {
+				return protocol.MakeErrReply("ERR wrong number of arguments for 'cluster|setslot' command")
+			}
+		default:
+			return protocol.MakeErrReply("ERR Invalid CLUSTER SETSLOT action")
+		}
+		return protocol.MakeOkReply()
 	case "FORGET":
 		if len(cmdLine) != 3 {
 			return protocol.MakeErrReply("ERR wrong number of arguments for 'cluster|forget' command")
@@ -373,6 +429,12 @@ func execClusterHelp() redis.Reply {
 		"    Return local keys in the specified hash slot.",
 		"CLUSTER ADDSLOTSRANGE start-slot end-slot [start-slot end-slot ...]",
 		"    Assign slots ranges to this node.",
+		"CLUSTER ADDSLOTS slot [slot ...]",
+		"    Assign hash slots to this node.",
+		"CLUSTER DELSLOTS slot [slot ...]",
+		"    Remove hash slots from this node.",
+		"CLUSTER SETSLOT slot MIGRATING|IMPORTING|STABLE|NODE ...",
+		"    Set hash slot state (stub).",
 		"CLUSTER FORGET node-id",
 		"    Remove a node from the nodes table.",
 		"CLUSTER REPLICATE node-id",

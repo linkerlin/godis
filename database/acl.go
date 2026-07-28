@@ -667,7 +667,7 @@ func formatACLUserReply(user *acl.User) redis.Reply {
 	var pwdReplies [][]byte
 	for _, pwd := range user.Passwords {
 		if pwd.IsSHA {
-			pwdReplies = append(pwdReplies, []byte("sha256:"+pwd.Hash[:16]+"..."))
+			pwdReplies = append(pwdReplies, []byte("#"+pwd.Hash))
 		}
 	}
 	result = append(result, protocol.MakeMultiBulkReply(pwdReplies).ToBytes())

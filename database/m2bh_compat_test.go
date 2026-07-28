@@ -22,13 +22,13 @@ func TestM2bhClientListWatchingAndFlags(t *testing.T) {
 
 	asserts.AssertStatusReply(t, server.Exec(c, utils.ToCmdLine("WATCH", "k1")), "OK")
 	line := formatClientListLine(c)
-	if !strings.Contains(line, "watching=1") {
-		t.Fatalf("want watching=1, got %q", line)
+	if !strings.Contains(line, "watch=1") {
+		t.Fatalf("want watch=1, got %q", line)
 	}
 	asserts.AssertStatusReply(t, server.Exec(c, utils.ToCmdLine("UNWATCH")), "OK")
 	line = formatClientListLine(c)
-	if !strings.Contains(line, "watching=0") {
-		t.Fatalf("want watching=0, got %q", line)
+	if !strings.Contains(line, "watch=0") {
+		t.Fatalf("want watch=0, got %q", line)
 	}
 
 	id := EnableTracking(c, "ON", nil, "", false)

@@ -103,6 +103,9 @@ func (db *DB) ExecMulti(conn redis.Connection, watching map[string]uint64, cmdLi
 		if !ok {
 			return protocol.MakeErrReply("ERR unknown command '" + cmdName + "'")
 		}
+		if cmdName == "unwatch" {
+			continue // queued specially; no key locks
+		}
 		cmd := cmdTable[cmdName]
 		if cmd.prepare == nil {
 			return protocol.MakeErrReply("ERR command '" + cmdName + "' cannot be used in MULTI")
@@ -135,6 +138,10 @@ func (db *DB) ExecMulti(conn redis.Connection, watching map[string]uint64, cmdLi
 	// execute — Redis continues on runtime errors; errors become array elements
 	results := make([]redis.Reply, 0, len(cmdLines))
 	for _, cmdLine := range cmdLines {
+		if len(cmdLine) > 0 && strings.EqualFold(string(cmdLine[0]), "unwatch") {
+			results = append(results, UnWatch(conn))
+			continue
+		}
 		result := db.execWithLock(conn, cmdLine)
 		results = append(results, result)
 	}
