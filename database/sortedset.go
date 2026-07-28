@@ -1255,17 +1255,17 @@ func init() {
 		attachCommandExtra([]string{redisFlagWrite}, 1, -2, 1)
 	registerCommand("BZMPop", execBZMPop, nil, nil, -5, flagSpecial).
 		attachCommandExtra([]string{redisFlagBlocking}, 1, -2, 1)
-	registerCommand("ZUnion", execZUnion, prepareSetCalculate, nil, -2, flagReadOnly).
+	registerCommand("ZUnion", execZUnion, prepareZCalculate, nil, -2, flagReadOnly).
 		attachCommandExtra([]string{redisFlagReadonly, redisFlagSortForScript}, 1, -1, 1)
-	registerCommand("ZUnionStore", execZUnionStore, prepareSetCalculateStore, rollbackFirstKey, -3, flagWrite).
+	registerCommand("ZUnionStore", execZUnionStore, prepareZStoreCalculateStore, rollbackFirstKey, -3, flagWrite).
 		attachCommandExtra([]string{redisFlagWrite, redisFlagDenyOOM}, 1, -1, 1)
-	registerCommand("ZInter", execZInter, prepareSetCalculate, nil, -2, flagReadOnly).
+	registerCommand("ZInter", execZInter, prepareZCalculate, nil, -2, flagReadOnly).
 		attachCommandExtra([]string{redisFlagReadonly, redisFlagSortForScript}, 1, -1, 1)
-	registerCommand("ZInterStore", execZInterStore, prepareSetCalculateStore, rollbackFirstKey, -3, flagWrite).
+	registerCommand("ZInterStore", execZInterStore, prepareZStoreCalculateStore, rollbackFirstKey, -3, flagWrite).
 		attachCommandExtra([]string{redisFlagWrite, redisFlagDenyOOM}, 1, -1, 1)
-	registerCommand("ZDiff", execZDiff, prepareSetCalculate, nil, -2, flagReadOnly).
+	registerCommand("ZDiff", execZDiff, prepareZCalculate, nil, -2, flagReadOnly).
 		attachCommandExtra([]string{redisFlagReadonly, redisFlagSortForScript}, 1, -1, 1)
-	registerCommand("ZDiffStore", execZDiffStore, prepareSetCalculateStore, rollbackFirstKey, -3, flagWrite).
+	registerCommand("ZDiffStore", execZDiffStore, prepareZStoreCalculateStore, rollbackFirstKey, -3, flagWrite).
 		attachCommandExtra([]string{redisFlagWrite, redisFlagDenyOOM}, 1, -1, 1)
 }
 

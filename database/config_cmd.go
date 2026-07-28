@@ -137,6 +137,11 @@ func getConfigMatches(pattern string) []configPair {
 		{"set-proc-title", boolToString(getSetProcTitle())},
 		{"always-show-logo", boolToString(getAlwaysShowLogo())},
 		{"lua-replicate-commands", boolToString(getLuaReplicateCommands())},
+		{"client-query-buffer-limit", strconv.FormatInt(getClientQueryBufferLimit(), 10)},
+		{"client-output-buffer-limit", getClientOutputBufferLimit()},
+		{"min-replicas-to-write", strconv.Itoa(getMinReplicasToWrite())},
+		{"min-replicas-max-lag", strconv.Itoa(getMinReplicasMaxLag())},
+		{"cluster-require-full-coverage", boolToString(getClusterRequireFullCoverage())},
 		{"proto-max-bulk-len", strconv.FormatInt(config.Properties.ProtoMaxBulkLen, 10)},
 		{"save", config.Properties.Save},
 		{"tcp-backlog", strconv.Itoa(config.Properties.TCPBacklog)},
@@ -441,6 +446,32 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 				return protocol.MakeErrReply("ERR invalid lua-replicate-commands value")
 			}
 			config.Properties.LuaReplicateCommands = b
+		case "client-query-buffer-limit":
+			n, err := strconv.ParseInt(value, 10, 64)
+			if err != nil || n < 0 {
+				return protocol.MakeErrReply(fmt.Sprintf("ERR Invalid value for '%s'", key))
+			}
+			config.Properties.ClientQueryBufferLimit = n
+		case "client-output-buffer-limit":
+			config.Properties.ClientOutputBufferLimit = value
+		case "min-replicas-to-write":
+			n, err := strconv.Atoi(value)
+			if err != nil || n < 0 {
+				return protocol.MakeErrReply(fmt.Sprintf("ERR Invalid value for '%s'", key))
+			}
+			config.Properties.MinReplicasToWrite = n
+		case "min-replicas-max-lag":
+			n, err := strconv.Atoi(value)
+			if err != nil || n < 0 {
+				return protocol.MakeErrReply(fmt.Sprintf("ERR Invalid value for '%s'", key))
+			}
+			config.Properties.MinReplicasMaxLag = n
+		case "cluster-require-full-coverage":
+			ok, b := config.ParseConfigBool(value)
+			if !ok {
+				return protocol.MakeErrReply("ERR invalid cluster-require-full-coverage value")
+			}
+			config.Properties.ClusterRequireFullCoverage = b
 		case "proto-max-bulk-len":
 			n, err := strconv.ParseInt(value, 10, 64)
 			if err != nil || n < 0 {
@@ -678,6 +709,41 @@ func getLuaReplicateCommands() bool {
 		return true
 	}
 	return config.Properties.LuaReplicateCommands
+}
+
+func getClientQueryBufferLimit() int64 {
+	if config.Properties == nil || config.Properties.ClientQueryBufferLimit <= 0 {
+		return 1073741824
+	}
+	return config.Properties.ClientQueryBufferLimit
+}
+
+func getClientOutputBufferLimit() string {
+	if config.Properties == nil || config.Properties.ClientOutputBufferLimit == "" {
+		return "normal 0 0 0 slave 268435456 67108864 60 pubsub 33554432 8388608 60"
+	}
+	return config.Properties.ClientOutputBufferLimit
+}
+
+func getMinReplicasToWrite() int {
+	if config.Properties == nil {
+		return 0
+	}
+	return config.Properties.MinReplicasToWrite
+}
+
+func getMinReplicasMaxLag() int {
+	if config.Properties == nil || config.Properties.MinReplicasMaxLag <= 0 {
+		return 10
+	}
+	return config.Properties.MinReplicasMaxLag
+}
+
+func getClusterRequireFullCoverage() bool {
+	if config.Properties == nil {
+		return true
+	}
+	return config.Properties.ClusterRequireFullCoverage
 }
 
 func configDir() string {

@@ -109,6 +109,13 @@ type ServerProperties struct {
 	AlwaysShowLogo        bool `cfg:"always-show-logo"`
 	LuaReplicateCommands  bool `cfg:"lua-replicate-commands"`
 
+	// ClientQueryBufferLimit / ClientOutputBufferLimit / MinReplicas* / ClusterRequireFullCoverage are Redis CONFIG stubs.
+	ClientQueryBufferLimit     int64  `cfg:"client-query-buffer-limit"`
+	ClientOutputBufferLimit    string `cfg:"client-output-buffer-limit"`
+	MinReplicasToWrite         int    `cfg:"min-replicas-to-write"`
+	MinReplicasMaxLag          int    `cfg:"min-replicas-max-lag"`
+	ClusterRequireFullCoverage bool   `cfg:"cluster-require-full-coverage"`
+
 	// ReplBacklogSize is Redis repl-backlog-size (bytes); used when allocating master backlog.
 	ReplBacklogSize int64 `cfg:"repl-backlog-size"`
 
@@ -177,7 +184,11 @@ func init() {
 		ReplicaAnnounced:     true,
 		SetProcTitle:         true,
 		LuaReplicateCommands: true,
-		LuaTimeLimit:         5000,
+		ClientQueryBufferLimit:  1073741824,
+		ClientOutputBufferLimit: "normal 0 0 0 slave 268435456 67108864 60 pubsub 33554432 8388608 60",
+		MinReplicasMaxLag:          10,
+		ClusterRequireFullCoverage: true,
+		LuaTimeLimit:               5000,
 		RunID:           utils.RandString(40),
 	}
 }

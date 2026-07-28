@@ -119,6 +119,42 @@ func prepareSetCalculateStore(args [][]byte) ([]string, []string) {
 	return []string{dest}, keys
 }
 
+// prepareZCalculate locks source keys for ZUNION/ZINTER/ZDIFF (numkeys then keys...).
+func prepareZCalculate(args [][]byte) ([]string, []string) {
+	if len(args) < 1 {
+		return nil, nil
+	}
+	n, err := strconv.Atoi(string(args[0]))
+	if err != nil || n < 0 || len(args) < 1+n {
+		return nil, nil
+	}
+	keys := make([]string, n)
+	for i := 0; i < n; i++ {
+		keys[i] = string(args[1+i])
+	}
+	return nil, keys
+}
+
+// prepareZStoreCalculateStore locks dest + source keys for Z*STORE (dest numkeys keys...).
+func prepareZStoreCalculateStore(args [][]byte) ([]string, []string) {
+	if len(args) < 1 {
+		return nil, nil
+	}
+	dest := string(args[0])
+	if len(args) < 2 {
+		return []string{dest}, nil
+	}
+	n, err := strconv.Atoi(string(args[1]))
+	if err != nil || n < 0 || len(args) < 2+n {
+		return []string{dest}, nil
+	}
+	keys := make([]string, n)
+	for i := 0; i < n; i++ {
+		keys[i] = string(args[2+i])
+	}
+	return []string{dest}, keys
+}
+
 func rollbackSetMembers(db *DB, key string, members ...string) []CmdLine {
 	var undoCmdLines [][][]byte
 	set, errReply := db.getAsSet(key)

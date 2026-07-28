@@ -374,6 +374,11 @@ func redisReplyToGo(reply redis.Reply, cmd string, args ...string) interface{} {
 			members := scanMembersToSet(r.Replies[1])
 			return []interface{}{cursor, members}
 		}
+		if respVer == 3 && isScanMapCmd(cmd) && len(r.Replies) == 2 {
+			cursor := redisReplyToGo(r.Replies[0], cmd, args...)
+			pairs := scanPairsToMap(r.Replies[1], cmd, args...)
+			return []interface{}{cursor, pairs}
+		}
 		result := make([]interface{}, len(r.Replies))
 		for i, sub := range r.Replies {
 			result[i] = redisReplyToGo(sub, cmd, args...)
@@ -417,12 +422,36 @@ func isScanSetCmd(cmd string) bool {
 	}
 }
 
+func isScanMapCmd(cmd string) bool {
+	switch strings.ToLower(cmd) {
+	case "hscan", "zscan":
+		return true
+	default:
+		return false
+	}
+}
+
 func scanMembersToSet(reply redis.Reply) interface{} {
 	switch r := reply.(type) {
 	case *protocol.MultiBulkReply:
 		m := make(map[string]interface{}, len(r.Args))
 		for _, arg := range r.Args {
 			m[string(arg)] = true
+		}
+		return m
+	case *protocol.EmptyMultiBulkReply:
+		return map[string]interface{}{}
+	default:
+		return map[string]interface{}{}
+	}
+}
+
+func scanPairsToMap(reply redis.Reply, cmd string, args ...string) interface{} {
+	switch r := reply.(type) {
+	case *protocol.MultiBulkReply:
+		m := make(map[string]interface{}, len(r.Args)/2)
+		for i := 0; i+1 < len(r.Args); i += 2 {
+			m[string(r.Args[i])] = redisReplyToGo(protocol.MakeBulkReply(r.Args[i+1]), cmd, args...)
 		}
 		return m
 	case *protocol.EmptyMultiBulkReply:

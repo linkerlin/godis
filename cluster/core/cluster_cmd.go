@@ -36,6 +36,22 @@ func execCluster(cluster *Cluster, c redis.Connection, cmdLine CmdLine) redis.Re
 		return execClusterCountKeysInSlot(cluster, string(cmdLine[2]))
 	case "SHARDS":
 		return execClusterShards(cluster)
+	case "COUNT-FAILURE-REPORTS":
+		if len(cmdLine) != 3 {
+			return protocol.MakeErrReply("ERR wrong number of arguments for 'cluster|count-failure-reports' command")
+		}
+		if cluster == nil {
+			return protocol.MakeErrReply("ERR This instance has cluster support disabled")
+		}
+		return protocol.MakeIntReply(0)
+	case "BUMPEPOCH":
+		if len(cmdLine) != 2 {
+			return protocol.MakeErrReply("ERR wrong number of arguments for 'cluster|bumpepoch' command")
+		}
+		if cluster == nil {
+			return protocol.MakeErrReply("ERR This instance has cluster support disabled")
+		}
+		return protocol.MakeStatusReply("BUMPED 0")
 	case "KEYSLOT":
 		if len(cmdLine) < 3 {
 			return protocol.MakeErrReply("ERR wrong number of arguments for 'cluster|keyslot' command")
@@ -179,6 +195,10 @@ func execClusterHelp() redis.Reply {
 		"    Return the number of local keys in the specified hash slot.",
 		"CLUSTER SHARDS",
 		"    Return details about slots mappings and shard nodes.",
+		"CLUSTER COUNT-FAILURE-REPORTS node-id",
+		"    Return the number of failure reports for the specified node.",
+		"CLUSTER BUMPEPOCH",
+		"    Advance the cluster config epoch.",
 		"CLUSTER KEYSLOT key",
 		"    Return the hash slot for the specified key.",
 		"CLUSTER HELP",
