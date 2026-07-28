@@ -151,6 +151,15 @@ type ServerProperties struct {
 	StreamNodeMaxBytes     int64 `cfg:"stream-node-max-bytes"`
 	HLLSparseMaxBytes      int   `cfg:"hll-sparse-max-bytes"`
 
+	// Cluster announce / additional encoding / OOM CONFIG stubs (GET/SET only).
+	ClusterAnnounceIP      string `cfg:"cluster-announce-ip"`
+	ClusterAnnouncePort    int    `cfg:"cluster-announce-port"`
+	ClusterAnnounceBusPort int    `cfg:"cluster-announce-bus-port"`
+	StreamNodeMaxEntries   int64  `cfg:"stream-node-max-entries"`
+	HashMaxListpackValue   int    `cfg:"hash-max-listpack-value"`
+	SetMaxListpackEntries  int    `cfg:"set-max-listpack-entries"`
+	OOMScoreAdj            int    `cfg:"oom-score-adj"`
+
 	// ReplicaOf is Redis CONFIG replicaof/slaveof string ("host port" or empty when master).
 	ReplicaOf string `cfg:"replicaof"`
 	// ReplicaServeStaleData / ReplicaPriority are Redis CONFIG stubs.
@@ -252,6 +261,9 @@ func init() {
 		ZSetMaxListpackValue:   64,
 		StreamNodeMaxBytes:     4096,
 		HLLSparseMaxBytes:      3000,
+		StreamNodeMaxEntries:  100,
+		HashMaxListpackValue:  64,
+		SetMaxListpackEntries: 128,
 		ReplicaServeStaleData:      true,
 		ReplicaPriority:            100,
 		LuaTimeLimit:               5000,

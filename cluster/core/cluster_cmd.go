@@ -119,6 +119,26 @@ func execCluster(cluster *Cluster, c redis.Connection, cmdLine CmdLine) redis.Re
 			return protocol.MakeErrReply("ERR This instance has cluster support disabled")
 		}
 		return protocol.MakeOkReply()
+	case "SETNAME":
+		if len(cmdLine) != 3 {
+			return protocol.MakeErrReply("ERR wrong number of arguments for 'cluster|setname' command")
+		}
+		if cluster == nil {
+			return protocol.MakeErrReply("ERR This instance has cluster support disabled")
+		}
+		cluster.humanName = string(cmdLine[2])
+		return protocol.MakeOkReply()
+	case "GETNAME":
+		if len(cmdLine) != 2 {
+			return protocol.MakeErrReply("ERR wrong number of arguments for 'cluster|getname' command")
+		}
+		if cluster == nil {
+			return protocol.MakeErrReply("ERR This instance has cluster support disabled")
+		}
+		if cluster.humanName == "" {
+			return protocol.MakeNullBulkReply()
+		}
+		return protocol.MakeBulkReply([]byte(cluster.humanName))
 	case "REPLICATE":
 		if len(cmdLine) != 3 {
 			return protocol.MakeErrReply("ERR wrong number of arguments for 'cluster|replicate' command")
@@ -369,6 +389,10 @@ func execClusterHelp() redis.Reply {
 		"    Delete the node's own slots information.",
 		"CLUSTER MYSHARDID",
 		"    Return the shard id of this node.",
+		"CLUSTER SETNAME name",
+		"    Set a human readable node name.",
+		"CLUSTER GETNAME",
+		"    Return the human readable node name.",
 		"CLUSTER KEYSLOT key",
 		"    Return the hash slot for the specified key.",
 		"CLUSTER HELP",

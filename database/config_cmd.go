@@ -169,6 +169,13 @@ func getConfigMatches(pattern string) []configPair {
 		{"zset-max-listpack-value", strconv.Itoa(getZSetMaxListpackValue())},
 		{"stream-node-max-bytes", strconv.FormatInt(getStreamNodeMaxBytes(), 10)},
 		{"hll-sparse-max-bytes", strconv.Itoa(getHLLSparseMaxBytes())},
+		{"cluster-announce-ip", getClusterAnnounceIP()},
+		{"cluster-announce-port", strconv.Itoa(getClusterAnnouncePort())},
+		{"cluster-announce-bus-port", strconv.Itoa(getClusterAnnounceBusPort())},
+		{"stream-node-max-entries", strconv.FormatInt(getStreamNodeMaxEntries(), 10)},
+		{"hash-max-listpack-value", strconv.Itoa(getHashMaxListpackValue())},
+		{"set-max-listpack-entries", strconv.Itoa(getSetMaxListpackEntries())},
+		{"oom-score-adj", strconv.Itoa(getOOMScoreAdj())},
 		{"replicaof", getReplicaOf()},
 		{"slaveof", getReplicaOf()},
 		{"replica-serve-stale-data", boolToString(getReplicaServeStaleData())},
@@ -665,6 +672,44 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 				return protocol.MakeErrReply(fmt.Sprintf("ERR Invalid value for '%s'", key))
 			}
 			config.Properties.HLLSparseMaxBytes = n
+		case "cluster-announce-ip":
+			config.Properties.ClusterAnnounceIP = value
+		case "cluster-announce-port":
+			n, err := strconv.Atoi(value)
+			if err != nil || n < 0 {
+				return protocol.MakeErrReply(fmt.Sprintf("ERR Invalid value for '%s'", key))
+			}
+			config.Properties.ClusterAnnouncePort = n
+		case "cluster-announce-bus-port":
+			n, err := strconv.Atoi(value)
+			if err != nil || n < 0 {
+				return protocol.MakeErrReply(fmt.Sprintf("ERR Invalid value for '%s'", key))
+			}
+			config.Properties.ClusterAnnounceBusPort = n
+		case "stream-node-max-entries":
+			n, err := strconv.ParseInt(value, 10, 64)
+			if err != nil || n < 0 {
+				return protocol.MakeErrReply(fmt.Sprintf("ERR Invalid value for '%s'", key))
+			}
+			config.Properties.StreamNodeMaxEntries = n
+		case "hash-max-listpack-value":
+			n, err := strconv.Atoi(value)
+			if err != nil || n < 0 {
+				return protocol.MakeErrReply(fmt.Sprintf("ERR Invalid value for '%s'", key))
+			}
+			config.Properties.HashMaxListpackValue = n
+		case "set-max-listpack-entries":
+			n, err := strconv.Atoi(value)
+			if err != nil || n < 0 {
+				return protocol.MakeErrReply(fmt.Sprintf("ERR Invalid value for '%s'", key))
+			}
+			config.Properties.SetMaxListpackEntries = n
+		case "oom-score-adj":
+			n, err := strconv.Atoi(value)
+			if err != nil {
+				return protocol.MakeErrReply(fmt.Sprintf("ERR Invalid value for '%s'", key))
+			}
+			config.Properties.OOMScoreAdj = n
 		case "replicaof", "slaveof":
 			v := strings.TrimSpace(value)
 			if strings.EqualFold(v, "no one") || v == "" {
@@ -1152,6 +1197,55 @@ func getHLLSparseMaxBytes() int {
 		return 3000
 	}
 	return config.Properties.HLLSparseMaxBytes
+}
+
+func getClusterAnnounceIP() string {
+	if config.Properties == nil {
+		return ""
+	}
+	return config.Properties.ClusterAnnounceIP
+}
+
+func getClusterAnnouncePort() int {
+	if config.Properties == nil {
+		return 0
+	}
+	return config.Properties.ClusterAnnouncePort
+}
+
+func getClusterAnnounceBusPort() int {
+	if config.Properties == nil {
+		return 0
+	}
+	return config.Properties.ClusterAnnounceBusPort
+}
+
+func getStreamNodeMaxEntries() int64 {
+	if config.Properties == nil || config.Properties.StreamNodeMaxEntries <= 0 {
+		return 100
+	}
+	return config.Properties.StreamNodeMaxEntries
+}
+
+func getHashMaxListpackValue() int {
+	if config.Properties == nil || config.Properties.HashMaxListpackValue <= 0 {
+		return 64
+	}
+	return config.Properties.HashMaxListpackValue
+}
+
+func getSetMaxListpackEntries() int {
+	if config.Properties == nil || config.Properties.SetMaxListpackEntries <= 0 {
+		return 128
+	}
+	return config.Properties.SetMaxListpackEntries
+}
+
+func getOOMScoreAdj() int {
+	if config.Properties == nil {
+		return 0
+	}
+	return config.Properties.OOMScoreAdj
 }
 
 func getReplicaOf() string {

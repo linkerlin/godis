@@ -183,9 +183,24 @@ func (cmd *command) toDocsReply() redis.Reply {
 	result = append(result, []byte("complexity"))
 	result = append(result, []byte("O(1)"))
 	result = append(result, []byte("doc_flags"))
-	result = append(result, protocol.MakeEmptyMultiBulkReply().ToBytes())
+	result = append(result, protocol.MakeMultiBulkReply(cmd.docFlags()).ToBytes())
 
 	return protocol.MakeMultiBulkReply(result)
+}
+
+// docFlags returns Redis COMMAND DOCS documentary flags (e.g. syscmd).
+func (cmd *command) docFlags() [][]byte {
+	if cmd.extra == nil {
+		return [][]byte{}
+	}
+	out := make([][]byte, 0, 1)
+	for _, s := range cmd.extra.signs {
+		if s == redisFlagAdmin {
+			out = append(out, []byte("syscmd"))
+			break
+		}
+	}
+	return out
 }
 
 func (cmd *command) docsGroup() string {

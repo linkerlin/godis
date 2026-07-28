@@ -475,7 +475,10 @@ func GenGodisInfoString(section string, db *Server) []byte {
 			"active_defrag_hits:%d\r\n"+
 			"active_defrag_misses:%d\r\n"+
 			"active_defrag_key_hits:%d\r\n"+
-			"active_defrag_key_misses:%d\r\n",
+			"active_defrag_key_misses:%d\r\n"+
+			"eventloop_cycles:%d\r\n"+
+			"eventloop_duration_sum:%d\r\n"+
+			"eventloop_duration_max:%d\r\n",
 			serverStats.TotalConnectionsReceived,
 			serverStats.TotalCommandsProcessed,
 			getInstantaneousOpsPerSec(),
@@ -513,6 +516,9 @@ func GenGodisInfoString(section string, db *Server) []byte {
 			0,   // active_defrag_misses - N/A
 			0,   // active_defrag_key_hits - N/A
 			0,   // active_defrag_key_misses - N/A
+			0,   // eventloop_cycles
+			0,   // eventloop_duration_sum
+			0,   // eventloop_duration_max
 		)
 		return []byte(s)
 	case "cluster":

@@ -432,6 +432,14 @@ func isScoreBulkCmd(cmd string, args []string) bool {
 			}
 		}
 		return false
+	case "geosearch", "georadius", "georadiusbymember":
+		for _, a := range args {
+			u := strings.ToUpper(a)
+			if u == "WITHDIST" || u == "WITHCOORD" || u == "WITHHASH" {
+				return true
+			}
+		}
+		return false
 	case "zrange", "zrevrange", "zrangebyscore", "zrevrangebyscore", "zrandmember",
 		"zunion", "zinter", "zdiff":
 		for _, a := range args {
