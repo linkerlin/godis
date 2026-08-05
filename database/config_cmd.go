@@ -207,6 +207,9 @@ func getConfigMatches(pattern string) []configPair {
 		{"sqlite-mmap-size", strconv.FormatInt(config.Properties.SqliteMmapSize, 10)},
 	}
 
+	// Append the Redis 8.0 search-* namespace (mirrors FT.CONFIG values).
+	configs = append(configs, searchKebabPairs()...)
+
 	for _, cfg := range configs {
 		if patternMatch(pattern, cfg.key) {
 			matches = append(matches, cfg)
@@ -842,6 +845,13 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 			}
 			config.Properties.ReplBacklogSize = n
 		default:
+			// Redis 8.0 search-* config namespace (replaces FT.CONFIG).
+			if strings.HasPrefix(key, "search-") {
+				if !setSearchKebab(key, value) {
+					return protocol.MakeErrReply(fmt.Sprintf("ERR Invalid argument '%s' for CONFIG SET '%s'", value, key))
+				}
+				continue
+			}
 			return protocol.MakeErrReply(fmt.Sprintf("ERR Unsupported CONFIG parameter: %s", key))
 		}
 	}

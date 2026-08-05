@@ -2,6 +2,7 @@ package database
 
 import (
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -15,14 +16,73 @@ import (
 var (
 	ftConfigMu sync.RWMutex
 	ftConfig   = map[string]string{
-		"TIMEOUT":          "0",
-		"MAXSEARCHRESULTS": "10000",
-		"DEFAULT_DIALECT":  "1",
-		"ON_TIMEOUT":       "FAIL",
-		"MINPREFIX":        "2",
-		"MAXEXPANSIONS":    "200",
+		"TIMEOUT":             "0",
+		"MAXSEARCHRESULTS":    "10000",
+		"MAXAGGREGATERESULTS": "2147483648",
+		"DEFAULT_DIALECT":     "1",
+		"ON_TIMEOUT":          "FAIL",
+		"MINPREFIX":           "2",
+		"MAXEXPANSIONS":       "200",
 	}
 )
+
+// ftKebabMap maps the Redis 8.0 kebab-case CONFIG keys (the search-* namespace
+// that replaced FT.CONFIG in 8.0) to the internal ftConfig keys. Both directions
+// are used so CONFIG GET search-* and CONFIG SET search-* interoperate with
+// FT.CONFIG GET/SET on the same underlying values.
+var ftKebabMap = map[string]string{
+	"search-timeout":              "TIMEOUT",
+	"search-on-timeout":           "ON_TIMEOUT",
+	"search-max-search-results":   "MAXSEARCHRESULTS",
+	"search-max-aggregate-results": "MAXAGGREGATERESULTS",
+	"search-min-prefix":           "MINPREFIX",
+	"search-max-expansions":       "MAXEXPANSIONS",
+	"search-default-dialect":      "DEFAULT_DIALECT",
+}
+
+// searchKebabPairs returns the search-* config pairs (kebab key → value) for
+// CONFIG GET, sourced from the live ftConfig. Sorted by key for stable output.
+func searchKebabPairs() []configPair {
+	ftConfigMu.RLock()
+	defer ftConfigMu.RUnlock()
+	out := make([]configPair, 0, len(ftKebabMap))
+	for kebab, internal := range ftKebabMap {
+		out = append(out, configPair{key: kebab, value: ftConfig[internal]})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].key < out[j].key })
+	return out
+}
+
+// setSearchKebab applies a CONFIG SET search-* <value> by routing it to the
+// internal ftConfig key with the same validation FT.CONFIG SET uses. Returns
+// false when the value is invalid (caller emits the error reply).
+func setSearchKebab(kebab, value string) bool {
+	internal, ok := ftKebabMap[kebab]
+	if !ok {
+		return false
+	}
+	ftConfigMu.Lock()
+	defer ftConfigMu.Unlock()
+	switch internal {
+	case "TIMEOUT", "MAXSEARCHRESULTS", "MAXAGGREGATERESULTS", "MINPREFIX", "MAXEXPANSIONS":
+		if _, err := strconv.Atoi(value); err != nil {
+			return false
+		}
+	case "DEFAULT_DIALECT":
+		d, err := strconv.Atoi(value)
+		if err != nil || !validFTDialect(d) {
+			return false
+		}
+	case "ON_TIMEOUT":
+		u := strings.ToUpper(value)
+		if u != "FAIL" && u != "RETURN" {
+			return false
+		}
+		value = u
+	}
+	ftConfig[internal] = value
+	return true
+}
 
 // execFTConfig FT.CONFIG GET|SET ...
 func execFTConfig(db *DB, args [][]byte) redis.Reply {
