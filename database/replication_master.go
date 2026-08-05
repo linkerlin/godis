@@ -595,7 +595,9 @@ func (server *Server) execWait(args [][]byte) redis.Reply {
 	}
 }
 
-// execWaitAOF WAITAOF numlocal numreplicas timeout — stub: report local AOF + synced replicas without waiting.
+// execWaitAOF WAITAOF numlocal numreplicas timeout — wait until local AOF
+// durability and/or replica ACK offsets satisfy the request (or timeout ms).
+// Returns [local_ok (0|1), replica_count].
 func (server *Server) execWaitAOF(args [][]byte) redis.Reply {
 	if len(args) != 3 {
 		return protocol.MakeArgNumErrReply("waitaof")
@@ -612,19 +614,31 @@ func (server *Server) execWaitAOF(args [][]byte) redis.Reply {
 	if err != nil || timeoutMs < 0 {
 		return protocol.MakeErrReply("ERR timeout is not an integer or out of range")
 	}
-	_ = numLocal
-	_ = numReplicas
-	_ = timeoutMs
 
-	local := int64(0)
-	if config.Properties != nil && config.Properties.AppendOnly {
-		local = 1
+	deadline := time.Now().Add(time.Duration(timeoutMs) * time.Millisecond)
+	for {
+		localOK := int64(0)
+		if numLocal <= 0 {
+			localOK = 1
+		} else if config.Properties != nil && config.Properties.AppendOnly {
+			if server.persister != nil {
+				server.persister.Fsync()
+			}
+			localOK = 1
+		}
+
+		server.nudgeSlavesForWait()
+		replicasOK := server.countSyncedSlaves()
+
+		satisfied := localOK == 1 && (numReplicas <= 0 || replicasOK >= numReplicas)
+		if satisfied || timeoutMs == 0 || time.Now().After(deadline) {
+			return protocol.MakeMultiRawReply([]redis.Reply{
+				protocol.MakeIntReply(localOK),
+				protocol.MakeIntReply(replicasOK),
+			})
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
-	replicas := server.countSyncedSlaves()
-	return protocol.MakeMultiRawReply([]redis.Reply{
-		protocol.MakeIntReply(local),
-		protocol.MakeIntReply(replicas),
-	})
 }
 
 func (server *Server) nudgeSlavesForWait() {

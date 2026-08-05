@@ -64,9 +64,11 @@ func TestM2beFTReturnASAndWithCursor(t *testing.T) {
 		t.Fatalf("expected alias t in reply: %s", s)
 	}
 
-	bad := db.Exec(nil, utils.ToCmdLine("FT.SEARCH", "m2be", "hello", "WITHCURSOR"))
-	if !protocol.IsErrorReply(bad) || !strings.Contains(string(bad.ToBytes()), "WITHCURSOR") {
-		t.Fatalf("WITHCURSOR: %s", bad.ToBytes())
+	// FT.SEARCH WITHCURSOR is implemented (reuses FT.CURSOR table); see
+	// TestFTSearchWithCursorPages.
+	searchCur := db.Exec(nil, utils.ToCmdLine("FT.SEARCH", "m2be", "hello", "WITHCURSOR", "COUNT", "1"))
+	if protocol.IsErrorReply(searchCur) {
+		t.Fatalf("SEARCH WITHCURSOR should be supported: %s", searchCur.ToBytes())
 	}
 	// FT.AGGREGATE WITHCURSOR is implemented in RediSearch Phase B: see
 	// TestFTAggregateWithCursorPages in redisearch_phase_b_test.go.

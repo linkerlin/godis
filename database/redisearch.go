@@ -625,6 +625,8 @@ func execFTSearch(db *DB, args [][]byte) redis.Reply {
 	withScores := false
 	withPayloads := false
 	withSortKeys := false
+	withCursor := false
+	cursorCount := 10
 	type returnFieldSpec struct {
 		source string
 		name   string // reply key (AS alias or source)
@@ -654,7 +656,18 @@ func execFTSearch(db *DB, args [][]byte) redis.Reply {
 			withSortKeys = true
 			opts.WithSortKeys = true
 		case "WITHCURSOR":
-			return protocol.MakeErrReply("ERR WITHCURSOR is not supported")
+			withCursor = true
+			if i+1 < len(args) && strings.EqualFold(string(args[i+1]), "COUNT") {
+				if i+2 >= len(args) {
+					return protocol.MakeSyntaxErrReply()
+				}
+				n, err := strconv.Atoi(string(args[i+2]))
+				if err != nil || n <= 0 {
+					return protocol.MakeErrReply("ERR Invalid COUNT value")
+				}
+				cursorCount = n
+				i += 2
+			}
 		case "DIALECT":
 			if i+1 >= len(args) {
 				return protocol.MakeSyntaxErrReply()
@@ -939,6 +952,14 @@ func execFTSearch(db *DB, args [][]byte) redis.Reply {
 	if max := getFTConfigInt("MAXSEARCHRESULTS"); max > 0 && opts.Limit > max {
 		opts.Limit = max
 	}
+	if withCursor && opts.Limit < cursorCount*10 {
+		// Pull enough hits to page; COUNT controls page size, not total.
+		if max := getFTConfigInt("MAXSEARCHRESULTS"); max > 0 {
+			opts.Limit = max
+		} else if opts.Limit < 1000 {
+			opts.Limit = 1000
+		}
+	}
 
 	// Expand query terms into their FT.SYNADD synonyms for this index.
 	engine.SetSynonymExpander(func(term string) []string {
@@ -973,7 +994,36 @@ func execFTSearch(db *DB, args [][]byte) redis.Reply {
 	replies := make([]redis.Reply, 0, 1+3*len(results.Results))
 	replies = append(replies, protocol.MakeIntReply(int64(results.Total)))
 
+	var cursorRows [][]byte
 	for _, result := range results.Results {
+		if withCursor {
+			// Pack one document as a single multi-bulk row for cursor paging:
+			// [id, score?, fields...] flattened; COUNT is in documents.
+			rowArgs := [][]byte{[]byte(result.Document.ID)}
+			if withScores {
+				rowArgs = append(rowArgs, []byte(fmt.Sprintf("%.6f", result.Score)))
+			}
+			if !noContent {
+				var fields [][]byte
+				if returnSpecified {
+					for _, rf := range returnFields {
+						if val, ok := result.Fields[rf.source]; ok {
+							fields = append(fields, []byte(rf.name))
+							fields = append(fields, []byte(fmt.Sprintf("%v", val)))
+						}
+					}
+				} else {
+					for k, v := range result.Fields {
+						fields = append(fields, []byte(k))
+						fields = append(fields, []byte(fmt.Sprintf("%v", v)))
+					}
+				}
+				rowArgs = append(rowArgs, protocol.MakeMultiBulkReply(fields).ToBytes())
+			}
+			cursorRows = append(cursorRows, protocol.MakeMultiBulkReply(rowArgs).ToBytes())
+			continue
+		}
+
 		replies = append(replies, protocol.MakeBulkReply([]byte(result.Document.ID)))
 
 		if withScores {
@@ -1054,6 +1104,9 @@ func execFTSearch(db *DB, args [][]byte) redis.Reply {
 		}
 	}
 
+	if withCursor {
+		return ftBuildCursorPage(indexName, results.Total, cursorRows, cursorCount)
+	}
 	return protocol.MakeMultiRawReply(replies)
 }
 

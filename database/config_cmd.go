@@ -816,7 +816,6 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 			}
 			config.Properties.SqliteMmapSize = n
 		case "notify-keyspace-events":
-			// Stub: store flags string only; keyspace notifications not implemented.
 			config.Properties.NotifyKeyspaceEvents = value
 		case "activedefrag":
 			ok, b := config.ParseConfigBool(value)

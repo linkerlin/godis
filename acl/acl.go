@@ -446,11 +446,11 @@ func GetCommandCategories(cmd string) []string {
 
 // CommandCategoryMap maps categories to their commands
 var CommandCategoryMap = map[string][]string{
-	"@keyspace":    {"del", "dump", "exists", "expire", "expireat", "keys", "move", "persist", "pexpire", "pexpireat", "pttl", "randomkey", "rename", "renamenx", "restore", "sort", "ttl", "type", "scan"},
+	"@keyspace":    {"del", "dump", "exists", "expire", "expireat", "keys", "migrate", "move", "persist", "pexpire", "pexpireat", "pttl", "randomkey", "rename", "renamenx", "restore", "sort", "ttl", "type", "scan"},
 	"@read":        {"get", "mget", "exists", "ttl", "pttl", "type", "strlen", "getrange", "hexists", "hget", "hgetall", "hkeys", "hvals", "hlen", "hmget", "hstrlen", "lindex", "llen", "lrange", "scard", "sismember", "smembers", "srandmember", "sscan", "zcard", "zcount", "zrange", "zrangebyscore", "zrank", "zrevrange", "zrevrangebyscore", "zrevrank", "zscore", "zscan"},
-	"@write":       {"set", "mset", "setex", "psetex", "setnx", "incr", "incrby", "incrbyfloat", "decr", "decrby", "append", "setrange", "hdel", "hset", "hsetnx", "hmset", "hincrby", "hincrbyfloat", "lpush", "lpushx", "lpop", "rpush", "rpushx", "rpop", "lrem", "lset", "ltrim", "sadd", "scard", "srem", "spop", "zadd", "zincrby", "zrem", "zremrangebyrank", "zremrangebyscore"},
+	"@write":       {"set", "mset", "setex", "psetex", "setnx", "incr", "incrby", "incrbyfloat", "decr", "decrby", "append", "setrange", "hdel", "hset", "hsetnx", "hmset", "hincrby", "hincrbyfloat", "lpush", "lpushx", "lpop", "rpush", "rpushx", "rpop", "lrem", "lset", "ltrim", "sadd", "scard", "srem", "spop", "zadd", "zincrby", "zrem", "zremrangebyrank", "zremrangebyscore", "migrate"},
 	"@admin":       {"acl", "bgrewriteaof", "bgsave", "client", "cluster", "config", "dbsize", "debug", "flushall", "flushdb", "info", "lastsave", "monitor", "role", "save", "shutdown", "slaveof", "slowlog", "sync"},
-	"@dangerous":   {"flushall", "flushdb", "keys", "shutdown", "debug", "config"},
+	"@dangerous":   {"flushall", "flushdb", "keys", "migrate", "shutdown", "debug", "config"},
 	"@connection":  {"auth", "echo", "ping", "quit", "select", "swapdb"},
 	"@transaction": {"discard", "exec", "multi", "unwatch", "watch"},
 	"@pubsub":      {"psubscribe", "publish", "pubsub", "punsubscribe", "subscribe", "unsubscribe"},

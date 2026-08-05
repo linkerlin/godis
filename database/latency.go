@@ -29,6 +29,60 @@ var latencyMonitor = &LatencyMonitor{
 	maxEvents: 160, // 每个事件类型最多保存 160 个事件
 }
 
+// per-command latency histograms for LATENCY HISTOGRAM (microseconds buckets).
+var (
+	cmdLatencyMu   sync.Mutex
+	cmdLatencyHist = make(map[string]*cmdLatencyBuckets)
+)
+
+type cmdLatencyBuckets struct {
+	// Redis-ish cumulative: count of samples and sum of micros; coarse buckets.
+	count  uint64
+	sumUs  uint64
+	maxUs  uint64
+	bucket [16]uint64 // powers of two: <1us,<2,<4,...,<32768,<inf
+}
+
+// RecordCommandLatency records a sample for LATENCY HISTOGRAM.
+func RecordCommandLatency(cmdName string, duration time.Duration) {
+	us := duration.Microseconds()
+	if us < 0 {
+		return
+	}
+	cmdLatencyMu.Lock()
+	h := cmdLatencyHist[cmdName]
+	if h == nil {
+		h = &cmdLatencyBuckets{}
+		cmdLatencyHist[cmdName] = h
+	}
+	h.count++
+	h.sumUs += uint64(us)
+	if uint64(us) > h.maxUs {
+		h.maxUs = uint64(us)
+	}
+	idx := 0
+	v := us
+	for idx < len(h.bucket)-1 && v >= 1 {
+		v >>= 1
+		idx++
+	}
+	h.bucket[idx]++
+	cmdLatencyMu.Unlock()
+}
+
+// ResetCommandLatency clears histogram data (optionally filtered by names).
+func ResetCommandLatency(names []string) {
+	cmdLatencyMu.Lock()
+	defer cmdLatencyMu.Unlock()
+	if len(names) == 0 {
+		cmdLatencyHist = make(map[string]*cmdLatencyBuckets)
+		return
+	}
+	for _, n := range names {
+		delete(cmdLatencyHist, n)
+	}
+}
+
 // RecordLatency 记录延迟事件
 func RecordLatency(eventName string, duration time.Duration) {
 	latencyMonitor.Record(eventName, duration)
@@ -109,10 +163,10 @@ func execLatency(args [][]byte) redis.Reply {
 		return execLatencyGraph(string(args[1]))
 	case "RESET":
 		if len(args) > 1 {
-			// 重置指定事件
 			return execLatencyReset(args[1:])
 		}
 		latencyMonitor.Reset()
+		ResetCommandLatency(nil)
 		return protocol.MakeOkReply()
 	case "HISTOGRAM":
 		return execLatencyHistogram(args[1:])
@@ -262,10 +316,39 @@ func execLatencyReset(eventNames [][]byte) redis.Reply {
 	return protocol.MakeOkReply()
 }
 
-// execLatencyHistogram LATENCY HISTOGRAM [command ...] — empty stub (no per-command samples yet).
+// execLatencyHistogram LATENCY HISTOGRAM [command ...] — per-command latency samples.
 func execLatencyHistogram(args [][]byte) redis.Reply {
-	_ = args
-	return protocol.MakeEmptyMultiBulkReply()
+	cmdLatencyMu.Lock()
+	defer cmdLatencyMu.Unlock()
+
+	want := map[string]struct{}{}
+	for _, a := range args {
+		want[strings.ToLower(string(a))] = struct{}{}
+	}
+
+	result := make([]redis.Reply, 0)
+	for name, h := range cmdLatencyHist {
+		if len(want) > 0 {
+			if _, ok := want[name]; !ok {
+				continue
+			}
+		}
+		// Shape: [cmd, [calls, sum_us, ...bucket pairs...]] simplified flat map.
+		inner := []redis.Reply{
+			protocol.MakeBulkReply([]byte("calls")),
+			protocol.MakeIntReply(int64(h.count)),
+			protocol.MakeBulkReply([]byte("histogram_usec")),
+			protocol.MakeIntReply(int64(h.sumUs)),
+			protocol.MakeBulkReply([]byte("histogram_usec_max")),
+			protocol.MakeIntReply(int64(h.maxUs)),
+		}
+		result = append(result, protocol.MakeBulkReply([]byte(name)))
+		result = append(result, protocol.MakeMultiRawReply(inner))
+	}
+	if len(result) == 0 {
+		return protocol.MakeEmptyMultiBulkReply()
+	}
+	return protocol.MakeMultiRawReply(result)
 }
 
 // execLatencyHelp 获取帮助信息
@@ -276,7 +359,7 @@ func execLatencyHelp() redis.Reply {
 		"LATENCY DOCTOR - Return a human readable latency analysis report.",
 		"LATENCY GRAPH <event> - Return an ASCII latency graph for the specified event.",
 		"LATENCY RESET [event ...] - Reset latency data of one or more events.",
-		"LATENCY HISTOGRAM [command ...] - Return latency histogram for commands (empty until sampled).",
+		"LATENCY HISTOGRAM [command ...] - Return latency histogram for sampled commands.",
 		"LATENCY HELP - Display this help text.",
 	}
 

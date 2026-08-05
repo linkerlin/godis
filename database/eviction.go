@@ -1,6 +1,7 @@
 package database
 
 import (
+	"math/rand"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -47,6 +48,11 @@ func (em *EvictionManager) SetSamples(samples int) {
 	}
 }
 
+const (
+	lfuInitVal  = 5
+	lfuLogFactor = 10
+)
+
 // Touch records an access for LRU/LFU accounting.
 func (em *EvictionManager) Touch(key string) {
 	if em == nil {
@@ -54,8 +60,32 @@ func (em *EvictionManager) Touch(key string) {
 	}
 	em.mu.Lock()
 	em.lastAccess[key] = time.Now()
-	em.accessCount[key]++
+	switch em.policy {
+	case memory.AllKeysLFU, memory.VolatileLFU:
+		em.accessCount[key] = lfuLogIncr(em.accessCount[key])
+	default:
+		em.accessCount[key]++
+	}
 	em.mu.Unlock()
+}
+
+// lfuLogIncr approximates Redis LFULogIncr: probabilistic counter 0..255.
+func lfuLogIncr(counter uint64) uint64 {
+	if counter == 0 {
+		return lfuInitVal
+	}
+	if counter >= 255 {
+		return 255
+	}
+	baseval := float64(counter) - lfuInitVal
+	if baseval < 0 {
+		baseval = 0
+	}
+	p := 1.0 / (baseval*float64(lfuLogFactor) + 1)
+	if rand.Float64() < p {
+		counter++
+	}
+	return counter
 }
 
 // SeedIdle sets last-access so OBJECT IDLETIME reports approximately idleSec.

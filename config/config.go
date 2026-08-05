@@ -77,7 +77,8 @@ type ServerProperties struct {
 	// Hz is Redis server cron frequency (INFO hz / CONFIG hz); Godis uses it as a reported value.
 	Hz int `cfg:"hz"`
 
-	// NotifyKeyspaceEvents is a Redis-compatible CONFIG stub (events not emitted yet).
+	// NotifyKeyspaceEvents is Redis-compatible; when non-empty, keyspace/keyevent
+	// Pub/Sub notifications are emitted (see database/keyspace_notify.go).
 	NotifyKeyspaceEvents string `cfg:"notify-keyspace-events"`
 
 	// ActiveDefrag is a Redis-compatible CONFIG stub (no real defrag).

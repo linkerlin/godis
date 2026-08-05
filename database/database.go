@@ -305,6 +305,7 @@ func (db *DB) PutEntity(key string, entity *database.DataEntity) int {
 	if cb := db.insertCallback; ret > 0 && cb != nil {
 		cb(db.index, key, entity)
 	}
+	notifyKeyspaceEvent(db, "set", key)
 	return ret
 }
 
@@ -321,11 +322,18 @@ func (db *DB) PutIfAbsent(key string, entity *database.DataEntity) int {
 	if cb := db.insertCallback; ret > 0 && cb != nil {
 		cb(db.index, key, entity)
 	}
+	if ret > 0 {
+		notifyKeyspaceEvent(db, "set", key)
+	}
 	return ret
 }
 
 // Remove the given key from db
 func (db *DB) Remove(key string) {
+	db.removeKey(key, true)
+}
+
+func (db *DB) removeKey(key string, notifyDel bool) {
 	raw, deleted := db.data.RemoveWithLock(key)
 	db.ttlMap.Remove(key)
 	taskKey := genExpireTask(key)
@@ -339,6 +347,9 @@ func (db *DB) Remove(key string) {
 			entity = raw.(*database.DataEntity)
 		}
 		cb(db.index, key, entity)
+	}
+	if deleted > 0 && notifyDel {
+		notifyKeyspaceEvent(db, "del", key)
 	}
 }
 
@@ -434,6 +445,7 @@ func genExpireTask(key string) string {
 // Expire sets ttlCmd of key
 func (db *DB) Expire(key string, expireTime time.Time) {
 	db.ttlMap.Put(key, expireTime)
+	notifyKeyspaceEvent(db, "expire", key)
 	taskKey := genExpireTask(key)
 	timewheel.At(expireTime, taskKey, func() {
 		keys := []string{key}
@@ -449,7 +461,8 @@ func (db *DB) Expire(key string, expireTime time.Time) {
 		expired := time.Now().After(expireTime)
 		if expired {
 			atomic.AddUint64(&serverStats.ExpiredKeys, 1)
-			db.Remove(key)
+			notifyKeyspaceEvent(db, "expired", key)
+			db.removeKey(key, false)
 		}
 	})
 }
@@ -473,7 +486,8 @@ func (db *DB) IsExpired(key string) bool {
 		// Track stale expiration (key was accessed but already expired)
 		atomic.AddUint64(&serverStats.ExpiredKeys, 1)
 		serverStats.ExpiredStale++
-		db.Remove(key)
+		notifyKeyspaceEvent(db, "expired", key)
+		db.removeKey(key, false)
 	}
 	return expired
 }

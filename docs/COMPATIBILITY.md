@@ -25,7 +25,9 @@
 
 **RediSearch Phase B（2026-07-29）：** FT.AGGREGATE `WITHCURSOR [COUNT n]` + `FT.CURSOR READ/DEL`（内存游标表，按 COUNT 分页，耗尽返回游标 0，空闲 1 分钟惰性回收）；FT.AGGREGATE `APPLY <expr> AS <name>` 最小表达式子集（`@field` 引用、数字字面量、`+ - * /` 标准优先级、括号、一元负号、非数值 `+` 退化为字符串拼接），按出现位置分为 GROUPBY 前（作用于逐文档字段，供后续 REDUCE 引用）与 GROUPBY 后（作用于结果行）；顺带修正：无 GROUPBY 且无 REDUCE 时按文档逐行返回（此前会错误地把所有文档折叠成一个空字段分组）。不含 FT.SEARCH WITHCURSOR（仍延期，见下）。
 
-仍延期：集群 CRC16/MOVED、HLL 互通、完整 FAILOVER 协调、精确 `used_memory`、FUNCTION DUMP 官方互通、MIGRATE、Vector **量化**（Q8/BIN）、RediSearch Phase C（SEARCH WITHCURSOR / 真 BM25 / FT+KNN / 完整 DIALECT）等（见计划文档）。
+仍延期：集群 CRC16/MOVED、HLL 互通、完整 FAILOVER 协调、精确 jemalloc 级 `used_memory`、FUNCTION DUMP 官方互通、Vector **量化**（Q8/BIN）、真 BM25/FT+KNN/完整 DIALECT 等（见计划文档）。
+
+**兼容续研批次（2026-07-29）：** WAITAOF 真等待（本地 AOF fsync + 副本 ACK 循环）；LATENCY 命令路径采样 + HISTOGRAM；`notify-keyspace-events` 最小 K/E/g/$/x/e/A 发射；MIGRATE（DUMP→RESTORE→DEL，COPY/REPLACE/AUTH/KEYS）；LFU 对数计数逼近 Redis；FT.SEARCH WITHCURSOR（复用 FT.CURSOR 表）。
 
 **Vector HNSW（2026-07-29）：** 内存 f32 HNSW 图已接入 VADD/VSIM/VREM/VINFO/VLINKS；`M`/`EF`（构建）与 VSIM `EF`/`TRUTH` 生效；小集合（≤64）与 `TRUTH` 走精确扫描。不含 Q8/BIN 量化与图持久化（DUMP 仍只存向量，恢复后重建图）。
 
