@@ -8,6 +8,7 @@ import (
 
 	"github.com/linkerlin/godis/datastruct/redisearch"
 	"github.com/linkerlin/godis/interface/redis"
+	"github.com/linkerlin/godis/lib/utils"
 	"github.com/linkerlin/godis/redis/protocol"
 )
 
@@ -74,6 +75,9 @@ func execFTConfig(db *DB, args [][]byte) redis.Reply {
 			val = u
 		}
 		ftConfig[key] = val
+		// Persist the setting so it survives AOF replay (DEFAULT_DIALECT,
+		// MINPREFIX, MAXEXPANSIONS, TIMEOUT, etc.).
+		db.addAof(utils.ToCmdLine3("ft.config", args...))
 		return protocol.MakeOkReply()
 	case "HELP":
 		return protocol.MakeMultiBulkReply([][]byte{

@@ -6,6 +6,7 @@ import (
 
 	database2 "github.com/linkerlin/godis/interface/database"
 	"github.com/linkerlin/godis/interface/redis"
+	"github.com/linkerlin/godis/lib/utils"
 	"github.com/linkerlin/godis/redis/protocol"
 )
 
@@ -228,7 +229,10 @@ func execFTDictAdd(db *DB, args [][]byte) redis.Reply {
 			added++
 		}
 	}
-
+	// Persist so the dictionary survives AOF replay / restart.
+	if added > 0 {
+		db.addAof(utils.ToCmdLine3("ft.dictadd", args...))
+	}
 	return protocol.MakeIntReply(int64(added))
 }
 
@@ -261,7 +265,9 @@ func execFTDictDel(db *DB, args [][]byte) redis.Reply {
 			deleted++
 		}
 	}
-
+	if deleted > 0 {
+		db.addAof(utils.ToCmdLine3("ft.dictdel", args...))
+	}
 	return protocol.MakeIntReply(int64(deleted))
 }
 
