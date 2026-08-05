@@ -104,8 +104,8 @@ func TestP5OptionalBoost(t *testing.T) {
 // reply, in ranked order. Returns nil if the reply shape is unrecognized.
 func ftSearchScores(t *testing.T, r redis.Reply) []float64 {
 	t.Helper()
-	mr, ok := r.(*protocol.MultiRawReply)
-	if !ok {
+	mr := ftSearchMultiRaw(r)
+	if mr == nil {
 		return nil
 	}
 	var out []float64

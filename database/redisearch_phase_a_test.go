@@ -10,8 +10,8 @@ import (
 
 func searchTotal(t *testing.T, reply redis.Reply) int64 {
 	t.Helper()
-	multi, ok := reply.(*protocol.MultiRawReply)
-	if !ok || len(multi.Replies) < 1 {
+	multi := ftSearchMultiRaw(reply)
+	if multi == nil || len(multi.Replies) < 1 {
 		t.Fatalf("expected MultiRawReply, got %s", reply.ToBytes())
 	}
 	total, ok := multi.Replies[0].(*protocol.IntReply)
@@ -164,8 +164,8 @@ func TestFTGeoInlineRangeQuery(t *testing.T) {
 	}
 
 	reply := db.Exec(nil, utils.ToCmdLine("FT.SEARCH", "idx_geo", "@loc:[116.397128 39.916527 10 km]"))
-	multi, ok := reply.(*protocol.MultiRawReply)
-	if !ok || len(multi.Replies) < 2 {
+	multi := ftSearchMultiRaw(reply)
+	if multi == nil || len(multi.Replies) < 2 {
 		t.Fatalf("search: %s", reply.ToBytes())
 	}
 	if total := searchTotal(t, reply); total != 1 {

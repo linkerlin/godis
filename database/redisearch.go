@@ -1283,7 +1283,16 @@ func execFTSearch(db *DB, args [][]byte) redis.Reply {
 	if withCursor {
 		return ftBuildCursorPage(indexName, results.Total, cursorRows, cursorCount)
 	}
-	return protocol.MakeMultiRawReply(replies)
+	// Wrap in FTSearchReply so RESP3 connections get the Redis 8.x map shape;
+	// RESP2 connections see the unchanged positional array via ToBytes().
+	var attrNames []string
+	if returnSpecified {
+		attrNames = make([]string, 0, len(returnFields))
+		for _, rf := range returnFields {
+			attrNames = append(attrNames, rf.name)
+		}
+	}
+	return MakeFTSearchReply(protocol.MakeMultiRawReply(replies), int64(results.Total), withScores, withPayloads, withSortKeys, noContent, attrNames)
 }
 
 // summarizeFTText truncates field text for FT.SEARCH SUMMARIZE (minimal single fragment).
@@ -1613,7 +1622,8 @@ func execFTAggregate(db *DB, args [][]byte) redis.Reply {
 		reply = append(reply, aggRowBytes(group))
 	}
 
-	return protocol.MakeMultiBulkReply(reply)
+	// Wrap for dual-form RESP2/RESP3 output (RESP3 gets the 8.x map shape).
+	return MakeFTAggregateReply(protocol.MakeMultiBulkReply(reply), int64(result.Total))
 }
 
 // aggRowBytes encodes one aggregation result row in the wire format used by
@@ -1786,15 +1796,72 @@ func execFTInfo(db *DB, args [][]byte) redis.Reply {
 
 	info := engine.Info()
 
-	// Convert to flat array
-	var reply [][]byte
-
+	// Build a MapReply so RESP2 connections get the flat k/v array and RESP3
+	// connections get a proper map. Nested values (attributes, index_definition)
+	// are converted recursively so structure is preserved in both protocols.
+	m := protocol.MakeMapReply()
 	for k, v := range info {
-		reply = append(reply, []byte(k))
-		reply = append(reply, []byte(fmt.Sprintf("%v", v)))
+		m.Put(k, interfaceToReply(v))
 	}
+	return m
+}
 
-	return protocol.MakeMultiBulkReply(reply)
+// interfaceToReply converts an arbitrary Go value (as produced by engine.Info)
+// into a redis.Reply, preserving structure: maps become MapReply, slices become
+// arrays, scalars become bulk/int replies. Used by FT.INFO so both RESP2 and
+// RESP3 clients see correctly nested output.
+func interfaceToReply(v interface{}) redis.Reply {
+	switch x := v.(type) {
+	case nil:
+		return protocol.MakeNullBulkReply()
+	case bool:
+		if x {
+			return protocol.MakeIntReply(1)
+		}
+		return protocol.MakeIntReply(0)
+	case int:
+		return protocol.MakeIntReply(int64(x))
+	case int64:
+		return protocol.MakeIntReply(x)
+	case float64:
+		return protocol.MakeBulkReply([]byte(strconv.FormatFloat(x, 'f', -1, 64)))
+	case string:
+		return protocol.MakeBulkReply([]byte(x))
+	case []byte:
+		return protocol.MakeBulkReply(x)
+	case map[string]interface{}:
+		sub := protocol.MakeMapReply()
+		for k, sv := range x {
+			sub.Put(k, interfaceToReply(sv))
+		}
+		return sub
+	case map[string]bool:
+		sub := protocol.MakeMapReply()
+		for k, sv := range x {
+			sub.Put(k, interfaceToReply(sv))
+		}
+		return sub
+	case []string:
+		elems := make([]redis.Reply, 0, len(x))
+		for _, s := range x {
+			elems = append(elems, protocol.MakeBulkReply([]byte(s)))
+		}
+		return protocol.MakeMultiRawReply(elems)
+	case []map[string]interface{}:
+		elems := make([]redis.Reply, 0, len(x))
+		for _, sm := range x {
+			elems = append(elems, interfaceToReply(sm))
+		}
+		return protocol.MakeMultiRawReply(elems)
+	case []interface{}:
+		elems := make([]redis.Reply, 0, len(x))
+		for _, sv := range x {
+			elems = append(elems, interfaceToReply(sv))
+		}
+		return protocol.MakeMultiRawReply(elems)
+	default:
+		return protocol.MakeBulkReply([]byte(fmt.Sprintf("%v", v)))
+	}
 }
 
 // execFTList lists all indexes

@@ -116,10 +116,7 @@ func TestP2eKNNFlatSearch(t *testing.T) {
 		"FT.SEARCH", "p2e", "*=>[KNN 2 @vec $blob AS dist]",
 		"PARAMS", "2", "blob", qblob, "DIALECT", "2", "RETURN", "1", "dist",
 	))
-	mr, ok := r.(*protocol.MultiRawReply)
-	if !ok {
-		t.Fatalf("reply shape: %T %s", r, r.ToBytes())
-	}
+	mr := ftSearchMultiRaw(r)
 	// First element is total count (2).
 	total, ok := mr.Replies[0].(*protocol.IntReply)
 	if !ok || total.Code != 2 {
@@ -178,10 +175,7 @@ func TestP2gHybridKNNPrefilter(t *testing.T) {
 		"FT.SEARCH", "p2g", "@price:[0 10]=>[KNN 1 @vec $blob]",
 		"PARAMS", "2", "blob", string(f32le(0.0)), "DIALECT", "2", "NOCONTENT",
 	))
-	mr, ok := r.(*protocol.MultiRawReply)
-	if !ok {
-		t.Fatalf("reply shape: %T %s", r, r.ToBytes())
-	}
+	mr := ftSearchMultiRaw(r)
 	total, _ := mr.Replies[0].(*protocol.IntReply)
 	if total == nil || total.Code != 1 {
 		t.Fatalf("hybrid KNN should return 1 hit, got %s", r.ToBytes())
@@ -223,10 +217,7 @@ func TestP2fHNSWKNN(t *testing.T) {
 		"FT.SEARCH", "p2f", "*=>[KNN 2 @vec $blob]",
 		"PARAMS", "2", "blob", string(f32le(0, 0)), "DIALECT", "2", "NOCONTENT",
 	))
-	mr, ok := r.(*protocol.MultiRawReply)
-	if !ok {
-		t.Fatalf("reply shape: %T %s", r, r.ToBytes())
-	}
+	mr := ftSearchMultiRaw(r)
 	total, _ := mr.Replies[0].(*protocol.IntReply)
 	if total == nil || total.Code != 2 {
 		t.Fatalf("HNSW KNN should return 2 hits, got %s", r.ToBytes())

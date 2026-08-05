@@ -138,10 +138,15 @@ func TestP4cFilterBooleanComposition(t *testing.T) {
 }
 
 // aggTotal extracts the total result count from a FT.AGGREGATE reply (the
-// leading count in either a MultiBulkReply or MultiRawReply).
+// leading count in either a MultiBulkReply, MultiRawReply, or the dual-form
+// FTAggregateReply wrapper).
 func aggTotal(r redis.Reply) int64 {
 	if r == nil {
 		return -1
+	}
+	// Unwrap the dual-form RESP3 aggregate reply.
+	if ag, ok := r.(*FTAggregateReply); ok {
+		r = ag.resp2
 	}
 	switch rep := r.(type) {
 	case *protocol.MultiBulkReply:

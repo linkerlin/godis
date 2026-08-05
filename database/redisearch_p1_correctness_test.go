@@ -161,11 +161,28 @@ func TestP1eMaxExpansionsCapsPrefix(t *testing.T) {
 	asserts.AssertStatusReply(t, db.Exec(nil, utils.ToCmdLine("FT.CONFIG", "SET", "MAXEXPANSIONS", "200")), "OK")
 }
 
+// ftSearchMultiRaw unwraps a FT.SEARCH reply (which is now *FTSearchReply for
+// RESP3 dual-form support) down to its underlying *MultiRawReply so existing
+// type assertions keep working. Returns nil if the shape is unrecognized.
+func ftSearchMultiRaw(r redis.Reply) *protocol.MultiRawReply {
+	if ft, ok := r.(*FTSearchReply); ok {
+		r = ft.resp2
+	}
+	if mr, ok := r.(*protocol.MultiRawReply); ok {
+		return mr
+	}
+	return nil
+}
+
 // searchTotalIs reports whether a FT.SEARCH reply's total hit count equals want.
 func searchTotalIs(t *testing.T, r redis.Reply, want int64) bool {
 	t.Helper()
 	if r == nil {
 		return false
+	}
+	// Unwrap the dual-form RESP3 reply to the underlying RESP2 array.
+	if ft, ok := r.(*FTSearchReply); ok {
+		r = ft.resp2
 	}
 	switch rep := r.(type) {
 	case *protocol.MultiRawReply:
