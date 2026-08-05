@@ -674,11 +674,21 @@ func ExpandSynonyms(node QueryNode, expand func(string) []string) QueryNode {
 	}
 }
 
-// parseRangeOrGeo turns the contents of "@field:[ ... ]" into a GeoRangeNode
-// when it looks like "lon lat radius unit" (exactly 4 tokens, last one a
-// recognized distance unit), otherwise falls back to a numeric range.
+// parseRangeOrGeo turns the contents of "@field:[ ... ]" into:
+//   - a GeoShapeNode when it looks like "WITHIN|CONTAINS|INTERSECTS|DISJOINT $param"
+//   - a GeoRangeNode when it looks like "lon lat radius unit"
+//   - a numeric range otherwise.
 func parseRangeOrGeo(field, raw string) QueryNode {
 	parts := strings.Fields(raw)
+	// GEOSHAPE predicate: "<op> $param" (DIALECT 3+).
+	if len(parts) == 2 {
+		switch strings.ToUpper(parts[0]) {
+		case "WITHIN", "CONTAINS", "INTERSECTS", "DISJOINT":
+			if strings.HasPrefix(parts[1], "$") {
+				return &GeoShapeNode{Field: field, Op: strings.ToUpper(parts[0]), Param: parts[1]}
+			}
+		}
+	}
 	if len(parts) == 4 {
 		switch strings.ToLower(parts[3]) {
 		case "m", "km", "mi", "ft":
@@ -691,6 +701,23 @@ func parseRangeOrGeo(field, raw string) QueryNode {
 		}
 	}
 	return parseNumericRange(field, raw)
+}
+
+// GeoShapeNode evaluates a GEOSHAPE spatial predicate @field:[OP $param]. The
+// param's WKT value is resolved from SearchOptions.Params at post-filter time
+// (engine.filterByGeoshapeNodes). Evaluate narrows to docs that HAVE the field,
+// mirroring the GeoRangeNode approach, and the engine applies the real spatial
+// test as a post-filter.
+type GeoShapeNode struct {
+	Field string
+	Op    string // WITHIN | CONTAINS | INTERSECTS | DISJOINT
+	Param string // $-parameter name carrying the query WKT
+}
+
+// Evaluate returns doc IDs that have a value for the field (the engine's
+// post-filter narrows by the actual spatial predicate).
+func (n *GeoShapeNode) Evaluate(idx *InvertedIndex) []string {
+	return idx.FieldPresentDocIDs(n.Field)
 }
 
 // QueryParser parses query strings into query nodes

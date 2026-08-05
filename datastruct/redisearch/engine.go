@@ -29,6 +29,10 @@ type RediSearchEngine struct {
 	// from the field's VectorConfig; populated by AddDocument/DeleteDocument.
 	vectorIndices map[string]*FTVectorIndex // field name -> vector index
 
+	// geoshapeIndices stores parsed GEOSHAPE values per field/doc for spatial
+	// predicate queries (@geom:[WITHIN $poly]). map[field]docID -> *GeoShape.
+	geoshapeIndices map[string]map[string]*GeoShape
+
 	// Autocomplete for suggestions
 	autocomplete *Autocomplete
 
@@ -135,6 +139,7 @@ func (e *RediSearchEngine) CreateIndex(fields []*Field) error {
 		e.schema[field.Name] = field
 		e.index.AddField(field)
 		e.registerVectorField(field)
+		e.registerGeoshapeField(field)
 	}
 	return nil
 }
@@ -150,6 +155,7 @@ func (e *RediSearchEngine) AlterAddFields(fields []*Field) error {
 		e.schema[field.Name] = field
 		e.index.AddField(field)
 		e.registerVectorField(field)
+		e.registerGeoshapeField(field)
 	}
 	return nil
 }
@@ -164,6 +170,20 @@ func (e *RediSearchEngine) registerVectorField(field *Field) {
 		e.vectorIndices = make(map[string]*FTVectorIndex)
 	}
 	e.vectorIndices[field.Name] = NewFTVectorIndex(field.VectorConfig)
+}
+
+// registerGeoshapeField initializes the per-field docID→shape map for a
+// GEOSHAPE field. Caller must hold e.mu.
+func (e *RediSearchEngine) registerGeoshapeField(field *Field) {
+	if field.Type != FieldTypeGeoShape {
+		return
+	}
+	if e.geoshapeIndices == nil {
+		e.geoshapeIndices = make(map[string]map[string]*GeoShape)
+	}
+	if e.geoshapeIndices[field.Name] == nil {
+		e.geoshapeIndices[field.Name] = make(map[string]*GeoShape)
+	}
 }
 
 // VectorIndex returns the per-field vector index, or nil if the field is not a
@@ -205,6 +225,7 @@ func (e *RediSearchEngine) AddDocument(docID string, fields map[string]interface
 	}
 	e.indexGeoFieldsLocked(doc)
 	e.indexVectorFieldsLocked(docID, doc)
+	e.indexGeoshapeFieldsLocked(docID, doc)
 	return nil
 }
 
@@ -219,7 +240,40 @@ func (e *RediSearchEngine) DeleteDocument(docID string) bool {
 	for _, vi := range e.vectorIndices {
 		vi.DeleteVector(docID)
 	}
+	for _, gi := range e.geoshapeIndices {
+		delete(gi, docID)
+	}
 	return e.index.DeleteDocument(docID)
+}
+
+// indexGeoshapeFieldsLocked parses and stores GEOSHAPE field values. Values
+// arrive as a WKT string (Redis stores GEOSHAPE as WKT text). A malformed WKT
+// is dropped (counted as an indexing failure, mirroring Redis). Caller holds e.mu.
+func (e *RediSearchEngine) indexGeoshapeFieldsLocked(docID string, doc *Document) {
+	for name, store := range e.geoshapeIndices {
+		raw, ok := doc.Fields[name]
+		if !ok || raw == nil {
+			delete(store, docID)
+			continue
+		}
+		wkt := fmt.Sprintf("%v", raw)
+		shape, err := ParseWKT(wkt)
+		if err != nil {
+			// Bad WKT: drop the doc's shape for this field; Redis counts it in
+			// hash_indexing_failures. ponytail: surface via FT.INFO counters.
+			delete(store, docID)
+			continue
+		}
+		store[docID] = shape
+	}
+}
+
+// GeoshapeIndex returns the per-field docID→shape map for a GEOSHAPE field, or
+// nil if the field isn't a GEOSHAPE field. Used by GeoShapeNode.Evaluate.
+func (e *RediSearchEngine) GeoshapeIndex(field string) map[string]*GeoShape {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	return e.geoshapeIndices[field]
 }
 
 // indexVectorFieldsLocked stores VECTOR field blobs into the per-field vector
@@ -428,6 +482,12 @@ func (e *RediSearchEngine) Search(query string, opts *SearchOptions) (*SearchRes
 	} else {
 		docIDs = node.Evaluate(e.index)
 		docIDs = e.filterByGeoNodes(docIDs, node)
+		// GEOSHAPE spatial predicates: GeoShapeNode.Evaluate only narrows to
+		// "field present"; the real predicate runs here against the query WKT
+		// resolved from opts.Params.
+		if opts != nil && len(opts.Params) > 0 {
+			docIDs = e.filterByGeoshapeNodes(docIDs, node, opts.Params)
+		}
 	}
 
 	// Apply geo filter if specified
@@ -652,6 +712,9 @@ type SearchOptions struct {
 	Scorer string
 	// Payload carries the FT.SEARCH PAYLOAD value used by the HAMMING scorer.
 	Payload []byte
+	// Params carries FT.SEARCH PARAMS name→value bindings, used by GEOSHAPE
+	// spatial predicates (@geom:[WITHIN $poly]) to resolve the query WKT.
+	Params map[string][]byte
 }
 
 // FieldFilter represents a filter on a field
@@ -1715,6 +1778,75 @@ func (e *RediSearchEngine) applyGeoFilter(docIDs []string, opts *GeoFilterOption
 	}
 
 	return results
+}
+
+// filterByGeoshapeNodes narrows docIDs by every inline @field:[OP $param]
+// GEOSHAPE predicate in the AST. The GeoShapeNode's Evaluate only returned docs
+// that have the field; this pass resolves the $param WKT from params, parses it,
+// and applies the actual spatial predicate via RelateGeoShape.
+func (e *RediSearchEngine) filterByGeoshapeNodes(docIDs []string, node QueryNode, params map[string][]byte) []string {
+	var nodes []*GeoShapeNode
+	collectGeoshapeNodes(node, &nodes)
+	if len(nodes) == 0 {
+		return docIDs
+	}
+	keep := make(map[string]bool, len(docIDs))
+	for _, id := range docIDs {
+		keep[id] = true
+	}
+	for _, gn := range nodes {
+		store := e.geoshapeIndices[gn.Field]
+		if store == nil {
+			// Not a GEOSHAPE field; the node shouldn't have matched, drop all.
+			return nil
+		}
+		wktBytes, ok := params[strings.TrimPrefix(gn.Param, "$")]
+		if !ok {
+			return nil // missing param -> no matches
+		}
+		queryShape, err := ParseWKT(string(wktBytes))
+		if err != nil {
+			return nil
+		}
+		for id := range keep {
+			docShape, has := store[id]
+			if !has {
+				delete(keep, id)
+				continue
+			}
+			if !RelateGeoShape(docShape, queryShape, gn.Op) {
+				delete(keep, id)
+			}
+		}
+	}
+	out := make([]string, 0, len(keep))
+	for _, id := range docIDs {
+		if keep[id] {
+			out = append(out, id)
+		}
+	}
+	return out
+}
+
+// collectGeoshapeNodes walks the AST gathering all GeoShapeNode predicates.
+func collectGeoshapeNodes(node QueryNode, out *[]*GeoShapeNode) {
+	if node == nil {
+		return
+	}
+	switch n := node.(type) {
+	case *GeoShapeNode:
+		*out = append(*out, n)
+	case *AndNode:
+		collectGeoshapeNodes(n.Left, out)
+		collectGeoshapeNodes(n.Right, out)
+	case *OrNode:
+		collectGeoshapeNodes(n.Left, out)
+		collectGeoshapeNodes(n.Right, out)
+	case *NotNode:
+		collectGeoshapeNodes(n.Child, out)
+	case *OptionalNode:
+		collectGeoshapeNodes(n.Child, out)
+	}
 }
 
 // filterByGeoNodes narrows docIDs by every inline @field:[lon lat radius unit]

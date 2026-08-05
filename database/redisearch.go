@@ -1090,6 +1090,7 @@ func execFTSearch(db *DB, args [][]byte) redis.Reply {
 	if len(params) > 0 && dialect < 2 {
 		return protocol.MakeErrReply("ERR PARAMS requires DIALECT 2 or higher")
 	}
+	opts.Params = params
 	if opts.TimeoutMs == 0 {
 		if t := getFTConfigInt("TIMEOUT"); t > 0 {
 			opts.TimeoutMs = t
