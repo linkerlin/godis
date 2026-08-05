@@ -211,6 +211,9 @@ func execSet(db *DB, args [][]byte) redis.Reply {
 		result = db.PutIfExists(key, entity)
 	}
 	if result > 0 {
+		// SET stores a string, which is never FT-indexed. If the key previously
+		// held a HASH or JSON value, drop its now-stale index entry.
+		removeKeyFromIndex(db, key)
 		if absExpire >= 0 {
 			expireTime := time.Unix(0, absExpire*int64(time.Millisecond))
 			db.Expire(key, expireTime)

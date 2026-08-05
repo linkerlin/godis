@@ -127,6 +127,10 @@ func execRename(db *DB, args [][]byte) redis.Reply {
 		db.Expire(dest, expireTime)
 	}
 	db.addAof(utils.ToCmdLine3("rename", args...))
+	// RENAME moves content: drop src from any FT index, and reindex dest (which
+	// may newly match a prefix or carry a different type than the old dest).
+	removeKeyFromIndex(db, src)
+	reindexKey(db, dest)
 	return &protocol.OkReply{}
 }
 
@@ -160,6 +164,8 @@ func execRenameNx(db *DB, args [][]byte) redis.Reply {
 		db.Expire(dest, expireTime)
 	}
 	db.addAof(utils.ToCmdLine3("renamenx", args...))
+	removeKeyFromIndex(db, src)
+	reindexKey(db, dest)
 	return protocol.MakeIntReply(1)
 }
 
@@ -240,6 +246,10 @@ func execExpireWithFlags(db *DB, key string, expireAt time.Time, flagArgs [][]by
 	}
 	db.Expire(key, expireAt)
 	db.addAof(aof.MakeExpireCmd(key, expireAt).Args)
+	// TTL changes don't alter doc content but Redis re-evaluates the document
+	// (FILTER may depend on TTL). reindexKey is a cheap no-op for non-indexed
+	// keys and a same-content re-add for indexed ones.
+	reindexKey(db, key)
 	return protocol.MakeIntReply(1)
 }
 
@@ -369,6 +379,7 @@ func execPersist(db *DB, args [][]byte) redis.Reply {
 
 	db.Persist(key)
 	db.addAof(utils.ToCmdLine3("persist", args...))
+	reindexKey(db, key)
 	return protocol.MakeIntReply(1)
 }
 
@@ -487,6 +498,9 @@ func execCopy(mdb *Server, conn redis.Connection, args [][]byte) redis.Reply {
 		destDB.Expire(destKey, expire)
 	}
 	mdb.AddAof(conn.GetDBIndex(), utils.ToCmdLine3("copy", args...))
+	// Reindex the destination (which may be in a different DB). The type-aware
+	// reindex is a no-op for non-indexed types. Source is untouched by COPY.
+	reindexKey(destDB, destKey)
 	return protocol.MakeIntReply(1)
 }
 

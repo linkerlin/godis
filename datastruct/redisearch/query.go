@@ -115,11 +115,17 @@ type OptionalNode struct {
 	Child QueryNode
 }
 
-// Evaluate evaluates an optional node - returns empty since it's optional and doesn't filter
+// Evaluate evaluates an optional node. Per Redis semantics an optional term
+// does NOT filter the result set (a doc is never excluded for lacking it), so
+// Evaluate returns every indexed document. The scoring pass uses
+// CollectOptionalTerms to boost docs that actually contain the term.
 func (n *OptionalNode) Evaluate(idx *InvertedIndex) []string {
-	// Optional terms don't filter results, they just affect scoring
-	// Return empty list - optional nodes don't add to the filter
-	return nil
+	all := idx.GetAllDocuments()
+	out := make([]string, 0, len(all))
+	for _, d := range all {
+		out = append(out, d.ID)
+	}
+	return out
 }
 
 // GetMatching returns the documents that actually match the optional term
@@ -136,6 +142,56 @@ type PrefixNode struct {
 // Evaluate evaluates a prefix node
 func (n *PrefixNode) Evaluate(idx *InvertedIndex) []string {
 	return idx.PrefixSearch(n.Prefix, n.Field)
+}
+
+// SuffixNode represents a suffix search (*suffix). Redis accelerates this with
+// WITHSUFFIXTRIE; without it the engine brute-forces the term dictionary.
+type SuffixNode struct {
+	Suffix string
+	Field  string
+}
+
+// Evaluate evaluates a suffix node
+func (n *SuffixNode) Evaluate(idx *InvertedIndex) []string {
+	return idx.SuffixSearch(n.Suffix, n.Field)
+}
+
+// InfixNode represents a substring/contains search (*infix*).
+type InfixNode struct {
+	Infix string
+	Field string
+}
+
+// Evaluate evaluates an infix node
+func (n *InfixNode) Evaluate(idx *InvertedIndex) []string {
+	return idx.InfixSearch(n.Infix, n.Field)
+}
+
+// NumericCompareNode evaluates a DIALECT-2 comparison against a numeric field:
+// @n == 5, @n != 5, @n > 5, @n >= 5, @n < 5, @n <= 5. The doc's stored value
+// for Field is parsed as a float and tested with Op. Docs whose field is absent
+// or non-numeric never match (except !=, which matches them).
+type NumericCompareNode struct {
+	Field string
+	Op    string // == != > >= < <=
+	Value float64
+}
+
+// Evaluate evaluates a numeric comparison node
+func (n *NumericCompareNode) Evaluate(idx *InvertedIndex) []string {
+	return idx.NumericCompare(n.Field, n.Op, n.Value)
+}
+
+// MissingNode evaluates ismissing(@field): docs that have no value for Field.
+// Redis requires the field to be declared INDEXMISSING for the query to work;
+// we return matching docs regardless (the declaration is informational here).
+type MissingNode struct {
+	Field string
+}
+
+// Evaluate evaluates an ismissing node
+func (n *MissingNode) Evaluate(idx *InvertedIndex) []string {
+	return idx.MissingDocIDs(n.Field)
 }
 
 // FuzzyNode represents a fuzzy (approximate) search
@@ -193,6 +249,163 @@ func ApplyPhraseOpts(node QueryNode, slop int, inOrder bool) {
 	}
 }
 
+// fuzzyDistance returns the Levenshtein distance encoded by %markers around a
+// term: %t% = 1, %%t%% = 2, %%%t%%% = 3 (Redis max). Returns 0 when the term is
+// not a balanced fuzzy expression (so callers can treat it as a literal term).
+func fuzzyDistance(term string) int {
+	lead := 0
+	for lead < len(term) && term[lead] == '%' {
+		lead++
+	}
+	if lead == 0 || lead > 3 {
+		return 0
+	}
+	trail := 0
+	for i := len(term) - 1; i >= 0 && term[i] == '%'; i-- {
+		trail++
+	}
+	if trail != lead {
+		return 0
+	}
+	if len(term)-lead-trail <= 0 {
+		return 0 // empty inner term
+	}
+	return lead
+}
+
+// CollectOptionalTerms walks the AST and returns the literal term tokens that
+// appear under an OptionalNode (~term). The scorer uses these to boost docs
+// that contain the optional term without requiring it for matching.
+func CollectOptionalTerms(node QueryNode) []string {
+	var out []string
+	var walk func(n QueryNode)
+	walk = func(n QueryNode) {
+		if n == nil {
+			return
+		}
+		switch nn := n.(type) {
+		case *OptionalNode:
+			out = append(out, termTokens(nn.Child)...)
+		case *AndNode:
+			walk(nn.Left)
+			walk(nn.Right)
+		case *OrNode:
+			walk(nn.Left)
+			walk(nn.Right)
+		case *NotNode:
+			walk(nn.Child)
+		}
+	}
+	walk(node)
+	return out
+}
+
+// termTokens returns the literal term strings carried by a node (TermNode and
+// the terms inside a PhraseNode). Used by CollectOptionalTerms for scoring.
+func termTokens(n QueryNode) []string {
+	switch nn := n.(type) {
+	case *TermNode:
+		return []string{strings.ToLower(nn.Term)}
+	case *PhraseNode:
+		out := make([]string, 0, len(nn.Terms))
+		for _, t := range nn.Terms {
+			out = append(out, strings.ToLower(t))
+		}
+		return out
+	case *AndNode, *OrNode:
+		// Optional of a compound is unusual; collect both sides.
+		switch c := n.(type) {
+		case *AndNode:
+			return append(termTokens(c.Left), termTokens(c.Right)...)
+		case *OrNode:
+			return append(termTokens(c.Left), termTokens(c.Right)...)
+		}
+	}
+	return nil
+}
+
+// RequiresDialect2 reports whether the AST contains any DIALECT-2-only construct
+// (comparison operators or ismissing). The engine uses this to reject such
+// queries when the declared dialect is < 2, matching Redis behavior.
+func RequiresDialect2(node QueryNode) bool {
+	if node == nil {
+		return false
+	}
+	switch n := node.(type) {
+	case *NumericCompareNode, *MissingNode:
+		return true
+	case *AndNode:
+		return RequiresDialect2(n.Left) || RequiresDialect2(n.Right)
+	case *OrNode:
+		return RequiresDialect2(n.Left) || RequiresDialect2(n.Right)
+	case *NotNode:
+		return RequiresDialect2(n.Child)
+	case *OptionalNode:
+		return RequiresDialect2(n.Child)
+	}
+	return false
+}
+
+// ValidateExpansions walks the query AST and enforces FT.CONFIG MINPREFIX and
+// MAXEXPANSIONS against the live index term dictionary:
+//   - MINPREFIX: every PrefixNode whose prefix is shorter than minPrefix errors
+//     ("Query prefix length is less than MINPREFIX").
+//   - MAXEXPANSIONS: every PrefixNode/FuzzyNode whose dictionary expansion
+//     exceeds maxExpansions errors ("Max terms expansion exceeded").
+//
+// minPrefix <= 0 or maxExpansions <= 0 disable the corresponding check. This
+// mirrors RediSearch, which rejects oversized expansions rather than silently
+// truncating. The validator is called from engine.Search after parsing.
+func ValidateExpansions(node QueryNode, idx *InvertedIndex, minPrefix, maxExpansions int) error {
+	if node == nil {
+		return nil
+	}
+	switch n := node.(type) {
+	case *PrefixNode:
+		if minPrefix > 0 && len(n.Prefix) < minPrefix {
+			return fmt.Errorf("Query prefix length is less than MINPREFIX")
+		}
+		if maxExpansions > 0 {
+			if c := idx.PrefixTermCount(n.Prefix, n.Field); c > maxExpansions {
+				return fmt.Errorf("Max terms expansion exceeded")
+			}
+		}
+	case *FuzzyNode:
+		if maxExpansions > 0 {
+			if c := idx.FuzzyTermCount(n.Term, n.Field, n.MaxDist); c > maxExpansions {
+				return fmt.Errorf("Max terms expansion exceeded")
+			}
+		}
+	case *SuffixNode:
+		if maxExpansions > 0 {
+			if c := idx.SuffixTermCount(n.Suffix, n.Field); c > maxExpansions {
+				return fmt.Errorf("Max terms expansion exceeded")
+			}
+		}
+	case *InfixNode:
+		if maxExpansions > 0 {
+			if c := idx.InfixTermCount(n.Infix, n.Field); c > maxExpansions {
+				return fmt.Errorf("Max terms expansion exceeded")
+			}
+		}
+	case *AndNode:
+		if err := ValidateExpansions(n.Left, idx, minPrefix, maxExpansions); err != nil {
+			return err
+		}
+		return ValidateExpansions(n.Right, idx, minPrefix, maxExpansions)
+	case *OrNode:
+		if err := ValidateExpansions(n.Left, idx, minPrefix, maxExpansions); err != nil {
+			return err
+		}
+		return ValidateExpansions(n.Right, idx, minPrefix, maxExpansions)
+	case *NotNode:
+		return ValidateExpansions(n.Child, idx, minPrefix, maxExpansions)
+	case *OptionalNode:
+		return ValidateExpansions(n.Child, idx, minPrefix, maxExpansions)
+	}
+	return nil
+}
+
 // ExpandInFields restricts unscoped terms/phrases to the given fields (OR across fields).
 func ExpandInFields(node QueryNode, fields []string) QueryNode {
 	if node == nil || len(fields) == 0 {
@@ -226,6 +439,20 @@ func ExpandInFields(node QueryNode, fields []string) QueryNode {
 		}
 		return orFieldTerms(n.Prefix, fields, func(prefix, field string) QueryNode {
 			return &PrefixNode{Prefix: prefix, Field: field}
+		})
+	case *SuffixNode:
+		if n.Field != "" {
+			return n
+		}
+		return orFieldTerms(n.Suffix, fields, func(suffix, field string) QueryNode {
+			return &SuffixNode{Suffix: suffix, Field: field}
+		})
+	case *InfixNode:
+		if n.Field != "" {
+			return n
+		}
+		return orFieldTerms(n.Infix, fields, func(infix, field string) QueryNode {
+			return &InfixNode{Infix: infix, Field: field}
 		})
 	case *FuzzyNode:
 		if n.Field != "" {
@@ -553,27 +780,42 @@ func (p *QueryParser) Parse(query string) (QueryNode, error) {
 			continue
 		}
 		
-		// Check for prefix search
-		if strings.HasSuffix(term, "*") && !strings.HasPrefix(term, "%") {
-			prefix := term[:len(term)-1]
-			var node QueryNode = &PrefixNode{Prefix: prefix, Field: field}
+		// Wildcard / fuzzy detection. Order matters: fuzzy (%term%) before
+		// suffix (*term) before infix (*term*) before prefix (term*). Each
+		// branch constructs the appropriate node and applies pending negate.
+		makeNode := func(n QueryNode) QueryNode {
 			if negateNext {
-				node = &NotNode{Child: node}
 				negateNext = false
+				return &NotNode{Child: n}
 			}
-			nodes = append(nodes, node)
+			return n
+		}
+
+		// Fuzzy: %t% (dist 1), %%t%% (dist 2), %%%t%%% (dist 3, max).
+		if dist := fuzzyDistance(term); dist > 0 {
+			inner := strings.Trim(term, "%")
+			nodes = append(nodes, makeNode(&FuzzyNode{Term: inner, Field: field, MaxDist: dist}))
 			continue
 		}
-		
-		// Check for fuzzy search %term% or %term
-		if strings.HasPrefix(term, "%") && strings.HasSuffix(term, "%") && len(term) > 2 {
-			fuzzyTerm := term[1 : len(term)-1]
-			var node QueryNode = &FuzzyNode{Term: fuzzyTerm, Field: field, MaxDist: 1}
-			if negateNext {
-				node = &NotNode{Child: node}
-				negateNext = false
-			}
-			nodes = append(nodes, node)
+
+		// Infix: *infix* (contains). Must check before suffix (leading *).
+		if len(term) > 2 && strings.HasPrefix(term, "*") && strings.HasSuffix(term, "*") {
+			infix := term[1 : len(term)-1]
+			nodes = append(nodes, makeNode(&InfixNode{Infix: infix, Field: field}))
+			continue
+		}
+
+		// Suffix: *suffix.
+		if strings.HasPrefix(term, "*") && !strings.HasSuffix(term, "*") && len(term) > 1 {
+			suffix := term[1:]
+			nodes = append(nodes, makeNode(&SuffixNode{Suffix: suffix, Field: field}))
+			continue
+		}
+
+		// Prefix: prefix*.
+		if strings.HasSuffix(term, "*") && !strings.HasPrefix(term, "*") && len(term) > 1 {
+			prefix := term[:len(term)-1]
+			nodes = append(nodes, makeNode(&PrefixNode{Prefix: prefix, Field: field}))
 			continue
 		}
 		
@@ -734,8 +976,9 @@ func tokenizeWithQuotes(input string) []string {
 
 // ExpressionParser for complex boolean expressions
 type ExpressionParser struct {
-	input string
-	pos   int
+	input   string
+	pos     int
+	dialect int // 0 or 1 = D1 precedence (| looser than space); >= 2 = D2 (| tighter)
 }
 
 // NewExpressionParser creates a new expression parser
@@ -743,10 +986,51 @@ func NewExpressionParser(input string) *ExpressionParser {
 	return &ExpressionParser{input: input}
 }
 
+// SetDialect configures D1 vs D2 precedence. dialect >= 2 makes `|` bind
+// tighter than whitespace-separated terms (Redis DIALECT 2 behavior).
+func (p *ExpressionParser) SetDialect(d int) { p.dialect = d }
+
 // Parse parses a boolean expression
 // Supports: term, "phrase", @field:term, @field:{tag}, (expr), expr AND expr, expr OR expr, NOT expr
 func (p *ExpressionParser) Parse() (QueryNode, error) {
+	if p.dialect >= 2 {
+		return p.parseAndD2()
+	}
 	return p.parseOr()
+}
+
+// parseAndD2 is the DIALECT 2 top level: whitespace separates OrExpr groups
+// that are ANDed together, so `|` (inside parseOrD2) binds tighter than space.
+// `a b | c` parses as `a (b | c)` under D2.
+func (p *ExpressionParser) parseAndD2() (QueryNode, error) {
+	left, err := p.parseOrD2()
+	if err != nil {
+		return nil, err
+	}
+	for p.matchKeyword("AND") || p.peekTerm() {
+		right, err := p.parseOrD2()
+		if err != nil {
+			return nil, err
+		}
+		left = &AndNode{Left: left, Right: right}
+	}
+	return left, nil
+}
+
+// parseOrD2 collects | -joined primaries (tighter than the surrounding AND).
+func (p *ExpressionParser) parseOrD2() (QueryNode, error) {
+	left, err := p.parseNot()
+	if err != nil {
+		return nil, err
+	}
+	for p.match("|") || p.matchKeyword("OR") {
+		right, err := p.parseNot()
+		if err != nil {
+			return nil, err
+		}
+		left = &OrNode{Left: left, Right: right}
+	}
+	return left, nil
 }
 
 func (p *ExpressionParser) parseOr() (QueryNode, error) {
@@ -791,13 +1075,43 @@ func (p *ExpressionParser) parseNot() (QueryNode, error) {
 		}
 		return &NotNode{Child: child}, nil
 	}
-	
+	// ~ prefix marks an optional term (boosts score, never filters).
+	if p.match("~") {
+		child, err := p.parseNot()
+		if err != nil {
+			return nil, err
+		}
+		return &OptionalNode{Child: child}, nil
+	}
+
 	return p.parsePrimary()
 }
 
 func (p *ExpressionParser) parsePrimary() (QueryNode, error) {
 	p.skipWhitespace()
-	
+
+	// ismissing(@field) — DIALECT 2 function query. Detect before '(' / '@'.
+	if p.matchKeyword("ISMISSING") {
+		p.skipWhitespace()
+		if !p.match("(") {
+			return nil, fmt.Errorf("expected '(' after ismissing")
+		}
+		p.skipWhitespace()
+		if !p.match("@") {
+			return nil, fmt.Errorf("ismissing expects a @field argument")
+		}
+		fieldStart := p.pos
+		for p.pos < len(p.input) && (isAlphaNum(rune(p.input[p.pos])) || p.input[p.pos] == '_') {
+			p.pos++
+		}
+		field := p.input[fieldStart:p.pos]
+		p.skipWhitespace()
+		if !p.match(")") {
+			return nil, fmt.Errorf("expected ')' to close ismissing")
+		}
+		return &MissingNode{Field: field}, nil
+	}
+
 	if p.match("(") {
 		node, err := p.parseOr()
 		if err != nil {
@@ -809,22 +1123,85 @@ func (p *ExpressionParser) parsePrimary() (QueryNode, error) {
 		return node, nil
 	}
 	
-	// Parse field specification
-	field := ""
+	// Parse field specification: @field  or  @f1|f2|f3 (DIALECT 2 multi-field).
+	fields := []string{}
 	if p.match("@") {
-		fieldStart := p.pos
-		for p.pos < len(p.input) && (isAlphaNum(rune(p.input[p.pos])) || p.input[p.pos] == '_') {
+		specStart := p.pos
+		for p.pos < len(p.input) && (isAlphaNum(rune(p.input[p.pos])) || p.input[p.pos] == '_' || p.input[p.pos] == '|') {
 			p.pos++
 		}
-		field = p.input[fieldStart:p.pos]
+		spec := p.input[specStart:p.pos]
+		if spec == "" {
+			return nil, fmt.Errorf("expected field name after '@'")
+		}
+		fields = strings.Split(spec, "|")
+
+		// DIALECT 2 comparison operators: @n == 5, @n != 5, @n > 5, ...
+		// These appear WITHOUT a colon and only over a single numeric field.
+		if op := p.matchCompareOp(); op != "" {
+			if len(fields) > 1 {
+				return nil, fmt.Errorf("comparison operator cannot apply to multiple fields")
+			}
+			p.skipWhitespace()
+			numStart := p.pos
+			for p.pos < len(p.input) && !isWhitespace(rune(p.input[p.pos])) && p.input[p.pos] != ')' && p.input[p.pos] != '|' {
+				p.pos++
+			}
+			numStr := strings.TrimSpace(p.input[numStart:p.pos])
+			v, perr := strconv.ParseFloat(numStr, 64)
+			if perr != nil {
+				return nil, fmt.Errorf("invalid numeric value '%s' in comparison", numStr)
+			}
+			return &NumericCompareNode{Field: fields[0], Op: op, Value: v}, nil
+		}
+
 		if !p.match(":") {
 			return nil, fmt.Errorf("expected ':' after field name")
 		}
 	}
-	
-	// Parse term or phrase
+
+	primaryField := ""
+	if len(fields) > 0 {
+		primaryField = fields[0]
+	}
+
+	atom, err := p.parseAtom(primaryField)
+	if err != nil {
+		return nil, err
+	}
+	// Multi-field: OR-expand the atom across the remaining fields.
+	for fi := 1; fi < len(fields); fi++ {
+		cloned := withField(atom, fields[fi])
+		if cloned == nil {
+			// Atom type doesn't support field reassignment (e.g. tag/range);
+			// fall back to the first-field atom only.
+			break
+		}
+		atom = &OrNode{Left: atom, Right: cloned}
+	}
+	return atom, nil
+}
+
+// matchCompareOp returns the comparison operator at the current position (one
+// of ==, !=, >=, <=, >, <) or "" when none matches. The two-char ops are tried
+// first so ">=" isn't misread as ">".
+func (p *ExpressionParser) matchCompareOp() string {
 	p.skipWhitespace()
-	
+	for _, op := range []string{"==", "!=", ">=", "<=", ">", "<"} {
+		if strings.HasPrefix(p.input[p.pos:], op) {
+			p.pos += len(op)
+			return op
+		}
+	}
+	return ""
+}
+
+// parseAtom parses the value side following a field specifier (or an unscoped
+// term): tag list {...}, numeric/geo range [...], phrase "...", or a bare
+// term/prefix/fuzzy token. field is the field scope ("" for unscoped).
+func (p *ExpressionParser) parseAtom(field string) (QueryNode, error) {
+	p.skipWhitespace()
+
 	if p.match("{") {
 		// Tag list: @field:{ tag | tag }
 		tagStart := p.pos
@@ -847,7 +1224,7 @@ func (p *ExpressionParser) parsePrimary() (QueryNode, error) {
 		p.match("]")
 		return parseRangeOrGeo(field, strings.TrimSpace(raw)), nil
 	}
-	
+
 	if p.match("\"") {
 		// Phrase — tokenize into PhraseNode (ordered; SLOP applied later via opts)
 		phraseStart := p.pos
@@ -866,25 +1243,66 @@ func (p *ExpressionParser) parsePrimary() (QueryNode, error) {
 		}
 		return &PhraseNode{Terms: terms, Field: field, Slop: 0, InOrder: true}, nil
 	}
-	
+
 	// Simple term or prefix
 	termStart := p.pos
 	for p.pos < len(p.input) && !isWhitespace(rune(p.input[p.pos])) && p.input[p.pos] != ')' && p.input[p.pos] != '|' {
 		p.pos++
 	}
-	
+
 	if termStart == p.pos {
 		return nil, fmt.Errorf("expected term at position %d", p.pos)
 	}
-	
+
 	term := p.input[termStart:p.pos]
-	
-	// Check for prefix
-	if strings.HasSuffix(term, "*") && len(term) > 1 {
+
+	// Wildcard / fuzzy detection (kept in sync with the fallback QueryParser).
+	if dist := fuzzyDistance(term); dist > 0 {
+		return &FuzzyNode{Term: strings.Trim(term, "%"), Field: field, MaxDist: dist}, nil
+	}
+	if len(term) > 2 && strings.HasPrefix(term, "*") && strings.HasSuffix(term, "*") {
+		return &InfixNode{Infix: term[1 : len(term)-1], Field: field}, nil
+	}
+	if strings.HasPrefix(term, "*") && !strings.HasSuffix(term, "*") && len(term) > 1 {
+		return &SuffixNode{Suffix: term[1:], Field: field}, nil
+	}
+	if strings.HasSuffix(term, "*") && !strings.HasPrefix(term, "*") && len(term) > 1 {
 		return &PrefixNode{Prefix: term[:len(term)-1], Field: field}, nil
 	}
-	
+
 	return &TermNode{Term: term, Field: field}, nil
+}
+
+// withField returns a shallow copy of node with its Field replaced, or nil if
+// the node type doesn't carry a reassignable Field (used for @f1|f2 expansion).
+func withField(node QueryNode, field string) QueryNode {
+	switch n := node.(type) {
+	case *TermNode:
+		cp := *n
+		cp.Field = field
+		return &cp
+	case *PrefixNode:
+		cp := *n
+		cp.Field = field
+		return &cp
+	case *SuffixNode:
+		cp := *n
+		cp.Field = field
+		return &cp
+	case *InfixNode:
+		cp := *n
+		cp.Field = field
+		return &cp
+	case *FuzzyNode:
+		cp := *n
+		cp.Field = field
+		return &cp
+	case *PhraseNode:
+		cp := *n
+		cp.Field = field
+		return &cp
+	}
+	return nil
 }
 
 func (p *ExpressionParser) match(s string) bool {

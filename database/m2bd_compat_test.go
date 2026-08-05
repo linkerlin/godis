@@ -56,7 +56,11 @@ func TestM2bdFTExplainAndProfile(t *testing.T) {
 		t.Fatalf("PROFILE: %T %s", r, r.ToBytes())
 	}
 	prof := string(mr.Replies[1].ToBytes())
-	if !strings.Contains(prof, "Parsing time") || !strings.Contains(prof, "Iterators profile") {
+	// FT.PROFILE reports an honest total wall-clock + result count. The old
+	// implementation fabricated a 5/95 parse/iterate split; that was dropped in
+	// favor of measured totals (per-iterator breakdown deferred to the scoring
+	// overhaul). Assert the honest fields instead.
+	if !strings.Contains(prof, "Total profile time") || !strings.Contains(prof, "Result count") {
 		t.Fatalf("PROFILE keys: %s", prof)
 	}
 }

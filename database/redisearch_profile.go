@@ -2,6 +2,7 @@ package database
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -35,23 +36,47 @@ func execFTProfile(db *DB, args [][]byte) redis.Reply {
 	default:
 		return protocol.MakeErrReply("ERR Unknown FT.PROFILE subcommand '" + string(args[1]) + "'")
 	}
-	ms := float64(time.Since(start).Microseconds()) / 1000.0
-	parseMs := ms * 0.05
-	iterMs := ms - parseMs
-	if iterMs < 0 {
-		iterMs = 0
-	}
+	totalMs := float64(time.Since(start).Microseconds()) / 1000.0
+
+	// Count results from the reply for an honest metric. execFTSearch/
+	// execFTAggregate bundle parse+execute, so a true parse/iterate split
+	// requires refactoring those into separate phases (deferred to the
+	// profiling/scoring overhaul). We report total wall clock + result count
+	// instead of fabricating a 5/95 parse/iterate split.
+	resultCount := profileCountResults(result)
+	// ponytail: no per-iterator breakdown; instrument engine.Search/Aggregate
+	// to return timing when detailed iterator profiles are needed.
 	profile := protocol.MakeMultiBulkReply([][]byte{
 		[]byte("Total profile time (ms)"),
-		[]byte(fmt.Sprintf("%.3f", ms)),
-		[]byte("Parsing time (ms)"),
-		[]byte(fmt.Sprintf("%.3f", parseMs)),
-		[]byte("Iterators profile"),
-		[]byte(fmt.Sprintf("%.3f", iterMs)),
+		[]byte(fmt.Sprintf("%.3f", totalMs)),
+		[]byte("Result count"),
+		[]byte(strconv.FormatInt(resultCount, 10)),
 		[]byte("Profile type"),
 		[]byte(kind),
 	})
 	return protocol.MakeMultiRawReply([]redis.Reply{result, profile})
+}
+
+// profileCountResults extracts the result count from a SEARCH/AGGREGATE reply.
+// FT.SEARCH/AGGREGATE replies are *MultiBulkReply whose Args[0] is the total
+// count formatted as a decimal string. Returns -1 if the shape is unrecognized.
+func profileCountResults(r redis.Reply) int64 {
+	if r == nil {
+		return -1
+	}
+	switch rep := r.(type) {
+	case *protocol.MultiRawReply:
+		if len(rep.Replies) > 0 {
+			return profileCountResults(rep.Replies[0])
+		}
+	case *protocol.MultiBulkReply:
+		if len(rep.Args) > 0 {
+			if n, err := strconv.ParseInt(string(rep.Args[0]), 10, 64); err == nil {
+				return n
+			}
+		}
+	}
+	return -1
 }
 
 func init() {

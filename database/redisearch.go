@@ -26,6 +26,16 @@ type indexMeta struct {
 	prefixes []string // empty entry = match all keys (PREFIX *)
 	schema   []*redisearch.Field
 	onType   string // "HASH" (default) or "JSON"
+	// Index-level options mirrored onto the engine for FT.INFO / later wiring.
+	noOffsets     bool
+	noFields      bool
+	noFreqs       bool
+	noHL          bool
+	maxTextFields bool
+	temporary     int
+	filterExpr    string
+	indexAll      string
+	indexMissing  bool
 }
 
 var (
@@ -225,6 +235,24 @@ func removeJSONFromIndex(db *DB, key string) {
 	}
 }
 
+// reindexKey re-indexes a key into every matching FT index regardless of the
+// key's type (HASH or JSON). The type-specific reindex paths are no-ops when
+// the key is the wrong type, so calling both is safe. Use after any mutation
+// that might change a key's indexed content but not its identity (HINCRBY,
+// RENAME destination, JSON.ARRAPPEND, TTL changes that affect FILTER/score).
+func reindexKey(db *DB, key string) {
+	reindexHash(db, key)
+	reindexJSON(db, key)
+}
+
+// removeKeyFromIndex removes a key from every FT index regardless of type.
+// Use when a key is deleted outright (RENAME source, COPY overwrite of dest,
+// RESTORE replacing a different-typed value).
+func removeKeyFromIndex(db *DB, key string) {
+	removeHashFromIndex(db, key)
+	removeJSONFromIndex(db, key)
+}
+
 // backfillIndexFromExistingKeys scans the whole keyspace and indexes every
 // already-existing key that matches the new index's prefixes/type, mirroring
 // RediSearch's synchronous initial index build. Called from FT.CREATE unless
@@ -307,6 +335,11 @@ func execFTCreate(db *DB, args [][]byte) redis.Reply {
 	skipInitialScan := false
 	var stopWords []string
 	hasStopWords := false
+	// Index-level option scratch (FT.CREATE 8.x).
+	var noOffsets, noFields, noFreqs, noHL, maxTextFields bool
+	var temporary int
+	var filterExpr string
+	var indexAll string
 
 	for i := 1; i < len(args); i++ {
 		arg := strings.ToUpper(string(args[i]))
@@ -360,6 +393,52 @@ func execFTCreate(db *DB, args [][]byte) redis.Reply {
 			}
 			hasStopWords = true
 			i--
+		case "NOOFFSETS":
+			noOffsets = true
+		case "NOHL":
+			noHL = true
+		case "NOFIELDS":
+			noFields = true
+		case "NOFREQS":
+			noFreqs = true
+		case "MAXTEXTFIELDS":
+			maxTextFields = true
+		case "TEMPORARY":
+			if i+1 >= len(args) {
+				return protocol.MakeSyntaxErrReply()
+			}
+			n, err := strconv.Atoi(string(args[i+1]))
+			if err != nil || n <= 0 {
+				return protocol.MakeErrReply("ERR Invalid TEMPORARY value")
+			}
+			temporary = n
+			i++
+		case "FILTER":
+			// ponytail: FILTER expression is stored but not yet evaluated; needs
+			// an aggregation-style expression evaluator against @__key and doc
+			// fields. Until then it is accepted for syntax parity.
+			if i+1 >= len(args) {
+				return protocol.MakeSyntaxErrReply()
+			}
+			filterExpr = string(args[i+1])
+			i++
+		case "INDEXALL":
+			if i+1 >= len(args) {
+				return protocol.MakeSyntaxErrReply()
+			}
+			v := strings.ToUpper(string(args[i+1]))
+			if v != "ENABLE" && v != "DISABLE" {
+				return protocol.MakeErrReply("ERR Invalid INDEXALL value, expected ENABLE or DISABLE")
+			}
+			indexAll = v
+			i++
+		case "LANGUAGE", "LANGUAGE_FIELD", "SCORE", "SCORE_FIELD", "PAYLOAD_FIELD":
+			// Accepted for syntax parity; the few that are wired (SCORE_FIELD,
+			// PAYLOAD_FIELD, LANGUAGE default) flow through EngineConfig below.
+			if i+1 >= len(args) {
+				return protocol.MakeSyntaxErrReply()
+			}
+			i++
 		case "SCHEMA":
 			schemaStart = i + 1
 			i = len(args) // Break out
@@ -383,6 +462,15 @@ func execFTCreate(db *DB, args [][]byte) redis.Reply {
 		Name:         indexName,
 		StopWords:    stopWords,
 		HasStopWords: hasStopWords,
+		NoOffsets:    noOffsets,
+		NoFields:     noFields,
+		NoFreqs:      noFreqs,
+		NoHL:         noHL,
+		MaxTextFields: maxTextFields,
+		Temporary:    temporary,
+		Filter:       filterExpr,
+		IndexAll:     indexAll,
+		IndexMissing: indexAll == "ENABLE",
 	}
 
 	engine := redisearch.NewRediSearchEngine(config)
@@ -396,7 +484,20 @@ func execFTCreate(db *DB, args [][]byte) redis.Reply {
 	searchEnginesMu.Unlock()
 
 	// Store prefix + schema meta for hash auto-indexing (RediSearch ON HASH).
-	meta := &indexMeta{prefixes: prefix, schema: fields, onType: onType}
+	meta := &indexMeta{
+		prefixes:      prefix,
+		schema:        fields,
+		onType:        onType,
+		noOffsets:     noOffsets,
+		noFields:      noFields,
+		noFreqs:       noFreqs,
+		noHL:          noHL,
+		maxTextFields: maxTextFields,
+		temporary:     temporary,
+		filterExpr:    filterExpr,
+		indexAll:      indexAll,
+		indexMissing:  indexAll == "ENABLE",
+	}
 	searchIndexMetaMu.Lock()
 	searchIndexMeta[indexName] = meta
 	searchIndexMetaMu.Unlock()
@@ -621,6 +722,13 @@ func execFTSearch(db *DB, args [][]byte) redis.Reply {
 
 	// Parse options (Redis default LIMIT 0 10 when omitted)
 	opts := &redisearch.SearchOptions{Limit: 10}
+	opts.MinPrefix = getFTConfigInt("MINPREFIX")
+	opts.MaxExpansions = getFTConfigInt("MAXEXPANSIONS")
+	dialect := getFTConfigInt("DEFAULT_DIALECT")
+	if dialect == 0 {
+		dialect = 1
+	}
+	opts.Dialect = dialect
 	noContent := false
 	withScores := false
 	withPayloads := false
@@ -635,6 +743,7 @@ func execFTSearch(db *DB, args [][]byte) redis.Reply {
 	returnSpecified := false
 	dialectSpecified := false
 	var inKeys map[string]struct{}
+	var params map[string][]byte // PARAMS name -> raw value (often a vector blob)
 
 	for i := 2; i < len(args); i++ {
 		arg := strings.ToUpper(string(args[i]))
@@ -676,8 +785,39 @@ func execFTSearch(db *DB, args [][]byte) redis.Reply {
 			if err != nil || !validFTDialect(d) {
 				return protocol.MakeErrReply("ERR Invalid DIALECT value")
 			}
+			dialect = d
 			dialectSpecified = true
-			i++ // dialect recorded for validation; query engine is fixed
+			opts.Dialect = d
+			i++
+		case "SCORER":
+			if i+1 >= len(args) {
+				return protocol.MakeSyntaxErrReply()
+			}
+			opts.Scorer = strings.ToUpper(string(args[i+1]))
+			i++
+		case "PARAMS":
+			// PARAMS count name value [name value ...] — count is the total
+			// number of attribute tokens (2 × number of named parameters).
+			if i+1 >= len(args) {
+				return protocol.MakeSyntaxErrReply()
+			}
+			count, err := strconv.Atoi(string(args[i+1]))
+			if err != nil || count < 0 || count%2 != 0 {
+				return protocol.MakeErrReply("ERR Invalid PARAMS count")
+			}
+			i += 2
+			if params == nil {
+				params = make(map[string][]byte, count/2)
+			}
+			for j := 0; j < count; j += 2 {
+				if i+1 >= len(args) {
+					return protocol.MakeSyntaxErrReply()
+				}
+				name := string(args[i])
+				params[name] = args[i+1]
+				i += 2
+			}
+			i--
 		case "SLOP":
 			if i+1 >= len(args) {
 				return protocol.MakeSyntaxErrReply()
@@ -936,13 +1076,19 @@ func execFTSearch(db *DB, args [][]byte) redis.Reply {
 
 	// Apply FT.CONFIG defaults / caps (MAXSEARCHRESULTS, TIMEOUT, DEFAULT_DIALECT).
 	if !dialectSpecified {
-		d := getFTConfigInt("DEFAULT_DIALECT")
-		if d == 0 {
-			d = 1
+		dialect = getFTConfigInt("DEFAULT_DIALECT")
+		if dialect == 0 {
+			dialect = 1
 		}
-		if !validFTDialect(d) {
+		if !validFTDialect(dialect) {
 			return protocol.MakeErrReply("ERR Invalid DIALECT value")
 		}
+		opts.Dialect = dialect
+	}
+	// PARAMS (and any $-parameter substitution) requires DIALECT >= 2. Deferred
+	// to here so the DIALECT option may appear in any order relative to PARAMS.
+	if len(params) > 0 && dialect < 2 {
+		return protocol.MakeErrReply("ERR PARAMS requires DIALECT 2 or higher")
 	}
 	if opts.TimeoutMs == 0 {
 		if t := getFTConfigInt("TIMEOUT"); t > 0 {
@@ -966,10 +1112,40 @@ func execFTSearch(db *DB, args [][]byte) redis.Reply {
 		return getSynonyms(indexName, term)
 	})
 
-	// Search
-	results, err := engine.Search(query, opts)
-	if err != nil {
-		return ftTimeoutReply(err)
+	// Detect a vector KNN clause: "<base>=>[KNN K @field $param ...]".
+	baseQuery, knnClause, kerr := redisearch.SplitKNNClause(query)
+	if kerr != nil {
+		return protocol.MakeErrReply("ERR " + kerr.Error())
+	}
+
+	var results *redisearch.SearchResults
+	var err error
+	if knnClause != nil {
+		if dialect < 2 {
+			return protocol.MakeErrReply("ERR Vector KNN queries require DIALECT 2 or higher")
+		}
+		blob, ok := params[strings.TrimPrefix(knnClause.Param, "$")]
+		if !ok {
+			return protocol.MakeErrReply(fmt.Sprintf("ERR Parameter '%s' was not found in PARAMS", knnClause.Param))
+		}
+		vi := engine.VectorIndex(knnClause.Field)
+		if vi == nil {
+			return protocol.MakeErrReply(fmt.Sprintf("ERR Vector field '%s' not found in index", knnClause.Field))
+		}
+		queryVec, derr := vi.DecodeVector(blob)
+		if derr != nil {
+			return protocol.MakeErrReply("ERR " + derr.Error())
+		}
+		results, err = engine.SearchKNN(baseQuery, opts, knnClause, queryVec)
+		if err != nil {
+			return ftTimeoutReply(err)
+		}
+	} else {
+		// Search
+		results, err = engine.Search(query, opts)
+		if err != nil {
+			return ftTimeoutReply(err)
+		}
 	}
 
 	if len(inKeys) > 0 {
@@ -1150,6 +1326,12 @@ func execFTAggregate(db *DB, args [][]byte) redis.Reply {
 		Offset: 0,
 		Limit:  10,
 	}
+	req.MinPrefix = getFTConfigInt("MINPREFIX")
+	req.MaxExpansions = getFTConfigInt("MAXEXPANSIONS")
+	req.Dialect = getFTConfigInt("DEFAULT_DIALECT")
+	if req.Dialect == 0 {
+		req.Dialect = 1
+	}
 	withCursor := false
 	cursorCount := 10
 	sawGroupBy := false
@@ -1161,6 +1343,18 @@ func execFTAggregate(db *DB, args [][]byte) redis.Reply {
 		case "VERBATIM":
 			req.Verbatim = true
 			i++
+			continue
+
+		case "DIALECT":
+			if i+1 >= len(args) {
+				return protocol.MakeSyntaxErrReply()
+			}
+			d, err := strconv.Atoi(string(args[i+1]))
+			if err != nil || !validFTDialect(d) {
+				return protocol.MakeErrReply("ERR Invalid DIALECT value")
+			}
+			req.Dialect = d
+			i += 2
 			continue
 
 		case "WITHCURSOR":
@@ -1291,19 +1485,23 @@ func execFTAggregate(db *DB, args [][]byte) redis.Reply {
 					return protocol.MakeErrReply("ERR Invalid reduce nargs")
 				}
 
-				reducer := redisearch.Reducer{
-					Function: strings.ToUpper(funcName),
-				}
+			reducer := redisearch.Reducer{
+				Function: strings.ToUpper(funcName),
+			}
 
-				i += 3
-				for j := 0; j < rargs && i < len(args); j++ {
-					nextArg := strings.ToUpper(string(args[i]))
-					if nextArg == "AS" || nextArg == "REDUCE" || nextArg == "SORTBY" || nextArg == "LIMIT" {
-						break
-					}
-					reducer.Field = string(args[i])
-					i++
+			i += 3
+			for j := 0; j < rargs && i < len(args); j++ {
+				nextArg := strings.ToUpper(string(args[i]))
+				if nextArg == "AS" || nextArg == "REDUCE" || nextArg == "SORTBY" || nextArg == "LIMIT" {
+					break
 				}
+				reducer.Args = append(reducer.Args, string(args[i]))
+				i++
+			}
+			// Field is the first arg (if any) with the leading @ stripped.
+			if len(reducer.Args) > 0 {
+				reducer.Field = strings.TrimPrefix(reducer.Args[0], "@")
+			}
 
 				// Check for AS
 				if i < len(args) && strings.ToUpper(string(args[i])) == "AS" {
@@ -1779,7 +1977,7 @@ func execFTSugLen(db *DB, args [][]byte) redis.Reply {
 
 func isFTFieldType(token string) bool {
 	switch strings.ToUpper(token) {
-	case "TEXT", "NUMERIC", "TAG", "GEO", "VECTOR":
+	case "TEXT", "NUMERIC", "TAG", "GEO", "VECTOR", "GEOSHAPE":
 		return true
 	default:
 		return false

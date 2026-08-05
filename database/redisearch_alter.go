@@ -184,6 +184,17 @@ func parseFTSchemaFields(args [][]byte) ([]*redisearch.Field, redis.Reply) {
 			field.Type = redisearch.FieldTypeGeo
 		case "VECTOR":
 			field.Type = redisearch.FieldTypeVector
+			// VECTOR is followed by: ALGO count [attr val ...]. Parse the whole
+			// sub-block now; the generic option loop below must not re-enter it.
+			cfg, consumed, err := redisearch.ParseVectorFieldConfig(args[i+1:])
+			if err != nil {
+				return nil, protocol.MakeErrReply("ERR " + err.Error())
+			}
+			field.VectorConfig = cfg
+			i += consumed
+		case "GEOSHAPE":
+			field.Type = redisearch.FieldTypeGeoShape
+			field.CoordinateSystem = "SPHERICAL" // Redis default
 		default:
 			return nil, protocol.MakeErrReply(fmt.Sprintf("ERR Unknown field type '%s'", fieldType))
 		}
@@ -194,19 +205,47 @@ func parseFTSchemaFields(args [][]byte) ([]*redisearch.Field, redis.Reply) {
 			case "SORTABLE":
 				field.Sortable = true
 				i++
+				// SORTABLE may be followed by UNF (unnormalized sort column).
+				// VECTOR / GEOSHAPE do not allow SORTABLE; NUMERIC/GEO ignore UNF
+				// (UNF only meaningful for TEXT/TAG hash-stored values).
+				if i < len(args) && strings.EqualFold(string(args[i]), "UNF") {
+					if field.Type == redisearch.FieldTypeVector || field.Type == redisearch.FieldTypeGeoShape {
+						return nil, protocol.MakeErrReply("ERR SORTABLE is not supported for VECTOR or GEOSHAPE fields")
+					}
+					field.SortableUNF = true
+					i++
+				}
+			case "UNF":
+				// Bare UNF without preceding SORTABLE is a syntax error.
+				return nil, protocol.MakeSyntaxErrReply()
 			case "NOINDEX":
 				field.NoIndex = true
 				i++
 			case "NOSTEM":
+				if field.Type != redisearch.FieldTypeText {
+					return nil, protocol.MakeErrReply("ERR NOSTEM is supported only for TEXT fields")
+				}
 				field.Stemming = false
 				i++
 			case "SEPARATOR":
+				if field.Type != redisearch.FieldTypeTag {
+					return nil, protocol.MakeErrReply("ERR SEPARATOR is supported only for TAG fields")
+				}
 				if i+1 >= len(args) {
 					return nil, protocol.MakeSyntaxErrReply()
 				}
 				field.Separator = string(args[i+1])
 				i += 2
+			case "CASESENSITIVE":
+				if field.Type != redisearch.FieldTypeTag {
+					return nil, protocol.MakeErrReply("ERR CASESENSITIVE is supported only for TAG fields")
+				}
+				field.CaseSensitive = true
+				i++
 			case "WEIGHT":
+				if field.Type != redisearch.FieldTypeText {
+					return nil, protocol.MakeErrReply("ERR WEIGHT is supported only for TEXT fields")
+				}
 				if i+1 >= len(args) {
 					return nil, protocol.MakeSyntaxErrReply()
 				}
@@ -216,6 +255,48 @@ func parseFTSchemaFields(args [][]byte) ([]*redisearch.Field, redis.Reply) {
 				}
 				field.Weight = w
 				i += 2
+			case "PHONETIC":
+				if field.Type != redisearch.FieldTypeText {
+					return nil, protocol.MakeErrReply("ERR PHONETIC is supported only for TEXT fields")
+				}
+				if i+1 >= len(args) {
+					return nil, protocol.MakeSyntaxErrReply()
+				}
+				matcher := strings.ToLower(string(args[i+1]))
+				switch matcher {
+				case "dm:en", "dm:fr", "dm:pt", "dm:es":
+					field.Phonetic = matcher
+				default:
+					return nil, protocol.MakeErrReply(fmt.Sprintf("ERR Invalid PHONETIC matcher '%s'", string(args[i+1])))
+				}
+				i += 2
+			case "INDEXMISSING":
+				field.IndexMissing = true
+				i++
+			case "INDEXEMPTY":
+				if field.Type != redisearch.FieldTypeText && field.Type != redisearch.FieldTypeTag {
+					return nil, protocol.MakeErrReply("ERR INDEXEMPTY is supported only for TEXT and TAG fields")
+				}
+				field.IndexEmpty = true
+				i++
+			case "WITHSUFFIXTRIE":
+				if field.Type != redisearch.FieldTypeText && field.Type != redisearch.FieldTypeTag {
+					return nil, protocol.MakeErrReply("ERR WITHSUFFIXTRIE is supported only for TEXT and TAG fields")
+				}
+				field.WithSuffixTrie = true
+				i++
+			case "FLAT":
+				if field.Type != redisearch.FieldTypeGeoShape {
+					return nil, protocol.MakeErrReply("ERR FLAT is supported only for GEOSHAPE fields")
+				}
+				field.CoordinateSystem = "FLAT"
+				i++
+			case "SPHERICAL":
+				if field.Type != redisearch.FieldTypeGeoShape {
+					return nil, protocol.MakeErrReply("ERR SPHERICAL is supported only for GEOSHAPE fields")
+				}
+				field.CoordinateSystem = "SPHERICAL"
+				i++
 			default:
 				if i+1 < len(args) && isFTFieldType(string(args[i+1])) {
 					goto next

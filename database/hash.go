@@ -182,6 +182,7 @@ func execHDel(db *DB, args [][]byte) redis.Reply {
 		return protocol.MakeIntReply(0)
 	}
 
+	removedKey := false
 	deleted := 0
 	for _, field := range fields {
 		_, result := dict.Remove(field)
@@ -189,9 +190,15 @@ func execHDel(db *DB, args [][]byte) redis.Reply {
 	}
 	if dict.Len() == 0 {
 		db.Remove(key)
+		removedKey = true
 	}
 	if deleted > 0 {
 		db.addAof(utils.ToCmdLine3("hdel", args...))
+		if removedKey {
+			removeHashFromIndex(db, key)
+		} else {
+			reindexHash(db, key)
+		}
 	}
 
 	return protocol.MakeIntReply(int64(deleted))
@@ -420,6 +427,7 @@ func execHIncrBy(db *DB, args [][]byte) redis.Reply {
 	if !exists {
 		dict.Put(field, args[2])
 		db.addAof(utils.ToCmdLine3("hincrby", args...))
+		reindexHash(db, key)
 		return protocol.MakeIntReply(delta)
 	}
 	val, err := strconv.ParseInt(string(value.([]byte)), 10, 64)
@@ -433,6 +441,7 @@ func execHIncrBy(db *DB, args [][]byte) redis.Reply {
 	bytes := []byte(strconv.FormatInt(val, 10))
 	putHashValuePreservingTTL(dict, field, bytes)
 	db.addAof(utils.ToCmdLine3("hincrby", args...))
+	reindexHash(db, key)
 	return protocol.MakeIntReply(val)
 }
 
@@ -465,6 +474,7 @@ func execHIncrByFloat(db *DB, args [][]byte) redis.Reply {
 		}
 		dict.Put(field, args[2])
 		db.addAof(utils.ToCmdLine3("hincrbyfloat", args...))
+		reindexHash(db, key)
 		return protocol.MakeBulkReply(args[2])
 	}
 	val, err := strconv.ParseFloat(string(value.([]byte)), 64)
@@ -478,6 +488,7 @@ func execHIncrByFloat(db *DB, args [][]byte) redis.Reply {
 	resultBytes := []byte(strconv.FormatFloat(result, 'f', -1, 64))
 	putHashValuePreservingTTL(dict, field, resultBytes)
 	db.addAof(utils.ToCmdLine3("hincrbyfloat", args...))
+	reindexHash(db, key)
 	return protocol.MakeBulkReply(resultBytes)
 }
 

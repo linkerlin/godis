@@ -132,6 +132,10 @@ func execRestore(db *DB, args [][]byte) redis.Reply {
 	}
 
 	db.addAof(utils.ToCmdLine3("restore", args...))
+	// RESTORE may replace a different-typed value at key; drop stale index
+	// entries then reindex the restored content (no-op for non-indexed types).
+	removeKeyFromIndex(db, key)
+	reindexKey(db, key)
 	return protocol.MakeOkReply()
 }
 

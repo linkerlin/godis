@@ -481,6 +481,8 @@ func execHPersist(db *DB, args [][]byte) redis.Reply {
 
 	if persisted > 0 {
 		db.addAof(utils.ToCmdLine3("hpersist", args...))
+		// Removing a field's TTL re-evaluates the doc against the index.
+		reindexHash(db, key)
 	}
 
 	return protocol.MakeIntReply(int64(persisted))
@@ -605,6 +607,7 @@ func execHExpireFamily(db *DB, args [][]byte, at bool, unit time.Duration) redis
 
 	results := make([]redis.Reply, len(fields))
 	now := time.Now()
+	mutated := false // tracks whether any field was deleted or had its TTL set
 	for i, fieldBytes := range fields {
 		field := string(fieldBytes)
 		_, remaining, exists := ed.GetWithExpire(field)
@@ -645,15 +648,23 @@ func execHExpireFamily(db *DB, args [][]byte, at bool, unit time.Duration) redis
 
 		if !expireAt.After(now) {
 			ed.Delete(field)
+			mutated = true // field content removed → needs reindex
 			results[i] = protocol.MakeIntReply(2)
 			continue
 		}
 
 		if ed.Expire(field, expireAt) {
+			mutated = true // TTL change re-evaluated against index per Redis
 			results[i] = protocol.MakeIntReply(1)
 		} else {
 			results[i] = protocol.MakeIntReply(0)
 		}
+	}
+
+	// Field-level TTL changes trigger a hash reindex: a field may have been
+	// deleted (content change) or its TTL now affects FILTER/score evaluation.
+	if mutated {
+		reindexHash(db, key)
 	}
 
 	return protocol.MakeMultiRawReply(results)

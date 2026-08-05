@@ -1,9 +1,11 @@
 package redisearch
 
 import (
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"math"
+	"math/rand"
 	"sort"
 	"strconv"
 	"strings"
@@ -23,6 +25,10 @@ type RediSearchEngine struct {
 	// Geo indices for each geo field
 	geoIndices map[string]*GeoIndex // field name -> geo index
 
+	// Vector indices for each VECTOR field. Lazily created at CreateIndex time
+	// from the field's VectorConfig; populated by AddDocument/DeleteDocument.
+	vectorIndices map[string]*FTVectorIndex // field name -> vector index
+
 	// Autocomplete for suggestions
 	autocomplete *Autocomplete
 
@@ -39,6 +45,15 @@ type RediSearchEngine struct {
 	scoreField      string
 	payloadField    string
 
+	// Index-level flags mirrored from EngineConfig for FT.INFO reporting.
+	noOffsets     bool
+	noHL          bool
+	maxTextFields bool
+	temporary     int
+	filterExpr    string
+	indexAll      string
+	indexMissingAll bool
+
 	mu sync.RWMutex
 }
 
@@ -53,6 +68,20 @@ type EngineConfig struct {
 	// an explicit list, including STOPWORDS 0 (empty list disables filtering).
 	StopWords    []string
 	HasStopWords bool
+	// Redis 8.x index-level options. Parsed from FT.CREATE; the behavioral
+	// subset (NoOffsets/NoFreqs/NoFields) is honored at index+query time, the
+	// rest (MaxTextFields/Temporary/Filter/IndexAll/IndexMissing) are stored
+	// for FT.INFO and later wiring (Temporary needs an idle timer; Filter needs
+	// an expression evaluator — both deferred).
+	NoOffsets     bool
+	NoFields      bool
+	NoFreqs       bool
+	NoHL          bool
+	MaxTextFields bool
+	Temporary     int    // seconds; 0 = permanent
+	Filter        string // per-key FILTER expression
+	IndexAll      string // "ENABLE" | "DISABLE" | ""
+	IndexMissing  bool   // index-wide INDEXMISSING
 }
 
 // NewRediSearchEngine creates a new search engine
@@ -72,6 +101,15 @@ func NewRediSearchEngine(config *EngineConfig) *RediSearchEngine {
 		e.stopFilter = NewStopWordFilterFrom(config.StopWords)
 		idx.stopFilter = e.stopFilter
 	}
+	idx.SetIndexFlags(config.NoOffsets, config.NoFields, config.NoFreqs)
+	// Store remaining index-level options for FT.INFO / later wiring.
+	e.noOffsets = config.NoOffsets
+	e.noHL = config.NoHL || config.NoOffsets
+	e.maxTextFields = config.MaxTextFields
+	e.temporary = config.Temporary
+	e.filterExpr = config.Filter
+	e.indexAll = config.IndexAll
+	e.indexMissingAll = config.IndexMissing
 	return e
 }
 
@@ -96,6 +134,7 @@ func (e *RediSearchEngine) CreateIndex(fields []*Field) error {
 	for _, field := range fields {
 		e.schema[field.Name] = field
 		e.index.AddField(field)
+		e.registerVectorField(field)
 	}
 	return nil
 }
@@ -110,8 +149,29 @@ func (e *RediSearchEngine) AlterAddFields(fields []*Field) error {
 		}
 		e.schema[field.Name] = field
 		e.index.AddField(field)
+		e.registerVectorField(field)
 	}
 	return nil
+}
+
+// registerVectorField creates a per-field FTVectorIndex when field is a VECTOR
+// field with a parsed config. Caller must hold e.mu.
+func (e *RediSearchEngine) registerVectorField(field *Field) {
+	if field.Type != FieldTypeVector || field.VectorConfig == nil {
+		return
+	}
+	if e.vectorIndices == nil {
+		e.vectorIndices = make(map[string]*FTVectorIndex)
+	}
+	e.vectorIndices[field.Name] = NewFTVectorIndex(field.VectorConfig)
+}
+
+// VectorIndex returns the per-field vector index, or nil if the field is not a
+// VECTOR field. Used by FT.SEARCH to run KNN queries.
+func (e *RediSearchEngine) VectorIndex(field string) *FTVectorIndex {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	return e.vectorIndices[field]
 }
 
 // DropIndex drops the index and optionally deletes documents
@@ -144,6 +204,7 @@ func (e *RediSearchEngine) AddDocument(docID string, fields map[string]interface
 		return err
 	}
 	e.indexGeoFieldsLocked(doc)
+	e.indexVectorFieldsLocked(docID, doc)
 	return nil
 }
 
@@ -155,7 +216,46 @@ func (e *RediSearchEngine) DeleteDocument(docID string) bool {
 	for _, gi := range e.geoIndices {
 		gi.Remove(docID)
 	}
+	for _, vi := range e.vectorIndices {
+		vi.DeleteVector(docID)
+	}
 	return e.index.DeleteDocument(docID)
+}
+
+// indexVectorFieldsLocked stores VECTOR field blobs into the per-field vector
+// index. The blob may arrive as []byte (raw HSET value), string, or a decoded
+// []float32 / []float64; []byte is decoded per the field's declared TYPE.
+// Caller holds e.mu.
+func (e *RediSearchEngine) indexVectorFieldsLocked(docID string, doc *Document) {
+	for name, vi := range e.vectorIndices {
+		raw, ok := doc.Fields[name]
+		if !ok || raw == nil {
+			continue
+		}
+		switch v := raw.(type) {
+		case []byte:
+			if err := vi.AddVector(docID, v); err != nil {
+				// Indexing failure for one vector field doesn't abort the doc;
+				// Redis counts these in hash_indexing_failures. We drop silently
+				// for now (ponytail: surface via FT.INFO failure counters later).
+				continue
+			}
+		case string:
+			if err := vi.AddVector(docID, []byte(v)); err != nil {
+				continue
+			}
+		case []float32:
+			// Already decoded: encode back to FLOAT32 bytes for uniform path.
+			buf := make([]byte, 4*len(v))
+			for i, x := range v {
+				binary.LittleEndian.PutUint32(buf[i*4:], math.Float32bits(x))
+			}
+			_ = vi.AddVector(docID, buf)
+		default:
+			// Best-effort: stringify then treat as raw bytes.
+			_ = vi.AddVector(docID, []byte(fmt.Sprintf("%v", v)))
+		}
+	}
 }
 
 // indexGeoFieldsLocked indexes GEO schema fields into geoIndices (caller holds e.mu).
@@ -203,6 +303,76 @@ type SearchResult struct {
 	Highlights map[string]string // field -> highlighted value
 }
 
+// SearchKNN runs a hybrid vector KNN query: it evaluates baseQuery to obtain
+// the candidate document set (or all docs when baseQuery is "*"), then returns
+// the k nearest vectors in knn.Field to queryVec. The returned SearchResults
+// are ordered by ascending distance; each result's Score is the distance and,
+// when knn.ScoreAs != "", the distance is also attached as a document field of
+// that name so the AS clause surfaces in the reply.
+func (e *RediSearchEngine) SearchKNN(baseQuery string, opts *SearchOptions, knn *KNNClause, queryVec []float32) (*SearchResults, error) {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+
+	vi := e.vectorIndices[knn.Field]
+	if vi == nil {
+		return nil, fmt.Errorf("Vector field '%s' not found in index", knn.Field)
+	}
+
+	// Evaluate the base query to get the candidate document set. "*" means all.
+	var candidates []string
+	if baseQuery == "" || baseQuery == "*" {
+		for _, doc := range e.index.GetAllDocuments() {
+			candidates = append(candidates, doc.ID)
+		}
+	} else {
+		parser := NewExpressionParser(baseQuery)
+		node, err := parser.Parse()
+		if err != nil {
+			node, err = NewQueryParser().Parse(baseQuery)
+			if err != nil {
+				return nil, err
+			}
+		}
+		candidates = node.Evaluate(e.index)
+	}
+
+	// Run KNN restricted to the candidate set.
+	hits := vi.SearchKNNFiltered(queryVec, candidates, knn.K, knn.EFRuntime)
+	if len(hits) == 0 {
+		return &SearchResults{Total: 0}, nil
+	}
+
+	results := &SearchResults{Total: len(hits), Results: make([]*SearchResult, 0, len(hits))}
+	for _, hit := range hits {
+		doc, ok := e.index.GetDocument(hit.DocID)
+		if !ok {
+			continue
+		}
+		// Attach the distance as the score so WITHSCORES surfaces it. When the
+		// query named the score (AS), also plant it as a synthetic field so the
+		// RETURN/default field list shows it.
+		fields := doc.Fields
+		if knn.ScoreAs != "" {
+			if fields == nil {
+				fields = make(map[string]interface{}, 1)
+			} else {
+				cp := make(map[string]interface{}, len(fields)+1)
+				for k, v := range doc.Fields {
+					cp[k] = v
+				}
+				fields = cp
+			}
+			fields[knn.ScoreAs] = fmt.Sprintf("%g", hit.Distance)
+		}
+		results.Results = append(results.Results, &SearchResult{
+			Document: doc,
+			Score:    float64(hit.Distance),
+			Fields:   fields,
+		})
+	}
+	return results, nil
+}
+
 // Search performs a search query
 func (e *RediSearchEngine) Search(query string, opts *SearchOptions) (*SearchResults, error) {
 	e.mu.RLock()
@@ -215,6 +385,9 @@ func (e *RediSearchEngine) Search(query string, opts *SearchOptions) (*SearchRes
 
 	// Parse query
 	parser := NewExpressionParser(query)
+	if opts != nil {
+		parser.SetDialect(opts.Dialect)
+	}
 	node, err := parser.Parse()
 	if err != nil {
 		// Fallback to simple parser
@@ -233,6 +406,17 @@ func (e *RediSearchEngine) Search(query string, opts *SearchOptions) (*SearchRes
 	}
 	if e.synonymExpander != nil {
 		node = ExpandSynonyms(node, e.synonymExpander)
+	}
+
+	// Enforce FT.CONFIG MINPREFIX / MAXEXPANSIONS before fanning out.
+	if opts != nil && (opts.MinPrefix > 0 || opts.MaxExpansions > 0) {
+		if err := ValidateExpansions(node, e.index, opts.MinPrefix, opts.MaxExpansions); err != nil {
+			return nil, err
+		}
+	}
+	// DIALECT 2-only constructs (comparison ops, ismissing) require Dialect >= 2.
+	if opts != nil && opts.Dialect > 0 && opts.Dialect < 2 && RequiresDialect2(node) {
+		return nil, fmt.Errorf("DIALECT 2+ required for this query")
 	}
 
 	// Execute query (* = all documents, same as AGGREGATE)
@@ -256,7 +440,21 @@ func (e *RediSearchEngine) Search(query string, opts *SearchOptions) (*SearchRes
 		docIDs = e.applyFieldFilters(docIDs, opts.Filters)
 	}
 
-	// Fetch documents and calculate scores
+	// Fetch documents and calculate scores. Build the score context once so
+	// every doc scores against the same corpus snapshot; collect optional ~
+	// terms from the AST so the chosen scorer can boost matches on them.
+	scorerName := ""
+	var queryPayload []byte
+	verbatim := false
+	noStop := false
+	if opts != nil {
+		scorerName = opts.Scorer
+		queryPayload = opts.Payload
+		verbatim = opts.Verbatim
+		noStop = opts.NoStopWords
+	}
+	sc := e.buildScoreContext(query, CollectOptionalTerms(node), queryPayload, verbatim, noStop)
+
 	results := make([]*SearchResult, 0, len(docIDs))
 	for _, docID := range docIDs {
 		if ftDeadlineExceeded(deadline) {
@@ -267,7 +465,7 @@ func (e *RediSearchEngine) Search(query string, opts *SearchOptions) (*SearchRes
 			continue
 		}
 
-		score := e.calculateScore(doc, query, opts)
+		score := e.calculateScore(doc, sc, scorerName)
 
 		result := &SearchResult{
 			Document: doc,
@@ -442,6 +640,18 @@ type SearchOptions struct {
 	HighlightFields   []string
 	HighlightOpenTag  string
 	HighlightCloseTag string
+	// Expansion limits (FT.CONFIG MINPREFIX / MAXEXPANSIONS). Zero = no check.
+	MinPrefix     int
+	MaxExpansions int
+	// Dialect controls DIALECT 1 vs 2 query semantics. D2-only constructs
+	// (comparison ops, ismissing) are rejected when Dialect < 2.
+	Dialect int
+	// Scorer selects the ranking function. Empty/"BM25STD" = default.
+	// Also: TFIDF, TFIDF.DOCNORM, DISMAX, DOCSCORE, HAMMING, BM25 (deprecated
+	// alias of BM25STD), BM25STD.NORM, BM25STD.TANH.
+	Scorer string
+	// Payload carries the FT.SEARCH PAYLOAD value used by the HAMMING scorer.
+	Payload []byte
 }
 
 // FieldFilter represents a filter on a field
@@ -458,34 +668,40 @@ type SearchResults struct {
 }
 
 // calculateScore calculates TF-IDF like score
-func (e *RediSearchEngine) calculateScore(doc *Document, query string, opts *SearchOptions) float64 {
-	// Simple BM25-like scoring
-	score := doc.Score // Base score
-
-	// Tokenize query
+// buildScoreContext prepares the per-query statistics shared by every doc's
+// scoring pass. queryTerms are the post-stopword (and optionally stemmed)
+// tokens; optional marks which of them came from ~optional clauses so the
+// scorer can boost without requiring them.
+func (e *RediSearchEngine) buildScoreContext(query string, optionalTerms []string, payload []byte, verbatim, noStopWords bool) *scoreContext {
 	tokens := e.index.tokenizer.Tokenize(query)
-	skipStop := opts != nil && (opts.Verbatim || opts.NoStopWords)
+	skipStop := verbatim || noStopWords
 	if !skipStop {
 		tokens = e.index.stopFilter.Filter(tokens)
 	}
-
-	docCount := float64(e.index.DocCount())
-
-	for _, token := range tokens {
-		// Get term frequency in document
-		tf := e.getTermFrequency(doc.ID, token)
-
-		// Get document frequency
-		df := float64(len(e.index.terms[token]))
-
-		// IDF calculation
-		idf := math.Log((docCount-df+0.5)/(df+0.5) + 1)
-
-		// TF-IDF
-		score += tf * idf
+	opt := make(map[string]bool, len(optionalTerms))
+	for _, t := range optionalTerms {
+		opt[t] = true
 	}
+	N := float64(e.index.DocCount())
+	avgdl := 0.0
+	if N > 0 {
+		avgdl = float64(e.index.totalLength) / N
+	}
+	return &scoreContext{
+		idx:        e.index,
+		queryTerms: tokens,
+		optional:   opt,
+		docCount:   N,
+		avgdl:      avgdl,
+		payload:    payload,
+	}
+}
 
-	return score
+func (e *RediSearchEngine) calculateScore(doc *Document, sc *scoreContext, scorerName string) float64 {
+	if sc == nil {
+		return doc.Score
+	}
+	return e.computeScore(doc, sc, scorerName)
 }
 
 func (e *RediSearchEngine) getTermFrequency(docID, term string) float64 {
@@ -513,9 +729,17 @@ func (e *RediSearchEngine) Aggregate(req *AggregationRequest) (*AggregationResul
 	} else {
 		// First, get matching documents
 		parser := NewExpressionParser(req.Query)
+		parser.SetDialect(req.Dialect)
 		node, err := parser.Parse()
 		if err != nil {
 			return nil, err
+		}
+
+		// Enforce FT.CONFIG MINPREFIX / MAXEXPANSIONS for aggregation queries too.
+		if req.MinPrefix > 0 || req.MaxExpansions > 0 {
+			if err := ValidateExpansions(node, e.index, req.MinPrefix, req.MaxExpansions); err != nil {
+				return nil, err
+			}
 		}
 
 		docIDs := node.Evaluate(e.index)
@@ -623,6 +847,11 @@ type AggregationRequest struct {
 	Limit    int
 	Filter   string        // FILTER expression
 	Apply    []ApplyClause // APPLY <expr> AS <name> clauses, in pipeline order
+	// Expansion limits (FT.CONFIG MINPREFIX / MAXEXPANSIONS). Zero = no check.
+	MinPrefix     int
+	MaxExpansions int
+	// Dialect controls DIALECT 1 vs 2 query precedence (| vs space).
+	Dialect int
 }
 
 // HavingClause represents a HAVING clause for group filtering
@@ -635,7 +864,8 @@ type HavingClause struct {
 // Reducer represents a reduction operation
 type Reducer struct {
 	Function string
-	Field    string
+	Field    string   // first arg with leading @ stripped (the field to reduce over)
+	Args     []string // raw reducer arguments (e.g. QUANTILE: [@field, "0.5"])
 	As       string
 }
 
@@ -839,9 +1069,228 @@ func (e *RediSearchEngine) applyReducer(docs []*Document, r Reducer) interface{}
 			list = append(list, doc.Fields[field])
 		}
 		return list
+	case "STDDEV":
+		return reducerStdDev(docs, field)
+	case "QUANTILE":
+		// REDUCE QUANTILE 2 @field q   (q ∈ [0,1]; 0.5 = median)
+		if len(r.Args) < 2 {
+			return nil
+		}
+		q, err := strconv.ParseFloat(r.Args[1], 64)
+		if err != nil || q < 0 || q > 1 {
+			return nil
+		}
+		return reducerQuantile(docs, field, q)
+	case "COUNT_DISTINCT":
+		// Exact distinct count over the field's values.
+		seen := make(map[string]struct{}, len(docs))
+		for _, doc := range docs {
+			if v, ok := doc.Fields[field]; ok {
+				seen[fmt.Sprintf("%v", v)] = struct{}{}
+			}
+		}
+		return len(seen)
+	case "COUNT_DISTINCTISH":
+		// Approximate distinct count via a 14-bit HyperLogLog (~0.81% error,
+		// 16K registers). Redis uses HLL with ~3% error at 1024B; this is a
+		// slightly more accurate variant at higher memory cost. ponytail: drop
+		// to 12-bit if memory matters.
+		return reducerCountDistinctishHLL(docs, field, 14)
+	case "FIRST_VALUE":
+		// REDUCE FIRST_VALUE nargs @field [BY @sortfield [ASC|DESC]]
+		// Returns the first value of field, optionally ordered by another field.
+		if len(docs) == 0 {
+			return nil
+		}
+		byField, desc := parseFirstValueArgs(r.Args)
+		chosen := docs[0]
+		if byField != "" {
+			best, bestOK := toFloat64(chosen.Fields[byField])
+			for _, d := range docs[1:] {
+				v, ok := toFloat64(d.Fields[byField])
+				if !ok {
+					continue
+				}
+				if !bestOK || (desc && v > best) || (!desc && v < best) {
+					best = v
+					bestOK = true
+					chosen = d
+				}
+			}
+		}
+		if v, ok := chosen.Fields[field]; ok {
+			return v
+		}
+		return nil
+	case "RANDOM_SAMPLE":
+		// REDUCE RANDOM_SAMPLE nargs @field sample_size — reservoir sampling.
+		if len(r.Args) < 2 {
+			return nil
+		}
+		size, err := strconv.Atoi(r.Args[1])
+		if err != nil || size <= 0 {
+			return nil
+		}
+		return reducerRandomSample(docs, field, size)
 	default:
 		return nil
 	}
+}
+
+// reducerStdDev returns the population standard deviation of the field's
+// numeric values across docs. Returns nil when fewer than 1 numeric value.
+func reducerStdDev(docs []*Document, field string) interface{} {
+	var values []float64
+	for _, doc := range docs {
+		if v, ok := toFloat64(doc.Fields[field]); ok {
+			values = append(values, v)
+		}
+	}
+	if len(values) == 0 {
+		return nil
+	}
+	var sum float64
+	for _, v := range values {
+		sum += v
+	}
+	mean := sum / float64(len(values))
+	var sq float64
+	for _, v := range values {
+		sq += (v - mean) * (v - mean)
+	}
+	return math.Sqrt(sq / float64(len(values)))
+}
+
+// reducerQuantile returns the value at quantile q (0..1) using nearest-rank
+// interpolation. Empty input returns nil.
+func reducerQuantile(docs []*Document, field string, q float64) interface{} {
+	var values []float64
+	for _, doc := range docs {
+		if v, ok := toFloat64(doc.Fields[field]); ok {
+			values = append(values, v)
+		}
+	}
+	if len(values) == 0 {
+		return nil
+	}
+	sort.Float64s(values)
+	idx := int(q * float64(len(values)-1))
+	if idx < 0 {
+		idx = 0
+	}
+	if idx >= len(values) {
+		idx = len(values) - 1
+	}
+	return values[idx]
+}
+
+// reducerCountDistinctishHLL estimates distinct count via a HyperLogLog of the
+// given precision (register bits). 14 bits ≈ 16K registers ≈ 0.81% std error.
+func reducerCountDistinctishHLL(docs []*Document, field string, precision int) int {
+	m := uint64(1) << precision
+	registers := make([]uint8, m)
+	mask := m - 1
+	for _, doc := range docs {
+		v, ok := doc.Fields[field]
+		if !ok {
+			continue
+		}
+		h := fnv1a64(fmt.Sprintf("%v", v))
+		idx := h & mask
+		w := h >> precision
+		rho := uint8(1)
+		// count leading zeros in the (64-precision)-bit w
+		for bit := uint64(1) << (63 - precision); bit > 0 && w&bit == 0; bit >>= 1 {
+			rho++
+		}
+		if rho > registers[idx] {
+			registers[idx] = rho
+		}
+	}
+	// Harmonic-mean alpha — standard HLL estimator.
+	var sum float64
+	zeros := 0
+	for _, r := range registers {
+		if r == 0 {
+			zeros++
+			sum += 1
+		} else {
+			sum += 1.0 / math.Pow(2.0, float64(r))
+		}
+	}
+	alphaM := 0.7213 / (1.0 + 1.079/float64(m)) // correction for m>=128
+	est := alphaM * float64(m) * float64(m) / sum
+	// Small-range correction (linear counting) when estimate is small.
+	if est <= 2.5*float64(m) && zeros > 0 {
+		est = float64(m) * math.Log(float64(m)/float64(zeros))
+	}
+	return int(est + 0.5)
+}
+
+// fnv1a64 is a 64-bit FNV-1a hash used by the HLL reducer.
+func fnv1a64(s string) uint64 {
+	var h uint64 = 14695981039346656037
+	for i := 0; i < len(s); i++ {
+		h ^= uint64(s[i])
+		h *= 1099511628211
+	}
+	return h
+}
+
+// parseFirstValueArgs interprets REDUCE FIRST_VALUE nargs @field [BY @sortfield [ASC|DESC]].
+// Returns the BY field name ("" if none) and whether DESC was requested.
+func parseFirstValueArgs(args []string) (byField string, desc bool) {
+	for i := 1; i < len(args); i++ {
+		up := strings.ToUpper(args[i])
+		if up == "BY" && i+1 < len(args) {
+			byField = strings.TrimPrefix(args[i+1], "@")
+			i++
+			if i+1 < len(args) {
+				if strings.EqualFold(args[i+1], "DESC") {
+					desc = true
+					i++
+				} else if strings.EqualFold(args[i+1], "ASC") {
+					i++
+				}
+			}
+		}
+	}
+	return byField, desc
+}
+
+// reducerRandomSample returns up to size values sampled uniformly without
+// replacement (reservoir sampling) from the field across docs.
+func reducerRandomSample(docs []*Document, field string, size int) interface{} {
+	if size <= 0 || len(docs) == 0 {
+		return nil
+	}
+	reservoir := make([]interface{}, 0, size)
+	for i, doc := range docs {
+		v, ok := doc.Fields[field]
+		if !ok {
+			continue
+		}
+		if len(reservoir) < size {
+			reservoir = append(reservoir, v)
+			continue
+		}
+		// Replace a random element with probability size/(i+1).
+		j := applyRandIntn(i + 1)
+		if j < size {
+			reservoir[j] = v
+		}
+	}
+	return reservoir
+}
+
+// applyRandIntn returns a non-negative pseudo-random int in [0,n). It uses the
+// package-level rand source which is safe for concurrent use (rand.Intn is
+// goroutine-safe in Go 1.20+).
+func applyRandIntn(n int) int {
+	if n <= 0 {
+		return 0
+	}
+	return rand.Intn(n)
 }
 
 func (e *RediSearchEngine) sortGroups(groups []*Group, field string, desc bool) []*Group {
@@ -874,60 +1323,26 @@ func (e *RediSearchEngine) sortGroups(groups []*Group, field string, desc bool) 
 // filterGroups filters groups based on a filter expression
 // Simple filter format: "field > 10", "field = value", "field < 100"
 func (e *RediSearchEngine) filterGroups(groups []*Group, filter string) []*Group {
-	// Parse simple filter expression
-	// Support: field > value, field < value, field = value, field >= value, field <= value
-
+	// FILTER uses the full aggregation expression grammar (comparison + boolean
+	// operators + functions), evaluated per group row. Pre-2.10 a single binary
+	// comparison was all that was supported; the unified evaluator subsumes it.
 	filter = strings.TrimSpace(filter)
-
-	// Find operator
-	operators := []string{">=", "<=", "=", ">", "<"}
-	var op string
-	var parts []string
-
-	for _, candidate := range operators {
-		if strings.Contains(filter, candidate) {
-			parts = strings.SplitN(filter, candidate, 2)
-			if len(parts) == 2 {
-				op = candidate
-				break
-			}
-		}
-	}
-
-	if op == "" {
-		// No valid operator found, return all groups
+	if filter == "" {
 		return groups
 	}
-
-	field := strings.TrimSpace(parts[0])
-	field = strings.TrimPrefix(field, "@")
-	valueStr := strings.TrimSpace(parts[1])
-
-	// Try to parse as number
-	var numValue float64
-	var isNum bool
-	if n, err := strconv.ParseFloat(valueStr, 64); err == nil {
-		numValue = n
-		isNum = true
-	}
-
 	var result []*Group
 	for _, group := range groups {
-		fieldValue, ok := group.Fields[field]
-		if !ok {
-			// Field not found, try group.By for grouping field
-			if fmt.Sprintf("%v", group.By) == field {
-				fieldValue = group.By
-			} else {
-				continue
-			}
+		ok, err := EvalFilterExpr(filter, group.Fields)
+		if err != nil {
+			// Treat a malformed filter as non-matching rather than dropping the
+			// whole result set; Redis errors out, but best-effort is safer here
+			// until the parser is wired to surface errors from the pipeline.
+			continue
 		}
-
-		if e.matchesFilter(fieldValue, op, numValue, valueStr, isNum) {
+		if ok {
 			result = append(result, group)
 		}
 	}
-
 	return result
 }
 
@@ -988,6 +1403,14 @@ func (e *RediSearchEngine) Info() map[string]interface{} {
 		"num_records":                 e.index.TermCount() * 2, // Approximation
 		"inverted_sz_mb":              0.1,
 		"total_inverted_index_blocks": 1,
+		// Redis 8.x index-level flags declared at FT.CREATE.
+		"no_offsets":     e.noOffsets,
+		"no_highlight":   e.noHL,
+		"max_text_fields": e.maxTextFields,
+		"temporary":      e.temporary,
+		"filter":         e.filterExpr,
+		"index_all":      e.indexAll,
+		"index_missing":  e.indexMissingAll,
 	}
 }
 
@@ -1002,6 +1425,30 @@ func (e *RediSearchEngine) getAttributesInfo() []map[string]interface{} {
 			"weight":     field.Weight,
 			"sortable":   field.Sortable,
 			"no_index":   field.NoIndex,
+		}
+		// Surface 8.x field options so FT.INFO reflects the declared schema.
+		// Only include the flag when it differs from the default, to keep the
+		// reply close to Redis (which omits unset options).
+		if field.SortableUNF {
+			attr["sortable_unf"] = true
+		}
+		if field.Phonetic != "" {
+			attr["phonetic"] = field.Phonetic
+		}
+		if field.IndexMissing {
+			attr["index_missing"] = true
+		}
+		if field.IndexEmpty {
+			attr["index_empty"] = true
+		}
+		if field.WithSuffixTrie {
+			attr["withsuffixtrie"] = true
+		}
+		if field.CaseSensitive {
+			attr["case_sensitive"] = true
+		}
+		if field.Type == FieldTypeGeoShape && field.CoordinateSystem != "" {
+			attr["coordinate_system"] = field.CoordinateSystem
 		}
 		attrs = append(attrs, attr)
 	}
@@ -1021,6 +1468,8 @@ func fieldTypeToString(t FieldType) string {
 		return "GEO"
 	case FieldTypeVector:
 		return "VECTOR"
+	case FieldTypeGeoShape:
+		return "GEOSHAPE"
 	default:
 		return "TEXT"
 	}
@@ -1070,21 +1519,76 @@ func (e *RediSearchEngine) SuggestionCount() int {
 	return e.autocomplete.Len()
 }
 
-// SpellCheck provides spelling corrections
-func (e *RediSearchEngine) SpellCheck(term string, maxDist int) []string {
-	// Simple Levenshtein distance based spell check
-	var corrections []string
+// SpellSuggestion is a single spell-check candidate with its score.
+type SpellSuggestion struct {
+	Term  string
+	Score float64 // 1/(1+Levenshtein distance), Redis convention
+}
 
-	for dictTerm := range e.index.terms {
-		if !strings.Contains(dictTerm, ":") {
-			dist := levenshteinDistance(term, dictTerm)
-			if dist <= maxDist {
-				corrections = append(corrections, dictTerm)
-			}
+// SpellCheck provides spelling corrections using only the index term dictionary.
+func (e *RediSearchEngine) SpellCheck(term string, maxDist int) []string {
+	sug := e.SpellCheckWithDicts(term, maxDist, nil, nil)
+	out := make([]string, len(sug))
+	for i, s := range sug {
+		out[i] = s.Term
+	}
+	return out
+}
+
+// SpellCheckWithDicts builds the suggestion candidate pool from the index terms
+// plus any TERMS INCLUDE dictionary entries, computes Levenshtein distance to
+// `term`, drops any term appearing in the EXCLUDE set or identical to `term`,
+// and returns candidates within maxDist sorted by score descending.
+// This mirrors RediSearch FT.SPELLCHECK semantics: INCLUDE expands the pool,
+// EXCLUDE removes suggestions, score = 1/(1+dist).
+func (e *RediSearchEngine) SpellCheckWithDicts(term string, maxDist int, include, exclude map[string]bool) []SpellSuggestion {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+
+	term = strings.ToLower(term)
+	if maxDist < 1 {
+		maxDist = 1
+	}
+
+	seen := make(map[string]int, 64) // term -> best distance
+	add := func(candidate string) {
+		candidate = strings.ToLower(candidate)
+		if candidate == "" || candidate == term {
+			return
+		}
+		if exclude != nil && exclude[candidate] {
+			return
+		}
+		if strings.Contains(candidate, ":") {
+			return // skip field-prefixed entries
+		}
+		dist := levenshteinDistance(term, candidate)
+		if dist > maxDist {
+			return
+		}
+		if prev, ok := seen[candidate]; !ok || dist < prev {
+			seen[candidate] = dist
 		}
 	}
 
-	return corrections
+	for dictTerm := range e.index.terms {
+		add(dictTerm)
+	}
+	for dictTerm := range include {
+		add(dictTerm)
+	}
+
+	out := make([]SpellSuggestion, 0, len(seen))
+	for t, d := range seen {
+		out = append(out, SpellSuggestion{Term: t, Score: 1.0 / float64(1+d)})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Score != out[j].Score {
+			return out[i].Score > out[j].Score
+		}
+		return out[i].Term < out[j].Term
+	})
+	return out
 }
 
 func levenshteinDistance(s1, s2 string) int {

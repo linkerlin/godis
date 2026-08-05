@@ -402,6 +402,7 @@ func execJSONNumIncrBy(db *DB, args [][]byte) redis.Reply {
 	}
 
 	db.addAof(utils.ToCmdLine3("json.numincrby", args...))
+	reindexJSON(db, key)
 	return wrapEnhancedJSONNumReply(path, newVal)
 }
 
@@ -456,6 +457,7 @@ func execJSONStrAppend(db *DB, args [][]byte) redis.Reply {
 	}
 
 	db.addAof(utils.ToCmdLine3("json.strappend", args...))
+	reindexJSON(db, key)
 	return wrapEnhancedJSONIntReply(path, len(args) == 3, int64(newLen))
 }
 
@@ -504,6 +506,7 @@ func execJSONArrAppend(db *DB, args [][]byte) redis.Reply {
 	}
 
 	db.addAof(utils.ToCmdLine3("json.arrappend", args...))
+	reindexJSON(db, key)
 	return wrapEnhancedJSONIntReply(path, true, int64(newLen))
 }
 
@@ -540,6 +543,7 @@ func execJSONArrInsert(db *DB, args [][]byte) redis.Reply {
 		return protocol.MakeErrReply(fmt.Sprintf("ERR %v", err))
 	}
 	db.addAof(utils.ToCmdLine3("json.arrinsert", args...))
+	reindexJSON(db, key)
 	return wrapEnhancedJSONIntReply(path, true, int64(newLen))
 }
 
@@ -658,6 +662,10 @@ func execJSONMSet(db *DB, args [][]byte) redis.Reply {
 		}
 	}
 	db.addAof(utils.ToCmdLine3("json.mset", args...))
+	// MSet may touch several keys; reindex each into matching FT indexes.
+	for _, t := range triples {
+		reindexJSON(db, t.key)
+	}
 	return protocol.MakeOkReply()
 }
 
@@ -688,6 +696,7 @@ func execJSONClear(db *DB, args [][]byte) redis.Reply {
 	}
 	if n > 0 {
 		db.addAof(utils.ToCmdLine3("json.clear", args...))
+		reindexJSON(db, key)
 	}
 	return wrapEnhancedJSONIntReply(path, explicitPath, int64(n))
 }
@@ -718,6 +727,7 @@ func execJSONToggle(db *DB, args [][]byte) redis.Reply {
 		return protocol.MakeErrReply(fmt.Sprintf("ERR %v", err))
 	}
 	db.addAof(utils.ToCmdLine3("json.toggle", args...))
+	reindexJSON(db, key)
 	v := int64(0)
 	if newVal {
 		v = 1
@@ -753,6 +763,7 @@ func execJSONMerge(db *DB, args [][]byte) redis.Reply {
 		return protocol.MakeErrReply(fmt.Sprintf("ERR %v", err))
 	}
 	db.addAof(utils.ToCmdLine3("json.merge", args...))
+	reindexJSON(db, key)
 	return protocol.MakeOkReply()
 }
 

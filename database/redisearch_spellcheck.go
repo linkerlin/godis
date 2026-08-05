@@ -4,7 +4,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/linkerlin/godis/datastruct/redisearch"
 	database2 "github.com/linkerlin/godis/interface/database"
 	"github.com/linkerlin/godis/interface/redis"
 	"github.com/linkerlin/godis/redis/protocol"
@@ -17,7 +16,7 @@ func execFTSpellCheck(db *DB, args [][]byte) redis.Reply {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'ft.spellcheck' command")
 	}
 
-	indexName := string(args[0])
+	indexName := resolveSearchIndex(string(args[0]))
 	query := string(args[1])
 
 	// Parse options
@@ -31,7 +30,10 @@ func execFTSpellCheck(db *DB, args [][]byte) redis.Reply {
 		switch arg {
 		case "DISTANCE":
 			if i+1 < len(args) {
-				d, _ := strconv.Atoi(string(args[i+1]))
+				d, err := strconv.Atoi(string(args[i+1]))
+				if err != nil || d < 0 {
+					return protocol.MakeErrReply("ERR Invalid DISTANCE")
+				}
 				if d > 0 {
 					distance = d
 				}
@@ -49,8 +51,17 @@ func execFTSpellCheck(db *DB, args [][]byte) redis.Reply {
 					includeDicts = append(includeDicts, dict)
 				case "EXCLUDE":
 					excludeDicts = append(excludeDicts, dict)
+				default:
+					return protocol.MakeErrReply("ERR Unmatched argument " + string(args[i+1]))
 				}
 				i += 3
+			} else {
+				i++
+			}
+		case "DIALECT":
+			// DIALECT is accepted for syntax parity; spellcheck is dialect-agnostic.
+			if i+1 < len(args) {
+				i += 2
 			} else {
 				i++
 			}
@@ -59,19 +70,46 @@ func execFTSpellCheck(db *DB, args [][]byte) redis.Reply {
 		}
 	}
 
-	_ = indexName
-	_ = includeDicts
-	_ = excludeDicts
-
-	// Get engine
-	entity, exists := db.GetEntity(indexName)
-	if !exists {
-		return protocol.MakeEmptyMultiBulkReply()
+	// Resolve engine via the canonical store (alias-aware).
+	searchEnginesMu.RLock()
+	engine, ok := searchEngines[indexName]
+	searchEnginesMu.RUnlock()
+	if !ok {
+		return protocol.MakeErrReply("ERR Unknown Index name")
 	}
 
-	engine, ok := entity.Data.(*redisearch.RediSearchEngine)
-	if !ok {
-		return &protocol.WrongTypeErrReply{}
+	// Load INCLUDE / EXCLUDE term sets from the __dict_<name> keys.
+	loadDict := func(name string) map[string]bool {
+		entity, exists := db.GetEntity("__dict_" + name)
+		if !exists {
+			return nil
+		}
+		d, ok := entity.Data.(map[string]bool)
+		if !ok {
+			return nil
+		}
+		return d
+	}
+	var includeTerms, excludeTerms map[string]bool
+	for _, d := range includeDicts {
+		if t := loadDict(d); t != nil {
+			if includeTerms == nil {
+				includeTerms = make(map[string]bool)
+			}
+			for k := range t {
+				includeTerms[k] = true
+			}
+		}
+	}
+	for _, d := range excludeDicts {
+		if t := loadDict(d); t != nil {
+			if excludeTerms == nil {
+				excludeTerms = make(map[string]bool)
+			}
+			for k := range t {
+				excludeTerms[k] = true
+			}
+		}
 	}
 
 	// Parse query and check each term
@@ -84,30 +122,28 @@ func execFTSpellCheck(db *DB, args [][]byte) redis.Reply {
 			continue
 		}
 
-		// Skip if term exists in index
+		// Skip if term exists in index (it's spelled correctly).
 		if engine.TermExists(term) {
 			continue
 		}
 
-		// Get suggestions
-		suggestions := engine.SpellCheck(term, distance)
+		suggestions := engine.SpellCheckWithDicts(term, distance, includeTerms, excludeTerms)
 		if len(suggestions) == 0 {
 			continue
 		}
 
-		// Build term result
+		// Build term result: ENTRY <term> <score> <suggestion> [<score> <suggestion> ...]
 		var termResult [][]byte
 		termResult = append(termResult, []byte(term))
 
-		// Add suggestions
 		for i, suggestion := range suggestions {
 			if i >= 5 { // Limit to 5 suggestions
 				break
 			}
 
 			var suggResult [][]byte
-			suggResult = append(suggResult, []byte("0")) // Score (simplified)
-			suggResult = append(suggResult, []byte(suggestion))
+			suggResult = append(suggResult, []byte(strconv.FormatFloat(suggestion.Score, 'f', -1, 64)))
+			suggResult = append(suggResult, []byte(suggestion.Term))
 
 			termResult = append(termResult, protocol.MakeMultiBulkReply(suggResult).ToBytes())
 		}

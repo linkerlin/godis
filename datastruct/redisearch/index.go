@@ -17,6 +17,7 @@ const (
 	FieldTypeTag
 	FieldTypeGeo
 	FieldTypeVector
+	FieldTypeGeoShape
 )
 
 // Field represents a field definition in the index
@@ -30,6 +31,22 @@ type Field struct {
 	Stemming  bool
 	Tokenizer Tokenizer
 	Separator string // for TAG fields; defaults to "," when empty
+
+	// Redis 8.x field options. Parsed and stored here; behavioral wiring is
+	// incremental (CASESENSITIVE / INDEXEMPTY take effect immediately; PHONETIC
+	// / WITHSUFFIXTRIE / INDEXMISSING / SortableUNF are stored for FT.INFO and
+	// later phases).
+	Phonetic       string // dm:en | dm:fr | dm:pt | dm:es (TEXT)
+	IndexMissing   bool   // index absent values; queryable via ismissing() (DIALECT 2+)
+	IndexEmpty     bool   // index empty strings as a searchable token (TEXT, TAG)
+	WithSuffixTrie bool   // maintain suffix trie for *suffix / *infix* queries
+	CaseSensitive  bool   // TAG: do not lowercase tag values
+	SortableUNF    bool   // SORTABLE UNF: sort column stores unnormalized values
+	CoordinateSystem string // GEOSHAPE: "FLAT" | "SPHERICAL" (default SPHERICAL)
+
+	// VectorConfig holds the parsed VECTOR field attributes (algorithm, dim,
+	// distance metric, ...). Non-nil only for FieldTypeVector fields.
+	VectorConfig *VectorFieldConfig
 }
 
 // Document represents a document to be indexed
@@ -55,9 +72,23 @@ type InvertedIndex struct {
 	documents map[string]*Document
 	fields    map[string]*Field
 
+	// docLengths tracks the total token count per document (summed across TEXT
+	// fields) for BM25 length normalization. totalLength is the corpus sum,
+	// giving avgdl = totalLength / DocCount.
+	docLengths   map[string]int
+	totalLength  int
+
 	tokenizer  Tokenizer
 	stopFilter *StopWordFilter
 	stemmer    *Stemmer
+
+	// Index-level flags from FT.CREATE. NoOffsets drops position data so phrase
+	// / SLOP / highlight queries can't match. NoFreqs collapses frequency to 1
+	// for every term-doc pair. NoFields suppresses the field-prefixed copy of
+	// each term so @field: scoping becomes a no-op.
+	noOffsets bool
+	noFreqs   bool
+	noFields  bool
 
 	mu sync.RWMutex
 }
@@ -65,13 +96,22 @@ type InvertedIndex struct {
 // NewInvertedIndex creates a new inverted index
 func NewInvertedIndex() *InvertedIndex {
 	return &InvertedIndex{
-		terms:      make(map[string]map[string][]int),
-		documents:  make(map[string]*Document),
-		fields:     make(map[string]*Field),
-		tokenizer:  &StandardTokenizer{},
-		stopFilter: NewStopWordFilter(),
-		stemmer:    &Stemmer{},
+		terms:       make(map[string]map[string][]int),
+		documents:   make(map[string]*Document),
+		fields:      make(map[string]*Field),
+		docLengths:  make(map[string]int),
+		tokenizer:   &StandardTokenizer{},
+		stopFilter:  NewStopWordFilter(),
+		stemmer:     &Stemmer{},
 	}
+}
+
+// SetIndexFlags applies FT.CREATE NOOFFSETS / NOFIELDS / NOFREQS behavior.
+// Called once at engine creation; the flags are read by indexTextField.
+func (idx *InvertedIndex) SetIndexFlags(noOffsets, noFields, noFreqs bool) {
+	idx.noOffsets = noOffsets
+	idx.noFields = noFields
+	idx.noFreqs = noFreqs
 }
 
 // AddField adds a field definition to the index
@@ -115,6 +155,30 @@ func (idx *InvertedIndex) IndexDocument(doc *Document) error {
 		}
 	}
 
+	// INDEXEMPTY: for TEXT/TAG fields whose value is absent or empty, index a
+	// searchable empty-token marker so the doc is findable. Redis semantics:
+	// only fields declared INDEXEMPTY get this treatment.
+	for fieldName, field := range idx.fields {
+		if field.NoIndex || !field.IndexEmpty {
+			continue
+		}
+		if field.Type != FieldTypeText && field.Type != FieldTypeTag {
+			continue
+		}
+		raw, present := doc.Fields[fieldName]
+		if present {
+			if s := fmt.Sprintf("%v", raw); s != "" {
+				continue // non-empty value handled above
+			}
+		}
+		// Absent or empty: index the empty-token marker for this field.
+		fieldTerm := fieldName + ":\x00empty"
+		if _, ok := idx.terms[fieldTerm]; !ok {
+			idx.terms[fieldTerm] = make(map[string][]int)
+		}
+		idx.terms[fieldTerm][doc.ID] = []int{0}
+	}
+
 	return nil
 }
 
@@ -127,27 +191,39 @@ func (idx *InvertedIndex) indexTextField(docID string, field *Field, text string
 		tokens = idx.stemmer.StemAll(tokens)
 	}
 
-	// Track positions
+	// Account this field's token count toward the document's length (for BM25
+	// normalization). We count surviving (post-stopword) tokens.
+	idx.docLengths[docID] += len(tokens)
+	idx.totalLength += len(tokens)
+
+	// Positions are tracked for phrase/SLOP/highlight. NOOFFSETS drops them
+	// entirely (single sentinel position); NOFREQS collapses frequency to 1.
 	positions := make(map[string][]int)
 	for pos, token := range tokens {
+		if idx.noOffsets || idx.noFreqs {
+			// No positional detail needed: a single slot suffices for "present".
+			if len(positions[token]) == 0 {
+				positions[token] = []int{0}
+			}
+			continue
+		}
 		positions[token] = append(positions[token], pos)
 	}
 
-	// Add to inverted index with field prefix
+	addTerm := func(key string, posList []int) {
+		if _, ok := idx.terms[key]; !ok {
+			idx.terms[key] = make(map[string][]int)
+		}
+		idx.terms[key][docID] = posList
+	}
+
 	for term, posList := range positions {
-		// Prefix with field name for field-specific search
-		fieldTerm := field.Name + ":" + term
-
-		if _, ok := idx.terms[fieldTerm]; !ok {
-			idx.terms[fieldTerm] = make(map[string][]int)
+		// Global index copy (unscoped).
+		addTerm(term, posList)
+		// Field-prefixed copy unless NOFIELDS suppresses field attribution.
+		if !idx.noFields {
+			addTerm(field.Name + ":" + term, posList)
 		}
-		idx.terms[fieldTerm][docID] = posList
-
-		// Also add to global index
-		if _, ok := idx.terms[term]; !ok {
-			idx.terms[term] = make(map[string][]int)
-		}
-		idx.terms[term][docID] = posList
 	}
 }
 
@@ -160,7 +236,12 @@ func (idx *InvertedIndex) indexTagField(docID string, field *Field, value string
 	}
 	tags := strings.Split(value, sep)
 	for _, tag := range tags {
-		tag = strings.TrimSpace(strings.ToLower(tag))
+		tag = strings.TrimSpace(tag)
+		if field.CaseSensitive {
+			// preserve original case
+		} else {
+			tag = strings.ToLower(tag)
+		}
 		if tag == "" {
 			continue
 		}
@@ -216,6 +297,15 @@ func (idx *InvertedIndex) removeDocumentInternal(docID string) bool {
 		}
 	}
 
+	// Reclaim the doc's length contribution from the corpus total.
+	if dl, ok := idx.docLengths[docID]; ok {
+		idx.totalLength -= dl
+		if idx.totalLength < 0 {
+			idx.totalLength = 0
+		}
+		delete(idx.docLengths, docID)
+	}
+
 	delete(idx.documents, docID)
 	return true
 }
@@ -224,6 +314,10 @@ func (idx *InvertedIndex) removeDocumentInternal(docID string) bool {
 func (idx *InvertedIndex) Search(query string, field string) []string {
 	idx.mu.RLock()
 	defer idx.mu.RUnlock()
+
+	if idx.noFields {
+		field = "" // NOFIELDS disables field filtering
+	}
 
 	tokens := idx.tokenizer.Tokenize(query)
 	tokens = idx.stopFilter.Filter(tokens)
@@ -293,6 +387,10 @@ func (idx *InvertedIndex) Search(query string, field string) []string {
 func (idx *InvertedIndex) SearchPhrase(terms []string, field string, slop int, inOrder bool) []string {
 	idx.mu.RLock()
 	defer idx.mu.RUnlock()
+
+	if idx.noFields {
+		field = ""
+	}
 
 	if len(terms) == 0 {
 		return nil
@@ -529,6 +627,9 @@ func (idx *InvertedIndex) PrefixSearch(prefix string, field string) []string {
 	idx.mu.RLock()
 	defer idx.mu.RUnlock()
 
+	if idx.noFields {
+		field = ""
+	}
 	prefix = strings.ToLower(prefix)
 	if field != "" {
 		prefix = field + ":" + prefix
@@ -548,6 +649,174 @@ func (idx *InvertedIndex) PrefixSearch(prefix string, field string) []string {
 		docIDs = append(docIDs, docID)
 	}
 	return docIDs
+}
+
+// SuffixSearch returns doc IDs whose indexed terms end with suffix. Redis
+// accelerates this with WITHSUFFIXTRIE; without the trie it brute-forces the
+// term dictionary — which is what we do here. field scopes the search.
+func (idx *InvertedIndex) SuffixSearch(suffix string, field string) []string {
+	idx.mu.RLock()
+	defer idx.mu.RUnlock()
+
+	if idx.noFields {
+		field = ""
+	}
+	suffix = strings.ToLower(suffix)
+
+	result := make(map[string]bool)
+	for dictTerm, docs := range idx.terms {
+		ct := dictTerm
+		if field != "" {
+			if !strings.HasPrefix(dictTerm, field+":") {
+				continue
+			}
+			ct = strings.TrimPrefix(dictTerm, field+":")
+		} else if strings.Contains(ct, ":") {
+			// Skip field-prefixed copies when unscoped.
+			continue
+		}
+		if strings.HasSuffix(ct, suffix) {
+			for docID := range docs {
+				result[docID] = true
+			}
+		}
+	}
+	var docIDs []string
+	for docID := range result {
+		docIDs = append(docIDs, docID)
+	}
+	return docIDs
+}
+
+// InfixSearch returns doc IDs whose indexed terms contain infix (substring).
+// Like SuffixSearch this is a brute-force dictionary scan unless the field has
+// WITHSUFFIXTRIE (the trie is a future optimization).
+func (idx *InvertedIndex) InfixSearch(infix string, field string) []string {
+	idx.mu.RLock()
+	defer idx.mu.RUnlock()
+
+	if idx.noFields {
+		field = ""
+	}
+	infix = strings.ToLower(infix)
+
+	result := make(map[string]bool)
+	for dictTerm, docs := range idx.terms {
+		ct := dictTerm
+		if field != "" {
+			if !strings.HasPrefix(dictTerm, field+":") {
+				continue
+			}
+			ct = strings.TrimPrefix(dictTerm, field+":")
+		} else if strings.Contains(ct, ":") {
+			continue
+		}
+		if strings.Contains(ct, infix) {
+			for docID := range docs {
+				result[docID] = true
+			}
+		}
+	}
+	var docIDs []string
+	for docID := range result {
+		docIDs = append(docIDs, docID)
+	}
+	return docIDs
+}
+
+// PrefixTermCount returns the number of distinct dictionary terms that begin
+// with prefix (field-scoped when field != ""). Used by MAXEXPANSIONS validation
+// so a runaway prefix query can be rejected before Evaluate fans out.
+func (idx *InvertedIndex) PrefixTermCount(prefix, field string) int {
+	idx.mu.RLock()
+	defer idx.mu.RUnlock()
+
+	prefix = strings.ToLower(prefix)
+	if field != "" {
+		prefix = field + ":" + prefix
+	}
+	n := 0
+	for term := range idx.terms {
+		if strings.HasPrefix(term, prefix) {
+			n++
+		}
+	}
+	return n
+}
+
+// FuzzyTermCount returns the number of distinct dictionary terms within
+// maxDist (Levenshtein) of term. Used by MAXEXPANSIONS validation for fuzzy
+// queries. Field-prefixed dictionary entries are skipped when field == "".
+func (idx *InvertedIndex) FuzzyTermCount(term, field string, maxDist int) int {
+	idx.mu.RLock()
+	defer idx.mu.RUnlock()
+
+	term = strings.ToLower(term)
+	n := 0
+	for dictTerm := range idx.terms {
+		if field == "" && strings.Contains(dictTerm, ":") {
+			continue
+		}
+		ct := dictTerm
+		if field != "" {
+			if !strings.HasPrefix(dictTerm, field+":") {
+				continue
+			}
+			ct = strings.TrimPrefix(dictTerm, field+":")
+		}
+		if levenshteinDistance(term, ct) <= maxDist {
+			n++
+		}
+	}
+	return n
+}
+
+// SuffixTermCount returns the number of dictionary terms ending with suffix.
+func (idx *InvertedIndex) SuffixTermCount(suffix, field string) int {
+	idx.mu.RLock()
+	defer idx.mu.RUnlock()
+
+	suffix = strings.ToLower(suffix)
+	n := 0
+	for dictTerm := range idx.terms {
+		ct := dictTerm
+		if field != "" {
+			if !strings.HasPrefix(dictTerm, field+":") {
+				continue
+			}
+			ct = strings.TrimPrefix(dictTerm, field+":")
+		} else if strings.Contains(ct, ":") {
+			continue
+		}
+		if strings.HasSuffix(ct, suffix) {
+			n++
+		}
+	}
+	return n
+}
+
+// InfixTermCount returns the number of dictionary terms containing infix.
+func (idx *InvertedIndex) InfixTermCount(infix, field string) int {
+	idx.mu.RLock()
+	defer idx.mu.RUnlock()
+
+	infix = strings.ToLower(infix)
+	n := 0
+	for dictTerm := range idx.terms {
+		ct := dictTerm
+		if field != "" {
+			if !strings.HasPrefix(dictTerm, field+":") {
+				continue
+			}
+			ct = strings.TrimPrefix(dictTerm, field+":")
+		} else if strings.Contains(ct, ":") {
+			continue
+		}
+		if strings.Contains(ct, infix) {
+			n++
+		}
+	}
+	return n
 }
 
 // TagSearch searches for exact tag match
@@ -586,6 +855,73 @@ func (idx *InvertedIndex) FieldPresentDocIDs(field string) []string {
 		}
 	}
 	return docIDs
+}
+
+// NumericCompare returns doc IDs whose stored numeric Field value satisfies
+// op against v (op ∈ {==,!=,>,>=,<,<=}). Docs where Field is absent or
+// non-numeric are excluded, except for "!=" which includes them (a missing
+// value is "not equal" to any number). Like NumericRangeSearch this is a linear
+// scan — ponytail: add a sorted numeric index if comparison throughput matters.
+func (idx *InvertedIndex) NumericCompare(field, op string, v float64) []string {
+	idx.mu.RLock()
+	defer idx.mu.RUnlock()
+
+	var result []string
+	for docID, doc := range idx.documents {
+		raw, ok := doc.Fields[field]
+		if !ok {
+			if op == "!=" {
+				result = append(result, docID)
+			}
+			continue
+		}
+		got, err := strconv.ParseFloat(fmt.Sprintf("%v", raw), 64)
+		if err != nil {
+			if op == "!=" {
+				result = append(result, docID)
+			}
+			continue
+		}
+		if numericCompareMatch(got, op, v) {
+			result = append(result, docID)
+		}
+	}
+	return result
+}
+
+// numericCompareMatch applies op to (got, want) and returns the comparison result.
+func numericCompareMatch(got float64, op string, want float64) bool {
+	switch op {
+	case "==":
+		return got == want
+	case "!=":
+		return got != want
+	case ">":
+		return got > want
+	case ">=":
+		return got >= want
+	case "<":
+		return got < want
+	case "<=":
+		return got <= want
+	default:
+		return false
+	}
+}
+
+// MissingDocIDs returns doc IDs that do NOT have any value stored for field.
+// Used by ismissing(@field) — requires the field to be declared INDEXMISSING so
+// callers can opt in (handled at the query-parser layer).
+func (idx *InvertedIndex) MissingDocIDs(field string) []string {
+	idx.mu.RLock()
+	defer idx.mu.RUnlock()
+	var result []string
+	for docID, doc := range idx.documents {
+		if _, ok := doc.Fields[field]; !ok {
+			result = append(result, docID)
+		}
+	}
+	return result
 }
 
 // NumericRangeSearch returns doc IDs whose stored numeric field value falls
