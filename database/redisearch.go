@@ -1607,7 +1607,9 @@ func execFTAggregate(db *DB, args [][]byte) redis.Reply {
 		}
 	}
 
-	if max := getFTConfigInt("MAXSEARCHRESULTS"); max > 0 && req.Limit > max {
+	// FT.AGGREGATE results are capped by search-max-aggregate-results (8.0
+	// name), NOT MAXSEARCHRESULTS which applies to FT.SEARCH only.
+	if max := getFTConfigInt("MAXAGGREGATERESULTS"); max > 0 && req.Limit > max {
 		req.Limit = max
 	}
 

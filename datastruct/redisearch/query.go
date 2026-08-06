@@ -2,6 +2,7 @@ package redisearch
 
 import (
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 )
@@ -1381,4 +1382,93 @@ func (p *ExpressionParser) remaining() string {
 		return ""
 	}
 	return p.input[p.pos:]
+}
+
+// ExplainNode renders a parsed query AST as a RediSearch-style execution plan
+// tree, e.g.:
+//
+//	INTERSECT {
+//	  TERM{hello}
+//	  TERM{world}
+//	}
+//
+// Used by FT.EXPLAIN so the output reflects the real query plan rather than a
+// hand-rolled approximation.
+func ExplainNode(node QueryNode) string {
+	var b strings.Builder
+	explainNode(&b, node, 0)
+	return b.String()
+}
+
+func explainNode(b *strings.Builder, node QueryNode, depth int) {
+	indent := strings.Repeat("  ", depth)
+	switch n := node.(type) {
+	case nil:
+		b.WriteString(indent + "EMPTY\n")
+	case *TermNode:
+		b.WriteString(indent + "TERM{" + n.Term + "}\n")
+	case *PhraseNode:
+		b.WriteString(indent + "PHRASE{" + strings.Join(n.Terms, " ") + "}\n")
+	case *PrefixNode:
+		b.WriteString(indent + "PREFIX{" + n.Prefix + "}\n")
+	case *SuffixNode:
+		b.WriteString(indent + "SUFFIX{" + n.Suffix + "}\n")
+	case *InfixNode:
+		b.WriteString(indent + "INFIX{" + n.Infix + "}\n")
+	case *FuzzyNode:
+		b.WriteString(indent + "FUZZY{" + n.Term + "} (DIST " + strconv.Itoa(n.MaxDist) + ")\n")
+	case *TagNode:
+		b.WriteString(indent + "TAG{" + n.Field + ":" + n.Tag + "}\n")
+	case *NumericRangeNode:
+		min, max := n.Min, n.Max
+		if n.MinInf {
+			min = math.Inf(-1)
+		}
+		if n.MaxInf {
+			max = math.Inf(1)
+		}
+		b.WriteString(indent + "RANGE{" + n.Field + " [" + formatRangeBound(min, n.MinExclusive) + " " + formatRangeBound(max, n.MaxExclusive) + "]}\n")
+	case *NumericCompareNode:
+		b.WriteString(indent + "COMPARE{" + n.Field + " " + n.Op + " " + strconv.FormatFloat(n.Value, 'f', -1, 64) + "}\n")
+	case *GeoRangeNode:
+		b.WriteString(indent + "GEORANGE{" + n.Field + " " + strconv.FormatFloat(n.Lon, 'f', -1, 64) + " " + strconv.FormatFloat(n.Lat, 'f', -1, 64) + " " + strconv.FormatFloat(n.Radius, 'f', -1, 64) + " " + n.Unit + "}\n")
+	case *GeoShapeNode:
+		b.WriteString(indent + "GEOSHAPE{" + n.Field + " " + n.Op + " " + n.Param + "}\n")
+	case *MissingNode:
+		b.WriteString(indent + "MISSING{" + n.Field + "}\n")
+	case *AndNode:
+		b.WriteString(indent + "INTERSECT {\n")
+		explainNode(b, n.Left, depth+1)
+		explainNode(b, n.Right, depth+1)
+		b.WriteString(indent + "}\n")
+	case *OrNode:
+		b.WriteString(indent + "UNION {\n")
+		explainNode(b, n.Left, depth+1)
+		explainNode(b, n.Right, depth+1)
+		b.WriteString(indent + "}\n")
+	case *NotNode:
+		b.WriteString(indent + "NOT {\n")
+		explainNode(b, n.Child, depth+1)
+		b.WriteString(indent + "}\n")
+	case *OptionalNode:
+		b.WriteString(indent + "OPTIONAL {\n")
+		explainNode(b, n.Child, depth+1)
+		b.WriteString(indent + "}\n")
+	default:
+		b.WriteString(indent + "NODE\n")
+	}
+}
+
+func formatRangeBound(v float64, exclusive bool) string {
+	prefix := ""
+	if exclusive {
+		prefix = "("
+	}
+	if math.IsInf(v, 1) {
+		return prefix + "+inf"
+	}
+	if math.IsInf(v, -1) {
+		return prefix + "-inf"
+	}
+	return prefix + strconv.FormatFloat(v, 'f', -1, 64)
 }

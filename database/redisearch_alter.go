@@ -81,44 +81,25 @@ func execFTExplain(db *DB, args [][]byte) redis.Reply {
 	return protocol.MakeBulkReply([]byte(formatFTExplainPlan(query)))
 }
 
-// formatFTExplainPlan builds a shallow RediSearch-like explain tree.
+// formatFTExplainPlan builds a RediSearch-style explain tree from the ACTUAL
+// parsed query AST (not a hand-rolled approximation). The query is parsed with
+// the ExpressionParser (dialect-aware) and rendered recursively.
 func formatFTExplainPlan(query string) string {
 	q := strings.TrimSpace(query)
 	if q == "" {
 		return "INTERSECT {\n}\n"
 	}
-	if strings.Contains(q, "|") {
-		parts := strings.Split(q, "|")
-		var b strings.Builder
-		b.WriteString("UNION {\n")
-		for _, p := range parts {
-			p = strings.TrimSpace(p)
-			if p == "" {
-				continue
-			}
-			b.WriteString("  INTERSECT {\n    ")
-			b.WriteString(p)
-			b.WriteString("\n  }\n")
+	parser := redisearch.NewExpressionParser(q)
+	node, err := parser.Parse()
+	if err != nil {
+		// Fall back to the simple parser on parse failure so EXPLAIN still
+		// reports something useful for legacy queries.
+		if node2, err2 := redisearch.NewQueryParser().Parse(q); err2 == nil {
+			return redisearch.ExplainNode(node2)
 		}
-		b.WriteString("}\n")
-		return b.String()
-	}
-	if strings.HasPrefix(q, "@") {
 		return "INTERSECT {\n  " + q + "\n}\n"
 	}
-	terms := strings.Fields(q)
-	if len(terms) > 1 && !strings.Contains(q, "\"") {
-		var b strings.Builder
-		b.WriteString("INTERSECT {\n")
-		for _, t := range terms {
-			b.WriteString("  ")
-			b.WriteString(t)
-			b.WriteByte('\n')
-		}
-		b.WriteString("}\n")
-		return b.String()
-	}
-	return "INTERSECT {\n  " + q + "\n}\n"
+	return redisearch.ExplainNode(node)
 }
 
 // execFTExplainCLI FT.EXPLAINCLI index query — returns plan lines as array.
