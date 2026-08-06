@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"os"
 	"sort"
@@ -154,11 +155,46 @@ func applyOneRootRule(u *User, rule string) error {
 		u.Enabled = false
 	case rule == "nopass":
 		u.Passwords = nil
+	case rule == "resetpass":
+		u.Passwords = nil
 	case strings.HasPrefix(rule, ">"):
+		// Redis appends multiple passwords; a bare ">" without value is an error.
+		if len(rule) == 1 {
+			return errors.New("ACL '>' rule requires a password")
+		}
 		hash := sha256SumHex(rule[1:])
-		u.Passwords = []Password{{Hash: hash, IsSHA: true}}
+		u.Passwords = append(u.Passwords, Password{Hash: hash, IsSHA: true})
 	case strings.HasPrefix(rule, "#"):
-		u.Passwords = []Password{{Hash: rule[1:], IsSHA: true}}
+		if len(rule) == 1 {
+			return errors.New("ACL '#' rule requires a hash")
+		}
+		u.Passwords = append(u.Passwords, Password{Hash: rule[1:], IsSHA: true})
+	case strings.HasPrefix(rule, "<"):
+		// Remove a plaintext password (Redis 7+).
+		if len(rule) == 1 {
+			return errors.New("ACL '<' rule requires a password")
+		}
+		hash := sha256SumHex(rule[1:])
+		u.Passwords = removePassword(u.Passwords, hash)
+	case strings.HasPrefix(rule, "!"):
+		// Remove a password by SHA256 hash (Redis 7+).
+		if len(rule) == 1 {
+			return errors.New("ACL '!' rule requires a hash")
+		}
+		u.Passwords = removePassword(u.Passwords, rule[1:])
+	case rule == "reset":
+		// Reset the user to defaults: off, nopass, no keys/channels/commands.
+		u.Enabled = false
+		u.Passwords = nil
+		u.KeyPatterns = nil
+		u.Channels = nil
+		u.Selectors = nil
+		u.Commands = &CommandPermissions{
+			AllowedCategories: make(map[string]bool),
+			AllowedCommands:   make(map[string]bool),
+			DeniedCommands:    make(map[string]bool),
+			AllCommands:       false,
+		}
 	case rule == "resetkeys":
 		u.KeyPatterns = nil
 	case rule == "resetchannels":
@@ -174,6 +210,17 @@ func applyOneRootRule(u *User, rule string) error {
 		return applyOneSinkRule(sink, rule)
 	}
 	return nil
+}
+
+// removePassword returns passwords without the one matching hash.
+func removePassword(pws []Password, hash string) []Password {
+	out := pws[:0]
+	for _, p := range pws {
+		if p.Hash != hash {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 func applyOneSinkRule(s *ruleSink, rule string) error {

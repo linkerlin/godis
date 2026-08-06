@@ -196,7 +196,8 @@ func (cg *ConsumerGroup) DeleteConsumer(name string) (int, error) {
 // Stream 流数据结构
 type Stream struct {
 	mu             sync.RWMutex
-	entries        *dict.ConcurrentDict // StreamID.String() -> *StreamEntry
+	entries        *dict.ConcurrentDict // StreamID.String() -> *StreamEntry (O(1) lookup)
+	ordered        []*StreamEntry       // entries sorted ascending by ID (range/trim/scan)
 	groups         *dict.ConcurrentDict // group name -> *ConsumerGroup
 	lastID         StreamID
 	maxlen         int64    // 最大长度限制
@@ -208,11 +209,27 @@ type Stream struct {
 func NewStream() *Stream {
 	return &Stream{
 		entries:      dict.MakeConcurrent(64),
+		ordered:      make([]*StreamEntry, 0, 64),
 		groups:       dict.MakeConcurrent(16),
 		lastID:       StreamID{0, 0},
 		maxlen:       -1, // 无限制
 		entriesAdded: 0,
 	}
+}
+
+// lowerBound returns the index of the first ordered entry with ID >= id
+// (binary search). Caller must hold s.mu.
+func (s *Stream) lowerBound(id StreamID) int {
+	lo, hi := 0, len(s.ordered)
+	for lo < hi {
+		mid := (lo + hi) / 2
+		if s.ordered[mid].ID.Compare(id) < 0 {
+			lo = mid + 1
+		} else {
+			hi = mid
+		}
+	}
+	return lo
 }
 
 // AddOptions XADD选项
@@ -246,8 +263,9 @@ func (s *Stream) Add(idStr string, fields map[string]string, opts *AddOptions) (
 		Fields: fields,
 	}
 
-	// 添加到entries
+	// 添加到entries (新ID恒大于lastID, 因此也是ordered的最大值 — 尾部追加)
 	s.entries.Put(id.String(), entry)
+	s.ordered = append(s.ordered, entry)
 	s.lastID = id
 	s.entriesAdded++
 
@@ -282,7 +300,7 @@ func (s *Stream) Trim(opts *AddOptions) int64 {
 	return before - int64(s.entries.Len())
 }
 
-// trimToMaxLen 根据最大长度裁剪Stream
+// trimToMaxLen 根据最大长度裁剪Stream (ordered头部批量删除, O(removed))
 func (s *Stream) trimToMaxLen(maxlen int64, approx bool) {
 	if approx {
 		// 近似裁剪，每次只删除大约10%的过期条目
@@ -291,71 +309,81 @@ func (s *Stream) trimToMaxLen(maxlen int64, approx bool) {
 		}
 	}
 
-	for int64(s.entries.Len()) > maxlen {
-		var oldest *StreamEntry
-		s.entries.ForEach(func(key string, val interface{}) bool {
-			entry := val.(*StreamEntry)
-			if oldest == nil || entry.ID.Compare(oldest.ID) < 0 {
-				oldest = entry
+	over := int64(s.entries.Len()) - maxlen
+	if over <= 0 {
+		return
+	}
+	s.removeOrderedPrefix(int(over))
+}
+
+// removeOrderedPrefix drops the first n entries from ordered and entries.
+// Caller must hold s.mu.
+func (s *Stream) removeOrderedPrefix(n int) {
+	if n <= 0 || n >= len(s.ordered) {
+		if n >= len(s.ordered) {
+			for _, e := range s.ordered {
+				s.entries.Remove(e.ID.String())
 			}
-			return true
-		})
-		if oldest == nil {
-			return
+			s.ordered = s.ordered[:0]
 		}
-		s.entries.Remove(oldest.ID.String())
+		return
+	}
+	for _, e := range s.ordered[:n] {
+		s.entries.Remove(e.ID.String())
+	}
+	s.ordered = append([]*StreamEntry(nil), s.ordered[n:]...)
+}
+
+// trimToMinID 根据最小ID裁剪Stream (二分定位批量删除, O(log n + removed))
+func (s *Stream) trimToMinID(minID StreamID, limit int64) {
+	// 删除小于minID的条目
+	cut := s.lowerBound(minID)
+	if limit > 0 && int64(cut) > limit {
+		cut = int(limit)
+	}
+	if cut > 0 {
+		s.removeOrderedPrefix(cut)
 	}
 }
 
-// trimToMinID 根据最小ID裁剪Stream
-func (s *Stream) trimToMinID(minID StreamID, limit int64) {
-	// 删除小于minID的条目
-	deleted := int64(0)
-	s.entries.ForEach(func(key string, val interface{}) bool {
-		if limit > 0 && deleted >= limit {
-			return false
-		}
-
-		entry := val.(*StreamEntry)
-		if entry.ID.Compare(minID) < 0 {
-			s.entries.Remove(key)
-			deleted++
-		}
-		return true
-	})
-}
-
-// Range 获取范围内的条目 [start, end]
+// Range 获取范围内的条目 [start, end] (二分定位 + 顺序扫描, O(log n + m))
 func (s *Stream) Range(start, end StreamID) []*StreamEntry {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
+	i := s.lowerBound(start)
 	var result []*StreamEntry
-	s.entries.ForEach(func(key string, val interface{}) bool {
-		entry := val.(*StreamEntry)
-		if entry.ID.Compare(start) >= 0 && entry.ID.Compare(end) <= 0 {
-			result = append(result, entry)
+	for ; i < len(s.ordered); i++ {
+		e := s.ordered[i]
+		if e.ID.Compare(end) > 0 {
+			break
 		}
-		return true
-	})
-
-	// 按ID排序
-	// 简化：实际应该使用有序结构
-	sortEntriesByID(result)
+		result = append(result, e)
+	}
 	return result
 }
 
 // ReverseRange 反向获取范围内的条目
 func (s *Stream) ReverseRange(start, end StreamID, count int) []*StreamEntry {
-	entries := s.Range(start, end)
-	// 反转顺序
-	for i, j := 0, len(entries)-1; i < j; i, j = i+1, j-1 {
-		entries[i], entries[j] = entries[j], entries[i]
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	// 最后一个 <= end 的索引
+	hi := s.lowerBound(end)
+	// 注意: lowerBound 返回第一个 >= end 的; 若 ordered[hi] 恰为 end 保留, 否则回退
+	if hi == len(s.ordered) || s.ordered[hi].ID.Compare(end) > 0 {
+		hi--
 	}
-	if count > 0 && len(entries) > count {
-		entries = entries[:count]
+	lo := s.lowerBound(start)
+
+	var result []*StreamEntry
+	for i := hi; i >= lo && i >= 0; i-- {
+		result = append(result, s.ordered[i])
+		if count > 0 && len(result) >= count {
+			break
+		}
 	}
-	return entries
+	return result
 }
 
 // Len 返回Stream中的条目数
@@ -457,8 +485,7 @@ func (s *Stream) DeleteExResults(ids []StreamID, mode string) []int {
 			out[i] = 2
 			continue
 		}
-		_, result := s.entries.Remove(id.String())
-		if result > 0 {
+		if s.removeOrdered(id) {
 			out[i] = 1
 		} else {
 			out[i] = -1
@@ -468,6 +495,18 @@ func (s *Stream) DeleteExResults(ids []StreamID, mode string) []int {
 		}
 	}
 	return out
+}
+
+// removeOrdered deletes a single id from ordered (binary search) and entries.
+// Caller must hold s.mu. Returns whether it was present.
+func (s *Stream) removeOrdered(id StreamID) bool {
+	i := s.lowerBound(id)
+	if i >= len(s.ordered) || s.ordered[i].ID.Compare(id) != 0 {
+		return false
+	}
+	_, result := s.entries.Remove(id.String())
+	s.ordered = append(s.ordered[:i], s.ordered[i+1:]...)
+	return result > 0
 }
 
 func (s *Stream) idInAnyPEL(id StreamID) bool {
@@ -735,18 +774,6 @@ func (s *Stream) AutoClaim(groupName, consumerName string, minIdleTime time.Dura
 	return result, deleted, nextID, nil
 }
 
-// sortEntriesByID 按ID排序条目 (简单冒泡排序，实际应该用更高效的算法)
-func sortEntriesByID(entries []*StreamEntry) {
-	n := len(entries)
-	for i := 0; i < n; i++ {
-		for j := i + 1; j < n; j++ {
-			if entries[i].ID.Compare(entries[j].ID) > 0 {
-				entries[i], entries[j] = entries[j], entries[i]
-			}
-		}
-	}
-}
-
 // GetInfo 获取Stream信息
 func (s *Stream) GetInfo() map[string]interface{} {
 	s.mu.RLock()
@@ -761,26 +788,10 @@ func (s *Stream) GetInfo() map[string]interface{} {
 	info["entries-added"] = s.entriesAdded
 	info["recorded-first-entry-id"] = s.lastID.String() // 简化
 
-	// 获取第一个和最后一个条目
-	if s.entries.Len() > 0 {
-		var first, last *StreamEntry
-		s.entries.ForEach(func(key string, val interface{}) bool {
-			entry := val.(*StreamEntry)
-			if first == nil || entry.ID.Compare(first.ID) < 0 {
-				first = entry
-			}
-			if last == nil || entry.ID.Compare(last.ID) > 0 {
-				last = entry
-			}
-			return true
-		})
-
-		if first != nil {
-			info["first-entry"] = first
-		}
-		if last != nil {
-			info["last-entry"] = last
-		}
+	// 获取第一个和最后一个条目 (ordered 有序, O(1))
+	if len(s.ordered) > 0 {
+		info["first-entry"] = s.ordered[0]
+		info["last-entry"] = s.ordered[len(s.ordered)-1]
 	}
 
 	return info

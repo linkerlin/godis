@@ -423,6 +423,12 @@ func (e *Engine) Authenticate(username, password string) (*User, error) {
 		return nil, fmt.Errorf("invalid username or password")
 	}
 
+	// A disabled user (ACL reset/off) can never authenticate (Redis semantics).
+	if !user.Enabled {
+		return nil, fmt.Errorf("invalid username or password")
+	}
+
+	// No passwords = nopass: any credentials authenticate (Redis semantics).
 	if !user.HasPassword() {
 		return user, nil
 	}
