@@ -13,8 +13,9 @@ import (
 
 // Vector algorithm identifiers (FT.CREATE ... VECTOR {FLAT|HNSW}).
 const (
-	VectorAlgoFlat = "FLAT"
-	VectorAlgoHNSW = "HNSW"
+	VectorAlgoFlat  = "FLAT"
+	VectorAlgoHNSW  = "HNSW"
+	VectorAlgoVAMANA = "SVS-VAMANA" // 8.2+; OSS Redis runs an 8-bit scalar fallback
 )
 
 // Vector type identifiers (VECTOR ... TYPE <FLOAT32|FLOAT64|...>).
@@ -61,7 +62,7 @@ func ParseVectorFieldConfig(args [][]byte) (*VectorFieldConfig, int, error) {
 		return nil, 0, fmt.Errorf("VECTOR field requires algorithm and attribute count")
 	}
 	algo := string(args[0])
-	if algo != VectorAlgoFlat && algo != VectorAlgoHNSW {
+	if algo != VectorAlgoFlat && algo != VectorAlgoHNSW && algo != VectorAlgoVAMANA {
 		return nil, 0, fmt.Errorf("Invalid VECTOR algorithm '%s'", algo)
 	}
 	count, err := parseInt(string(args[1]))
@@ -109,6 +110,13 @@ func ParseVectorFieldConfig(args [][]byte) (*VectorFieldConfig, int, error) {
 			default:
 				return nil, 0, fmt.Errorf("Invalid VECTOR DISTANCE_METRIC '%s'", val)
 			}
+		case "COMPRESSION":
+			// SVS-VAMANA compression modes (LVQ4/LVQ8/LeanVec...) are Intel
+			// proprietary; OSS Redis falls back to 8-bit scalar. godis stores
+			// full FLOAT32 which is strictly more accurate, so the mode is
+			// accepted and ignored (the memory tradeoff is a non-goal here).
+			// ponytail: add INT8 storage if memory-constrained deployments
+			// require it.
 		case "M":
 			m, err := parseInt(val)
 			if err != nil || m <= 0 {
@@ -168,7 +176,10 @@ func NewFTVectorIndex(cfg *VectorFieldConfig) *FTVectorIndex {
 		cfg:     cfg,
 		vectors: make(map[string][]float32),
 	}
-	if cfg.Algorithm == VectorAlgoHNSW {
+	// HNSW and SVS-VAMANA are both graph-based approximate indexes; godis runs
+	// VAMANA on the HNSW graph backend (OSS Redis likewise runs a scalar
+	// fallback rather than the proprietary VAMANA implementation).
+	if cfg.Algorithm == VectorAlgoHNSW || cfg.Algorithm == VectorAlgoVAMANA {
 		vi.hnsw = godisvector.NewHNSW(cfg.M, cfg.EFConstruction)
 	}
 	return vi

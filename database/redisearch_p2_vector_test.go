@@ -249,3 +249,35 @@ func itoa(n int) string {
 	}
 	return string(buf[i:])
 }
+
+// TestP2fSVSVAMANA verifies the 8.2+ SVS-VAMANA algorithm parses (with an
+// accepted-and-ignored COMPRESSION mode, matching OSS Redis's scalar fallback)
+// and runs KNN on the graph backend.
+func TestP2fSVSVAMANA(t *testing.T) {
+	db := makeTestDB()
+	asserts.AssertStatusReply(t, db.Exec(nil, utils.ToCmdLine(
+		"FT.CREATE", "p2v", "ON", "HASH", "PREFIX", "1", "p2v:",
+		"SCHEMA", "vec", "VECTOR", "SVS-VAMANA", "8",
+		"TYPE", "FLOAT32", "DIM", "2", "DISTANCE_METRIC", "L2",
+		"COMPRESSION", "LVQ8",
+	)), "OK")
+	if r := db.Exec(nil, utils.ToCmdLine("HSET", "p2v:1", "vec", string(f32le(1.0, 0.0)))); protocol.IsErrorReply(r) {
+		t.Fatalf("hset: %s", r.ToBytes())
+	}
+	if r := db.Exec(nil, utils.ToCmdLine("HSET", "p2v:2", "vec", string(f32le(5.0, 5.0)))); protocol.IsErrorReply(r) {
+		t.Fatalf("hset 2: %s", r.ToBytes())
+	}
+	// KNN nearest to (0,0) is p2v:1 (distance 1) over p2v:2 (distance ~7.07).
+	r := db.Exec(nil, utils.ToCmdLine(
+		"FT.SEARCH", "p2v", "*=>[KNN 1 @vec $blob]", "NOCONTENT",
+		"PARAMS", "2", "blob", string(f32le(0, 0)), "DIALECT", "2",
+	))
+	mr := ftSearchMultiRaw(r)
+	if mr == nil {
+		t.Fatalf("VAMANA KNN reply shape: %T %s", r, r.ToBytes())
+	}
+	id, _ := mr.Replies[1].(*protocol.BulkReply)
+	if id == nil || string(id.Arg) != "p2v:1" {
+		t.Fatalf("VAMANA KNN nearest should be p2v:1, got %s", r.ToBytes())
+	}
+}

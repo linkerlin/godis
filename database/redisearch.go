@@ -1500,13 +1500,26 @@ func execFTAggregate(db *DB, args [][]byte) redis.Reply {
 			}
 
 			i += 3
-			for j := 0; j < rargs && i < len(args); j++ {
-				nextArg := strings.ToUpper(string(args[i]))
-				if nextArg == "AS" || nextArg == "REDUCE" || nextArg == "SORTBY" || nextArg == "LIMIT" {
-					break
+			if strings.EqualFold(funcName, "COLLECT") {
+				// REDUCE COLLECT's own args embed FIELDS/SORTBY/LIMIT keywords;
+				// consume exactly rargs of them so they aren't mistaken for the
+				// next pipeline step. Only "AS" (the reducer alias) terminates.
+				for j := 0; j < rargs && i < len(args); j++ {
+					if strings.EqualFold(string(args[i]), "AS") {
+						break
+					}
+					reducer.Args = append(reducer.Args, string(args[i]))
+					i++
 				}
-				reducer.Args = append(reducer.Args, string(args[i]))
-				i++
+			} else {
+				for j := 0; j < rargs && i < len(args); j++ {
+					nextArg := strings.ToUpper(string(args[i]))
+					if nextArg == "AS" || nextArg == "REDUCE" || nextArg == "SORTBY" || nextArg == "LIMIT" {
+						break
+					}
+					reducer.Args = append(reducer.Args, string(args[i]))
+					i++
+				}
 			}
 			// Field is the first arg (if any) with the leading @ stripped.
 			if len(reducer.Args) > 0 {
@@ -1630,6 +1643,8 @@ func execFTAggregate(db *DB, args [][]byte) redis.Reply {
 // aggRowBytes encodes one aggregation result row in the wire format used by
 // execFTAggregate: an optional leading GROUPBY key (skipped when the row came
 // from a passthrough, non-grouped document) followed by field/value pairs.
+// COLLECT reducer results ([]redisearch.CollectEntry) are serialized as nested
+// arrays rather than Go %v map printing.
 func aggRowBytes(group *redisearch.Group) []byte {
 	var fields [][]byte
 	if group.By != nil {
@@ -1637,9 +1652,29 @@ func aggRowBytes(group *redisearch.Group) []byte {
 	}
 	for k, v := range group.Fields {
 		fields = append(fields, []byte(k))
-		fields = append(fields, []byte(fmt.Sprintf("%v", v)))
+		fields = append(fields, collectValueBytes(v))
 	}
 	return protocol.MakeMultiBulkReply(fields).ToBytes()
+}
+
+// collectValueBytes renders a GROUPBY field value for the wire. []CollectEntry
+// becomes a nested array of k/v maps; everything else keeps %v formatting.
+func collectValueBytes(v interface{}) []byte {
+	switch entries := v.(type) {
+	case []redisearch.CollectEntry:
+		elems := make([][]byte, 0, len(entries))
+		for _, e := range entries {
+			var kv [][]byte
+			for k, fv := range e.Fields {
+				kv = append(kv, []byte(k))
+				kv = append(kv, []byte(fmt.Sprintf("%v", fv)))
+			}
+			elems = append(elems, protocol.MakeMultiBulkReply(kv).ToBytes())
+		}
+		return protocol.MakeMultiBulkReply(elems).ToBytes()
+	default:
+		return []byte(fmt.Sprintf("%v", v))
+	}
 }
 
 // ftCursorEntry holds the not-yet-delivered page of an FT.AGGREGATE WITHCURSOR

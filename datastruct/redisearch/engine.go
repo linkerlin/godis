@@ -1195,9 +1195,164 @@ func (e *RediSearchEngine) applyReducer(docs []*Document, r Reducer) interface{}
 			return nil
 		}
 		return reducerRandomSample(docs, field, size)
+	case "COLLECT":
+		// REDUCE COLLECT nargs FIELDS (*|n @f...) [DISTINCT] [SORTBY @f [ASC|DESC]] [LIMIT o c]
+		return reducerCollect(docs, r.Args)
 	default:
 		return nil
 	}
+}
+
+// CollectEntry is one collected document in a COLLECT reducer result: a
+// projected field map plus the source doc id (@__key) and score (@__score)
+// when requested. aggRowBytes serializes []CollectEntry as a nested array.
+type CollectEntry struct {
+	Fields map[string]interface{}
+}
+
+// reducerCollect implements the 8.8+ COLLECT reducer: it gathers each document
+// of the group into an array of projected maps (the "top-N per group" pattern).
+// Args grammar (all optional except FIELDS):
+//
+//	FIELDS *            project every doc field (plus @__key)
+//	FIELDS n @f1 @f2..  project exactly those fields (n = count)
+//	DISTINCT            drop duplicate projected values
+//	SORTBY @f [ASC|DESC] order the collected entries
+//	LIMIT offset count  page the collected entries
+//
+// Returned as []CollectEntry so the wire serializer can emit a proper nested
+// array (rather than Go's %v map printing).
+func reducerCollect(docs []*Document, args []string) interface{} {
+	if len(docs) == 0 {
+		return []CollectEntry{}
+	}
+
+	// Default: project all fields plus the key.
+	fieldsAny := true
+	var fields []string
+	distinct := false
+	sortField := ""
+	sortDesc := false
+	limitOffset, limitCount := 0, -1
+
+	for i := 0; i < len(args); i++ {
+		switch strings.ToUpper(args[i]) {
+		case "FIELDS":
+			if i+1 < len(args) && args[i+1] == "*" {
+				fieldsAny = true
+				fields = nil
+				i++
+				continue
+			}
+			if i+1 < len(args) {
+				n, err := strconv.Atoi(args[i+1])
+				if err != nil || n < 0 {
+					return nil
+				}
+				fieldsAny = false
+				fields = nil
+				i += 2
+				for j := 0; j < n && i < len(args); j++ {
+					fields = append(fields, strings.TrimPrefix(args[i], "@"))
+					i++
+				}
+				i--
+			}
+		case "DISTINCT":
+			distinct = true
+		case "SORTBY":
+			if i+1 < len(args) {
+				sortField = strings.TrimPrefix(args[i+1], "@")
+				i++
+				if i+1 < len(args) && strings.EqualFold(args[i+1], "DESC") {
+					sortDesc = true
+					i++
+				} else if i+1 < len(args) && strings.EqualFold(args[i+1], "ASC") {
+					i++
+				}
+			}
+		case "LIMIT":
+			if i+2 < len(args) {
+				off, err1 := strconv.Atoi(args[i+1])
+				cnt, err2 := strconv.Atoi(args[i+2])
+				if err1 == nil && err2 == nil && off >= 0 && cnt >= 0 {
+					limitOffset, limitCount = off, cnt
+				}
+				i += 2
+			}
+		}
+	}
+
+	build := func(d *Document) map[string]interface{} {
+		m := make(map[string]interface{})
+		if fieldsAny {
+			for k, v := range d.Fields {
+				m[k] = v
+			}
+			m["__key"] = d.ID
+		} else {
+			for _, f := range fields {
+				if f == "__key" {
+					m["__key"] = d.ID
+					continue
+				}
+				if f == "__score" {
+					m["__score"] = d.Score
+					continue
+				}
+				if v, ok := d.Fields[f]; ok {
+					m[f] = v
+				}
+			}
+		}
+		return m
+	}
+
+	entries := make([]CollectEntry, 0, len(docs))
+	seen := make(map[string]struct{})
+	for _, d := range docs {
+		m := build(d)
+		if distinct {
+			key := fmt.Sprintf("%v", m)
+			if _, dup := seen[key]; dup {
+				continue
+			}
+			seen[key] = struct{}{}
+		}
+		entries = append(entries, CollectEntry{Fields: m})
+	}
+
+	if sortField != "" {
+		sort.SliceStable(entries, func(i, j int) bool {
+			a, oka := toFloat64(entries[i].Fields[sortField])
+			b, okb := toFloat64(entries[j].Fields[sortField])
+			if oka && okb {
+				if sortDesc {
+					return a > b
+				}
+				return a < b
+			}
+			sa := fmt.Sprintf("%v", entries[i].Fields[sortField])
+			sb := fmt.Sprintf("%v", entries[j].Fields[sortField])
+			if sortDesc {
+				return sa > sb
+			}
+			return sa < sb
+		})
+	}
+
+	if limitCount >= 0 {
+		off := limitOffset
+		if off > len(entries) {
+			off = len(entries)
+		}
+		end := off + limitCount
+		if end > len(entries) {
+			end = len(entries)
+		}
+		entries = entries[off:end]
+	}
+	return entries
 }
 
 // reducerStdDev returns the population standard deviation of the field's
