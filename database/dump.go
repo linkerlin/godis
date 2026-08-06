@@ -14,6 +14,7 @@ import (
 	rdb "github.com/hdt3213/rdb/parser"
 	"github.com/linkerlin/godis/aof"
 	Dict "github.com/linkerlin/godis/datastruct/dict"
+	"github.com/linkerlin/godis/datastruct/hll"
 	List "github.com/linkerlin/godis/datastruct/list"
 	HashSet "github.com/linkerlin/godis/datastruct/set"
 	SortedSet "github.com/linkerlin/godis/datastruct/sortedset"
@@ -310,12 +311,6 @@ func writeEntityToRDB(enc *rdbenc.Encoder, key string, entity *database.DataEnti
 			return errDumpUnsupported("ExpireDict opaque encode failed")
 		}
 		return enc.WriteStringObject(key, payload)
-	case *HLL:
-		payload, err := encodeHLLOpaque(val)
-		if err != nil {
-			return errDumpUnsupported(err.Error())
-		}
-		return enc.WriteStringObject(key, payload)
 	case Dict.Dict:
 		hash := make(map[string][]byte)
 		val.ForEach(func(field string, v interface{}) bool {
@@ -344,21 +339,9 @@ type dumpOpaqueEnv struct {
 	Data json.RawMessage `json:"d"`
 }
 
-func encodeHLLOpaque(h *HLL) ([]byte, error) {
-	raw, err := json.Marshal(h.registers)
-	if err != nil {
-		return nil, err
-	}
-	env, err := json.Marshal(dumpOpaqueEnv{Type: "hll", Data: raw})
-	if err != nil {
-		return nil, err
-	}
-	out := make([]byte, 0, len(dumpOpaqueMagic)+len(env))
-	out = append(out, dumpOpaqueMagic...)
-	out = append(out, env...)
-	return out, nil
-}
-
+// decodeDumpExtraOpaque restores legacy godis HLL dump payloads (a JSON
+// register array) into the modern string-stored dense HLL format, so old dump
+// files remain loadable.
 func decodeDumpExtraOpaque(payload []byte) (*database.DataEntity, bool) {
 	if !aof.IsOpaquePayload(payload) {
 		return nil, false
@@ -371,12 +354,12 @@ func decodeDumpExtraOpaque(payload []byte) (*database.DataEntity, bool) {
 		return nil, false
 	}
 	var regs []uint8
-	if err := json.Unmarshal(env.Data, &regs); err != nil || len(regs) != hllRegisters {
+	if err := json.Unmarshal(env.Data, &regs); err != nil || len(regs) != hll.Registers {
 		return nil, false
 	}
-	h := NewHLL()
-	copy(h.registers, regs)
-	return &database.DataEntity{Data: h}, true
+	h := hll.New()
+	copy(h.Registers(), regs)
+	return &database.DataEntity{Data: h.Encode()}, true
 }
 
 type dumpError string

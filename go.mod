@@ -15,6 +15,7 @@ require (
 require (
 	github.com/armon/go-metrics v0.4.1 // indirect
 	github.com/boltdb/bolt v1.3.1 // indirect
+	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/cockroachdb/logtags v0.0.0-20230118201751-21c54148d20b // indirect
 	github.com/cockroachdb/redact v1.1.5 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect

@@ -2,94 +2,19 @@ package database
 
 import (
 	"fmt"
-	"math"
-	"math/bits"
 	"strconv"
 	"strings"
 
+	"github.com/linkerlin/godis/datastruct/hll"
 	"github.com/linkerlin/godis/interface/database"
 	"github.com/linkerlin/godis/interface/redis"
 	"github.com/linkerlin/godis/lib/utils"
 	"github.com/linkerlin/godis/redis/protocol"
 )
 
-// HyperLogLog implementation using Redis's HLL algorithm
-// This is a simplified version using 16KB per HLL (2^14 registers)
-
-const (
-	hllRegisters     = 16384 // 2^14
-	hllBits          = 14
-	hllRegistersMask = hllRegisters - 1
-)
-
-// HLL represents a HyperLogLog data structure
-type HLL struct {
-	registers []uint8
-}
-
-// NewHLL creates a new HyperLogLog
-func NewHLL() *HLL {
-	return &HLL{
-		registers: make([]uint8, hllRegisters),
-	}
-}
-
-// Add adds an element to the HLL. Returns true if any register was updated.
-func (h *HLL) Add(elem []byte) bool {
-	hash := hashBytes(elem)
-	index := hash & hllRegistersMask
-	// Count leading zeros + 1
-	value := uint8(bits.LeadingZeros64(hash>>hllBits)) + 1
-	if value > h.registers[index] {
-		h.registers[index] = value
-		return true
-	}
-	return false
-}
-
-// Count returns the estimated cardinality
-func (h *HLL) Count() uint64 {
-	var sum float64
-	var emptyRegisters int
-
-	for _, val := range h.registers {
-		sum += 1.0 / math.Pow(2.0, float64(val))
-		if val == 0 {
-			emptyRegisters++
-		}
-	}
-
-	// HLL estimator
-	alpha := 0.7213 / (1.0 + 1.079/float64(hllRegisters))
-	estimate := alpha * float64(hllRegisters*hllRegisters) / sum
-
-	// Small range correction
-	if estimate <= 2.5*float64(hllRegisters) && emptyRegisters != 0 {
-		return uint64(float64(hllRegisters) * math.Log(float64(hllRegisters)/float64(emptyRegisters)))
-	}
-
-	// Large range correction not implemented for simplicity
-	return uint64(estimate)
-}
-
-// Merge merges another HLL into this one
-func (h *HLL) Merge(other *HLL) {
-	for i := 0; i < hllRegisters; i++ {
-		if other.registers[i] > h.registers[i] {
-			h.registers[i] = other.registers[i]
-		}
-	}
-}
-
-// Simple hash function
-func hashBytes(data []byte) uint64 {
-	var hash uint64 = 14695981039346656037 // FNV offset basis
-	for _, b := range data {
-		hash ^= uint64(b)
-		hash *= 1099511628211 // FNV prime
-	}
-	return hash
-}
+// HyperLogLog values are stored as plain strings (Redis semantics): the bytes
+// are the dense HYLL encoding, so GET reads them, RDB/AOF persist them via the
+// string path, and the encoding is byte-compatible with Redis HLLs.
 
 // execPFAdd adds elements to a HyperLogLog
 // PFADD key element [element ...]
@@ -99,26 +24,36 @@ func execPFAdd(db *DB, args [][]byte) redis.Reply {
 	}
 
 	key := string(args[0])
-	hll, errReply := db.getAsHLL(key)
-	if errReply != nil {
-		return errReply
-	}
-
+	entity, exists := db.GetEntity(key)
+	var h *hll.HLL
 	isNew := false
-	if hll == nil {
-		hll = NewHLL()
+	if !exists {
+		h = hll.New()
 		isNew = true
+	} else {
+		raw, ok := entity.Data.([]byte)
+		if !ok {
+			return &protocol.WrongTypeErrReply{}
+		}
+		var err error
+		h, err = hll.Decode(raw)
+		if err != nil {
+			return &protocol.WrongTypeErrReply{}
+		}
 	}
 
 	added := false
 	for i := 1; i < len(args); i++ {
-		if hll.Add(args[i]) {
+		if h.Add(args[i]) {
 			added = true
 		}
 	}
 
-	if isNew {
-		db.PutEntity(key, &database.DataEntity{Data: hll})
+	// Persist the updated registers: a new key is created even when no element
+	// was added (empty HLL), and an existing key is written back whenever any
+	// register changed.
+	if isNew || added {
+		db.PutEntity(key, &database.DataEntity{Data: h.Encode()})
 	}
 
 	if added {
@@ -137,31 +72,29 @@ func execPFCount(db *DB, args [][]byte) redis.Reply {
 
 	// Single key case
 	if len(args) == 1 {
-		key := string(args[0])
-		hll, errReply := db.getAsHLL(key)
+		h, errReply := db.getAsHLL(string(args[0]))
 		if errReply != nil {
 			return errReply
 		}
-		if hll == nil {
+		if h == nil {
 			return protocol.MakeIntReply(0)
 		}
-		return protocol.MakeIntReply(int64(hll.Count()))
+		return protocol.MakeIntReply(int64(h.Count()))
 	}
 
 	// Multi-key case: merge and count
-	mergedHLL := NewHLL()
+	merged := hll.New()
 	for _, arg := range args {
-		key := string(arg)
-		hll, errReply := db.getAsHLL(key)
+		h, errReply := db.getAsHLL(string(arg))
 		if errReply != nil {
 			return errReply
 		}
-		if hll != nil {
-			mergedHLL.Merge(hll)
+		if h != nil {
+			merged.Merge(h)
 		}
 	}
 
-	return protocol.MakeIntReply(int64(mergedHLL.Count()))
+	return protocol.MakeIntReply(int64(merged.Count()))
 }
 
 // execPFMerge merges multiple HyperLogLogs
@@ -172,35 +105,39 @@ func execPFMerge(db *DB, args [][]byte) redis.Reply {
 	}
 
 	destKey := string(args[0])
-	mergedHLL := NewHLL()
+	merged := hll.New()
 
 	for i := 1; i < len(args); i++ {
-		sourceKey := string(args[i])
-		hll, errReply := db.getAsHLL(sourceKey)
+		h, errReply := db.getAsHLL(string(args[i]))
 		if errReply != nil {
 			return errReply
 		}
-		if hll != nil {
-			mergedHLL.Merge(hll)
+		if h != nil {
+			merged.Merge(h)
 		}
 	}
 
-	db.PutEntity(destKey, &database.DataEntity{Data: mergedHLL})
+	db.PutEntity(destKey, &database.DataEntity{Data: merged.Encode()})
 	db.addAof(utils.ToCmdLine3("pfmerge", args...))
 	return protocol.MakeOkReply()
 }
 
-// getAsHLL gets a HyperLogLog from database
-func (db *DB) getAsHLL(key string) (*HLL, protocol.ErrorReply) {
+// getAsHLL decodes the HLL stored under key (a string). Missing key returns
+// (nil, nil); a non-HLL string is a WRONGTYPE.
+func (db *DB) getAsHLL(key string) (*hll.HLL, protocol.ErrorReply) {
 	entity, exists := db.GetEntity(key)
 	if !exists {
 		return nil, nil
 	}
-	hll, ok := entity.Data.(*HLL)
-	if !ok {
+	raw, ok := entity.Data.([]byte)
+	if !ok || !hll.IsHLLString(raw) {
 		return nil, &protocol.WrongTypeErrReply{}
 	}
-	return hll, nil
+	h, err := hll.Decode(raw)
+	if err != nil {
+		return nil, &protocol.WrongTypeErrReply{}
+	}
+	return h, nil
 }
 
 func init() {
@@ -221,7 +158,7 @@ func preparePFDebug(args [][]byte) ([]string, []string) {
 	return nil, []string{string(args[1])}
 }
 
-// execPFDebug handles PFDEBUG subcommands (GETREG for now).
+// execPFDebug handles PFDEBUG subcommands (GETREG/DECODE for now).
 // PFDEBUG GETREG key
 func execPFDebug(db *DB, args [][]byte) redis.Reply {
 	if len(args) < 2 {
@@ -231,30 +168,27 @@ func execPFDebug(db *DB, args [][]byte) redis.Reply {
 	key := string(args[1])
 	switch sub {
 	case "GETREG":
-		entity, exists := db.GetEntity(key)
-		if !exists {
+		h, errReply := db.getAsHLL(key)
+		if errReply != nil {
+			return errReply
+		}
+		if h == nil {
 			return protocol.MakeErrReply("ERR key does not exist")
 		}
-		hll, ok := entity.Data.(*HLL)
-		if !ok {
-			return &protocol.WrongTypeErrReply{}
-		}
-		regs := make([][]byte, len(hll.registers))
-		for i, v := range hll.registers {
+		regs := make([][]byte, hll.Registers)
+		for i, v := range h.Registers() {
 			regs[i] = []byte(strconv.Itoa(int(v)))
 		}
 		return protocol.MakeMultiBulkReply(regs)
 	case "DECODE":
-		entity, exists := db.GetEntity(key)
-		if !exists {
+		h, errReply := db.getAsHLL(key)
+		if errReply != nil {
+			return errReply
+		}
+		if h == nil {
 			return protocol.MakeErrReply("ERR key does not exist")
 		}
-		hll, ok := entity.Data.(*HLL)
-		if !ok {
-			return &protocol.WrongTypeErrReply{}
-		}
-		// Simplified dense encoding summary (godis HLL is always dense registers).
-		msg := fmt.Sprintf("encoding:dense registers:%d", len(hll.registers))
+		msg := fmt.Sprintf("encoding:dense registers:%d", hll.Registers)
 		return protocol.MakeBulkReply([]byte(msg))
 	case "PERIOD":
 		// Redis PFDEBUG PERIOD sets sparse→dense conversion threshold.

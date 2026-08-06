@@ -138,8 +138,6 @@ func getObjectEncoding(data interface{}) string {
 		return "tdigest"
 	case *timeseries.TimeSeries:
 		return "timeseries"
-	case *HLL:
-		return "hyperloglog"
 	case *vector.VectorSet:
 		return "vectorset"
 	default:
