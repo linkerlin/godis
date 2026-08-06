@@ -16,12 +16,29 @@ var scriptEngine *scripting.Engine
 // scriptDB is the DB currently executing EVAL/EVALSHA (redis.call target).
 var scriptDB *DB
 
+// scriptReadOnly marks EVAL_RO/EVALSHA_RO execution: nested redis.call writes
+// are rejected. Script execution is single-threaded (one script at a time),
+// so a plain bool is safe.
+var scriptReadOnly bool
+
 // InitScriptingEngine initializes the scripting engine
 func InitScriptingEngine(db *DB) {
 	scriptDB = db
 	if scriptEngine == nil {
 		// Nested redis.call must not re-lock; EVAL holds keys via prepareEval.
 		dbExec := func(cmd string, args ...string) (interface{}, error) {
+			// Read-only scripts (EVAL_RO/EVALSHA_RO) must not issue writes.
+			// Write detection uses the attachCommandExtra string flags (the
+			// numeric flagWrite is 0 by design, so bit-testing it is useless).
+			if scriptReadOnly {
+				if c, ok := cmdTable[strings.ToLower(cmd)]; ok && c.extra != nil {
+					for _, s := range c.extra.signs {
+						if s == "write" {
+							return nil, fmt.Errorf("ERR Write commands are not allowed from read-only scripts")
+						}
+					}
+				}
+			}
 			cmdLine := make([][]byte, 0, len(args)+1)
 			cmdLine = append(cmdLine, []byte(cmd))
 			for _, arg := range args {
@@ -122,6 +139,21 @@ func execEval(db *DB, args [][]byte) redis.Reply {
 	scriptEngine.LoadScript(script)
 
 	return scripting.ConvertToRedisReplyWithResp(result, scriptEngine.GetRespVersion())
+}
+
+// execEvalRO executes a script read-only: nested redis.call write commands are
+// rejected. EVAL_RO script numkeys [key ...] [arg ...]
+func execEvalRO(db *DB, args [][]byte) redis.Reply {
+	scriptReadOnly = true
+	defer func() { scriptReadOnly = false }()
+	return execEval(db, args)
+}
+
+// execEvalShaRO executes a cached script read-only (see execEvalRO).
+func execEvalShaRO(db *DB, args [][]byte) redis.Reply {
+	scriptReadOnly = true
+	defer func() { scriptReadOnly = false }()
+	return execEvalSha(db, args)
 }
 
 // execEvalSha executes a script by SHA1
@@ -686,6 +718,10 @@ func init() {
 		attachCommandExtra([]string{redisFlagNoScript}, 0, 0, 0)
 	registerCommand("EvalSha", execEvalSha, prepareEval, nil, -3, flagSpecial).
 		attachCommandExtra([]string{redisFlagNoScript}, 0, 0, 0)
+	registerCommand("Eval_RO", execEvalRO, prepareEval, nil, -3, flagReadOnly).
+		attachCommandExtra([]string{redisFlagReadonly, redisFlagNoScript}, 0, 0, 0)
+	registerCommand("EvalSha_RO", execEvalShaRO, prepareEval, nil, -3, flagReadOnly).
+		attachCommandExtra([]string{redisFlagReadonly, redisFlagNoScript}, 0, 0, 0)
 	registerCommand("Script|Exists", execScriptExists, nil, nil, -2, flagAdmin).
 		attachCommandExtra([]string{redisFlagAdmin}, 0, 0, 0)
 	registerCommand("Script|Load", execScriptLoad, nil, nil, 2, flagAdmin).

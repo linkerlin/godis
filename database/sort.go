@@ -18,6 +18,15 @@ import (
 // execSort sorts the elements in a list, set or sorted set
 // SORT key [BY pattern] [LIMIT offset count] [GET pattern ...] [ASC|DESC] [ALPHA] [STORE destination]
 func execSort(db *DB, args [][]byte) redis.Reply {
+	return execSortImpl(db, args, true)
+}
+
+// execSortRO implements SORT_RO (read-only SORT; STORE rejected).
+func execSortRO(db *DB, args [][]byte) redis.Reply {
+	return execSortImpl(db, args, false)
+}
+
+func execSortImpl(db *DB, args [][]byte, allowStore bool) redis.Reply {
 	if len(args) < 1 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'sort' command")
 	}
@@ -67,6 +76,9 @@ func execSort(db *DB, args [][]byte) redis.Reply {
 		case "ALPHA":
 			alpha = true
 		case "STORE":
+			if !allowStore {
+				return protocol.MakeErrReply("ERR SORT_RO does not support the STORE option")
+			}
 			if i+1 >= len(args) {
 				return protocol.MakeSyntaxErrReply()
 			}
@@ -265,4 +277,6 @@ func prepareSort(args [][]byte) ([]string, []string) {
 func init() {
 	registerCommand("Sort", execSort, prepareSort, rollbackFirstKey, -2, flagWrite).
 		attachCommandExtra([]string{redisFlagWrite, redisFlagDenyOOM}, 1, 1, 1)
+	registerCommand("Sort_Ro", execSortRO, readFirstKey, nil, -2, flagReadOnly).
+		attachCommandExtra([]string{redisFlagReadonly}, 1, 1, 1)
 }

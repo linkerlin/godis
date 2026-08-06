@@ -1267,6 +1267,8 @@ func init() {
 		attachCommandExtra([]string{redisFlagReadonly, redisFlagSortForScript}, 1, -1, 1)
 	registerCommand("ZDiffStore", execZDiffStore, prepareZStoreCalculateStore, rollbackFirstKey, -3, flagWrite).
 		attachCommandExtra([]string{redisFlagWrite, redisFlagDenyOOM}, 1, -1, 1)
+	registerCommand("ZInterCard", execZInterCard, prepareZCalculate, nil, -2, flagReadOnly).
+		attachCommandExtra([]string{redisFlagReadonly}, 1, -1, 1)
 }
 
 // execZUnion computes the union of multiple sorted sets
@@ -1297,6 +1299,89 @@ func execZDiff(db *DB, args [][]byte) redis.Reply {
 // execZDiffStore stores the difference of multiple sorted sets
 func execZDiffStore(db *DB, args [][]byte) redis.Reply {
 	return execZSetOperation(db, args, "DIFF", true)
+}
+
+// execZInterCard returns the intersection cardinality of multiple sorted sets.
+// ZINTERCARD numkeys key [key ...] [LIMIT limit]
+func execZInterCard(db *DB, args [][]byte) redis.Reply {
+	if len(args) < 1 {
+		return protocol.MakeErrReply("ERR wrong number of arguments for 'zintercard' command")
+	}
+	numKeys, err := strconv.Atoi(string(args[0]))
+	if err != nil {
+		return protocol.MakeErrReply("ERR value is not an integer or out of range")
+	}
+	if numKeys <= 0 {
+		return protocol.MakeErrReply("ERR numkeys should be greater than 0")
+	}
+	if len(args) < 1+numKeys {
+		return protocol.MakeErrReply("ERR wrong number of arguments for 'zintercard' command")
+	}
+	keys := make([]string, numKeys)
+	for i := 0; i < numKeys; i++ {
+		keys[i] = string(args[i+1])
+	}
+
+	// Parse LIMIT option (0 or negative = unlimited).
+	limit := 0
+	if len(args) > 1+numKeys {
+		if !strings.EqualFold(string(args[1+numKeys]), "LIMIT") {
+			return protocol.MakeSyntaxErrReply()
+		}
+		if len(args) <= 2+numKeys {
+			return protocol.MakeSyntaxErrReply()
+		}
+		n, perr := strconv.Atoi(string(args[2+numKeys]))
+		if perr != nil {
+			return protocol.MakeErrReply("ERR value is not an integer or out of range")
+		}
+		if n < 0 {
+			return protocol.MakeErrReply("ERR LIMIT can't be negative")
+		}
+		limit = n
+	}
+
+	// Load all zsets; an empty/missing zset yields cardinality 0.
+	sets := make([]*SortedSet.SortedSet, 0, numKeys)
+	for _, key := range keys {
+		zset, errReply := db.getAsSortedSet(key)
+		if errReply != nil {
+			return errReply
+		}
+		if zset == nil {
+			return protocol.MakeIntReply(0)
+		}
+		sets = append(sets, zset)
+	}
+
+	// Iterate the smallest zset and count members present in every other one.
+	smallest := sets[0]
+	for _, s := range sets[1:] {
+		if s.Len() < smallest.Len() {
+			smallest = s
+		}
+	}
+	card := int64(0)
+	for _, e := range smallest.RangeByRank(0, smallest.Len(), false) {
+		inAll := true
+		for _, s := range sets {
+			if s == smallest {
+				continue
+			}
+			if _, ok := s.Get(e.Member); !ok {
+				inAll = false
+				break
+			}
+		}
+		if !inAll {
+			continue
+		}
+		card++
+		if limit > 0 && card >= int64(limit) {
+			break // early stop at LIMIT
+		}
+	}
+	return protocol.MakeIntReply(card)
 }
 
 // execZSetOperation performs set operations on sorted sets
