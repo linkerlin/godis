@@ -12,6 +12,7 @@ import (
 	"github.com/linkerlin/godis/interface/redis"
 	"github.com/linkerlin/godis/lib/logger"
 	"github.com/linkerlin/godis/lib/timewheel"
+	"github.com/linkerlin/godis/lib/utils"
 	"github.com/linkerlin/godis/pubsub"
 	"github.com/linkerlin/godis/redis/protocol"
 )
@@ -208,7 +209,6 @@ func (db *DB) execNormalCommand(c redis.Connection, cmdLine [][]byte) redis.Repl
 			return errReply
 		}
 	}
-	db.addVersion(write...)
 	db.RWLocks(write, read)
 	defer db.RWUnLocks(write, read)
 	if c != nil {
@@ -221,6 +221,13 @@ func (db *DB) execNormalCommand(c redis.Connection, cmdLine [][]byte) redis.Repl
 	}
 	fun := cmd.executor
 	result := fun(db, cmdLine[1:])
+
+	// Bump WATCH versions AFTER execution and only when the command did not
+	// error. Bumping before execution made failed writes (WRONGTYPE, OOM,
+	// EXECABORT path) invalidate watchers of keys they never modified.
+	if !protocol.IsErrorReply(result) {
+		db.addVersion(write...)
+	}
 
 	// Record command stats
 	usec := uint64(time.Since(start).Microseconds())
@@ -463,6 +470,11 @@ func (db *DB) Expire(key string, expireTime time.Time) {
 			atomic.AddUint64(&serverStats.ExpiredKeys, 1)
 			notifyKeyspaceEvent(db, "expired", key)
 			db.removeKey(key, false)
+			// Propagate the expiry to replicas: the replication backlog is fed
+			// from the AOF, so an expired key must be DEL'd there too.
+			if db.addAof != nil {
+				db.addAof(utils.ToCmdLine3("del", []byte(key)))
+			}
 		}
 	})
 }
@@ -488,6 +500,10 @@ func (db *DB) IsExpired(key string) bool {
 		serverStats.ExpiredStale++
 		notifyKeyspaceEvent(db, "expired", key)
 		db.removeKey(key, false)
+		// Propagate to replicas via the AOF-fed backlog (see Expire callback).
+		if db.addAof != nil {
+			db.addAof(utils.ToCmdLine3("del", []byte(key)))
+		}
 	}
 	return expired
 }

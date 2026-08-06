@@ -2,6 +2,7 @@ package timewheel
 
 import (
 	"container/list"
+	"math"
 	"sync"
 	"time"
 
@@ -177,10 +178,14 @@ func (tw *TimeWheel) addTask(task *task) {
 }
 
 func (tw *TimeWheel) getPositionAndCircle(d time.Duration) (pos int, circle int) {
-	delaySeconds := int(d.Seconds())
-	intervalSeconds := int(tw.interval.Seconds())
-	circle = delaySeconds / intervalSeconds / tw.slotNum
-	pos = (tw.currentPos + delaySeconds/intervalSeconds) % tw.slotNum
+	// Round UP to the next whole tick. A floor would schedule fractional delays
+	// one tick early; the tick handler then finds the deadline not yet reached,
+	// removes the job permanently, and the key never expires (e.g. PEXPIRE 1500
+	// on a 1s wheel). Ceiling may fire up to one interval late but never loses
+	// the job — the deadline check in the callback stays authoritative.
+	delayTicks := int(math.Ceil(float64(d) / float64(tw.interval)))
+	circle = delayTicks / tw.slotNum
+	pos = (tw.currentPos + delayTicks) % tw.slotNum
 	return
 }
 

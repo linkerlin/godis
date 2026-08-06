@@ -233,6 +233,19 @@ func expireCondAllows(db *DB, key string, newExpire time.Time, f expireCondFlags
 }
 
 func execExpireWithFlags(db *DB, key string, expireAt time.Time, flagArgs [][]byte) redis.Reply {
+	// Redis: a non-positive TTL (or an absolute time already in the past)
+	// deletes the key immediately, bypassing the NX/XX/GT/LT conditions.
+	// Previously the past deadline was handed to the time wheel, whose
+	// AddJob silently drops negative delays — the key was never actively
+	// expired and lingered until a lazy read.
+	if !expireAt.After(time.Now()) {
+		if _, exists := db.GetEntity(key); !exists {
+			return protocol.MakeIntReply(0)
+		}
+		db.Remove(key)
+		db.addAof(utils.ToCmdLine3("del", []byte(key)))
+		return protocol.MakeIntReply(1)
+	}
 	flags, errReply := parseExpireCondFlags(flagArgs)
 	if errReply != nil {
 		return errReply
