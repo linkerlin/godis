@@ -245,6 +245,17 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 		switch key {
 		case "requirepass":
 			config.Properties.RequirePass = value
+			// Sync the default ACL user's password (Redis 6+ semantics): AUTH
+			// checks aclEngine first, so requirepass alone would diverge.
+			if aclEngine != nil {
+				if u, ok := aclEngine.GetUser("default"); ok {
+					if value == "" {
+						u.ClearPasswords() // nopass
+					} else {
+						u.SetPassword(value, false)
+					}
+				}
+			}
 		case "appendonly":
 			ok, b := config.ParseConfigBool(value)
 			if !ok {
@@ -819,6 +830,13 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 			}
 			config.Properties.SqliteMmapSize = n
 		case "notify-keyspace-events":
+			// Redis validates the event-class flags (K E g $ l s h z t d m x e A
+			// n) and rejects unknown letters.
+			for i := 0; i < len(value); i++ {
+				if !strings.ContainsRune("KEg$lshztdmxenA", rune(value[i])) {
+					return protocol.MakeErrReply(fmt.Sprintf("ERR Invalid event class character '%c' in notify-keyspace-events", rune(value[i])))
+				}
+			}
 			config.Properties.NotifyKeyspaceEvents = value
 		case "activedefrag":
 			ok, b := config.ParseConfigBool(value)

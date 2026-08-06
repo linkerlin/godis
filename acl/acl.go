@@ -129,6 +129,13 @@ func (u *User) HasPassword() bool {
 	return len(u.Passwords) > 0
 }
 
+// ClearPasswords removes every password, making the user effectively nopass.
+func (u *User) ClearPasswords() {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	u.Passwords = nil
+}
+
 // AllowCategory allows a command category
 func (u *User) AllowCategory(category string) {
 	u.mu.Lock()
