@@ -378,6 +378,7 @@ func execLSet(db *DB, args [][]byte) redis.Reply {
 
 	list.Set(index, value)
 	db.addAof(utils.ToCmdLine3("lset", args...))
+	notifyKeyspaceEvent(db, "lset", key)
 	return &protocol.OkReply{}
 }
 
@@ -677,6 +678,7 @@ func execLTrim(db *DB, args [][]byte) redis.Reply {
 	}
 
 	db.addAof(utils.ToCmdLine3("ltrim", args...))
+	notifyKeyspaceEvent(db, "ltrim", key)
 
 	return protocol.MakeOkReply()
 }

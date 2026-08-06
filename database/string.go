@@ -703,6 +703,7 @@ func execSetRange(db *DB, args [][]byte) redis.Reply {
 		Data: bytes,
 	})
 	db.addAof(utils.ToCmdLine3("setRange", args...))
+	notifyKeyspaceEvent(db, "setrange", key)
 	return protocol.MakeIntReply(int64(len(bytes)))
 }
 
