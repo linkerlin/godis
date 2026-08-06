@@ -63,6 +63,11 @@ func (cluster *Cluster) Exec(c redis.Connection, cmdLine [][]byte) (result redis
 	if !isAuthenticated(c) {
 		return protocol.MakeErrReply("NOAUTH Authentication required")
 	}
+	// Enforce ACL (users, keys, channels) in cluster mode too. Previously only
+	// requirepass was checked, so ACL users were silently bypassed on clusters.
+	if reply := database.CheckACLPermission(c, cmdName, cmdLine[1:]); reply != nil {
+		return reply
+	}
 	cmdFunc, ok := commands[cmdName]
 	if !ok {
 		return protocol.MakeErrReply("ERR unknown command '" + cmdName + "', or not supported in cluster mode")

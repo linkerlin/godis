@@ -156,6 +156,12 @@ func isLocalClientAddr(addr string) bool {
 
 // checkACLPermission verifies the connection's ACL user may run cmdName
 // (and its keys / pubsub channels when applicable).
+// CheckACLPermission is the exported entry point for ACL command enforcement,
+// used by the cluster command path (which maintains its own dispatch loop).
+func CheckACLPermission(c redis.Connection, cmdName string, args [][]byte) redis.Reply {
+	return checkACLPermission(c, cmdName, args)
+}
+
 func checkACLPermission(c redis.Connection, cmdName string, args [][]byte) redis.Reply {
 	if aclEngine == nil || aclExemptCommands[cmdName] {
 		return nil

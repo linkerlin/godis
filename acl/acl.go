@@ -427,6 +427,28 @@ func (e *Engine) Authenticate(username, password string) (*User, error) {
 	return user, nil
 }
 
+// CommandCategoryMap maps categories to their commands
+var CommandCategoryMap = map[string][]string{
+	"@keyspace":    {"del", "dump", "exists", "expire", "expireat", "expiretime", "keys", "migrate", "move", "persist", "pexpire", "pexpireat", "pexpiretime", "pttl", "randomkey", "rename", "renamenx", "restore", "sort", "touch", "ttl", "type", "scan", "unlink", "copy", "copfrom", "copyto", "renamefrom", "renamenxfrom", "renameto", "godis.restore", "existin"},
+	"@read":        {"get", "mget", "exists", "existin", "ttl", "pttl", "type", "strlen", "getrange", "getver", "hexists", "hget", "hgetall", "hkeys", "hvals", "hlen", "hmget", "hstrlen", "httl", "hpttl", "hexpiretime", "hpexpiretime", "lindex", "llen", "lrange", "lpos", "scard", "sismember", "smembers", "smismember", "srandmember", "sscan", "zcard", "zcount", "zmscore", "zrange", "zrangebyscore", "zrandmember", "zrank", "zrevrange", "zrevrangebyscore", "zrevrank", "zscore", "zscan", "lcs"},
+	"@write":       {"set", "mset", "setex", "psetex", "setnx", "incr", "incrby", "incrbyfloat", "decr", "decrby", "append", "setrange", "getdel", "getex", "hdel", "hgetdel", "hgetex", "hset", "hsetex", "hsetnx", "hmset", "hincrby", "hincrbyfloat", "hexpire", "hexpireat", "hpexpire", "hpexpireat", "hpersist", "hrandfield", "lpush", "lpushx", "lpop", "rpush", "rpushx", "rpop", "lrem", "lset", "ltrim", "lmove", "blmove", "lmpop", "blmpop", "sadd", "scard", "srem", "spop", "sintercard", "zadd", "zincrby", "zrem", "zremrangebyrank", "zremrangebyscore", "zpopmax", "zpopmin", "bzpopmax", "bzpopmin", "zmpop", "bzmpop", "zrangestore", "zdiff", "zdiffstore", "zinter", "zunion", "migrate", "xackdel", "xdelex", "xsetid"},
+	"@admin":       {"acl", "bgrewriteaof", "bgsave", "client", "cluster", "config", "dbsize", "debug", "flushall", "flushdb", "info", "lastsave", "monitor", "role", "save", "shutdown", "slaveof", "slowlog", "sync", "readonly", "readwrite"},
+	"@dangerous":   {"flushall", "flushdb", "keys", "migrate", "shutdown", "debug", "config"},
+	"@connection":  {"auth", "echo", "ping", "hello", "quit", "select", "swapdb"},
+	"@transaction": {"discard", "exec", "multi", "unwatch", "watch"},
+	"@pubsub":      {"psubscribe", "publish", "pubsub", "punsubscribe", "subscribe", "unsubscribe"},
+	"@set":         {"sadd", "scard", "sdiff", "sdiffstore", "sinter", "sintercard", "sinterstore", "sismember", "smembers", "smismember", "smove", "spop", "srandmember", "srem", "sscan", "sunion", "sunionstore"},
+	"@sortedset":   {"zadd", "zcard", "zcount", "zincrby", "zinterstore", "zlexcount", "zmscore", "zpopmax", "zpopmin", "bzpopmax", "bzpopmin", "zmpop", "bzmpop", "zrange", "zrangebylex", "zrangebyscore", "zrandmember", "zrangestore", "zrank", "zrem", "zremrangebylex", "zremrangebyrank", "zremrangebyscore", "zrevrange", "zrevrangebylex", "zrevrangebyscore", "zrevrank", "zscan", "zscore", "zunionstore", "zdiff", "zdiffstore", "zinter", "zunion"},
+	"@list":        {"blpop", "brpop", "brpoplpush", "lindex", "linsert", "llen", "lmpop", "blmpop", "lmove", "blmove", "lpop", "lpos", "lpush", "lpushx", "lrange", "lrem", "lset", "ltrim", "rpop", "rpoplpush", "rpush", "rpushx"},
+	"@hash":        {"hdel", "hexists", "hget", "hgetall", "hgetdel", "hgetex", "hincrby", "hincrbyfloat", "hkeys", "hlen", "hmget", "hmset", "hrandfield", "hscan", "hset", "hsetex", "hsetnx", "hstrlen", "hvals", "hexpire", "hexpireat", "hpexpire", "hpexpireat", "hpersist", "httl", "hpttl", "hexpiretime", "hpexpiretime"},
+	"@string":      {"append", "bitcount", "bitfield", "bitfield_ro", "bitop", "bitpos", "decr", "decrby", "get", "getbit", "getdel", "getex", "getrange", "getset", "getver", "incr", "incrby", "incrbyfloat", "lcs", "mget", "mset", "msetnx", "psetex", "set", "setbit", "setex", "setnx", "setrange", "strlen"},
+	"@bitmap":      {"bitcount", "bitfield", "bitfield_ro", "bitop", "bitpos", "getbit", "setbit"},
+	"@hyperloglog": {"pfadd", "pfcount", "pfmerge", "pfselftest", "pfdebug"},
+	"@geo":         {"geoadd", "geodist", "geohash", "geopos", "georadius", "georadiusbymember", "geosearch", "geosearchstore"},
+	"@stream":      {"xadd", "xack", "xackdel", "xautoclaim", "xclaim", "xdel", "xdelex", "xgroup", "xinfo", "xlen", "xpending", "xrange", "xread", "xreadgroup", "xrevrange", "xsetid", "xtrim"},
+	"@scripting":   {"eval", "evalsha", "fcall", "fcall|ro", "script", "function"},
+}
+
 // GetCommandCategories returns the categories a command belongs to
 func GetCommandCategories(cmd string) []string {
 	cmd = strings.ToLower(cmd)
@@ -440,30 +462,34 @@ func GetCommandCategories(cmd string) []string {
 			}
 		}
 	}
+	if len(categories) > 0 {
+		return categories
+	}
 
-	return categories
-}
-
-// CommandCategoryMap maps categories to their commands
-var CommandCategoryMap = map[string][]string{
-	"@keyspace":    {"del", "dump", "exists", "expire", "expireat", "keys", "migrate", "move", "persist", "pexpire", "pexpireat", "pttl", "randomkey", "rename", "renamenx", "restore", "sort", "ttl", "type", "scan"},
-	"@read":        {"get", "mget", "exists", "ttl", "pttl", "type", "strlen", "getrange", "hexists", "hget", "hgetall", "hkeys", "hvals", "hlen", "hmget", "hstrlen", "lindex", "llen", "lrange", "scard", "sismember", "smembers", "srandmember", "sscan", "zcard", "zcount", "zrange", "zrangebyscore", "zrank", "zrevrange", "zrevrangebyscore", "zrevrank", "zscore", "zscan"},
-	"@write":       {"set", "mset", "setex", "psetex", "setnx", "incr", "incrby", "incrbyfloat", "decr", "decrby", "append", "setrange", "hdel", "hset", "hsetnx", "hmset", "hincrby", "hincrbyfloat", "lpush", "lpushx", "lpop", "rpush", "rpushx", "rpop", "lrem", "lset", "ltrim", "sadd", "scard", "srem", "spop", "zadd", "zincrby", "zrem", "zremrangebyrank", "zremrangebyscore", "migrate"},
-	"@admin":       {"acl", "bgrewriteaof", "bgsave", "client", "cluster", "config", "dbsize", "debug", "flushall", "flushdb", "info", "lastsave", "monitor", "role", "save", "shutdown", "slaveof", "slowlog", "sync"},
-	"@dangerous":   {"flushall", "flushdb", "keys", "migrate", "shutdown", "debug", "config"},
-	"@connection":  {"auth", "echo", "ping", "quit", "select", "swapdb"},
-	"@transaction": {"discard", "exec", "multi", "unwatch", "watch"},
-	"@pubsub":      {"psubscribe", "publish", "pubsub", "punsubscribe", "subscribe", "unsubscribe"},
-	"@set":         {"sadd", "scard", "sdiff", "sdiffstore", "sinter", "sinterstore", "sismember", "smembers", "smove", "spop", "srandmember", "srem", "sscan", "sunion", "sunionstore"},
-	"@sortedset":   {"zadd", "zcard", "zcount", "zincrby", "zinterstore", "zlexcount", "zrange", "zrangebylex", "zrangebyscore", "zrank", "zrem", "zremrangebylex", "zremrangebyrank", "zremrangebyscore", "zrevrange", "zrevrangebylex", "zrevrangebyscore", "zrevrank", "zscan", "zscore", "zunionstore"},
-	"@list":        {"blpop", "brpop", "brpoplpush", "lindex", "linsert", "llen", "lpop", "lpush", "lpushx", "lrange", "lrem", "lset", "ltrim", "rpop", "rpoplpush", "rpush", "rpushx"},
-	"@hash":        {"hdel", "hexists", "hget", "hgetall", "hincrby", "hincrbyfloat", "hkeys", "hlen", "hmget", "hmset", "hscan", "hset", "hsetnx", "hstrlen", "hvals"},
-	"@string":      {"append", "bitcount", "bitfield", "bitop", "bitpos", "decr", "decrby", "get", "getbit", "getrange", "getset", "incr", "incrby", "incrbyfloat", "mget", "mset", "msetnx", "psetex", "set", "setbit", "setex", "setnx", "setrange", "strlen"},
-	"@bitmap":      {"bitcount", "bitfield", "bitop", "bitpos", "getbit", "setbit"},
-	"@hyperloglog": {"pfadd", "pfcount", "pfmerge", "pfselftest"},
-	"@geo":         {"geoadd", "geodist", "geohash", "geopos", "georadius", "georadiusbymember"},
-	"@stream":      {"xadd", "xack", "xclaim", "xdel", "xgroup", "xinfo", "xlen", "xpending", " xrange", "xread", "xreadgroup", "xrevrange", "xtrim"},
-	"@scripting":   {"eval", "evalsha", "script"},
+	// Extension categories, derived by command-name prefix (Redis 8 Stack:
+	// @search/@json/@vector/@timeseries/@bloom/@cuckoo/@cms/@topk/@tdigest).
+	// These feed the ACL enforcement layer (commandsAllow), not just ACL CAT.
+	switch {
+	case strings.HasPrefix(cmd, "ft."):
+		return []string{"@search"}
+	case strings.HasPrefix(cmd, "json."):
+		return []string{"@json"}
+	case strings.HasPrefix(cmd, "vs"):
+		return []string{"@vector"}
+	case strings.HasPrefix(cmd, "ts."):
+		return []string{"@timeseries"}
+	case strings.HasPrefix(cmd, "bf."):
+		return []string{"@bloom"}
+	case strings.HasPrefix(cmd, "cf."):
+		return []string{"@cuckoo"}
+	case strings.HasPrefix(cmd, "cms."):
+		return []string{"@cms"}
+	case strings.HasPrefix(cmd, "topk."):
+		return []string{"@topk"}
+	case strings.HasPrefix(cmd, "td."):
+		return []string{"@tdigest"}
+	}
+	return nil
 }
 
 // matchPattern checks if a string matches a glob pattern
