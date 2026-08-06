@@ -70,6 +70,7 @@ func execHSet(db *DB, args [][]byte) redis.Reply {
 		}
 	}
 	db.addAof(utils.ToCmdLine3("hset", args...))
+	notifyKeyspaceEvent(db, "hset", key)
 	reindexHash(db, key)
 	return protocol.MakeIntReply(int64(added))
 }
@@ -194,6 +195,7 @@ func execHDel(db *DB, args [][]byte) redis.Reply {
 	}
 	if deleted > 0 {
 		db.addAof(utils.ToCmdLine3("hdel", args...))
+		notifyKeyspaceEvent(db, "hdel", key)
 		if removedKey {
 			removeHashFromIndex(db, key)
 		} else {

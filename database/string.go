@@ -512,12 +512,14 @@ func execIncrBy(db *DB, args [][]byte) redis.Reply {
 			Data: []byte(strconv.FormatInt(val+delta, 10)),
 		})
 		db.addAof(utils.ToCmdLine3("incrby", args...))
-		return protocol.MakeIntReply(val + delta)
+	notifyKeyspaceEvent(db, "incrby", key)
+	return protocol.MakeIntReply(val + delta)
 	}
 	db.PutEntity(key, &database.DataEntity{
 		Data: args[1],
 	})
 	db.addAof(utils.ToCmdLine3("incrby", args...))
+	notifyKeyspaceEvent(db, "incrby", key)
 	return protocol.MakeIntReply(delta)
 }
 
@@ -653,6 +655,7 @@ func execAppend(db *DB, args [][]byte) redis.Reply {
 		Data: bytes,
 	})
 	db.addAof(utils.ToCmdLine3("append", args...))
+	notifyKeyspaceEvent(db, "append", key)
 	return protocol.MakeIntReply(int64(len(bytes)))
 }
 
@@ -732,7 +735,9 @@ func execGetRange(db *DB, args [][]byte) redis.Reply {
 func execSetBit(db *DB, args [][]byte) redis.Reply {
 	key := string(args[0])
 	offset, err := strconv.ParseInt(string(args[1]), 10, 64)
-	if err != nil || offset < 0 {
+	if err != nil || offset < 0 || offset > (1<<32)-1 {
+		// Redis caps bit offsets at 2^32-1 (the 512MB string limit); without
+		// this, BitMap.grow would attempt a multi-GB allocation and OOM.
 		return protocol.MakeErrReply("ERR bit offset is not an integer or out of range")
 	}
 	valStr := string(args[2])
@@ -944,8 +949,8 @@ func init() {
 		attachCommandExtra([]string{redisFlagWrite, redisFlagDenyOOM}, 1, 1, 1)
 	registerCommand("Get", execGet, readFirstKey, nil, 2, flagReadOnly).
 		attachCommandExtra([]string{redisFlagReadonly, redisFlagFast}, 1, 1, 1)
-	registerCommand("GetEX", execGetEX, writeFirstKey, rollbackFirstKey, -2, flagReadOnly).
-		attachCommandExtra([]string{redisFlagReadonly, redisFlagFast}, 1, 1, 1)
+	registerCommand("GetEX", execGetEX, writeFirstKey, rollbackFirstKey, -2, flagWrite).
+		attachCommandExtra([]string{redisFlagWrite, redisFlagFast}, 1, 1, 1)
 	registerCommand("GetSet", execGetSet, writeFirstKey, rollbackFirstKey, 3, flagWrite).
 		attachCommandExtra([]string{redisFlagWrite, redisFlagDenyOOM}, 1, 1, 1)
 	registerCommand("GetDel", execGetDel, writeFirstKey, rollbackFirstKey, 2, flagWrite).

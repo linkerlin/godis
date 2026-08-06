@@ -10,7 +10,8 @@ import (
 )
 
 // execReset resets the connection state (Redis RESET).
-// Does not clear authentication.
+// Per Redis 8 this also deauthenticates the connection (user back to default)
+// and restores REPLY mode.
 func execReset(c redis.Connection, db *DB) redis.Reply {
 	if c == nil {
 		return protocol.MakeStatusReply("RESET")
@@ -24,6 +25,15 @@ func execReset(c redis.Connection, db *DB) redis.Reply {
 	c.SetClientName("")
 	c.SetTrackingID("")
 	c.SetProtocolVersion(2)
+	// Deauthenticate: reset to the default user (Redis resetCommand).
+	c.SetACLUser("")
+	c.SetPassword("")
+	// Restore REPLY ON (RESET clears a previous CLIENT REPLY SKIP/OFF).
+	if r, ok := c.(interface{ GetReplyMode() string; SetReplyMode(string) }); ok {
+		if r.GetReplyMode() != "" {
+			r.SetReplyMode("on")
+		}
+	}
 	if setter, ok := c.(interface {
 		SetLibName(string)
 		SetLibVer(string)

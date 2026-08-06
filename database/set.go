@@ -57,6 +57,9 @@ func execSAdd(db *DB, args [][]byte) redis.Reply {
 		counter += set.Add(string(member))
 	}
 	db.addAof(utils.ToCmdLine3("sadd", args...))
+	if counter > 0 {
+		notifyKeyspaceEvent(db, "sadd", key)
+	}
 	return protocol.MakeIntReply(int64(counter))
 }
 

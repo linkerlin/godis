@@ -126,6 +126,7 @@ parsePairs:
 		}
 		sortedSet.Add(member, newScore)
 		db.addAof(utils.ToCmdLine3("zadd", args...))
+		notifyKeyspaceEvent(db, "zadd", key)
 		signalZSetWaiters(key)
 		return protocol.MakeBulkReply([]byte(strconv.FormatFloat(newScore, 'f', -1, 64)))
 	}
@@ -163,6 +164,9 @@ parsePairs:
 	}
 
 	db.addAof(utils.ToCmdLine3("zadd", args...))
+	if added+changed > 0 {
+		notifyKeyspaceEvent(db, "zadd", key)
+	}
 	signalZSetWaiters(key)
 	if ch {
 		return protocol.MakeIntReply(int64(changed))

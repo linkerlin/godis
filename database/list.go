@@ -197,6 +197,7 @@ func execLPush(db *DB, args [][]byte) redis.Reply {
 	}
 
 	db.addAof(utils.ToCmdLine3("lpush", args...))
+	notifyKeyspaceEvent(db, "lpush", key)
 	signalListWaiters(key)
 	return protocol.MakeIntReply(int64(list.Len()))
 }
@@ -581,6 +582,7 @@ func execRPush(db *DB, args [][]byte) redis.Reply {
 		list.Add(value)
 	}
 	db.addAof(utils.ToCmdLine3("rpush", args...))
+	notifyKeyspaceEvent(db, "rpush", key)
 	signalListWaiters(key)
 	return protocol.MakeIntReply(int64(list.Len()))
 }

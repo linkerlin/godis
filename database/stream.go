@@ -199,6 +199,7 @@ func execXAdd(db *DB, args [][]byte) redis.Reply {
 	} else {
 		db.addAof(utils.ToCmdLine3("xadd", args...))
 	}
+	notifyKeyspaceEvent(db, "xadd", key)
 
 	signalStreamWaiters(key)
 	return protocol.MakeBulkReply([]byte(id.String()))
