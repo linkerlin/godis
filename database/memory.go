@@ -42,7 +42,7 @@ func execMemory(server *Server, c redis.Connection, args [][]byte) redis.Reply {
 	case "HELP":
 		return execMemoryHelp()
 	default:
-		return protocol.MakeErrReply(fmt.Sprintf("ERR Unknown subcommand or wrong number of arguments for '%s'", subCmd))
+		return protocol.MakeErrReply(fmt.Sprintf("ERR Unknown subcommand or wrong number of arguments for '%s'. Try MEMORY HELP.", subCmd))
 	}
 }
 

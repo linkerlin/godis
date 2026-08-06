@@ -122,7 +122,9 @@ func (h *Handler) Handle(ctx context.Context, conn net.Conn) {
 				return
 			}
 			// protocol err — Redis closes the connection after PROTO error
-			errReply := protocol.MakeErrReply(payload.Err.Error())
+			// (formatted "ERR Protocol error: ..." per Redis 8)
+			errMsg := strings.TrimPrefix(payload.Err.Error(), "protocol error: ")
+			errReply := protocol.MakeErrReply("ERR Protocol error: " + errMsg)
 			_, _ = client.Write(errReply.ToBytes())
 			h.closeClient(client)
 			logger.Info("connection closed (protocol error): " + client.RemoteAddr())

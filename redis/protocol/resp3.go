@@ -600,9 +600,27 @@ func ReplyToRESP3(reply redis.Reply) []byte {
 		return r.ToRESP3()
 	case *MapReply:
 		return r.ToRESP3()
+	case *StandardErrReply:
+		// RESP3 blob error: Redis sends errors longer than 80 bytes (or with
+		// embedded newlines) as "!<len>\r\n<message>\r\n" instead of "-<message>".
+		msg := r.Error()
+		if len(msg) > 80 || hasCRLF(msg) {
+			return []byte("!" + strconv.Itoa(len(msg)) + CRLF + msg + CRLF)
+		}
+		return r.ToBytes()
 	case RESP3Reply:
 		return r.ToRESP3()
 	default:
 		return r.ToBytes()
 	}
+}
+
+// hasCRLF reports whether s contains a carriage return or line feed byte.
+func hasCRLF(s string) bool {
+	for i := 0; i < len(s); i++ {
+		if s[i] == '\r' || s[i] == '\n' {
+			return true
+		}
+	}
+	return false
 }

@@ -247,19 +247,24 @@ func TestClientTrackingInfoCommand(t *testing.T) {
 
 	asserts.AssertStatusReply(t, server.Exec(conn, utils.ToCmdLine("CLIENT", "TRACKING", "ON")), "OK")
 	reply := server.Exec(conn, utils.ToCmdLine("CLIENT", "TRACKINGINFO"))
-	multi, ok := reply.(*protocol.MultiBulkReply)
+	multi, ok := reply.(*protocol.MultiRawReply)
 	if !ok {
-		t.Fatalf("expected TRACKINGINFO multi bulk, got %T", reply)
+		t.Fatalf("expected TRACKINGINFO multi raw reply, got %T", reply)
 	}
 	foundFlags := false
-	for _, arg := range multi.Args {
-		if string(arg) == "flags" {
+	for i := 0; i+1 < len(multi.Replies); i += 2 {
+		if b, ok := multi.Replies[i].(*protocol.BulkReply); ok && string(b.Arg) == "flags" {
+			// The flags value must be a nested array (not a bulk string of
+			// serialized array bytes — the historical wire corruption).
+			if _, ok := multi.Replies[i+1].(*protocol.MultiBulkReply); !ok {
+				t.Fatalf("TRACKINGINFO flags value should be a nested array, got %T", multi.Replies[i+1])
+			}
 			foundFlags = true
 			break
 		}
 	}
 	if !foundFlags {
-		t.Fatalf("TRACKINGINFO missing flags field: %v", multi.Args)
+		t.Fatalf("TRACKINGINFO missing flags field: %s", reply.ToBytes())
 	}
 }
 

@@ -83,7 +83,11 @@ func (s *GnetServer) OnTraffic(c gnet.Conn) (action gnet.Action) {
 	conn := c.Context().(redis.Connection)
 	cmdLine, err := parser.ParseV2(c)
 	if err != nil {
+		// Reply with a protocol error before closing, matching Redis 8 (the
+		// std server path already does this).
 		logger.Infof("parse command line failed: %v", err)
+		errMsg := strings.TrimPrefix(err.Error(), "protocol error: ")
+		_, _ = c.Write(protocol.MakeErrReply("ERR Protocol error: " + errMsg).ToBytes())
 		return gnet.Close
 	}
 	if len(cmdLine) == 0 {

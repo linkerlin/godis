@@ -53,7 +53,7 @@ func execClientConn(c redis.Connection, db *DB, args [][]byte) redis.Reply {
 	case "HELP":
 		return execClientHelp(args[1:])
 	default:
-		return protocol.MakeErrReply("ERR Unknown subcommand or wrong number of arguments for '" + subCmd + "'")
+		return protocol.MakeErrReply("ERR Unknown subcommand or wrong number of arguments for '" + subCmd + "'. Try CLIENT HELP.")
 	}
 }
 
@@ -176,8 +176,8 @@ func execClientTrackingInfoConn(c redis.Connection, args [][]byte) redis.Reply {
 		}
 	}
 
-	var result [][]byte
-	result = append(result, []byte("flags"))
+	var result []redis.Reply
+	result = append(result, protocol.MakeBulkReply([]byte("flags")))
 	var flags [][]byte
 	if enabled, ok := info["enabled"].(bool); ok && enabled {
 		flags = append(flags, []byte("on"))
@@ -190,25 +190,25 @@ func execClientTrackingInfoConn(c redis.Connection, args [][]byte) redis.Reply {
 	if noloop, ok := info["noloop"].(bool); ok && noloop {
 		flags = append(flags, []byte("noloop"))
 	}
-	result = append(result, protocol.MakeMultiBulkReply(flags).ToBytes())
+	result = append(result, protocol.MakeMultiBulkReply(flags))
 
-	result = append(result, []byte("redirect"))
+	result = append(result, protocol.MakeBulkReply([]byte("redirect")))
 	if redirect, ok := info["redirect"].(string); ok && redirect != "" {
-		result = append(result, []byte(redirect))
+		result = append(result, protocol.MakeBulkReply([]byte(redirect)))
 	} else {
-		result = append(result, []byte("0"))
+		result = append(result, protocol.MakeBulkReply([]byte("0")))
 	}
 
-	result = append(result, []byte("prefixes"))
+	result = append(result, protocol.MakeBulkReply([]byte("prefixes")))
 	var prefixReply [][]byte
 	if p, ok := info["prefixes"].([]string); ok {
 		for _, prefix := range p {
 			prefixReply = append(prefixReply, []byte(prefix))
 		}
 	}
-	result = append(result, protocol.MakeMultiBulkReply(prefixReply).ToBytes())
+	result = append(result, protocol.MakeMultiBulkReply(prefixReply))
 
-	return protocol.MakeMultiBulkReply(result)
+	return protocol.MakeMultiRawReply(result)
 }
 
 func applyCacheHooks(c redis.Connection, cmdName string, write, read []string, failed bool) {

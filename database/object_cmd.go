@@ -1,6 +1,7 @@
 package database
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
 	"time"
@@ -22,25 +23,40 @@ import (
 // execObject inspects the internals of Redis objects associated with keys
 // OBJECT subcommand [arguments [arguments ...]]
 func execObject(db *DB, args [][]byte) redis.Reply {
-	if len(args) < 2 {
+	if len(args) < 1 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'object' command")
 	}
 
 	subCmd := strings.ToUpper(string(args[0]))
 
+	// Only the key-taking subcommands require a second argument; an unknown
+	// subcommand must surface the "Try OBJECT HELP." error regardless of arity
+	// (matching Redis).
 	switch subCmd {
 	case "REFCOUNT":
+		if len(args) < 2 {
+			return protocol.MakeErrReply("ERR wrong number of arguments for 'object' command")
+		}
 		return execObjectRefCount(db, string(args[1]))
 	case "ENCODING":
+		if len(args) < 2 {
+			return protocol.MakeErrReply("ERR wrong number of arguments for 'object' command")
+		}
 		return execObjectEncoding(db, string(args[1]))
 	case "IDLETIME":
+		if len(args) < 2 {
+			return protocol.MakeErrReply("ERR wrong number of arguments for 'object' command")
+		}
 		return execObjectIdleTime(db, string(args[1]))
 	case "FREQ":
+		if len(args) < 2 {
+			return protocol.MakeErrReply("ERR wrong number of arguments for 'object' command")
+		}
 		return execObjectFreq(db, string(args[1]))
 	case "HELP":
 		return execObjectHelp()
 	default:
-		return protocol.MakeErrReply("ERR Unknown subcommand or wrong number of arguments for '" + subCmd + "'")
+		return protocol.MakeErrReply(fmt.Sprintf("ERR Unknown subcommand or wrong number of arguments for '%s'. Try OBJECT HELP.", subCmd))
 	}
 }
 

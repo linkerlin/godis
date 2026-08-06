@@ -44,7 +44,7 @@ func (server *Server) execConfig(args [][]byte) redis.Reply {
 	case "HELP":
 		return execConfigHelp(args[1:])
 	default:
-		return protocol.MakeErrReply(fmt.Sprintf("ERR Unknown subcommand or wrong number of arguments for '%s'", subCmd))
+		return protocol.MakeErrReply(fmt.Sprintf("ERR Unknown subcommand or wrong number of arguments for '%s'. Try CONFIG HELP.", subCmd))
 	}
 }
 

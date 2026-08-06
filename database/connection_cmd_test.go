@@ -83,7 +83,7 @@ func TestClientSubcommands(t *testing.T) {
 	}
 
 	trackingInfo := server.Exec(c, utils.ToCmdLine("CLIENT", "TRACKINGINFO"))
-	if _, ok := trackingInfo.(*protocol.MultiBulkReply); !ok {
+	if _, ok := trackingInfo.(*protocol.MultiRawReply); !ok {
 		t.Fatalf("CLIENT TRACKINGINFO: got %s", trackingInfo.ToBytes())
 	}
 }

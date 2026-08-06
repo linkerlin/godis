@@ -320,10 +320,10 @@ func execClientTrackingInfo(args [][]byte) redis.Reply {
 		"prefixes": []string{},
 	}
 
-	var result [][]byte
+	var result []redis.Reply
 
 	// Tracking status
-	result = append(result, []byte("flags"))
+	result = append(result, protocol.MakeBulkReply([]byte("flags")))
 	var flags [][]byte
 	if info["enabled"].(bool) {
 		flags = append(flags, []byte("on"))
@@ -334,23 +334,23 @@ func execClientTrackingInfo(args [][]byte) redis.Reply {
 	if mode == "bcast" {
 		flags = append(flags, []byte("bcast"))
 	}
-	result = append(result, protocol.MakeMultiBulkReply(flags).ToBytes())
+	result = append(result, protocol.MakeMultiBulkReply(flags))
 
 	// Redirect target (0 if not redirected)
-	result = append(result, []byte("redirect"))
-	result = append(result, []byte("0"))
+	result = append(result, protocol.MakeBulkReply([]byte("redirect")))
+	result = append(result, protocol.MakeBulkReply([]byte("0")))
 
 	// Prefixes
-	result = append(result, []byte("prefixes"))
+	result = append(result, protocol.MakeBulkReply([]byte("prefixes")))
 	var prefixes [][]byte
 	if p, ok := info["prefixes"].([]string); ok {
 		for _, prefix := range p {
 			prefixes = append(prefixes, []byte(prefix))
 		}
 	}
-	result = append(result, protocol.MakeMultiBulkReply(prefixes).ToBytes())
+	result = append(result, protocol.MakeMultiBulkReply(prefixes))
 
-	return protocol.MakeMultiBulkReply(result)
+	return protocol.MakeMultiRawReply(result)
 }
 
 // execClientHelp returns help information
