@@ -1,20 +1,26 @@
 package database
 
 import (
+	"crypto/sha1"
+	"encoding/hex"
 	"fmt"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
+	"github.com/linkerlin/godis/interface/database"
 	"github.com/linkerlin/godis/interface/redis"
 	"github.com/linkerlin/godis/lib/wildcard"
 	"github.com/linkerlin/godis/redis/protocol"
 )
 
-// zeroDigest is a harmless stand-in for a SHA1 digest used by DEBUG DIGEST /
-// DIGEST-VALUE stubs (real Redis computes this over the dataset for
-// consistency checks; we don't implement that here).
-var zeroDigest = strings.Repeat("0", 40)
+// activeExpireEnabled gates the timewheel active-expiry callback. It defaults
+// to on; DEBUG SET-ACTIVE-EXPIRE 0 disables active expiry (lazy deletion via
+// IsExpired still runs), mirroring Redis's activeExpireCycle toggle.
+var activeExpireEnabled atomic.Bool
+
+func init() { activeExpireEnabled.Store(true) }
 
 // execDebug handles DEBUG subcommands (minimal Redis-compatible subset).
 func execDebug(server *Server, c redis.Connection, args [][]byte) redis.Reply {
@@ -41,10 +47,15 @@ func execDebug(server *Server, c redis.Connection, args [][]byte) redis.Reply {
 		}
 		return execDebugObject(server, c, string(args[1]))
 	case "SET-ACTIVE-EXPIRE":
-		// Stub: active expire cycle toggling is not implemented; accept and no-op.
+		// Real implementation: toggles the timewheel active-expiry callback.
 		if len(args) != 2 {
 			return protocol.MakeErrReply("ERR wrong number of arguments for 'debug|set-active-expire' command")
 		}
+		v, err := strconv.Atoi(string(args[1]))
+		if err != nil || (v != 0 && v != 1) {
+			return protocol.MakeErrReply("ERR argument must be 0 or 1")
+		}
+		activeExpireEnabled.Store(v == 1)
 		return protocol.MakeOkReply()
 	case "RELOAD":
 		// Stub: RDB save+reload round-trip is not performed; data already resident.
@@ -62,7 +73,7 @@ func execDebug(server *Server, c redis.Connection, args [][]byte) redis.Reply {
 		if len(args) != 1 {
 			return protocol.MakeErrReply("ERR wrong number of arguments for 'debug|digest' command")
 		}
-		return protocol.MakeStatusReply(zeroDigest)
+		return protocol.MakeStatusReply(computeServerDigest(server))
 	case "DIGEST-VALUE":
 		if len(args) < 2 {
 			return protocol.MakeErrReply("ERR wrong number of arguments for 'debug|digest-value' command")
@@ -89,7 +100,7 @@ func execDebug(server *Server, c redis.Connection, args [][]byte) redis.Reply {
 			"OBJECT <key>",
 			"    Show low-level info about a key (simplified).",
 			"SET-ACTIVE-EXPIRE <0|1>",
-			"    Stub: accepted, no effect.",
+			"    Enable/disable the active expiry callback (lazy expiry always runs).",
 			"RELOAD",
 			"    Stub: accepted, no effect.",
 			"CHANGE-REPL-ID",
@@ -99,9 +110,9 @@ func execDebug(server *Server, c redis.Connection, args [][]byte) redis.Reply {
 			"FLUSHALL",
 			"    Stub: accepted, does not flush data.",
 			"DIGEST",
-			"    Stub: returns a fixed all-zero digest.",
+			"    Return a SHA1 digest over all keys in all databases.",
 			"DIGEST-VALUE <key> [<key> ...]",
-			"    Stub: returns a fixed digest per existing key, nil for missing keys.",
+			"    Return a SHA1 digest of each key's value, nil for missing keys.",
 			"STRINGMATCH-LEN <pattern> <string>",
 			"    Return 1 if pattern matches string, else 0.",
 			"HELP",
@@ -117,6 +128,52 @@ func execDebug(server *Server, c redis.Connection, args [][]byte) redis.Reply {
 	}
 }
 
+// entityDigestBytes renders a DataEntity's payload for digesting. Binary-safe
+// for []byte values; other types use fmt %v (digest stability across types is
+// best-effort — Redis uses its own serializers).
+func entityDigestBytes(entity *database.DataEntity) []byte {
+	if entity == nil {
+		return nil
+	}
+	if b, ok := entity.Data.([]byte); ok {
+		return b
+	}
+	if s, ok := entity.Data.(string); ok {
+		return []byte(s)
+	}
+	return []byte(fmt.Sprintf("%v", entity.Data))
+}
+
+// computeServerDigest returns a SHA1 over every key name and payload in every
+// database (DEBUG DIGEST semantics).
+func computeServerDigest(server *Server) string {
+	h := sha1.New()
+	if server == nil {
+		return hex.EncodeToString(h.Sum(nil))
+	}
+	for i := range server.dbSet {
+		holder := server.dbSet[i]
+		if holder == nil {
+			continue
+		}
+		v := holder.Load()
+		if v == nil {
+			continue
+		}
+		db := v.(*DB)
+		db.data.ForEach(func(key string, val interface{}) bool {
+			h.Write([]byte(key))
+			h.Write([]byte{0})
+			if entity, ok := val.(*database.DataEntity); ok {
+				h.Write(entityDigestBytes(entity))
+			}
+			h.Write([]byte{0})
+			return true
+		})
+	}
+	return hex.EncodeToString(h.Sum(nil))
+}
+
 func execDebugDigestValue(server *Server, c redis.Connection, keys [][]byte) redis.Reply {
 	dbIndex := 0
 	if c != nil {
@@ -128,11 +185,16 @@ func execDebugDigestValue(server *Server, c redis.Connection, keys [][]byte) red
 	}
 	replies := make([]redis.Reply, len(keys))
 	for i, key := range keys {
-		if _, exists := db.GetEntity(string(key)); exists {
-			replies[i] = protocol.MakeStatusReply(zeroDigest)
-		} else {
+		entity, exists := db.GetEntity(string(key))
+		if !exists {
 			replies[i] = protocol.MakeNullBulkReply()
+			continue
 		}
+		h := sha1.New()
+		h.Write([]byte(string(key)))
+		h.Write([]byte{0})
+		h.Write(entityDigestBytes(entity))
+		replies[i] = protocol.MakeStatusReply(hex.EncodeToString(h.Sum(nil)))
 	}
 	return protocol.MakeMultiRawReply(replies)
 }

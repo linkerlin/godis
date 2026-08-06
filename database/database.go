@@ -467,6 +467,13 @@ func (db *DB) Expire(key string, expireTime time.Time) {
 		expireTime, _ := rawExpireTime.(time.Time)
 		expired := time.Now().After(expireTime)
 		if expired {
+			// DEBUG SET-ACTIVE-EXPIRE 0 disables active expiry: the timewheel
+			// callback no longer deletes, leaving lazy deletion (IsExpired on
+			// access) as the only reclamation path — mirroring Redis's
+			// activeExpireCycle toggle.
+			if !activeExpireEnabled.Load() {
+				return
+			}
 			atomic.AddUint64(&serverStats.ExpiredKeys, 1)
 			notifyKeyspaceEvent(db, "expired", key)
 			db.removeKey(key, false)
