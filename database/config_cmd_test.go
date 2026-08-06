@@ -63,9 +63,9 @@ func TestConfigSetAclLogMaxLenHotReload(t *testing.T) {
 	c := connection.NewFakeConn()
 
 	resetACLLog()
-	addACLLogEntry("command", "toplevel", "set", "u1")
-	addACLLogEntry("command", "toplevel", "get", "u2")
-	addACLLogEntry("command", "toplevel", "del", "u3")
+	addACLLogEntry(nil, "command", "toplevel", "set", "u1")
+	addACLLogEntry(nil, "command", "toplevel", "get", "u2")
+	addACLLogEntry(nil, "command", "toplevel", "del", "u3")
 
 	asserts.AssertStatusReply(t, server.Exec(c, utils.ToCmdLine("CONFIG", "SET", "acllog-max-len", "2")), "OK")
 

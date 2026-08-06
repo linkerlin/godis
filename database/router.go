@@ -4,6 +4,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/linkerlin/godis/acl"
 	"github.com/linkerlin/godis/interface/redis"
 	"github.com/linkerlin/godis/redis/protocol"
 )
@@ -151,23 +152,91 @@ func isReadOnlyCommand(name string) bool {
 }
 
 func (cmd *command) toDescReply() redis.Reply {
-	args := make([]redis.Reply, 0, 6)
+	// Redis 7+ COMMAND INFO shape: name, arity, flags, first_key, last_key,
+	// step, acl_categories, tips, key_specs, subcommands.
+	args := make([]redis.Reply, 0, 10)
 	args = append(args,
 		protocol.MakeBulkReply([]byte(cmd.name)),
 		protocol.MakeIntReply(int64(cmd.arity)))
+	firstKey, lastKey, keyStep := 0, 0, 0
 	if cmd.extra != nil {
 		signs := make([][]byte, len(cmd.extra.signs))
 		for i, v := range cmd.extra.signs {
 			signs[i] = []byte(v)
 		}
+		firstKey, lastKey, keyStep = cmd.extra.firstKey, cmd.extra.lastKey, cmd.extra.keyStep
 		args = append(args,
 			protocol.MakeMultiBulkReply(signs),
-			protocol.MakeIntReply(int64(cmd.extra.firstKey)),
-			protocol.MakeIntReply(int64(cmd.extra.lastKey)),
-			protocol.MakeIntReply(int64(cmd.extra.keyStep)),
+			protocol.MakeIntReply(int64(firstKey)),
+			protocol.MakeIntReply(int64(lastKey)),
+			protocol.MakeIntReply(int64(keyStep)),
+		)
+	} else {
+		args = append(args,
+			protocol.MakeMultiBulkReply([][]byte{}),
+			protocol.MakeIntReply(0),
+			protocol.MakeIntReply(0),
+			protocol.MakeIntReply(0),
 		)
 	}
+	// acl_categories, tips, key_specs, subcommands.
+	args = append(args, protocol.MakeMultiRawReply(cmd.aclCategoryReplies()))
+	args = append(args, protocol.MakeMultiRawReply([]redis.Reply{})) // tips
+	args = append(args, protocol.MakeMultiRawReply(cmd.keySpecReplies(firstKey, lastKey, keyStep)))
+	args = append(args, protocol.MakeMultiRawReply([]redis.Reply{})) // subcommands
 	return protocol.MakeMultiRawReply(args)
+}
+
+// aclCategoryReplies returns the command's ACL categories as bulk replies,
+// sourced from the acl package's category table (Redis 8 COMMAND INFO/DOCS).
+func (cmd *command) aclCategoryReplies() []redis.Reply {
+	cats := acl.GetCommandCategories(cmd.name)
+	out := make([]redis.Reply, 0, len(cats))
+	for _, c := range cats {
+		out = append(out, protocol.MakeBulkReply([]byte(c)))
+	}
+	return out
+}
+
+// keySpecReplies renders a minimal Redis 7+ key_specs entry derived from the
+// registered first/last/step metadata. Returns an empty list when the command
+// declares no keys.
+func (cmd *command) keySpecReplies(firstKey, lastKey, keyStep int) []redis.Reply {
+	if firstKey <= 0 {
+		return []redis.Reply{}
+	}
+	if keyStep <= 0 {
+		keyStep = 1
+	}
+	// One key spec: flags (RO/RW), begin_search index, find_keys range.
+	spec := make([]redis.Reply, 0, 6)
+	spec = append(spec, protocol.MakeBulkReply([]byte("flags")))
+	flags := make([]redis.Reply, 0, 1)
+	if cmd.flags&flagReadOnly > 0 {
+		flags = append(flags, protocol.MakeBulkReply([]byte("RO")))
+	} else {
+		flags = append(flags, protocol.MakeBulkReply([]byte("RW")))
+	}
+	spec = append(spec, protocol.MakeMultiRawReply(flags))
+	spec = append(spec, protocol.MakeBulkReply([]byte("begin_search")))
+	spec = append(spec, protocol.MakeMultiRawReply([]redis.Reply{
+		protocol.MakeBulkReply([]byte("type")),
+		protocol.MakeBulkReply([]byte("index")),
+		protocol.MakeBulkReply([]byte("pos")),
+		protocol.MakeIntReply(int64(firstKey)),
+	}))
+	spec = append(spec, protocol.MakeBulkReply([]byte("find_keys")))
+	spec = append(spec, protocol.MakeMultiRawReply([]redis.Reply{
+		protocol.MakeBulkReply([]byte("type")),
+		protocol.MakeBulkReply([]byte("range")),
+		protocol.MakeBulkReply([]byte("lastkey")),
+		protocol.MakeIntReply(int64(lastKey)),
+		protocol.MakeBulkReply([]byte("step")),
+		protocol.MakeIntReply(int64(keyStep)),
+		protocol.MakeBulkReply([]byte("limit")),
+		protocol.MakeIntReply(0),
+	}))
+	return []redis.Reply{protocol.MakeMultiRawReply(spec)}
 }
 
 func (cmd *command) toDocsReply() redis.Reply {
@@ -184,8 +253,21 @@ func (cmd *command) toDocsReply() redis.Reply {
 	result = append(result, []byte("O(1)"))
 	result = append(result, []byte("doc_flags"))
 	result = append(result, protocol.MakeMultiBulkReply(cmd.docFlags()).ToBytes())
+	result = append(result, []byte("acl_categories"))
+	result = append(result, protocol.MakeMultiRawReply(cmd.aclCategoryReplies()).ToBytes())
+	result = append(result, []byte("key_specs"))
+	result = append(result, protocol.MakeMultiRawReply(cmd.keySpecReplies(cmd.firstLastStep())).ToBytes())
 
 	return protocol.MakeMultiBulkReply(result)
+}
+
+// firstLastStep returns the command's first/last/step key metadata (0s when
+// unset) for key_specs rendering.
+func (cmd *command) firstLastStep() (int, int, int) {
+	if cmd.extra == nil {
+		return 0, 0, 0
+	}
+	return cmd.extra.firstKey, cmd.extra.lastKey, cmd.extra.keyStep
 }
 
 // docFlags returns Redis COMMAND DOCS documentary flags (e.g. syscmd).

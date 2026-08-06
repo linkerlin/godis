@@ -171,7 +171,7 @@ func checkACLPermission(c redis.Connection, cmdName string, args [][]byte) redis
 		return protocol.MakeErrReply("NOPERM ACL user disabled or missing")
 	}
 	if !user.CheckCommand(cmdName) {
-		addACLLogEntry("command", "toplevel", cmdName, user.Name)
+		addACLLogEntry(c, "command", "toplevel", cmdName, user.Name)
 		return protocol.MakeErrReply("NOPERM User " + user.Name + " has no permissions to run the '" + strings.ToUpper(cmdName) + "' command")
 	}
 
@@ -180,21 +180,21 @@ func checkACLPermission(c redis.Connection, cmdName string, args [][]byte) redis
 		writeKeys, readKeys = cmd.prepare(args)
 	}
 	if !user.CheckPermission(cmdName, writeKeys, readKeys) {
-		addACLLogEntry("key", "toplevel", cmdName, user.Name)
+		addACLLogEntry(c, "key", "toplevel", cmdName, user.Name)
 		return protocol.MakeErrReply("NOPERM this user has no permissions to access one of the keys used as arguments")
 	}
 
 	switch cmdName {
 	case "publish", "spublish":
 		if len(args) >= 1 && !user.CheckChannel(string(args[0])) {
-			addACLLogEntry("channel", "toplevel", string(args[0]), user.Name)
+			addACLLogEntry(c, "channel", "toplevel", string(args[0]), user.Name)
 			return protocol.MakeErrReply("NOPERM this user has no permissions to access one of the channels used as arguments")
 		}
 	case "subscribe", "ssubscribe", "psubscribe":
 		for _, a := range args {
 			ch := string(a)
 			if !user.CheckChannel(ch) {
-				addACLLogEntry("channel", "toplevel", ch, user.Name)
+				addACLLogEntry(c, "channel", "toplevel", ch, user.Name)
 				return protocol.MakeErrReply("NOPERM this user has no permissions to access one of the channels used as arguments")
 			}
 		}

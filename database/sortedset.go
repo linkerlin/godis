@@ -815,6 +815,7 @@ func execZRem(db *DB, args [][]byte) redis.Reply {
 	}
 	if deleted > 0 {
 		db.addAof(utils.ToCmdLine3("zrem", args...))
+	notifyKeyspaceEvent(db, "zrem", key)
 	}
 	return protocol.MakeIntReply(deleted)
 }

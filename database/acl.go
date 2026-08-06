@@ -25,13 +25,17 @@ type ACLLogEntry struct {
 	Object     string
 	Username   string
 	AgeSeconds float64
-	Timestamp  time.Time
+	Timestamp  time.Time // last occurrence
+	EntryID    uint64    // monotonic entry id (Redis 8 ACL LOG)
+	CreatedAt  time.Time // first occurrence
+	ClientInfo string    // client line at last occurrence (Redis 8)
 }
 
 // ACL日志存储
 var (
 	aclLogEntries []*ACLLogEntry
 	aclLogMu      sync.RWMutex
+	aclLogNextID  uint64
 )
 
 func getACLLogMaxLen() int {
@@ -53,27 +57,38 @@ func trimACLLogToMax(maxLen int) {
 }
 
 // addACLLogEntry 添加ACL日志条目
-func addACLLogEntry(reason, context, object, username string) {
+func addACLLogEntry(c redis.Connection, reason, context, object, username string) {
 	aclLogMu.Lock()
 	defer aclLogMu.Unlock()
+
+	now := time.Now()
+	clientInfo := ""
+	if c != nil {
+		clientInfo = formatClientListLine(c)
+	}
 
 	// 检查是否存在相同条目（去重）
 	for _, entry := range aclLogEntries {
 		if entry.Reason == reason && entry.Object == object && entry.Username == username {
 			entry.Count++
-			entry.Timestamp = time.Now()
+			entry.Timestamp = now
+			entry.ClientInfo = clientInfo
 			return
 		}
 	}
 
 	// 添加新条目
+	aclLogNextID++
 	entry := &ACLLogEntry{
-		Count:     1,
-		Reason:    reason,
-		Context:   context,
-		Object:    object,
-		Username:  username,
-		Timestamp: time.Now(),
+		Count:      1,
+		Reason:     reason,
+		Context:    context,
+		Object:     object,
+		Username:   username,
+		Timestamp:  now,
+		EntryID:    aclLogNextID,
+		CreatedAt:  now,
+		ClientInfo: clientInfo,
 	}
 
 	aclLogEntries = append(aclLogEntries, entry)
@@ -114,6 +129,14 @@ func getACLLogEntries(count int) redis.Reply {
 		fields = append(fields, []byte(entry.Username))
 		fields = append(fields, []byte("age-seconds"))
 		fields = append(fields, []byte(strconv.FormatFloat(age, 'f', 6, 64)))
+		fields = append(fields, []byte("client-info"))
+		fields = append(fields, []byte(entry.ClientInfo))
+		fields = append(fields, []byte("entry-id"))
+		fields = append(fields, []byte(strconv.FormatUint(entry.EntryID, 10)))
+		fields = append(fields, []byte("timestamp-created"))
+		fields = append(fields, []byte(strconv.FormatInt(entry.CreatedAt.Unix(), 10)))
+		fields = append(fields, []byte("timestamp-last-updated"))
+		fields = append(fields, []byte(strconv.FormatInt(entry.Timestamp.Unix(), 10)))
 		fields = append(fields, []byte("timestamp"))
 		fields = append(fields, []byte(strconv.FormatInt(entry.Timestamp.Unix(), 10)))
 

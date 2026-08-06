@@ -111,6 +111,7 @@ func execSRem(db *DB, args [][]byte) redis.Reply {
 	}
 	if counter > 0 {
 		db.addAof(utils.ToCmdLine3("srem", args...))
+	notifyKeyspaceEvent(db, "srem", key)
 	}
 	return protocol.MakeIntReply(int64(counter))
 }
@@ -158,6 +159,7 @@ func execSPop(db *DB, args [][]byte) redis.Reply {
 	}
 	if count > 0 {
 		db.addAof(utils.ToCmdLine3("spop", args...))
+	notifyKeyspaceEvent(db, "spop", key)
 	}
 	if len(args) == 1 {
 		if len(result) == 0 {

@@ -127,6 +127,7 @@ func execLPop(db *DB, args [][]byte) redis.Reply {
 			db.Remove(key)
 		}
 		db.addAof(utils.ToCmdLine3("lpop", args...))
+		notifyKeyspaceEvent(db, "lpop", key)
 		return protocol.MakeMultiBulkReply(vals)
 	}
 
@@ -135,6 +136,7 @@ func execLPop(db *DB, args [][]byte) redis.Reply {
 		db.Remove(key)
 	}
 	db.addAof(utils.ToCmdLine3("lpop", args...))
+	notifyKeyspaceEvent(db, "lpop", key)
 	return protocol.MakeBulkReply(val)
 }
 
@@ -450,6 +452,7 @@ func execRPop(db *DB, args [][]byte) redis.Reply {
 			db.Remove(key)
 		}
 		db.addAof(utils.ToCmdLine3("rpop", args...))
+		notifyKeyspaceEvent(db, "rpop", key)
 		return protocol.MakeMultiBulkReply(vals)
 	}
 
@@ -458,6 +461,7 @@ func execRPop(db *DB, args [][]byte) redis.Reply {
 		db.Remove(key)
 	}
 	db.addAof(utils.ToCmdLine3("rpop", args...))
+	notifyKeyspaceEvent(db, "rpop", key)
 	return protocol.MakeBulkReply(val)
 }
 
