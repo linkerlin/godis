@@ -5,6 +5,7 @@ import (
 	"net"
 	"strconv"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -80,13 +81,22 @@ func startTestReplicaPair(t *testing.T) (*Server, *Server, func()) {
 	}
 	// The replica must have announced its address (FAILOVER demotion needs it).
 	master.masterStatus.mu.RLock()
-	for s := range master.masterStatus.onlineSlaves {
-		if s.announceIp == "" || s.announcePort == 0 {
-			master.masterStatus.mu.RUnlock()
-			t.Fatalf("replica should announce its address for FAILOVER")
-		}
+	n := len(master.masterStatus.onlineSlaves)
+	var s *slaveClient
+	for sl := range master.masterStatus.onlineSlaves {
+		s = sl
 	}
 	master.masterStatus.mu.RUnlock()
+	if n < 1 {
+		replica.slaveStatus.mutex.Lock()
+		host, port, off := replica.slaveStatus.masterHost, replica.slaveStatus.masterPort, replica.slaveStatus.replOffset
+		replica.slaveStatus.mutex.Unlock()
+		t.Fatalf("replica should come online on the master (replica cfg: host=%q port=%d off=%d role=%d)",
+			host, port, off, atomic.LoadInt32(&replica.role))
+	}
+	if s == nil || s.announceIp == "" || s.announcePort == 0 {
+		t.Fatalf("replica should announce its address for FAILOVER")
+	}
 	cleanup := func() {
 		master.Close()
 		replica.Close()
@@ -243,8 +253,56 @@ func TestFailoverRequiresReplicas(t *testing.T) {
 	if r := server.Exec(c, utils.ToCmdLine("FAILOVER")); !protocol.IsErrorReply(r) {
 		t.Fatalf("FAILOVER without replicas should error: %s", r.ToBytes())
 	}
-	// ABORT without a pending failover is fine.
+	// ABORT without a pending failover errors (Redis semantics).
+	if r := server.Exec(c, utils.ToCmdLine("FAILOVER", "ABORT")); !protocol.IsErrorReply(r) ||
+		!strings.Contains(string(r.ToBytes()), "No failover in progress") {
+		t.Fatalf("FAILOVER ABORT without progress should error: %s", r.ToBytes())
+	}
+	// With a failover in progress (simulated), ABORT succeeds and resets state.
+	atomic.StoreInt32(&failoverState, failoverWaitingSync)
 	if r := server.Exec(c, utils.ToCmdLine("FAILOVER", "ABORT")); protocol.IsErrorReply(r) {
 		t.Fatalf("FAILOVER ABORT should succeed: %s", r.ToBytes())
 	}
+	if atomic.LoadInt32(&failoverState) != failoverIdle {
+		t.Fatalf("FAILOVER ABORT should reset state to idle, got %d", failoverState)
+	}
+	// A second FAILOVER while one is in progress errors.
+	atomic.StoreInt32(&failoverState, failoverWaitingSync)
+	defer atomic.StoreInt32(&failoverState, failoverIdle)
+	if r := server.Exec(c, utils.ToCmdLine("FAILOVER")); !protocol.IsErrorReply(r) ||
+		!strings.Contains(string(r.ToBytes()), "already in progress") {
+		t.Fatalf("FAILOVER while in progress should error: %s", r.ToBytes())
+	}
+}
+
+// TestFailoverForceSwitchesLaggedReplica verifies FORCE skips the sync wait and
+// still drives the role swap even when the replica is behind.
+func TestFailoverForceSwitchesLaggedReplica(t *testing.T) {
+	master, replica, cleanup := startTestReplicaPair(t)
+	defer cleanup()
+
+	mc := connection.NewFakeConn()
+
+	// Seed data on the master; do NOT wait for the replica to apply it — FORCE
+	// must proceed regardless of the lag.
+	for i := 0; i < 50; i++ {
+		if r := master.Exec(mc, utils.ToCmdLine("SET", fmt.Sprintf("f%d", i), "x")); protocol.IsErrorReply(r) {
+			t.Fatalf("set: %s", r.ToBytes())
+		}
+	}
+
+	if r := master.Exec(mc, utils.ToCmdLine("FAILOVER", "FORCE")); protocol.IsErrorReply(r) {
+		t.Fatalf("failover force: %s", r.ToBytes())
+	}
+
+	// Role swap completes: replica is master, original master demoted.
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if atomic.LoadInt32(&replica.role) == masterRole && atomic.LoadInt32(&master.role) == slaveRole {
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Fatalf("FORCE failover should swap roles: master=%d replica=%d",
+		atomic.LoadInt32(&master.role), atomic.LoadInt32(&replica.role))
 }

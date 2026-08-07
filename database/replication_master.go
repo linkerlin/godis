@@ -178,6 +178,9 @@ func (server *Server) saveForReplication() error {
 		return fmt.Errorf("create temp rdb failed: %v", err)
 	}
 	rdbFilename := rdbFile.Name()
+	// Close the placeholder handle: on Windows, renaming over a still-open
+	// file fails with "Access is denied", breaking full sync for replicas.
+	_ = rdbFile.Close()
 	server.masterStatus.mu.Lock()
 	server.masterStatus.bgSaveState = bgSaveRunning
 	server.masterStatus.rdbFilename = rdbFilename // todo: can reuse config.Properties.RDBFilename?

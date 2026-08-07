@@ -81,9 +81,18 @@ func execFailover(server *Server, args [][]byte) redis.Reply {
 	}
 
 	if abort {
+		// Redis semantics: ABORT with no failover in progress errors.
+		if atomic.LoadInt32(&failoverState) == failoverIdle {
+			return protocol.MakeErrReply("ERR No failover in progress")
+		}
 		atomic.StoreInt32(&failoverState, failoverIdle)
 		return protocol.MakeOkReply()
 	}
+
+	if atomic.CompareAndSwapInt32(&failoverState, failoverIdle, failoverWaitingSync) == false {
+		return protocol.MakeErrReply("ERR A failover is already in progress")
+	}
+	defer atomic.StoreInt32(&failoverState, failoverIdle)
 
 	if atomic.LoadInt32(&server.role) != masterRole {
 		return protocol.MakeErrReply("ERR FAILOVER can only be executed by the master")
@@ -94,12 +103,10 @@ func execFailover(server *Server, args [][]byte) redis.Reply {
 		return protocol.MakeErrReply("ERR FAILOVER requires connected replicas.")
 	}
 
-	atomic.StoreInt32(&failoverState, failoverWaitingSync)
-
 	// Wait for the target replica to catch up to the master's write offset.
+	// Aborting (ABORT) resets failoverState to idle and breaks the wait.
 	if !force {
 		if !waitSlaveInSync(server, target, timeout) {
-			atomic.StoreInt32(&failoverState, failoverIdle)
 			return protocol.MakeErrReply("ERR FAILOVER target not in sync")
 		}
 	}
@@ -122,7 +129,6 @@ func execFailover(server *Server, args [][]byte) redis.Reply {
 	// closed on promotion). Promotion is asynchronous; keep pushing so a closed
 	// replica connection triggers removeSlave via the write-failure path.
 	if !waitSlaveGone(server, target, 10*time.Second) {
-		atomic.StoreInt32(&failoverState, failoverIdle)
 		return protocol.MakeErrReply("ERR FAILOVER target did not promote")
 	}
 
@@ -134,12 +140,10 @@ func execFailover(server *Server, args [][]byte) redis.Reply {
 		host, port = toHost, toPort
 	}
 	if host == "" {
-		atomic.StoreInt32(&failoverState, failoverIdle)
 		return protocol.MakeErrReply("ERR FAILOVER target address unknown, use TO host port")
 	}
 	server.execSlaveOf(nil, [][]byte{[]byte(host), []byte(port)})
 
-	atomic.StoreInt32(&failoverState, failoverIdle)
 	logger.Info("FAILOVER complete: demoted to replica of " + host + ":" + port)
 	return protocol.MakeOkReply()
 }
@@ -165,10 +169,14 @@ func pickFailoverTarget(server *Server, host, port string) *slaveClient {
 }
 
 // waitSlaveInSync polls until the replica's acked offset reaches the master's
-// current backlog offset, or timeout elapses.
+// current backlog offset, or timeout elapses. Returns false early if the
+// failover is aborted (failoverState reset to idle) or timed out.
 func waitSlaveInSync(server *Server, target *slaveClient, timeout time.Duration) bool {
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
+		if atomic.LoadInt32(&failoverState) != failoverWaitingSync {
+			return false // aborted
+		}
 		server.masterStatus.mu.RLock()
 		current := server.masterStatus.backlog.currentOffset
 		offset := target.offset
@@ -189,6 +197,9 @@ func waitSlaveInSync(server *Server, target *slaveClient, timeout time.Duration)
 func waitSlaveGone(server *Server, target *slaveClient, timeout time.Duration) bool {
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
+		if atomic.LoadInt32(&failoverState) != failoverPromoting {
+			return false // aborted
+		}
 		_ = server.masterSendUpdatesToSlave()
 		if _, err := target.conn.Write(pingBytes); err != nil {
 			server.removeSlave(target)

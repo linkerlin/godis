@@ -143,14 +143,16 @@ type failoverPlan struct {
 - 主库执行 `execSlaveOf(target)` 降级
 - `ABORT`:waitingSync 阶段可中止;promoting 阶段等待超时后回退
 
-### Phase 3:完善(未完成)
+### Phase 3:完善(部分完成)
 
-- `FORCE`:跳过 offset 等待(从库落后也切)
-- 默认选从策略:offset 最大者(在线从库中)
-- 主库写暂停(pauseClients 复用 CLIENT PAUSE 机制,默认关闭)
-- 提升后新主广播 `ROLE`/`INFO replication` 正确反映
-- 错误与 Redis 对齐:`ERR No connected replicas`、`ERR FAILOVER target not
-  in sync`(超时)、`ERR No failover in progress`(ABORT 无进行中)
+- ✅ `FORCE`:跳过 offset 等待(从库落后也切)——已实现(`TestFailoverForceSwitchesLaggedReplica`)
+- ✅ 默认选从策略:offset 最大者(在线从库中)——已实现(pickFailoverTarget)
+- ✅ ABORT 状态机:无进行中报 `ERR No failover in progress`;进行中时置 idle
+  并中断等待循环(并发 FAILOVER 报 `already in progress`)
+- ⬜ 主库写暂停(pauseClients 复用 CLIENT PAUSE 机制,默认关闭)——未做
+- ⬜ 提升后新主广播 `ROLE`/`INFO replication` 正确反映——未做
+- ⬜ 错误文本最终对齐:`ERR No connected replicas`(现为 `requires connected
+  replicas`,语义等价)——未做
 
 ---
 
@@ -196,6 +198,9 @@ type failoverPlan struct {
   GETACK 分支再 Lock 同一把锁 → 复制首次 GETACK 即冻结);Exec 移出锁外
 - `replication_master.go`:execReplConf 提前建 slaveClient(REPLCONF announce
   在 PSYNC 之前到达,旧代码丢弃 announce 信息);masterSendUpdatesToSlave
-  边界保护(负/溢出 offset 防切片 panic,从库断连于 FAILOVER 时触发)
+  边界保护(负/溢出 offset 防切片 panic,从库断连于 FAILOVER 时触发);
+  **saveForReplication 未关闭 TempFile 句柄**(Windows 上 rename Access
+  denied → 全量同步失败,主库无法为新从库提供 RDB)
 - 测试:TestFailoverPromotesReplica(真实 TCP 主从两实例,全流程角色互换+数据
-  一致)、TestFailoverRequiresReplicas(无从库报错+ABORT 幂等)
+  一致)、TestFailoverRequiresReplicas(无从库报错+ABORT 状态机)、
+  TestFailoverForceSwitchesLaggedReplica(落后从库 FORCE 切换)
