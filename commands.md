@@ -555,6 +555,7 @@ Godis 实现为 **HGETEX / HSETEX / HGETDEL** 族（非 Redis 文档中的 HEXPI
 | CLUSTER KEYSLOT | 计算键槽位 |
 | CLUSTER INFO | 集群信息 |
 | CLUSTER HELP | 帮助信息 |
+| FAILOVER | 主从协调切换（TO/FORCE/ABORT/TIMEOUT，见 `docs/FAILOVER_DESIGN.md`） |
 
 ---
 
@@ -610,7 +611,7 @@ Godis 支持 Redis 键空间通知机制，可通过配置启用。
 
 - **模块相关**: `MODULE LOAD/UNLOAD/LIST` 未实现（使用内置 JSON/RediSearch 等）
 - **内存管理**: `MEMORY DOCTOR/MEMORY HELP` 未实现（保留 INFO 统计）
-- **副本相关**: `REPLICAOF`/`SLAVEOF` 客户端命令未暴露（内部复制仍可用）
+- **副本相关**: `REPLICAOF`/`SLAVEOF` 可用（主从复制、`FAILOVER` 协调切换，见 `docs/FAILOVER_DESIGN.md`）
 - **迁移命令**: `MIGRATE`/`RESTORE-ASKING` 未实现（可用 DUMP/RESTORE）
 
 ---
