@@ -81,3 +81,11 @@
 | DEBUG RELOAD | stub | 需 RDB 往返(数据风险,有意保留) |
 | DEBUG JMAP / FLUSHALL | stub | JMAP JVM-only;FLUSHALL 是有意的防破坏偏离 |
 | 稀疏 HLL 读取 | ✅ 拒绝(有测试) | godis 恒 dense;稀疏 blob 报错(与 Redis 拒绝损坏 HLL 一致) |
+| 全量测试失败 | 仅剩已知 | `TestM2amClientKillLAddrMaxAge`(共享 client 注册表顺序敏感)、`TestM2boInfoKeyspaceAvgTTLAndSubexpiry`/`TestM2buLatencyHistogram`(计时 flake,干净树同样挂);单跑/组合跑全部通过 |
+
+## 5. 已修复的隐藏生产 bug(随 compat 测试排查发现)
+
+- `loadDB`(FLUSHDB/FLUSHALL)不继承 `server`/`lockManager`/`evictionManager` → 清库后 CLIENT PAUSE 等失效
+- `OBJECT ENCODING` 对 HLL 不返回 `hyperloglog`
+- RESTORE 的 IDLETIME/FREQ 被 reindexKey 的内部读取覆盖(reindex 改为 no-touch)
+- 子命令错误后缀/FT 回复类型等断言过时项已随行为修复更新
