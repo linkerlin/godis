@@ -10,8 +10,8 @@
 |------|----------|------|
 | RESP2/RESP3 协议 | 高 | HELLO 3、Push、客户端缓存、blob error `!` |
 | String/List/Hash/Set/ZSet | 高 | 常用命令齐全；List/ZSet **阻塞命令真阻塞** |
-| Stream / Bitmap / Geo | 中–高 | XCLAIM/XAUTOCLAIM/BITOP/BITFIELD；**XREAD BLOCK 真阻塞** |
-| FAILOVER | 最小子集 | 选项解析 + 无副本错误；完整协调切换仍缺 |
+| Stream / Bitmap / Geo | 中–高 | XCLAIM/XAUTOCLAIM/BITOP/BITFIELD；**XREAD BLOCK 真阻塞**；Stream 范围操作 O(log n)（有序切片+二分） |
+| FAILOVER | ✅ 真实协调切换 | TO/FORCE/ABORT/TIMEOUT、复制流注入 REPLCONF FAILOVER、从库自提升+原主降级；见 [`FAILOVER_DESIGN.md`](FAILOVER_DESIGN.md) |
 | JSON / Vector / Time Series | 中–高 | 子集 + 持续补全；Vector 保留 VS* 与 Redis 名双名 |
 | RediSearch (FT.*) | 中–高 | Phase A/B：初始扫描、STOPWORDS、同义词、内联 GEO、AGGREGATE WITHCURSOR/APPLY；见下文 |
 | 集群 (CLUSTER *) | 低–中 | 槽位算法与官方不兼容（**延期**）；子集命令 |
@@ -19,13 +19,13 @@
 | 配置 | 中–高 | 布尔解析；CONFIG SET 含 maxmemory/save/tcp-backlog；**eviction 写路径已接**（键数估算）；部分 CF-3 为存取桩 |
 | 概率数据结构 (BF/CF/CMS…) | 中–高 | 见 `database/probabilistic.go`；CF EXPANSION 已接扩容 |
 
-**M2 里程碑：** 至 **M2cm**。M2cl：Pub/Sub RESP3 Push、Lua HKEYS/HVALS/SSCAN→Array、DEBUG 桩。**M2cm**：UNWATCH 可在 MULTI 内排队；CLIENT LIST 字段 `watch=`（及 tot-net-in/out、rbs/rbp）；ACL GETUSER 完整 `#`+SHA256；CLUSTER ADDSLOTS/DELSLOTS/SETSLOT 桩。
+**M2 里程碑：** 至 **M2cm**。M2cl：Pub/Sub RESP3 Push、Lua HKEYS/HVALS/SSCAN→Array。M2cm：UNWATCH 可在 MULTI 内排队；CLIENT LIST 字段 `watch=`（及 tot-net-in/out、rbs/rbp）；ACL GETUSER 完整 `#`+SHA256；CLUSTER ADDSLOTS/DELSLOTS/SETSLOT 桩。
 
 **RediSearch Phase A（2026-07-29）：** FT.CREATE 初始扫描回填 + SKIPINITIALSCAN；按 index 的 STOPWORDS（含 `STOPWORDS 0` 关闭过滤）；FT.SEARCH 查询词按 FT.SYNADD 同义词组展开；`@field:[lon lat radius unit]` 内联 GEO 范围查询。
 
 **RediSearch Phase B（2026-07-29）：** FT.AGGREGATE `WITHCURSOR [COUNT n]` + `FT.CURSOR READ/DEL`（内存游标表，按 COUNT 分页，耗尽返回游标 0，空闲 1 分钟惰性回收）；FT.AGGREGATE `APPLY <expr> AS <name>` 最小表达式子集（`@field` 引用、数字字面量、`+ - * /` 标准优先级、括号、一元负号、非数值 `+` 退化为字符串拼接），按出现位置分为 GROUPBY 前（作用于逐文档字段，供后续 REDUCE 引用）与 GROUPBY 后（作用于结果行）；顺带修正：无 GROUPBY 且无 REDUCE 时按文档逐行返回（此前会错误地把所有文档折叠成一个空字段分组）。不含 FT.SEARCH WITHCURSOR（仍延期，见下）。
 
-仍延期：集群 CRC16/MOVED、HLL 互通、完整 FAILOVER 协调、精确 jemalloc 级 `used_memory`、FUNCTION DUMP 官方互通、Vector **量化**（Q8/BIN）、真 BM25/FT+KNN/完整 DIALECT 等（见计划文档）。
+仍延期：集群 CRC16/MOVED、精确 jemalloc 级 `used_memory`、FUNCTION DUMP 官方互通、Vector **量化**（Q8/BIN）、真 BM25/FT+KNN/完整 DIALECT 等（见计划文档）。
 
 **兼容续研批次（2026-07-29）：** WAITAOF 真等待（本地 AOF fsync + 副本 ACK 循环）；LATENCY 命令路径采样 + HISTOGRAM；`notify-keyspace-events` 最小 K/E/g/$/x/e/A 发射；MIGRATE（DUMP→RESTORE→DEL，COPY/REPLACE/AUTH/KEYS）；LFU 对数计数逼近 Redis；FT.SEARCH WITHCURSOR（复用 FT.CURSOR 表）。
 
@@ -37,7 +37,7 @@
 |------|------|
 | 默认端口 | Redis 6379；Godis **6399** |
 | 集群 | 1024+CRC32 vs 官方 16384+CRC16；无 MOVED/ASK |
-| HLL | 算法/编码与 Redis **不互通**（延期对齐） |
+| HLL | ✅ 算法/编码与 Redis 互通（xxHash64 + dense `HYLL` 编码 + 大范围修正）；稀疏 blob 拒绝 |
 | EXEC | 已按 Redis：出错继续、不整事务回滚 |
 | BLPOP / XREAD BLOCK | 真阻塞（等待队列 + 写路径唤醒） |
 | 订阅态 | ✅ 仅 (P\|S)SUBSCRIBE/(P\|S)UNSUBSCRIBE/PING/QUIT/RESET；SSUBSCRIBE 真连接 |
@@ -119,12 +119,32 @@
 | INFO clients_in_timeout_table | ✅ 对齐 blocked 等待者计数 |
 | SCAN 坏 MATCH | ✅ `ERR Invalid argument` |
 | MONITOR | ✅ 流式广播（`BroadcastMonitor`） |
-| FAILOVER | ✅ 最小子集（ABORT/FORCE/TO/TIMEOUT）；完整协调切换仍缺 |
+| FAILOVER | ✅ 真实协调切换（TO/FORCE/ABORT/TIMEOUT；复制流注入 REPLCONF FAILOVER，从库自提升、原主降级；ABORT 中断等待、并发互斥、错误文本对齐 Redis） |
 | CLIENT UNBLOCK | ✅ 可唤醒 BLPOP/BZPOP/XREAD 等 |
 | FT.CREATE SKIPINITIALSCAN | ✅ 缺省对已存在且匹配前缀/类型的键同步初始建库；给出该选项则跳过 |
 | FT.CREATE STOPWORDS | ✅ 按 index 定制停用词表；`STOPWORDS 0` 关闭该索引的停用词过滤 |
 | FT.SEARCH 同义词展开 | ✅ 查询词按 FT.SYNADD/SYNUPDATE 分组展开为 `term \| syn1 \| syn2`（不含短语内部展开） |
 | FT.SEARCH 内联 GEO | ✅ `@field:[lon lat radius unit]` 语法（此前仅支持顶层 GEOFILTER 选项） |
+| EXPIRE 非正 TTL | ✅ 立即删键；时间轮 tick 向上取整（小数秒 TTL 不再永不过期） |
+| 主从过期传播 | ✅ 过期删除写 AOF → 经复制积压同步到从库 |
+| WATCH 版本 | ✅ 仅在写命令成功后 bump（失败不误报） |
+| 集群 ACL | ✅ 集群路径接入完整 ACL 校验（此前仅 requirepass） |
+| ACL 命令类别 | ✅ @string/@list/@search/@json/@vector 等 + 扩展类别前缀回退 |
+| 子命令错误 | ✅ `... . Try X HELP.` 后缀（Redis 8 格式） |
+| 协议错误 | ✅ `ERR Protocol error:` 前缀（std + gnet）；RESP3 长错误用 BlobError `!` |
+| TRACKINGINFO | ✅ 嵌套数组格式（flags/redirect/prefixes 分组） |
+| ZINTERCARD / SORT_RO | ✅ 新命令 |
+| EVAL_RO / EVALSHA_RO | ✅ 脚本内写命令拒绝 |
+| SETBIT 上限 | ✅ 偏移 ≤ 2^32-1（防 OOM） |
+| GETEX | ✅ 注册为写命令（只读副本不漂移） |
+| RESET | ✅ 清认证 + REPLY 模式恢复 |
+| 键空间通知 | ✅ 命令级事件（HSET/LPUSH/SADD/ZADD/XADD/LPOP/RPOP/SREM/SPOP/ZREM/HINCRBY/LSET/LTRIM/SETRANGE/APPEND/INCRBY）+ 事件字符校验 |
+| ACL LOG | ✅ entry-id / created-at / client-info 字段 |
+| COMMAND DOCS/INFO | ✅ acl_categories / tips / key_specs / subcommands |
+| ACL SETUSER | ✅ `>` 追加、`#` SHA256、`<pw`/`!hash` 删除、resetpass/reset；Authenticate 检查 Enabled |
+| DEBUG | ✅ SET-ACTIVE-EXPIRE（真开关）、DIGEST/DIGEST-VALUE（真 SHA1）、CHANGE-REPL-ID（轮换 replId）；RELOAD/JMAP/FLUSHALL 有意 stub |
+| FLUSHDB/FLUSHALL | ✅ loadDB 继承 server/lockManager/evictionManager（清库后 CLIENT PAUSE 等不再失效） |
+| RESTORE IDLETIME/FREQ | ✅ 不再被索引重建内部读取覆盖（no-touch） |
 
 ### 曾误标为「未实现」、现已有（勿再当缺口）
 
@@ -143,4 +163,4 @@ UNWATCH、WAIT（简版）、BITOP、BITFIELD、SMOVE、LPOS、XCLAIM、SHUTDOWN
 
 ---
 
-**最后更新：** 2026-07-29（RediSearch Phase B）
+**最后更新：** 2026-08-07（Redis 8 全兼容批次：FAILOVER 真实切换、HLL 互通、DEBUG 收口、复制/清库/恢复三隐藏 bug 修复；详见 [`REDIS8_COMPAT_AUDIT.md`](REDIS8_COMPAT_AUDIT.md)）

@@ -49,13 +49,15 @@
 
 ### 经典功能
 - 并行内核，提供优秀的并发性能
-- 自动过期功能 (TTL)
+- 自动过期功能 (TTL)，主从过期传播
 - 发布订阅 (Pub/Sub)
 - 地理位置 (GEO)
 - AOF 持久化、RDB 持久化、混合持久化 (aof-use-rdb-preamble)
-- 主从复制
+- 主从复制 + **FAILOVER 协调切换** (TO/FORCE/ABORT/TIMEOUT)
 - **事务**: MULTI/EXEC 具有原子性和隔离性，执行出错时自动回滚
 - **Hash Field 过期**: HEXPIRE, HTTL (Redis 8.x)
+- **HyperLogLog**: 与 Redis 字节级互通 (xxHash64 + dense 编码)
+- **DEBUG 诊断**: SET-ACTIVE-EXPIRE / DIGEST / CHANGE-REPL-ID
 
 ## 快速开始
 
@@ -185,6 +187,7 @@ OK
 | 键管理 | 20+ | DEL, EXPIRE, TTL, SCAN, 等 |
 | 事务 | 5 | MULTI, EXEC, DISCARD, WATCH, UNWATCH |
 | 发布订阅 | 8 | PUBLISH, SUBSCRIBE, PSUBSCRIBE, 等 |
+| 复制 | 4 | REPLICAOF, SLAVEOF, FAILOVER, WAITAOF |
 | 集群 | 10+ | CLUSTER NODES, CLUSTER MEET, 等 |
 | 管理 | 20+ | INFO, CONFIG, CLIENT, ACL, 等 |
 | Lua/函数 | 8 | EVAL, EVALSHA, FUNCTION LOAD, FCALL, 等 |
@@ -232,6 +235,7 @@ godis/
 │   ├── json/               # JSON 数据类型
 │   ├── vector/             # Vector Set 向量集
 │   ├── timeseries/         # 时序数据
+│   ├── hll/                # HyperLogLog (Redis dense 编码互通)
 │   └── lock/               # 键级锁
 ├── database/               # 存储引擎
 │   ├── database.go         # 单个数据库实现
@@ -247,6 +251,7 @@ godis/
 │   ├── vector.go           # Vector Set 命令
 │   ├── timeseries.go       # 时序命令
 │   ├── rediSearch.go       # 全文搜索
+│   ├── failover.go         # FAILOVER 协调切换
 │   ├── bloom.go            # Bloom Filter
 │   ├── cuckoo.go           # Cuckoo Filter
 │   ├── probal.go           # 概率数据结构

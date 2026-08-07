@@ -81,7 +81,7 @@
 ### R3 — 集群/ACL/持久化（后续轮次）
 
 - [ ] **R3-1 集群槽位统一为 16384**；补齐 `ASK/MOVED/READONLY/READWRITE`；Sharded Pub/Sub 用 CRC16 并与集群转发集成。
-- [ ] **R3-2 ACL 细粒度权限**：key/channel/selectors 检查；集群路径也接入 ACL。
+- [x] **R3-2 ACL 细粒度权限**：key/channel/selectors 检查（含 `%R~`/`%W~`/`(...)` 选择器/`&channel` DRYRUN）；集群路径也接入 ACL（`CheckACLPermission`）。
 - [ ] **R3-3 持久化扩展**：AOF marshal 与 RDB 加载覆盖 JSON/Vector/Timeseries/Stream/概率结构；RDB aux 版本号更新。
 
 ### R4 — 测试与文档
@@ -204,7 +204,7 @@
 
 ### P3-2 配置与示例
 
-- [ ] `example.conf` 补充 `maxmemory` 说明（metrics/aclfile/acllog 已补充）
+- [x] `example.conf` 补充 `maxmemory` 说明（metrics/aclfile/acllog 已补充）
 - [ ] Docker / docker-compose 示例（可选）
 
 ### P3-3 Fork 维护
