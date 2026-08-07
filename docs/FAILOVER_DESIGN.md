@@ -147,12 +147,14 @@ type failoverPlan struct {
 
 - ✅ `FORCE`:跳过 offset 等待(从库落后也切)——已实现(`TestFailoverForceSwitchesLaggedReplica`)
 - ✅ 默认选从策略:offset 最大者(在线从库中)——已实现(pickFailoverTarget)
-- ✅ ABORT 状态机:无进行中报 `ERR No failover in progress`;进行中时置 idle
-  并中断等待循环(并发 FAILOVER 报 `already in progress`)
-- ⬜ 主库写暂停(pauseClients 复用 CLIENT PAUSE 机制,默认关闭)——未做
+- ✅ ABORT 状态机:无进行中报 `ERR No failover in progress.`;进行中时置 idle
+  并中断等待循环(并发 FAILOVER 报 `ERR A failover is already in progress.`)
+- ✅ 错误文本对齐 Redis:`FAILOVER can only be executed by the master`、
+  `FAILOVER requires connected replicas.`、`A failover is already in progress.`、
+  `No failover in progress.`(注:Redis 实际文本是 "requires connected
+  replicas",早期记录 "No connected replicas" 有误)
+- ⬜ 主库写暂停(pauseClients 复用 CLIENT PAUSE 机制,默认关闭)——明确不做
 - ⬜ 提升后新主广播 `ROLE`/`INFO replication` 正确反映——未做
-- ⬜ 错误文本最终对齐:`ERR No connected replicas`(现为 `requires connected
-  replicas`,语义等价)——未做
 
 ---
 

@@ -83,14 +83,14 @@ func execFailover(server *Server, args [][]byte) redis.Reply {
 	if abort {
 		// Redis semantics: ABORT with no failover in progress errors.
 		if atomic.LoadInt32(&failoverState) == failoverIdle {
-			return protocol.MakeErrReply("ERR No failover in progress")
+			return protocol.MakeErrReply("ERR No failover in progress.")
 		}
 		atomic.StoreInt32(&failoverState, failoverIdle)
 		return protocol.MakeOkReply()
 	}
 
 	if atomic.CompareAndSwapInt32(&failoverState, failoverIdle, failoverWaitingSync) == false {
-		return protocol.MakeErrReply("ERR A failover is already in progress")
+		return protocol.MakeErrReply("ERR A failover is already in progress.")
 	}
 	defer atomic.StoreInt32(&failoverState, failoverIdle)
 
