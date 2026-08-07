@@ -12,6 +12,7 @@ import (
 
 	"github.com/linkerlin/godis/aof"
 	"github.com/linkerlin/godis/config"
+	"github.com/linkerlin/godis/interface/redis"
 	"github.com/linkerlin/godis/lib/utils"
 	"github.com/linkerlin/godis/redis/connection"
 	"github.com/linkerlin/godis/redis/parser"
@@ -231,6 +232,34 @@ func TestFailoverPromotesReplica(t *testing.T) {
 	// Data preserved on the promoted replica.
 	if b, ok := replica.Exec(rc, utils.ToCmdLine("GET", "k5")).(*protocol.BulkReply); !ok || string(b.Arg) != "v5" {
 		t.Fatalf("promoted replica should have replicated data: %s", replica.Exec(rc, utils.ToCmdLine("GET", "k5")).ToBytes())
+	}
+
+	// ROLE / INFO replication must reflect the swap.
+	if r, ok := replica.Exec(rc, utils.ToCmdLine("ROLE")).(*protocol.MultiRawReply); !ok ||
+		len(r.Replies) < 1 {
+		t.Fatalf("promoted replica ROLE should be master: %s", replica.Exec(rc, utils.ToCmdLine("ROLE")).ToBytes())
+	} else if roleStr, ok := r.Replies[0].(*protocol.BulkReply); !ok || string(roleStr.Arg) != "master" {
+		t.Fatalf("promoted replica ROLE should be master: %s", replica.Exec(rc, utils.ToCmdLine("ROLE")).ToBytes())
+	}
+	if r, ok := master.Exec(mc, utils.ToCmdLine("ROLE")).(*protocol.MultiRawReply); !ok ||
+		len(r.Replies) < 1 {
+		t.Fatalf("demoted master ROLE should be slave: %s", master.Exec(mc, utils.ToCmdLine("ROLE")).ToBytes())
+	} else if roleStr, ok := r.Replies[0].(*protocol.BulkReply); !ok || string(roleStr.Arg) != "slave" {
+		t.Fatalf("demoted master ROLE should be slave: %s", master.Exec(mc, utils.ToCmdLine("ROLE")).ToBytes())
+	}
+	for _, tt := range []struct {
+		server *Server
+		conn   redis.Connection
+		want   string
+	}{
+		{replica, rc, "role:master"},
+		{master, mc, "role:slave"},
+	} {
+		if b, ok := tt.server.Exec(tt.conn, utils.ToCmdLine("INFO", "replication")).(*protocol.BulkReply); !ok ||
+			!strings.Contains(string(b.Arg), tt.want) {
+			t.Fatalf("INFO replication should contain %q: %s", tt.want,
+				tt.server.Exec(tt.conn, utils.ToCmdLine("INFO", "replication")).ToBytes())
+		}
 	}
 }
 

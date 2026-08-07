@@ -153,8 +153,10 @@ type failoverPlan struct {
   `FAILOVER requires connected replicas.`、`A failover is already in progress.`、
   `No failover in progress.`(注:Redis 实际文本是 "requires connected
   replicas",早期记录 "No connected replicas" 有误)
+- ✅ 提升后 ROLE / INFO replication 正确反映:两者均基于 role atomic
+  (slaveOfNone 提升 / execSlaveOf 降级已更新),集成测试断言
+  新主 role:master、原主 role:slave
 - ⬜ 主库写暂停(pauseClients 复用 CLIENT PAUSE 机制,默认关闭)——明确不做
-- ⬜ 提升后新主广播 `ROLE`/`INFO replication` 正确反映——未做
 
 ---
 
