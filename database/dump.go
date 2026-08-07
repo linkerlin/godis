@@ -136,7 +136,11 @@ func execRestore(db *DB, args [][]byte) redis.Reply {
 	// RESTORE may replace a different-typed value at key; drop stale index
 	// entries then reindex the restored content (no-op for non-indexed types).
 	removeKeyFromIndex(db, key)
+	// Reindexing reads the value back; that internal read must not count as a
+	// user access, or it would clobber IDLETIME/FREQ seeded just above.
+	bindNoTouch()
 	reindexKey(db, key)
+	clearNoTouch()
 	return protocol.MakeOkReply()
 }
 

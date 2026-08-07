@@ -90,7 +90,8 @@ func TestM2apClientUnknownSubcommand(t *testing.T) {
 	server := getTestServer()
 	c := connection.NewFakeConn()
 	r := server.Exec(c, utils.ToCmdLine("CLIENT", "NOTREAL"))
-	asserts.AssertErrReply(t, r, "ERR Unknown subcommand or wrong number of arguments for 'NOTREAL'")
+	// Redis 8 appends the ". Try CLIENT HELP." hint; godis matches.
+	asserts.AssertErrReply(t, r, "ERR Unknown subcommand or wrong number of arguments for 'NOTREAL'. Try CLIENT HELP.")
 }
 
 func TestM2apCFExpansion(t *testing.T) {

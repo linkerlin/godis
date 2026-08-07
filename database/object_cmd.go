@@ -8,6 +8,7 @@ import (
 
 	"github.com/linkerlin/godis/config"
 	"github.com/linkerlin/godis/datastruct/dict"
+	"github.com/linkerlin/godis/datastruct/hll"
 	"github.com/linkerlin/godis/datastruct/json"
 	"github.com/linkerlin/godis/datastruct/list"
 	"github.com/linkerlin/godis/datastruct/probabilistic"
@@ -85,6 +86,10 @@ func execObjectEncoding(db *DB, key string) redis.Reply {
 func getObjectEncoding(data interface{}) string {
 	switch v := data.(type) {
 	case []byte:
+		// Redis: HLL strings report encoding "hyperloglog" (not raw).
+		if hll.IsHLLString(v) {
+			return "hyperloglog"
+		}
 		if _, err := strconv.ParseInt(string(v), 10, 64); err == nil {
 			return "int"
 		}

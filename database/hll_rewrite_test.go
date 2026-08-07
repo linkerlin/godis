@@ -34,10 +34,10 @@ func TestHLLStoredAsString(t *testing.T) {
 	if string(b.Arg[:4]) != "HYLL" {
 		t.Fatalf("HLL header should be HYLL, got %q", b.Arg[:4])
 	}
-	// OBJECT ENCODING is raw (like Redis HLL).
+	// OBJECT ENCODING reports "hyperloglog" (Redis reports the type name, not raw).
 	r = db.Exec(nil, utils.ToCmdLine("OBJECT", "ENCODING", "h"))
-	if b, ok := r.(*protocol.BulkReply); !ok || string(b.Arg) != "raw" {
-		t.Fatalf("OBJECT ENCODING h should be raw, got %s", r.ToBytes())
+	if b, ok := r.(*protocol.BulkReply); !ok || string(b.Arg) != "hyperloglog" {
+		t.Fatalf("OBJECT ENCODING h should be hyperloglog, got %s", r.ToBytes())
 	}
 }
 

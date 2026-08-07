@@ -59,9 +59,19 @@ func TestM2sFailover(t *testing.T) {
 	if !protocol.IsErrorReply(noRepl) || !strings.Contains(string(noRepl.ToBytes()), "replicas") {
 		t.Fatalf("expected no-replicas error, got %s", noRepl.ToBytes())
 	}
-	asserts.AssertStatusReply(t, server.Exec(c, utils.ToCmdLine("FAILOVER", "ABORT")), "OK")
-	asserts.AssertStatusReply(t, server.Exec(c, utils.ToCmdLine("FAILOVER", "FORCE")), "OK")
-	asserts.AssertStatusReply(t, server.Exec(c, utils.ToCmdLine(
-		"FAILOVER", "TO", "127.0.0.1", "6399", "TIMEOUT", "1000",
-	)), "OK")
+	// ABORT with no failover in progress errors (Redis semantics).
+	if r := server.Exec(c, utils.ToCmdLine("FAILOVER", "ABORT")); !protocol.IsErrorReply(r) ||
+		!strings.Contains(string(r.ToBytes()), "No failover in progress") {
+		t.Fatalf("FAILOVER ABORT without progress should error, got %s", r.ToBytes())
+	}
+	// With no connected replicas, FORCE/TO must still fail (real FAILOVER
+	// semantics, unlike the old stub which returned OK unconditionally).
+	for _, args := range [][]string{
+		{"FAILOVER", "FORCE"},
+		{"FAILOVER", "TO", "127.0.0.1", "6399", "TIMEOUT", "1000"},
+	} {
+		if r := server.Exec(c, utils.ToCmdLine(args...)); !protocol.IsErrorReply(r) {
+			t.Fatalf("FAILOVER %v without replicas should error, got %s", args, r.ToBytes())
+		}
+	}
 }
