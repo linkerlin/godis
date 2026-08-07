@@ -342,6 +342,15 @@ func (server *Server) masterSendUpdatesToSlave() error {
 	server.masterStatus.mu.RUnlock()
 	for slave := range onlineSlaves {
 		slaveBeginOffset := slave.offset - beginOffset
+		// Guard against negative/overflowing offsets (e.g. a replica that just
+		// disconnected during FAILOVER, or a backlog that rolled past the
+		// replica's last ack). A write to a closed connection below removes it.
+		if slaveBeginOffset < 0 {
+			slaveBeginOffset = 0
+		}
+		if slaveBeginOffset > int64(len(backlog)) {
+			slaveBeginOffset = int64(len(backlog))
+		}
 		_, err := slave.conn.Write(backlog[slaveBeginOffset:])
 		if err != nil {
 			logger.Errorf("send updates backlog to slave failed: %v", err)
@@ -419,9 +428,16 @@ func (server *Server) execReplConf(c redis.Connection, args [][]byte) redis.Repl
 	if len(args)%2 != 0 {
 		return protocol.MakeSyntaxErrReply()
 	}
-	server.masterStatus.mu.RLock()
+	// The replica sends REPLCONF listening-port/ip-address BEFORE PSYNC, so the
+	// slaveClient may not exist yet — create it early so announce info survives
+	// until execPSync reuses it.
+	server.masterStatus.mu.Lock()
 	slave := server.masterStatus.slaveMap[c]
-	server.masterStatus.mu.RUnlock()
+	if slave == nil {
+		slave = &slaveClient{conn: c}
+		server.masterStatus.slaveMap[c] = slave
+	}
+	server.masterStatus.mu.Unlock()
 	for i := 0; i < len(args); i += 2 {
 		key := strings.ToLower(string(args[i]))
 		value := string(args[i+1])

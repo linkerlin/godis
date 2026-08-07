@@ -1,8 +1,7 @@
 # FAILOVER 命令设计(Redis 8 兼容)
 
-> 现状: `database/failover.go` 只解析参数后返回 OK(空壳)。
-> 本设计给出真实协调切换的可行方案,基于 godis 现有复制架构
-> (`replication_master.go` / `replication_slave.go`)。
+> 现状: `database/failover.go` 已实现真实协调切换(Phase 1+2 完成,
+> 见下文 §6 实施状态),本设计文档为决策依据。
 
 ---
 
@@ -136,7 +135,7 @@ type failoverPlan struct {
 - **不做真实跨进程提升**,仅完成"等待同步"阶段并返回 OK(比空壳多一层
   真实校验)——价值:让运维脚本的 TIMEOUT/等待语义先落地
 
-### Phase 2:复制流注入(核心)
+### Phase 2:复制流注入(核心) ✅ 已完成
 
 - 主库注入 `REPLCONF FAILOVER <token>` 到 backlog
 - 从库 `receiveAOF` 识别该命令:`slaveOfNone()` 提升,关闭 masterConn
@@ -144,7 +143,7 @@ type failoverPlan struct {
 - 主库执行 `execSlaveOf(target)` 降级
 - `ABORT`:waitingSync 阶段可中止;promoting 阶段等待超时后回退
 
-### Phase 3:完善
+### Phase 3:完善(未完成)
 
 - `FORCE`:跳过 offset 等待(从库落后也切)
 - 默认选从策略:offset 最大者(在线从库中)
@@ -170,9 +169,9 @@ type failoverPlan struct {
 ## 8. 测试计划
 
 1. **Phase 1 单测**:无从库报错;有从库时 TIMEOUT 语义(从库不 ACK → 超时)
-2. **Phase 2 集成**:两 Server 实例(主+从)搭建主从(REPLICAOF)→ 主库
+2. **Phase 2 集成** ✅:两 Server 实例(主+从)搭建主从(REPLICAOF)→ 主库
    FAILOVER → 从库提升为新主(ROLE=master)、原主变为从、数据通过全量/
-   增量同步一致
+   增量同步一致(`TestFailoverPromotesReplica`)
 3. ABORT:启动 failover 后立即 ABORT,状态回 idle,无角色变化
 4. FORCE:落后从库强制切换成功
 5. 注入防伪:非 REPLCONF FAILOVER 命令不受影响;错误 token 拒绝
@@ -184,3 +183,19 @@ type failoverPlan struct {
 - `FAILOVER` 从"假成功"变为真实角色切换,主从数据最终一致
 - 与 Redis 行为对齐:参数校验、TIMEOUT/ABORT/FORCE 语义、错误文本
 - 不影响正常复制(无 failover 时零开销)
+
+---
+
+## 10. 实施记录(2026-08-07)
+
+- `failover.go` 重写:TO/FORCE/TIMEOUT/ABORT 解析、目标选择(TO 或 offset 最大)、
+  waitSlaveInSync(ACK offset 轮询)、注入 `REPLCONF FAILOVER <token>`、
+  waitSlaveGone(主动写 ping 检测断连)、主库 `execSlaveOf` 降级
+- `replication_slave.go`:receiveAOF 识别 REPLCONF FAILOVER → 异步 slaveOfNone
+  提升;**顺带修复既有自死锁 bug**(receiveAOF 持 slaveStatus.mutex 时 Exec,
+  GETACK 分支再 Lock 同一把锁 → 复制首次 GETACK 即冻结);Exec 移出锁外
+- `replication_master.go`:execReplConf 提前建 slaveClient(REPLCONF announce
+  在 PSYNC 之前到达,旧代码丢弃 announce 信息);masterSendUpdatesToSlave
+  边界保护(负/溢出 offset 防切片 panic,从库断连于 FAILOVER 时触发)
+- 测试:TestFailoverPromotesReplica(真实 TCP 主从两实例,全流程角色互换+数据
+  一致)、TestFailoverRequiresReplicas(无从库报错+ABORT 幂等)

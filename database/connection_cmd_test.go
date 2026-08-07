@@ -42,7 +42,7 @@ func TestConnectionCommandsViaDB(t *testing.T) {
 	asserts.AssertStatusReply(t, db.Exec(c, utils.ToCmdLine("CLIENT", "TRACKING", "ON")), "OK")
 	asserts.AssertStatusReply(t, db.Exec(c, utils.ToCmdLine("CLIENT", "CACHING", "YES")), "OK")
 	trackingInfo := db.Exec(c, utils.ToCmdLine("CLIENT", "TRACKINGINFO"))
-	if _, ok := trackingInfo.(*protocol.MultiBulkReply); !ok {
+	if _, ok := trackingInfo.(*protocol.MultiRawReply); !ok {
 		t.Fatalf("CLIENT TRACKINGINFO via DB: got %s", trackingInfo.ToBytes())
 	}
 }

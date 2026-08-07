@@ -403,10 +403,30 @@ func (server *Server) receiveAOF(ctx context.Context, configVersion int32) error
 			server.slaveStatus.mutex.Lock()
 			if server.slaveStatus.configVersion != configVersion {
 				// slaveStatus conf changed during connecting and waiting mutex
+				server.slaveStatus.mutex.Unlock()
 				return configChangedErr
 			}
+			// Coordinated FAILOVER: the master injects "REPLCONF FAILOVER <token>"
+			// into the replication stream; we promote ourselves and drop the
+			// master connection. Must release the mutex before slaveOfNone
+			// (it re-acquires slaveStatus.mutex), and run it asynchronously —
+			// slaveOfNone waits on the receiveAOF WaitGroup via
+			// stopSlaveWithMutex, which would deadlock if called inline.
+			if len(cmdLine.Args) >= 3 &&
+				strings.EqualFold(string(cmdLine.Args[0]), "replconf") &&
+				strings.EqualFold(string(cmdLine.Args[1]), "failover") {
+				server.slaveStatus.mutex.Unlock()
+				logger.Info("FAILOVER: promoted to master")
+				go server.slaveOfNone()
+				return nil
+			}
+			// Execute OUTSIDE the slaveStatus lock: execReplConf's GETACK branch
+			// re-acquires it (a self-deadlock would otherwise freeze replication
+			// the first time the master sends GETACK).
+			server.slaveStatus.mutex.Unlock()
 			server.Exec(conn, cmdLine.Args)
 			n := len(cmdLine.ToBytes()) // todo: directly get size from socket
+			server.slaveStatus.mutex.Lock()
 			server.slaveStatus.replOffset += int64(n)
 			server.slaveStatus.lastRecvTime = time.Now()
 			logger.Info(fmt.Sprintf("receive %d bytes from master, current offset %d, %s",

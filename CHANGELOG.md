@@ -18,6 +18,11 @@
 - CI：`go vet` 与选定包的 `go test -race`
 - gnet 服务器优雅关闭（`closing` + in-flight 等待）
 - `commands.md` 与代码对齐；`database/caching.go` 单元测试
+- RediSearch 全面对齐 Redis 8.x（P1~P10 + GEOSHAPE + FT.HYBRID + COLLECT + VAMANA，63 测试；见 `docs/REDISEARCH_ALIGNMENT.md`）
+- Redis 8 全兼容修复批次（过期语义 / ACL 安全 / 协议 / 命令补齐 / 行为对齐 / 配置 / 元数据 / 键空间事件 / HLL 重构 / Stream 性能 / DEBUG 收口；见 `docs/REDIS8_COMPAT_AUDIT.md`）
+- `ZINTERCARD` / `SORT_RO` / `EVAL_RO` / `EVALSHA_RO` 命令
+- `datastruct/hll`（Redis 兼容 dense 编码 + xxHash64）与 `datastruct/stream` 有序存储
+- `FAILOVER` 真实协调切换：等待目标从库 ACK 同步 → 复制流注入 `REPLCONF FAILOVER` → 从库自提升、原主降级为从（含 FORCE/ABORT/TIMEOUT；设计见 `docs/FAILOVER_DESIGN.md`）
 
 ### Fixed
 
@@ -25,14 +30,20 @@
 - `parseArray` 内层 bulk 未校验长度导致超大 `make` 分配
 - `go vet`：`database/stream.go` 未键控 `StreamID` 字面量；`tcp/server.go` signal channel 缓冲
 - ACL `+@all` 被误解析为 category 的 bug
-
-### Changed
-
-- 根目录历史过程报告移至 `docs/history/`
+- EXPIRE/PEXPIRE 非正 TTL 不删键、时间轮小数秒 TTL 永不主动过期、主库过期不传播从库
+- WATCH 失败写命令误报版本变更
+- 集群模式完全绕过 ACL；ACL 类别表残缺（122 命令无类别）
+- CLIENT TRACKINGINFO 嵌套数组格式损坏；协议错误回复缺 `ERR Protocol error:` 前缀
+- SETBIT 超限 OOM；GETEX 只读标志错误；RESET 不清认证
+- HLL 计数恒 1（非新键不写回）；PFADD 存储类型与 Redis 不一致
+- Stream XRANGE/TRIM O(n²)
+- ACL Authenticate 不检查 `user.Enabled`
+- 复制：receiveAOF 持 `slaveStatus.mutex` 时 Exec 导致 GETACK 自死锁（复制首次 GETACK 即冻结）；REPLCONF announce 在 PSYNC 前到达被丢弃；主库推送负 offset 切片越界 panic
 
 ### Security
 
 - 修复 ACL 未启动、`execAuth` 在无 ACL 时直接返回 OK 的认证绕过
+- 集群命令路径接入完整 ACL 校验（之前仅 requirepass）
 
 ---
 

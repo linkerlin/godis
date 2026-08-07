@@ -54,6 +54,7 @@
 | 9 | `2e18edc` | **HLL 重构**:string 存储 + xxHash64 + Redis dense 编码 + 全修正 | 5 |
 | 10 | `5ce2624` | **Stream 性能** O(n²)→O(log n)(ordered slice + 二分)+ ACL SETUSER 补齐(>/# 追加、</! 删除、resetpass、reset)+ Authenticate 修 Enabled | 9 |
 | 11 | `8cf364c` | DEBUG stub 收口:SET-ACTIVE-EXPIRE 真语义 + DIGEST 真 SHA1 | 2 |
+| 12 | 进行中 | **FAILOVER 真实切换**(复制流注入 REPLCONF FAILOVER,从库提升+主库降级)+ 修复复制三 bug(receiveAOF 自死锁 / announce 丢失 / 推送切片越界) | 2+ |
 
 累计 ~40 个新测试。
 
@@ -75,7 +76,7 @@
 
 | 项 | 状态 | 说明 |
 |---|---|---|
-| FAILOVER 真实切换 | 设计中 | 见 [`FAILOVER_DESIGN.md`](FAILOVER_DESIGN.md) |
+| FAILOVER 真实切换 | ✅ 已完成(Phase 1+2) | 见 [`FAILOVER_DESIGN.md`](FAILOVER_DESIGN.md);Phase 3 项(FORCE 已实现、写暂停、错误文本对齐)未做 |
 | DEBUG RELOAD / CHANGE-REPL-ID | stub | RELOAD 需 RDB 往返(风险);CHANGE-REPL-ID 复制内部 |
 | DEBUG JMAP / FLUSHALL | stub | JMAP JVM-only;FLUSHALL 是有意的防破坏偏离 |
 | 稀疏 HLL 读取 | 拒绝 | godis 恒 dense;稀疏 blob 报错(与 Redis 拒绝损坏 HLL 一致) |
