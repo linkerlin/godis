@@ -11,6 +11,7 @@ import (
 
 	"github.com/linkerlin/godis/interface/database"
 	"github.com/linkerlin/godis/interface/redis"
+	"github.com/linkerlin/godis/lib/utils"
 	"github.com/linkerlin/godis/lib/wildcard"
 	"github.com/linkerlin/godis/redis/protocol"
 )
@@ -61,7 +62,12 @@ func execDebug(server *Server, c redis.Connection, args [][]byte) redis.Reply {
 		// Stub: RDB save+reload round-trip is not performed; data already resident.
 		return protocol.MakeOkReply()
 	case "CHANGE-REPL-ID":
-		// Stub: replication ID is not mutated.
+		// Real: rotate the replication ID so replicas can no longer partial
+		// resync (masterTryPartialSyncWithSlave compares replId) and must
+		// full-resync on their next PSYNC.
+		server.masterStatus.mu.Lock()
+		server.masterStatus.replId = utils.RandHexString(40)
+		server.masterStatus.mu.Unlock()
 		return protocol.MakeOkReply()
 	case "JMAP":
 		// Stub: JVM-only in real Redis (no-op there too); accepted for compatibility.
@@ -104,7 +110,7 @@ func execDebug(server *Server, c redis.Connection, args [][]byte) redis.Reply {
 			"RELOAD",
 			"    Stub: accepted, no effect.",
 			"CHANGE-REPL-ID",
-			"    Stub: accepted, no effect.",
+			"    Rotate the replication ID (replicas must full-resync).",
 			"JMAP",
 			"    Stub: accepted, no effect.",
 			"FLUSHALL",

@@ -76,7 +76,8 @@
 
 | 项 | 状态 | 说明 |
 |---|---|---|
-| FAILOVER 真实切换 | ✅ 已完成(Phase 1+2) | 见 [`FAILOVER_DESIGN.md`](FAILOVER_DESIGN.md);Phase 3 项(FORCE 已实现、写暂停、错误文本对齐)未做 |
-| DEBUG RELOAD / CHANGE-REPL-ID | stub | RELOAD 需 RDB 往返(风险);CHANGE-REPL-ID 复制内部 |
+| FAILOVER 真实切换 | ✅ 已完成(Phase 1+2+3) | 见 [`FAILOVER_DESIGN.md`](FAILOVER_DESIGN.md);主库写暂停明确不做 |
+| DEBUG CHANGE-REPL-ID | ✅ 真实现 | 轮换 replId 强制从库全量重同步(有测试) |
+| DEBUG RELOAD | stub | 需 RDB 往返(数据风险,有意保留) |
 | DEBUG JMAP / FLUSHALL | stub | JMAP JVM-only;FLUSHALL 是有意的防破坏偏离 |
-| 稀疏 HLL 读取 | 拒绝 | godis 恒 dense;稀疏 blob 报错(与 Redis 拒绝损坏 HLL 一致) |
+| 稀疏 HLL 读取 | ✅ 拒绝(有测试) | godis 恒 dense;稀疏 blob 报错(与 Redis 拒绝损坏 HLL 一致) |

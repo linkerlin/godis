@@ -98,3 +98,18 @@ func TestDebugDigest(t *testing.T) {
 	}
 	_ = strings.ToLower
 }
+
+// TestDebugChangeReplId verifies DEBUG CHANGE-REPL-ID rotates the master
+// replication ID (forcing replicas to full-resync on their next PSYNC).
+func TestDebugChangeReplId(t *testing.T) {
+	server := getTestServer()
+	c := connection.NewFakeConn()
+	oldID := server.masterStatus.replId
+	if oldID == "" {
+		t.Fatalf("master should have a repl id")
+	}
+	asserts.AssertStatusReply(t, server.Exec(c, utils.ToCmdLine("DEBUG", "CHANGE-REPL-ID")), "OK")
+	if server.masterStatus.replId == oldID || len(server.masterStatus.replId) != 40 {
+		t.Fatalf("CHANGE-REPL-ID should rotate the repl id: %q -> %q", oldID, server.masterStatus.replId)
+	}
+}
