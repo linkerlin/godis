@@ -208,14 +208,15 @@ func execSMembers(db *DB, args [][]byte) redis.Reply {
 }
 
 func set2reply(set *HashSet.Set) redis.Reply {
-	arr := make([][]byte, set.Len())
-	i := 0
+	if set == nil || set.Len() == 0 {
+		return protocol.MakeSetReply(nil)
+	}
+	arr := make([]redis.Reply, 0, set.Len())
 	set.ForEach(func(member string) bool {
-		arr[i] = []byte(member)
-		i++
+		arr = append(arr, protocol.MakeBulkReply([]byte(member)))
 		return true
 	})
-	return protocol.MakeMultiBulkReply(arr)
+	return protocol.MakeSetReply(arr)
 }
 
 // execSInter intersect multiple sets
@@ -229,7 +230,7 @@ func execSInter(db *DB, args [][]byte) redis.Reply {
 		}
 		// missing key is treated as empty set → empty intersection
 		if set == nil || set.Len() == 0 {
-			return &protocol.EmptyMultiBulkReply{}
+			return protocol.MakeSetReply(nil)
 		}
 		sets = append(sets, set)
 	}

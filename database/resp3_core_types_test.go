@@ -127,12 +127,47 @@ func TestResp3ScorePairsWireTypes(t *testing.T) {
 		t.Fatalf("ZPOPMIN COUNT RESP3 nested: %q", g)
 	}
 
-	asserts.AssertBulkReply(t, db.Exec(nil, utils.ToCmdLine("ZINCRBY", "zi", "0.5", "m")), "0.5")
+	asserts.AssertBulkReply(t, db.Exec(nil, utils.ToCmdLine("ZINCRBY", "zi", "1", "m")), "1.5")
 	zi := db.Exec(nil, utils.ToCmdLine("ZINCRBY", "zi", "1", "m"))
 	if _, ok := zi.(*protocol.DoubleReply); !ok {
 		t.Fatalf("ZINCRBY type %T", zi)
 	}
 	if protocol.ReplyToRESP3(zi)[0] != ',' {
 		t.Fatalf("ZINCRBY RESP3: %q", protocol.ReplyToRESP3(zi))
+	}
+}
+
+func TestResp3SetOpWireTypes(t *testing.T) {
+	db := makeTestDB()
+	_ = db.Exec(nil, utils.ToCmdLine("SADD", "a", "1", "2", "3"))
+	_ = db.Exec(nil, utils.ToCmdLine("SADD", "b", "2", "3", "4"))
+
+	inter := db.Exec(nil, utils.ToCmdLine("SINTER", "a", "b"))
+	if _, ok := inter.(*protocol.SetReply); !ok {
+		t.Fatalf("SINTER type %T", inter)
+	}
+	if inter.ToBytes()[0] != '*' {
+		t.Fatalf("SINTER RESP2: %q", inter.ToBytes())
+	}
+	if protocol.ReplyToRESP3(inter)[0] != '~' {
+		t.Fatalf("SINTER RESP3: %q", protocol.ReplyToRESP3(inter))
+	}
+	asserts.AssertMultiBulkReplySize(t, inter, 2)
+
+	uni := db.Exec(nil, utils.ToCmdLine("SUNION", "a", "b"))
+	if protocol.ReplyToRESP3(uni)[0] != '~' {
+		t.Fatalf("SUNION RESP3: %q", protocol.ReplyToRESP3(uni))
+	}
+	asserts.AssertMultiBulkReplySize(t, uni, 4)
+
+	diff := db.Exec(nil, utils.ToCmdLine("SDIFF", "a", "b"))
+	if protocol.ReplyToRESP3(diff)[0] != '~' {
+		t.Fatalf("SDIFF RESP3: %q", protocol.ReplyToRESP3(diff))
+	}
+	asserts.AssertMultiBulkReplySize(t, diff, 1)
+
+	empty := db.Exec(nil, utils.ToCmdLine("SINTER", "a", "nosuch"))
+	if g := protocol.ReplyToRESP3(empty); string(g) != "~0\r\n" {
+		t.Fatalf("empty SINTER RESP3: %q", g)
 	}
 }
