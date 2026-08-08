@@ -381,6 +381,41 @@ func TestResp3ACLGetUserMap(t *testing.T) {
 	}
 }
 
+func TestResp3CommandDocsAndTrackingInfoMap(t *testing.T) {
+	server := getTestServer()
+	c := connection.NewFakeConn()
+
+	docs := server.Exec(c, utils.ToCmdLine("COMMAND", "DOCS", "get"))
+	if _, ok := docs.(*protocol.MapReply); !ok {
+		t.Fatalf("COMMAND DOCS type %T", docs)
+	}
+	if docs.ToBytes()[0] != '*' {
+		t.Fatalf("COMMAND DOCS RESP2: %q", docs.ToBytes())
+	}
+	if protocol.ReplyToRESP3(docs)[0] != '%' {
+		t.Fatalf("COMMAND DOCS RESP3: %q", protocol.ReplyToRESP3(docs))
+	}
+	outer := docs.(*protocol.MapReply)
+	inner, ok := outer.Data["get"].(*protocol.MapReply)
+	if !ok {
+		t.Fatalf("COMMAND DOCS get value: %T", outer.Data["get"])
+	}
+	if protocol.ReplyToRESP3(inner)[0] != '%' {
+		t.Fatalf("command docs value RESP3: %q", protocol.ReplyToRESP3(inner))
+	}
+
+	ti := server.Exec(c, utils.ToCmdLine("CLIENT", "TRACKINGINFO"))
+	if _, ok := ti.(*protocol.MapReply); !ok {
+		t.Fatalf("TRACKINGINFO type %T", ti)
+	}
+	if ti.ToBytes()[0] != '*' {
+		t.Fatalf("TRACKINGINFO RESP2: %q", ti.ToBytes())
+	}
+	if protocol.ReplyToRESP3(ti)[0] != '%' {
+		t.Fatalf("TRACKINGINFO RESP3: %q", protocol.ReplyToRESP3(ti))
+	}
+}
+
 func TestResp3XReadMap(t *testing.T) {
 	db := makeTestDB()
 	db.Flush()

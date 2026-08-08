@@ -84,30 +84,26 @@ func execCommandAsDB(db *DB, args [][]byte) redis.Reply {
 	return execCommand(args)
 }
 
-// getCommandDocs returns command documentation
+// getCommandDocs returns command documentation.
+// RESP3: Map of command-name → docs Map; RESP2: flattened array via MapReply.ToBytes.
 func getCommandDocs(args [][]byte) redis.Reply {
+	outer := protocol.MakeMapReply()
 	if len(args) == 0 {
-		// Return docs for all commands
-		result := make([][]byte, 0, len(cmdTable)*2)
 		for name, cmd := range cmdTable {
-			result = append(result, []byte(name))
-			result = append(result, cmd.toDocsReply().ToBytes())
+			outer.Put(name, cmd.toDocsReply())
 		}
-		return protocol.MakeMultiBulkReply(result)
+		return outer
 	}
-
-	// Return docs for specified commands
-	result := make([][]byte, 0, len(args)*2)
 	for _, v := range args {
 		cmdName := strings.ToLower(string(v))
-		result = append(result, []byte(cmdName))
 		if cmd, ok := cmdTable[cmdName]; ok {
-			result = append(result, cmd.toDocsReply().ToBytes())
+			outer.Put(cmdName, cmd.toDocsReply())
 		} else {
-			result = append(result, protocol.MakeEmptyMultiBulkReply().ToBytes())
+			// Unknown command: empty map (Redis still lists the name with empty docs).
+			outer.Put(cmdName, protocol.MakeMapReply())
 		}
 	}
-	return protocol.MakeMultiBulkReply(result)
+	return outer
 }
 
 func getKeys(args [][]byte) redis.Reply {

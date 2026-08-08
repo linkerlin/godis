@@ -17,23 +17,15 @@ func TestTrackingInfoNestedArrays(t *testing.T) {
 	server := getTestServer()
 	c := connection.NewFakeConn()
 	r := server.Exec(c, utils.ToCmdLine("CLIENT", "TRACKINGINFO"))
-	mr := ftSearchMultiRaw(r)
-	if mr == nil {
+	m, ok := r.(*protocol.MapReply)
+	if !ok {
 		t.Fatalf("TRACKINGINFO shape: %T %s", r, r.ToBytes())
 	}
-	// Find the "flags" key's value: it must be a nested array, not a bulk string.
-	for i := 0; i+1 < len(mr.Replies); i += 2 {
-		key, _ := mr.Replies[i].(*protocol.BulkReply)
-		if key == nil || string(key.Arg) != "flags" {
-			continue
-		}
-		val := mr.Replies[i+1]
-		if _, ok := val.(*protocol.MultiBulkReply); !ok {
-			t.Fatalf("flags value must be a nested array, got %T: %s", val, r.ToBytes())
-		}
-		return
+	flags, ok := m.Data["flags"].(*protocol.MultiBulkReply)
+	if !ok {
+		t.Fatalf("flags value must be a nested array, got %T: %s", m.Data["flags"], r.ToBytes())
 	}
-	t.Fatalf("TRACKINGINFO missing flags key: %s", r.ToBytes())
+	_ = flags
 }
 
 // TestSubcommandErrorSuffix verifies unknown subcommand errors carry the

@@ -240,25 +240,16 @@ func (cmd *command) keySpecReplies(firstKey, lastKey, keyStep int) []redis.Reply
 }
 
 func (cmd *command) toDocsReply() redis.Reply {
-	// COMMAND DOCS reply format (flat array of field/value pairs).
-	var result [][]byte
-
-	result = append(result, []byte("summary"))
-	result = append(result, []byte("Command "+cmd.name))
-	result = append(result, []byte("since"))
-	result = append(result, []byte("6.0.0"))
-	result = append(result, []byte("group"))
-	result = append(result, []byte(cmd.docsGroup()))
-	result = append(result, []byte("complexity"))
-	result = append(result, []byte("O(1)"))
-	result = append(result, []byte("doc_flags"))
-	result = append(result, protocol.MakeMultiBulkReply(cmd.docFlags()).ToBytes())
-	result = append(result, []byte("acl_categories"))
-	result = append(result, protocol.MakeMultiRawReply(cmd.aclCategoryReplies()).ToBytes())
-	result = append(result, []byte("key_specs"))
-	result = append(result, protocol.MakeMultiRawReply(cmd.keySpecReplies(cmd.firstLastStep())).ToBytes())
-
-	return protocol.MakeMultiBulkReply(result)
+	// Per-command docs Map (summary/group/…); nested arrays are true nests.
+	m := protocol.MakeMapReply()
+	m.Put("summary", protocol.MakeBulkReply([]byte("Command "+cmd.name)))
+	m.Put("since", protocol.MakeBulkReply([]byte("6.0.0")))
+	m.Put("group", protocol.MakeBulkReply([]byte(cmd.docsGroup())))
+	m.Put("complexity", protocol.MakeBulkReply([]byte("O(1)")))
+	m.Put("doc_flags", protocol.MakeMultiBulkReply(cmd.docFlags()))
+	m.Put("acl_categories", protocol.MakeMultiRawReply(cmd.aclCategoryReplies()))
+	m.Put("key_specs", protocol.MakeMultiRawReply(cmd.keySpecReplies(cmd.firstLastStep())))
+	return m
 }
 
 // firstLastStep returns the command's first/last/step key metadata (0s when

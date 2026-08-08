@@ -30,16 +30,19 @@ return tostring(n) .. ':' .. t[1] .. ':' .. t[2]
 func TestM2bxCommandDocsGroupFlags(t *testing.T) {
 	db := makeTestDB()
 	r := db.Exec(nil, utils.ToCmdLine("COMMAND", "DOCS", "set"))
-	mb, ok := r.(*protocol.MultiBulkReply)
+	m, ok := r.(*protocol.MapReply)
 	if !ok {
 		t.Fatalf("COMMAND DOCS set: %T %s", r, r.ToBytes())
 	}
-	joined := string(bytesJoin(mb.Args))
-	if !strings.Contains(joined, "group") || !strings.Contains(joined, "string") {
-		t.Fatalf("want group string: %s", joined)
+	docs, ok := m.Data["set"].(*protocol.MapReply)
+	if !ok {
+		t.Fatalf("COMMAND DOCS set value: %T", m.Data["set"])
 	}
-	if !strings.Contains(joined, "doc_flags") {
-		t.Fatalf("want doc_flags: %s", joined)
+	if g, ok := docs.Data["group"].(*protocol.BulkReply); !ok || string(g.Arg) != "string" {
+		t.Fatalf("want group string: %s", r.ToBytes())
+	}
+	if _, ok := docs.Data["doc_flags"]; !ok {
+		t.Fatalf("want doc_flags: %s", r.ToBytes())
 	}
 }
 

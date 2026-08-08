@@ -175,40 +175,7 @@ func execClientTrackingInfoConn(c redis.Connection, args [][]byte) redis.Reply {
 			"prefixes": []string{},
 		}
 	}
-
-	var result []redis.Reply
-	result = append(result, protocol.MakeBulkReply([]byte("flags")))
-	var flags [][]byte
-	if enabled, ok := info["enabled"].(bool); ok && enabled {
-		flags = append(flags, []byte("on"))
-	} else {
-		flags = append(flags, []byte("off"))
-	}
-	if mode, ok := info["mode"].(string); ok && mode != "" {
-		flags = append(flags, []byte(mode))
-	}
-	if noloop, ok := info["noloop"].(bool); ok && noloop {
-		flags = append(flags, []byte("noloop"))
-	}
-	result = append(result, protocol.MakeMultiBulkReply(flags))
-
-	result = append(result, protocol.MakeBulkReply([]byte("redirect")))
-	if redirect, ok := info["redirect"].(string); ok && redirect != "" {
-		result = append(result, protocol.MakeBulkReply([]byte(redirect)))
-	} else {
-		result = append(result, protocol.MakeBulkReply([]byte("0")))
-	}
-
-	result = append(result, protocol.MakeBulkReply([]byte("prefixes")))
-	var prefixReply [][]byte
-	if p, ok := info["prefixes"].([]string); ok {
-		for _, prefix := range p {
-			prefixReply = append(prefixReply, []byte(prefix))
-		}
-	}
-	result = append(result, protocol.MakeMultiBulkReply(prefixReply))
-
-	return protocol.MakeMultiRawReply(result)
+	return formatClientTrackingInfo(info)
 }
 
 func applyCacheHooks(c redis.Connection, cmdName string, write, read []string, failed bool) {

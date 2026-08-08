@@ -305,52 +305,55 @@ func execClientUnblock(args [][]byte) redis.Reply {
 	return protocol.MakeIntReply(0)
 }
 
-// execClientTrackingInfo returns tracking information
+// execClientTrackingInfo returns tracking information (no connection context).
 // CLIENT TRACKINGINFO
 func execClientTrackingInfo(args [][]byte) redis.Reply {
 	if len(args) != 0 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'client|trackinginfo' command")
 	}
-
-	// Get current connection info
-	// Simplified: return default tracking info
 	info := map[string]interface{}{
 		"enabled":  false,
 		"mode":     "",
 		"prefixes": []string{},
 	}
+	return formatClientTrackingInfo(info)
+}
 
-	var result []redis.Reply
+// formatClientTrackingInfo builds TRACKINGINFO as a Map (RESP3 %) /
+// flat field array (RESP2 via MapReply.ToBytes).
+func formatClientTrackingInfo(info map[string]interface{}) redis.Reply {
+	m := protocol.MakeMapReply()
 
-	// Tracking status
-	result = append(result, protocol.MakeBulkReply([]byte("flags")))
 	var flags [][]byte
-	if info["enabled"].(bool) {
+	if enabled, ok := info["enabled"].(bool); ok && enabled {
 		flags = append(flags, []byte("on"))
 	} else {
 		flags = append(flags, []byte("off"))
 	}
-	mode := info["mode"].(string)
-	if mode == "bcast" {
-		flags = append(flags, []byte("bcast"))
+	if mode, ok := info["mode"].(string); ok && mode != "" {
+		flags = append(flags, []byte(mode))
 	}
-	result = append(result, protocol.MakeMultiBulkReply(flags))
+	if noloop, ok := info["noloop"].(bool); ok && noloop {
+		flags = append(flags, []byte("noloop"))
+	}
+	m.Put("flags", protocol.MakeMultiBulkReply(flags))
 
-	// Redirect target (0 if not redirected)
-	result = append(result, protocol.MakeBulkReply([]byte("redirect")))
-	result = append(result, protocol.MakeBulkReply([]byte("0")))
+	redirectVal := int64(0)
+	if redirect, ok := info["redirect"].(string); ok && redirect != "" {
+		if n, err := strconv.ParseInt(redirect, 10, 64); err == nil {
+			redirectVal = n
+		}
+	}
+	m.Put("redirect", protocol.MakeIntReply(redirectVal))
 
-	// Prefixes
-	result = append(result, protocol.MakeBulkReply([]byte("prefixes")))
 	var prefixes [][]byte
 	if p, ok := info["prefixes"].([]string); ok {
 		for _, prefix := range p {
 			prefixes = append(prefixes, []byte(prefix))
 		}
 	}
-	result = append(result, protocol.MakeMultiBulkReply(prefixes))
-
-	return protocol.MakeMultiRawReply(result)
+	m.Put("prefixes", protocol.MakeMultiBulkReply(prefixes))
+	return m
 }
 
 // execClientHelp returns help information

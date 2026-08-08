@@ -42,8 +42,8 @@ func TestConnectionCommandsViaDB(t *testing.T) {
 	asserts.AssertStatusReply(t, db.Exec(c, utils.ToCmdLine("CLIENT", "TRACKING", "ON")), "OK")
 	asserts.AssertStatusReply(t, db.Exec(c, utils.ToCmdLine("CLIENT", "CACHING", "YES")), "OK")
 	trackingInfo := db.Exec(c, utils.ToCmdLine("CLIENT", "TRACKINGINFO"))
-	if _, ok := trackingInfo.(*protocol.MultiRawReply); !ok {
-		t.Fatalf("CLIENT TRACKINGINFO via DB: got %s", trackingInfo.ToBytes())
+	if _, ok := trackingInfo.(*protocol.MapReply); !ok {
+		t.Fatalf("CLIENT TRACKINGINFO via DB: got %T %s", trackingInfo, trackingInfo.ToBytes())
 	}
 }
 
@@ -83,8 +83,8 @@ func TestClientSubcommands(t *testing.T) {
 	}
 
 	trackingInfo := server.Exec(c, utils.ToCmdLine("CLIENT", "TRACKINGINFO"))
-	if _, ok := trackingInfo.(*protocol.MultiRawReply); !ok {
-		t.Fatalf("CLIENT TRACKINGINFO: got %s", trackingInfo.ToBytes())
+	if _, ok := trackingInfo.(*protocol.MapReply); !ok {
+		t.Fatalf("CLIENT TRACKINGINFO: got %T %s", trackingInfo, trackingInfo.ToBytes())
 	}
 }
 
@@ -93,13 +93,17 @@ func TestCommandDocs(t *testing.T) {
 	c := connection.NewFakeConn()
 
 	all := server.Exec(c, utils.ToCmdLine("COMMAND", "DOCS"))
-	multi, ok := all.(*protocol.MultiBulkReply)
-	if !ok || len(multi.Args) < 2 {
-		t.Fatalf("COMMAND DOCS: got %s", all.ToBytes())
+	m, ok := all.(*protocol.MapReply)
+	if !ok || len(m.Data) < 1 {
+		t.Fatalf("COMMAND DOCS: got %T %s", all, all.ToBytes())
 	}
 
 	one := server.Exec(c, utils.ToCmdLine("COMMAND", "DOCS", "set"))
-	if _, ok := one.(*protocol.MultiBulkReply); !ok {
-		t.Fatalf("COMMAND DOCS set: got %s", one.ToBytes())
+	om, ok := one.(*protocol.MapReply)
+	if !ok {
+		t.Fatalf("COMMAND DOCS set: got %T %s", one, one.ToBytes())
+	}
+	if _, ok := om.Data["set"]; !ok {
+		t.Fatalf("COMMAND DOCS set missing set key: %v", om.Data)
 	}
 }
