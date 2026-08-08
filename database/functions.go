@@ -212,48 +212,41 @@ func execFunctionKill(db *DB, args [][]byte) redis.Reply {
 }
 
 // execFunctionStats returns function statistics
-// FUNCTION STATS
+// FUNCTION STATS — RESP3 Map; RESP2 flat field array via MapReply.ToBytes.
 func execFunctionStats(db *DB, args [][]byte) redis.Reply {
 	if len(args) != 0 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'function stats' command")
 	}
 
+	m := protocol.MakeMapReply()
 	if funcEngine == nil {
-		return protocol.MakeMultiRawReply([]redis.Reply{
-			protocol.MakeBulkReply([]byte("running_script")),
-			protocol.MakeEmptyMultiBulkReply(),
-			protocol.MakeBulkReply([]byte("engines")),
-			protocol.MakeEmptyMultiBulkReply(),
-		})
+		m.Put("running_script", protocol.MakeNullBulkReply())
+		m.Put("engines", protocol.MakeMapReply())
+		return m
 	}
 
 	stats := funcEngine.Stats()
-	engines := protocol.MakeMultiRawReply([]redis.Reply{
-		protocol.MakeBulkReply([]byte("lua")),
-		protocol.MakeMultiBulkReply([][]byte{
-			[]byte("libraries_count"),
-			[]byte(fmt.Sprintf("%d", stats["libraries"])),
-			[]byte("functions_count"),
-			[]byte(fmt.Sprintf("%d", stats["functions"])),
-		}),
-	})
+	lua := protocol.MakeMapReply()
+	libCount, _ := stats["libraries"].(int)
+	fnCount, _ := stats["functions"].(int)
+	lua.Put("libraries_count", protocol.MakeIntReply(int64(libCount)))
+	lua.Put("functions_count", protocol.MakeIntReply(int64(fnCount)))
+	engines := protocol.MakeMapReply()
+	engines.Put("LUA", lua)
+	m.Put("engines", engines)
 
-	var runningScriptReply redis.Reply = protocol.MakeEmptyMultiBulkReply()
 	if running := funcEngine.GetRunningFunction(); running != nil {
-		runningScriptReply = protocol.MakeMultiBulkReply([][]byte{
-			[]byte("name"),
-			[]byte(running.Name),
-			[]byte("command"),
-			[]byte(fmt.Sprintf("FCALL %s", running.Name)),
-		})
+		rs := protocol.MakeMapReply()
+		rs.Put("name", protocol.MakeBulkReply([]byte(running.Name)))
+		rs.Put("command", protocol.MakeMultiBulkReply([][]byte{
+			[]byte("FCALL"), []byte(running.Name),
+		}))
+		rs.Put("duration_ms", protocol.MakeIntReply(0))
+		m.Put("running_script", rs)
+	} else {
+		m.Put("running_script", protocol.MakeNullBulkReply())
 	}
-
-	return protocol.MakeMultiRawReply([]redis.Reply{
-		protocol.MakeBulkReply([]byte("running_script")),
-		runningScriptReply,
-		protocol.MakeBulkReply([]byte("engines")),
-		engines,
-	})
+	return m
 }
 
 // Godis FUNCTION DUMP envelope (godis-internal; not Redis wire-compatible).

@@ -101,15 +101,18 @@ func TestM2bvFunctionStatsNested(t *testing.T) {
 	db := makeTestDB()
 	InitFunctionsEngine(db)
 	r := db.Exec(nil, utils.ToCmdLine("FUNCTION", "STATS"))
-	raw, ok := r.(*protocol.MultiRawReply)
-	if !ok || len(raw.Replies) < 4 {
+	m, ok := r.(*protocol.MapReply)
+	if !ok {
 		t.Fatalf("FUNCTION STATS: %T %s", r, r.ToBytes())
 	}
-	if b, ok := raw.Replies[0].(*protocol.BulkReply); !ok || string(b.Arg) != "running_script" {
-		t.Fatalf("want running_script key: %T", raw.Replies[0])
+	if _, ok := m.Data["running_script"]; !ok {
+		t.Fatalf("want running_script key: %v", m.Data)
 	}
-	// nested engines must not be a bulk-encoded blob
-	if _, ok := raw.Replies[3].(*protocol.BulkReply); ok {
-		t.Fatalf("engines should be nested reply, not bulk")
+	engines, ok := m.Data["engines"].(*protocol.MapReply)
+	if !ok {
+		t.Fatalf("engines should be Map, got %T", m.Data["engines"])
+	}
+	if _, ok := engines.Data["LUA"].(*protocol.MapReply); !ok {
+		t.Fatalf("engines.LUA should be Map, got %T", engines.Data["LUA"])
 	}
 }
