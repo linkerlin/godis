@@ -18,17 +18,15 @@ func TestConfigGetSlowlogAndAclLog(t *testing.T) {
 	c := connection.NewFakeConn()
 
 	ret := server.Exec(c, utils.ToCmdLine("CONFIG", "GET", "slowlog-max-len", "acllog-max-len"))
-	multi, ok := ret.(*protocol.MultiBulkReply)
-	if !ok {
-		t.Fatalf("expected multi bulk, got %T", ret)
-	}
-	var body strings.Builder
-	for _, arg := range multi.Args {
-		body.Write(arg)
-	}
-	got := body.String()
+	got := string(ret.ToBytes())
 	if !strings.Contains(got, "slowlog-max-len") || !strings.Contains(got, "acllog-max-len") {
 		t.Fatalf("missing config keys in %q", got)
+	}
+	if _, ok := ret.(*protocol.MapReply); !ok {
+		t.Fatalf("CONFIG GET should return MapReply, got %T", ret)
+	}
+	if protocol.ReplyToRESP3(ret)[0] != '%' {
+		t.Fatalf("CONFIG GET RESP3 should be map: %q", protocol.ReplyToRESP3(ret))
 	}
 }
 

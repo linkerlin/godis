@@ -29,8 +29,8 @@ func TestM2tConfigBoolAndSet(t *testing.T) {
 	}
 	asserts.AssertStatusReply(t, server.Exec(c, utils.ToCmdLine("CONFIG", "SET", "maxmemory", "1048576")), "OK")
 	got := server.Exec(c, utils.ToCmdLine("CONFIG", "GET", "maxmemory"))
-	multi, ok := got.(*protocol.MultiBulkReply)
-	if !ok || len(multi.Args) < 2 || string(multi.Args[1]) != "1048576" {
+	val, ok := configReplyValue(got, "maxmemory")
+	if !ok || val != "1048576" {
 		t.Fatalf("CONFIG GET maxmemory: %s", got.ToBytes())
 	}
 }

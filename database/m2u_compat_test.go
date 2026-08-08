@@ -67,8 +67,7 @@ func TestM2uConfigExtraDirectives(t *testing.T) {
 	asserts.AssertStatusReply(t, server.Exec(c, utils.ToCmdLine("CONFIG", "SET", "protected-mode", "yes")), "OK")
 	asserts.AssertStatusReply(t, server.Exec(c, utils.ToCmdLine("CONFIG", "SET", "loglevel", "notice")), "OK")
 	got := server.Exec(c, utils.ToCmdLine("CONFIG", "GET", "timeout"))
-	multi, ok := got.(*protocol.MultiBulkReply)
-	if !ok || len(multi.Args) < 2 || string(multi.Args[1]) != "60" {
+	if val, ok := configReplyValue(got, "timeout"); !ok || val != "60" {
 		t.Fatalf("CONFIG GET timeout: %s", got.ToBytes())
 	}
 	bad := server.Exec(c, utils.ToCmdLine("CONFIG", "SET", "maxmemory-policy", "bogus"))

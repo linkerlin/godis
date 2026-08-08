@@ -67,19 +67,18 @@ func execConfigHelp(args [][]byte) redis.Reply {
 	})
 }
 
-// execConfigGet handles CONFIG GET
+// execConfigGet handles CONFIG GET.
+// Returns MapReply so RESP3 connections get % maps while RESP2 still sees a flat array.
 func execConfigGet(parameters [][]byte) redis.Reply {
-	result := make([][]byte, 0)
-
+	m := protocol.MakeMapReply()
 	for _, param := range parameters {
 		paramStr := strings.ToLower(string(param))
 		matches := getConfigMatches(paramStr)
 		for _, match := range matches {
-			result = append(result, []byte(match.key), []byte(match.value))
+			m.Put(match.key, protocol.MakeBulkReply([]byte(match.value)))
 		}
 	}
-
-	return protocol.MakeMultiBulkReply(result)
+	return m
 }
 
 type configPair struct {

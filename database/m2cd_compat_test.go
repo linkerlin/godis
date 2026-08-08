@@ -49,8 +49,7 @@ func TestM2cdConfigClientBufferMinReplicasClusterCoverage(t *testing.T) {
 		[]string{"cluster-require-full-coverage", "no"})
 
 	out := server.Exec(c, utils.ToCmdLine("CONFIG", "GET", "client-output-buffer-limit"))
-	mb, ok := out.(*protocol.MultiBulkReply)
-	if !ok || len(mb.Args) != 2 || string(mb.Args[0]) != "client-output-buffer-limit" {
+	if val, ok := configReplyValue(out, "client-output-buffer-limit"); !ok || val == "" {
 		t.Fatalf("client-output-buffer-limit: %s", out.ToBytes())
 	}
 }

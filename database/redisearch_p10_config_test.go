@@ -22,18 +22,8 @@ func TestP10SearchKebabConfigGet(t *testing.T) {
 		t.Fatalf("FT.CONFIG SET errored: %s", setReply.ToBytes())
 	}
 	r := server.Exec(c, utils.ToCmdLine("CONFIG", "GET", "search-min-prefix"))
-	mb, ok := r.(*protocol.MultiBulkReply)
-	if !ok {
-		t.Fatalf("CONFIG GET shape: %T %s", r, r.ToBytes())
-	}
-	t.Logf("CONFIG GET search-min-prefix Args = %q", mb.Args)
-	found := false
-	for i := 0; i+1 < len(mb.Args); i += 2 {
-		if string(mb.Args[i]) == "search-min-prefix" && string(mb.Args[i+1]) == "4" {
-			found = true
-		}
-	}
-	if !found {
+	val, ok := configReplyValue(r, "search-min-prefix")
+	if !ok || val != "4" {
 		t.Fatalf("CONFIG GET search-min-prefix should mirror FT.CONFIG MINPREFIX=4: %s", r.ToBytes())
 	}
 	// Reset.
@@ -71,11 +61,7 @@ func TestP10SearchKebabConfigWildcard(t *testing.T) {
 	server := getTestServer()
 	c := connection.NewFakeConn()
 	r := server.Exec(c, utils.ToCmdLine("CONFIG", "GET", "search-*"))
-	mb, ok := r.(*protocol.MultiBulkReply)
-	if !ok {
-		t.Fatalf("CONFIG GET shape: %T %s", r, r.ToBytes())
-	}
-	if len(mb.Args) == 0 {
+	if configReplyEntries(r) == 0 {
 		t.Fatalf("CONFIG GET search-* should return entries: %s", r.ToBytes())
 	}
 	body := string(r.ToBytes())

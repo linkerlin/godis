@@ -60,8 +60,7 @@ func TestM2bhConfigAclfileAndReplicaReadOnly(t *testing.T) {
 
 	asserts.AssertStatusReply(t, server.Exec(c, utils.ToCmdLine("CONFIG", "SET", "aclfile", "users.acl")), "OK")
 	r := server.Exec(c, utils.ToCmdLine("CONFIG", "GET", "aclfile"))
-	mr, ok := r.(*protocol.MultiBulkReply)
-	if !ok || len(mr.Args) < 2 || string(mr.Args[1]) != "users.acl" {
+	if val, ok := configReplyValue(r, "aclfile"); !ok || val != "users.acl" {
 		t.Fatalf("CONFIG GET aclfile: %s", r.ToBytes())
 	}
 
@@ -75,8 +74,7 @@ func TestM2bhConfigAclfileAndReplicaReadOnly(t *testing.T) {
 	asserts.AssertStatusReply(t, server.Exec(c, utils.ToCmdLine("CONFIG", "SET", "replica-read-only", "no")), "OK")
 	asserts.AssertStatusReply(t, server.Exec(c, utils.ToCmdLine("SET", "ro", "1")), "OK")
 	r = server.Exec(c, utils.ToCmdLine("CONFIG", "GET", "slave-read-only"))
-	mr, ok = r.(*protocol.MultiBulkReply)
-	if !ok || len(mr.Args) < 2 || string(mr.Args[1]) != "no" {
+	if val, ok := configReplyValue(r, "slave-read-only"); !ok || val != "no" {
 		t.Fatalf("slave-read-only alias: %s", r.ToBytes())
 	}
 }

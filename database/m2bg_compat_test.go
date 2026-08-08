@@ -112,13 +112,11 @@ func TestM2bgConfigDirDbfilename(t *testing.T) {
 
 	asserts.AssertStatusReply(t, server.Exec(c, utils.ToCmdLine("CONFIG", "SET", "dbfilename", "m2bg.rdb")), "OK")
 	r := server.Exec(c, utils.ToCmdLine("CONFIG", "GET", "dbfilename"))
-	mr, ok := r.(*protocol.MultiBulkReply)
-	if !ok || len(mr.Args) < 2 || string(mr.Args[1]) != "m2bg.rdb" {
+	if val, ok := configReplyValue(r, "dbfilename"); !ok || val != "m2bg.rdb" {
 		t.Fatalf("CONFIG GET dbfilename: %s", r.ToBytes())
 	}
 	r = server.Exec(c, utils.ToCmdLine("CONFIG", "GET", "rdbfilename"))
-	mr, ok = r.(*protocol.MultiBulkReply)
-	if !ok || len(mr.Args) < 2 || string(mr.Args[1]) != "m2bg.rdb" {
+	if val, ok := configReplyValue(r, "rdbfilename"); !ok || val != "m2bg.rdb" {
 		t.Fatalf("alias rdbfilename: %s", r.ToBytes())
 	}
 }

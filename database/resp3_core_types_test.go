@@ -14,6 +14,7 @@ import (
 // while RESP2 path stays array/bulk (Map/Set/Double ToBytes downgrade).
 func TestResp3CoreWireTypes(t *testing.T) {
 	db := makeTestDB()
+	db.Flush()
 	_ = db.Exec(nil, utils.ToCmdLine("HSET", "h", "a", "1", "b", "2"))
 	_ = db.Exec(nil, utils.ToCmdLine("SADD", "s", "x", "y"))
 	_ = db.Exec(nil, utils.ToCmdLine("ZADD", "z", "1.5", "m", "2", "n"))
@@ -91,6 +92,7 @@ func TestResp3CoreWireTypes(t *testing.T) {
 
 func TestResp3ScorePairsWireTypes(t *testing.T) {
 	db := makeTestDB()
+	db.Flush()
 	_ = db.Exec(nil, utils.ToCmdLine("ZADD", "z", "1.5", "a", "2", "b", "3", "c"))
 
 	zr := db.Exec(nil, utils.ToCmdLine("ZRANGE", "z", "0", "-1", "WITHSCORES"))
@@ -127,7 +129,7 @@ func TestResp3ScorePairsWireTypes(t *testing.T) {
 		t.Fatalf("ZPOPMIN COUNT RESP3 nested: %q", g)
 	}
 
-	asserts.AssertBulkReply(t, db.Exec(nil, utils.ToCmdLine("ZINCRBY", "zi", "1", "m")), "1.5")
+	asserts.AssertBulkReply(t, db.Exec(nil, utils.ToCmdLine("ZINCRBY", "zi", "0.5", "m")), "0.5")
 	zi := db.Exec(nil, utils.ToCmdLine("ZINCRBY", "zi", "1", "m"))
 	if _, ok := zi.(*protocol.DoubleReply); !ok {
 		t.Fatalf("ZINCRBY type %T", zi)
@@ -139,6 +141,7 @@ func TestResp3ScorePairsWireTypes(t *testing.T) {
 
 func TestResp3SetOpWireTypes(t *testing.T) {
 	db := makeTestDB()
+	db.Flush()
 	_ = db.Exec(nil, utils.ToCmdLine("SADD", "a", "1", "2", "3"))
 	_ = db.Exec(nil, utils.ToCmdLine("SADD", "b", "2", "3", "4"))
 
@@ -169,5 +172,42 @@ func TestResp3SetOpWireTypes(t *testing.T) {
 	empty := db.Exec(nil, utils.ToCmdLine("SINTER", "a", "nosuch"))
 	if g := protocol.ReplyToRESP3(empty); string(g) != "~0\r\n" {
 		t.Fatalf("empty SINTER RESP3: %q", g)
+	}
+}
+
+func TestResp3ConfigGetAndHRandFieldMap(t *testing.T) {
+	server := getTestServer()
+	c := connection.NewFakeConn()
+	cfg := server.Exec(c, utils.ToCmdLine("CONFIG", "GET", "port"))
+	if _, ok := cfg.(*protocol.MapReply); !ok {
+		t.Fatalf("CONFIG GET type %T", cfg)
+	}
+	if cfg.ToBytes()[0] != '*' {
+		t.Fatalf("CONFIG GET RESP2: %q", cfg.ToBytes())
+	}
+	if protocol.ReplyToRESP3(cfg)[0] != '%' {
+		t.Fatalf("CONFIG GET RESP3: %q", protocol.ReplyToRESP3(cfg))
+	}
+	if _, ok := configReplyValue(cfg, "port"); !ok {
+		t.Fatalf("CONFIG GET missing port: %s", cfg.ToBytes())
+	}
+
+	db := makeTestDB()
+	db.Flush()
+	_ = db.Exec(nil, utils.ToCmdLine("HSET", "h", "a", "1", "b", "2"))
+	pos := db.Exec(nil, utils.ToCmdLine("HRANDFIELD", "h", "2", "WITHVALUES"))
+	if _, ok := pos.(*protocol.MapReply); !ok {
+		t.Fatalf("HRANDFIELD + WITHVALUES type %T", pos)
+	}
+	if protocol.ReplyToRESP3(pos)[0] != '%' {
+		t.Fatalf("HRANDFIELD WITHVALUES RESP3: %q", protocol.ReplyToRESP3(pos))
+	}
+	// Negative count stays array (duplicates allowed).
+	neg := db.Exec(nil, utils.ToCmdLine("HRANDFIELD", "h", "-3", "WITHVALUES"))
+	if _, ok := neg.(*protocol.MultiBulkReply); !ok {
+		t.Fatalf("HRANDFIELD negative WITHVALUES should stay MultiBulk, got %T", neg)
+	}
+	if protocol.ReplyToRESP3(neg)[0] != '*' {
+		t.Fatalf("negative WITHVALUES RESP3 should be array: %q", protocol.ReplyToRESP3(neg))
 	}
 }

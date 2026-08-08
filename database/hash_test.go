@@ -259,12 +259,17 @@ func TestHGetAll(t *testing.T) {
 
 	// test HRandField count > size withvalues
 	result = testDB.Exec(nil, utils.ToCmdLine("hrandfield", key, strconv.Itoa(size+100), "withvalues"))
-	multiBulk, ok = result.(*protocol.MultiBulkReply)
-	if !ok {
-		t.Errorf("expected MultiBulkReply, actually %s", string(result.ToBytes()))
-	}
-	if 2*len(fields) != len(multiBulk.Args) {
-		t.Errorf("expected %d items , actually %d ", 2*len(fields), len(multiBulk.Args))
+	switch hv := result.(type) {
+	case *protocol.MapReply:
+		if len(hv.Data) != len(fields) {
+			t.Errorf("expected %d map entries, actually %d", len(fields), len(hv.Data))
+		}
+	case *protocol.MultiBulkReply:
+		if 2*len(fields) != len(hv.Args) {
+			t.Errorf("expected %d items , actually %d ", 2*len(fields), len(hv.Args))
+		}
+	default:
+		t.Errorf("expected MapReply, actually %T %s", result, string(result.ToBytes()))
 	}
 
 	// test HRandField count < size

@@ -576,13 +576,14 @@ func execHRandField(db *DB, args [][]byte) redis.Reply {
 			}
 			return protocol.MakeMultiBulkReply(result)
 		}
-		result := make([][]byte, 2*Numfield)
-		for i, v := range fields {
-			result[2*i] = []byte(v)
+		// Positive count WITHVALUES → Map in RESP3 (distinct fields; Redis forbids dups here).
+		m := protocol.MakeMapReply()
+		for _, v := range fields {
 			raw, _ := dict.Get(v)
-			result[2*i+1] = raw.([]byte)
+			bytes, _ := raw.([]byte)
+			m.Put(v, protocol.MakeBulkReply(bytes))
 		}
-		return protocol.MakeMultiBulkReply(result)
+		return m
 	} else if count < 0 {
 		fields := dict.RandomKeys(-count)
 		Numfield := len(fields)
@@ -593,6 +594,7 @@ func execHRandField(db *DB, args [][]byte) redis.Reply {
 			}
 			return protocol.MakeMultiBulkReply(result)
 		}
+		// Negative count may repeat fields — stay flat array (cannot be a Map).
 		result := make([][]byte, 2*Numfield)
 		for i, v := range fields {
 			result[2*i] = []byte(v)

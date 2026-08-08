@@ -101,13 +101,11 @@ func TestM2vSaveAndTCPBacklogConfig(t *testing.T) {
 	asserts.AssertStatusReply(t, server.Exec(c, utils.ToCmdLine("CONFIG", "SET", "save", "3600 1")), "OK")
 	asserts.AssertStatusReply(t, server.Exec(c, utils.ToCmdLine("CONFIG", "SET", "tcp-backlog", "511")), "OK")
 	got := server.Exec(c, utils.ToCmdLine("CONFIG", "GET", "save"))
-	multi, ok := got.(*protocol.MultiBulkReply)
-	if !ok || len(multi.Args) < 2 || string(multi.Args[1]) != "3600 1" {
+	if val, ok := configReplyValue(got, "save"); !ok || val != "3600 1" {
 		t.Fatalf("CONFIG GET save: %s", got.ToBytes())
 	}
 	got2 := server.Exec(c, utils.ToCmdLine("CONFIG", "GET", "tcp-backlog"))
-	multi2, ok := got2.(*protocol.MultiBulkReply)
-	if !ok || len(multi2.Args) < 2 || string(multi2.Args[1]) != "511" {
+	if val, ok := configReplyValue(got2, "tcp-backlog"); !ok || val != "511" {
 		t.Fatalf("CONFIG GET tcp-backlog: %s", got2.ToBytes())
 	}
 }
