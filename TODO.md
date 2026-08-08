@@ -76,6 +76,7 @@
 - [x] `MEMORY STATS`→Map（百分比字段 Double）
 - [x] `ACL GETUSER`→Map（selectors 为 Map 数组）
 - [x] `COMMAND DOCS`→外层 Map + 每命令文档 Map；`CLIENT TRACKINGINFO`→Map
+- [x] `FUNCTION STATS`→Map（`engines`/`running_script` 嵌套 Map；无运行中为 null）
 - [ ] 其它 introspection Map（如有官方 RESP3 Map 标注再扫）
 
 ### R2 — 关键 Redis 8.x 命令补齐
