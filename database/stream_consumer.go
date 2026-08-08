@@ -884,23 +884,16 @@ func execXInfoGroups(db *DB, args [][]byte) redis.Reply {
 	groups := s.GetGroups()
 	replies := make([]redis.Reply, 0, len(groups))
 	for _, group := range groups {
-		pairs := []redis.Reply{
-			protocol.MakeBulkReply([]byte("name")),
-			protocol.MakeBulkReply([]byte(group.Name)),
-			protocol.MakeBulkReply([]byte("consumers")),
-			protocol.MakeIntReply(int64(group.Consumers.Len())),
-			protocol.MakeBulkReply([]byte("pending")),
-			protocol.MakeIntReply(int64(len(group.Pending))),
-			protocol.MakeBulkReply([]byte("last-delivered-id")),
-			protocol.MakeBulkReply([]byte(group.LastID.String())),
-		}
+		// Each group is a Map: RESP3 → %, RESP2 → flat field/value array.
+		gm := protocol.MakeMapReply()
+		gm.Put("name", protocol.MakeBulkReply([]byte(group.Name)))
+		gm.Put("consumers", protocol.MakeIntReply(int64(group.Consumers.Len())))
+		gm.Put("pending", protocol.MakeIntReply(int64(len(group.Pending))))
+		gm.Put("last-delivered-id", protocol.MakeBulkReply([]byte(group.LastID.String())))
 		if group.EntriesRead >= 0 {
-			pairs = append(pairs,
-				protocol.MakeBulkReply([]byte("entries-read")),
-				protocol.MakeIntReply(group.EntriesRead),
-			)
+			gm.Put("entries-read", protocol.MakeIntReply(group.EntriesRead))
 		}
-		replies = append(replies, protocol.MakeMultiRawReply(pairs))
+		replies = append(replies, gm)
 	}
 	return protocol.MakeMultiRawReply(replies)
 }

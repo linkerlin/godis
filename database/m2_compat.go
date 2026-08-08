@@ -345,21 +345,13 @@ func prepareZRangeStore(args [][]byte) ([]string, []string) {
 
 // execZRandMember returns one or more random members from a sorted set.
 // ZRANDMEMBER key [count [WITHSCORES]]
+// Positive count without WITHSCORES → SetReply (RESP3 ~); negative count stays array
+// (duplicates allowed). WITHSCORES → ScorePairsReply (RESP3 nested Doubles).
 func execZRandMember(db *DB, args [][]byte) redis.Reply {
 	if len(args) < 1 || len(args) > 3 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'zrandmember' command")
 	}
 	key := string(args[0])
-	sortedSet, errReply := db.getAsSortedSet(key)
-	if errReply != nil {
-		return errReply
-	}
-	if sortedSet == nil || sortedSet.Len() == 0 {
-		if len(args) >= 2 {
-			return protocol.MakeEmptyMultiBulkReply()
-		}
-		return protocol.MakeNullBulkReply()
-	}
 
 	withScores := false
 	countSpecified := false
@@ -379,6 +371,20 @@ func execZRandMember(db *DB, args [][]byte) redis.Reply {
 		withScores = true
 	}
 
+	sortedSet, errReply := db.getAsSortedSet(key)
+	if errReply != nil {
+		return errReply
+	}
+	if sortedSet == nil || sortedSet.Len() == 0 {
+		if !countSpecified {
+			return protocol.MakeNullBulkReply()
+		}
+		if withScores || count < 0 {
+			return protocol.MakeEmptyMultiBulkReply()
+		}
+		return protocol.MakeSetReply(nil)
+	}
+
 	all := sortedSet.RangeByRank(0, sortedSet.Len(), false)
 	if !countSpecified {
 		e := all[rand.Intn(len(all))]
@@ -390,7 +396,10 @@ func execZRandMember(db *DB, args [][]byte) redis.Reply {
 		count = -count
 	}
 	if count == 0 {
-		return protocol.MakeEmptyMultiBulkReply()
+		if withScores {
+			return protocol.MakeEmptyMultiBulkReply()
+		}
+		return protocol.MakeSetReply(nil)
 	}
 
 	var picked []*SortedSet.Element
@@ -411,18 +420,26 @@ func execZRandMember(db *DB, args [][]byte) redis.Reply {
 	}
 
 	if withScores {
-		out := make([][]byte, 0, len(picked)*2)
-		for _, e := range picked {
-			out = append(out, []byte(e.Member))
-			out = append(out, []byte(strconv.FormatFloat(e.Score, 'f', -1, 64)))
+		members := make([]string, len(picked))
+		scores := make([]float64, len(picked))
+		for i, e := range picked {
+			members[i] = e.Member
+			scores[i] = e.Score
+		}
+		return protocol.MakeScorePairsReply(members, scores, true)
+	}
+	if allowDup {
+		out := make([][]byte, len(picked))
+		for i, e := range picked {
+			out[i] = []byte(e.Member)
 		}
 		return protocol.MakeMultiBulkReply(out)
 	}
-	out := make([][]byte, len(picked))
+	arr := make([]redis.Reply, len(picked))
 	for i, e := range picked {
-		out[i] = []byte(e.Member)
+		arr[i] = protocol.MakeBulkReply([]byte(e.Member))
 	}
-	return protocol.MakeMultiBulkReply(out)
+	return protocol.MakeSetReply(arr)
 }
 
 // execHExpireTime returns absolute Unix expire time (seconds) of hash fields.

@@ -262,6 +262,70 @@ func TestResp3ZUnionMembersSet(t *testing.T) {
 	}
 }
 
+func TestResp3XInfoMap(t *testing.T) {
+	db := makeTestDB()
+	db.Flush()
+	_ = db.Exec(nil, utils.ToCmdLine("XADD", "xi", "*", "f", "v"))
+	asserts.AssertStatusReply(t, db.Exec(nil, utils.ToCmdLine("XGROUP", "CREATE", "xi", "g", "0-0")), "OK")
+
+	info := db.Exec(nil, utils.ToCmdLine("XINFO", "STREAM", "xi"))
+	if _, ok := info.(*protocol.MapReply); !ok {
+		t.Fatalf("XINFO STREAM type %T", info)
+	}
+	if info.ToBytes()[0] != '*' {
+		t.Fatalf("XINFO STREAM RESP2: %q", info.ToBytes())
+	}
+	if protocol.ReplyToRESP3(info)[0] != '%' {
+		t.Fatalf("XINFO STREAM RESP3: %q", protocol.ReplyToRESP3(info))
+	}
+
+	groups := db.Exec(nil, utils.ToCmdLine("XINFO", "GROUPS", "xi"))
+	mr, ok := groups.(*protocol.MultiRawReply)
+	if !ok || len(mr.Replies) != 1 {
+		t.Fatalf("XINFO GROUPS type %T %s", groups, groups.ToBytes())
+	}
+	if _, ok := mr.Replies[0].(*protocol.MapReply); !ok {
+		t.Fatalf("XINFO GROUPS[0] want Map, got %T", mr.Replies[0])
+	}
+	wire3 := protocol.ReplyToRESP3(groups)
+	if wire3[0] != '*' || !bytes.Contains(wire3, []byte("%")) {
+		t.Fatalf("XINFO GROUPS RESP3: %q", wire3)
+	}
+}
+
+func TestResp3ZRandMemberSet(t *testing.T) {
+	db := makeTestDB()
+	db.Flush()
+	_ = db.Exec(nil, utils.ToCmdLine("ZADD", "z", "1", "a", "2", "b", "3", "c"))
+
+	pos := db.Exec(nil, utils.ToCmdLine("ZRANDMEMBER", "z", "2"))
+	if _, ok := pos.(*protocol.SetReply); !ok {
+		t.Fatalf("ZRANDMEMBER +count type %T", pos)
+	}
+	if protocol.ReplyToRESP3(pos)[0] != '~' {
+		t.Fatalf("ZRANDMEMBER +count RESP3: %q", protocol.ReplyToRESP3(pos))
+	}
+	asserts.AssertMultiBulkReplySize(t, pos, 2)
+
+	neg := db.Exec(nil, utils.ToCmdLine("ZRANDMEMBER", "z", "-3"))
+	if _, ok := neg.(*protocol.MultiBulkReply); !ok {
+		t.Fatalf("ZRANDMEMBER -count should stay MultiBulk, got %T", neg)
+	}
+
+	ws := db.Exec(nil, utils.ToCmdLine("ZRANDMEMBER", "z", "2", "WITHSCORES"))
+	if _, ok := ws.(*protocol.ScorePairsReply); !ok {
+		t.Fatalf("ZRANDMEMBER WITHSCORES type %T", ws)
+	}
+	if protocol.ReplyToRESP3(ws)[0] != '*' {
+		t.Fatalf("ZRANDMEMBER WITHSCORES RESP3: %q", protocol.ReplyToRESP3(ws))
+	}
+
+	empty := db.Exec(nil, utils.ToCmdLine("ZRANDMEMBER", "nosuch", "3"))
+	if g := protocol.ReplyToRESP3(empty); string(g) != "~0\r\n" {
+		t.Fatalf("empty ZRANDMEMBER RESP3: %q", g)
+	}
+}
+
 func TestResp3XReadMap(t *testing.T) {
 	db := makeTestDB()
 	db.Flush()

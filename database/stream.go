@@ -634,6 +634,7 @@ func execXGroupDestroy(db *DB, args [][]byte) redis.Reply {
 
 // execXInfoStream 获取Stream信息
 // XINFO STREAM key [FULL [COUNT count]]
+// Returns MapReply so RESP3 clients see a map; RESP2 still gets a flat array.
 func execXInfoStream(db *DB, args [][]byte) redis.Reply {
 	if len(args) < 1 {
 		return protocol.MakeArgNumErrReply("xinfo")
@@ -672,84 +673,52 @@ func execXInfoStream(db *DB, args [][]byte) redis.Reply {
 	}
 
 	info := s.GetInfo()
-
-	// 构建回复
-	var result [][]byte
-
-	// 基本信息
-	result = append(result, []byte("length"), []byte(strconv.Itoa(info["length"].(int))))
-	result = append(result, []byte("radix-tree-keys"), []byte(strconv.Itoa(info["radix-tree-keys"].(int))))
-	result = append(result, []byte("radix-tree-nodes"), []byte(strconv.Itoa(info["radix-tree-nodes"].(int))))
-	result = append(result, []byte("last-generated-id"), []byte(info["last-generated-id"].(string)))
-	result = append(result, []byte("max-deleted-entry-id"), []byte(info["max-deleted-entry-id"].(string)))
-	result = append(result, []byte("entries-added"), []byte(strconv.FormatInt(info["entries-added"].(int64), 10)))
-	result = append(result, []byte("recorded-first-entry-id"), []byte(info["recorded-first-entry-id"].(string)))
-
-	// 组信息
 	groups := s.GetGroups()
-	result = append(result, []byte("groups"), []byte(strconv.Itoa(len(groups))))
-
-	// 第一个和最后一个条目
-	if first, ok := info["first-entry"]; ok {
-		if entry, ok := first.(*stream.StreamEntry); ok {
-			result = append(result, []byte("first-entry"))
-			result = append(result, streamEntryToBytes(entry)...)
-		}
-	}
-	if last, ok := info["last-entry"]; ok {
-		if entry, ok := last.(*stream.StreamEntry); ok {
-			result = append(result, []byte("last-entry"))
-			result = append(result, streamEntryToBytes(entry)...)
-		}
-	}
+	m := protocol.MakeMapReply()
+	m.Put("length", protocol.MakeIntReply(int64(info["length"].(int))))
+	m.Put("radix-tree-keys", protocol.MakeIntReply(int64(info["radix-tree-keys"].(int))))
+	m.Put("radix-tree-nodes", protocol.MakeIntReply(int64(info["radix-tree-nodes"].(int))))
+	m.Put("last-generated-id", protocol.MakeBulkReply([]byte(info["last-generated-id"].(string))))
+	m.Put("max-deleted-entry-id", protocol.MakeBulkReply([]byte(info["max-deleted-entry-id"].(string))))
+	m.Put("entries-added", protocol.MakeIntReply(info["entries-added"].(int64)))
+	m.Put("recorded-first-entry-id", protocol.MakeBulkReply([]byte(info["recorded-first-entry-id"].(string))))
+	m.Put("groups", protocol.MakeIntReply(int64(len(groups))))
 
 	if full {
 		entries := s.Range(stream.StreamID{}, stream.StreamID{Timestamp: math.MaxInt64, Sequence: math.MaxInt64})
 		if entryLimit >= 0 && len(entries) > entryLimit {
 			entries = entries[:entryLimit]
 		}
-		entryReplies := make([]redis.Reply, 0, len(entries))
-		for _, e := range entries {
-			fieldPairs := make([]redis.Reply, 0, len(e.Fields)*2)
-			for k, v := range e.Fields {
-				fieldPairs = append(fieldPairs,
-					protocol.MakeBulkReply([]byte(k)),
-					protocol.MakeBulkReply([]byte(v)),
-				)
-			}
-			entryReplies = append(entryReplies, protocol.MakeMultiRawReply([]redis.Reply{
-				protocol.MakeBulkReply([]byte(e.ID.String())),
-				protocol.MakeMultiRawReply(fieldPairs),
-			}))
-		}
-		parts := make([]redis.Reply, 0, 20)
-		addKV := func(k, v string) {
-			parts = append(parts, protocol.MakeBulkReply([]byte(k)), protocol.MakeBulkReply([]byte(v)))
-		}
-		addKV("length", strconv.Itoa(info["length"].(int)))
-		addKV("radix-tree-keys", strconv.Itoa(info["radix-tree-keys"].(int)))
-		addKV("radix-tree-nodes", strconv.Itoa(info["radix-tree-nodes"].(int)))
-		addKV("last-generated-id", info["last-generated-id"].(string))
-		addKV("max-deleted-entry-id", info["max-deleted-entry-id"].(string))
-		addKV("entries-added", strconv.FormatInt(info["entries-added"].(int64), 10))
-		addKV("recorded-first-entry-id", info["recorded-first-entry-id"].(string))
-		addKV("groups", strconv.Itoa(len(groups)))
-		parts = append(parts, protocol.MakeBulkReply([]byte("entries")), protocol.MakeMultiRawReply(entryReplies))
-		return protocol.MakeMultiRawReply(parts)
+		m.Put("entries", streamEntriesToReply(entries))
+		return m
 	}
 
-	return protocol.MakeMultiBulkReply(result)
+	if first, ok := info["first-entry"].(*stream.StreamEntry); ok && first != nil {
+		m.Put("first-entry", streamEntryToReply(first))
+	} else {
+		m.Put("first-entry", protocol.MakeNullBulkReply())
+	}
+	if last, ok := info["last-entry"].(*stream.StreamEntry); ok && last != nil {
+		m.Put("last-entry", streamEntryToReply(last))
+	} else {
+		m.Put("last-entry", protocol.MakeNullBulkReply())
+	}
+	return m
 }
 
-// 辅助函数：将StreamEntry转换为字节数组
-func streamEntryToBytes(entry *stream.StreamEntry) [][]byte {
-	var fields [][]byte
+// streamEntryToReply encodes one stream entry as [id, [field, value, ...]].
+func streamEntryToReply(entry *stream.StreamEntry) redis.Reply {
+	fieldPairs := make([]redis.Reply, 0, len(entry.Fields)*2)
 	for k, v := range entry.Fields {
-		fields = append(fields, []byte(k), []byte(v))
+		fieldPairs = append(fieldPairs,
+			protocol.MakeBulkReply([]byte(k)),
+			protocol.MakeBulkReply([]byte(v)),
+		)
 	}
-	return [][]byte{
-		[]byte(entry.ID.String()),
-	}
+	return protocol.MakeMultiRawReply([]redis.Reply{
+		protocol.MakeBulkReply([]byte(entry.ID.String())),
+		protocol.MakeMultiRawReply(fieldPairs),
+	})
 }
 
 // 辅助函数：将条目列表转换为Redis回复

@@ -28,27 +28,16 @@ func TestM2aoXInfoFullCount(t *testing.T) {
 	db.Exec(nil, utils.ToCmdLine("XADD", "s", "*", "f", "2"))
 	db.Exec(nil, utils.ToCmdLine("XADD", "s", "*", "f", "3"))
 	r := db.Exec(nil, utils.ToCmdLine("XINFO", "STREAM", "s", "FULL", "COUNT", "2"))
-	mr, ok := r.(*protocol.MultiRawReply)
+	m, ok := r.(*protocol.MapReply)
 	if !ok {
 		t.Fatalf("FULL reply type: %T %s", r, r.ToBytes())
 	}
-	found := false
-	for i := 0; i+1 < len(mr.Replies); i += 2 {
-		k, ok1 := mr.Replies[i].(*protocol.BulkReply)
-		if !ok1 || string(k.Arg) != "entries" {
-			continue
-		}
-		ents, ok2 := mr.Replies[i+1].(*protocol.MultiRawReply)
-		if !ok2 {
-			t.Fatalf("entries not nested: %T", mr.Replies[i+1])
-		}
-		if len(ents.Replies) != 2 {
-			t.Fatalf("COUNT 2 want 2 entries, got %d", len(ents.Replies))
-		}
-		found = true
+	ents, ok := m.Data["entries"].(*protocol.MultiRawReply)
+	if !ok {
+		t.Fatalf("entries not nested: %T %v", m.Data["entries"], m.Data["entries"])
 	}
-	if !found {
-		t.Fatalf("entries missing: %s", r.ToBytes())
+	if len(ents.Replies) != 2 {
+		t.Fatalf("COUNT 2 want 2 entries, got %d", len(ents.Replies))
 	}
 }
 

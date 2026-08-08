@@ -118,16 +118,17 @@ func TestStreamXInfoStreamDirect(t *testing.T) {
 	asserts.AssertStatusReply(t, db.Exec(nil, utils.ToCmdLine("XGROUP", "CREATE", "s:xinfo", "g", "$")), "OK")
 
 	reply := execXInfoStream(db, [][]byte{[]byte("s:xinfo")})
-	multi, ok := reply.(*protocol.MultiBulkReply)
-	if !ok || len(multi.Args) == 0 {
-		t.Fatalf("execXInfoStream: got %s", reply.ToBytes())
+	m, ok := reply.(*protocol.MapReply)
+	if !ok || len(m.Data) == 0 {
+		t.Fatalf("execXInfoStream: got %T %s", reply, reply.ToBytes())
 	}
 
 	full := execXInfoStream(db, [][]byte{[]byte("s:xinfo"), []byte("FULL"), []byte("COUNT"), []byte("1")})
-	switch full.(type) {
-	case *protocol.MultiBulkReply, *protocol.MultiRawReply:
-		// FULL returns nested MultiRawReply (entries array)
-	default:
+	fm, ok := full.(*protocol.MapReply)
+	if !ok {
 		t.Fatalf("execXInfoStream FULL: got %T %s", full, full.ToBytes())
+	}
+	if _, ok := fm.Data["entries"]; !ok {
+		t.Fatalf("execXInfoStream FULL missing entries: %s", full.ToBytes())
 	}
 }
