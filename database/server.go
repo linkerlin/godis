@@ -121,10 +121,14 @@ func newServerWithSize(dictSize int) (*Server, error) {
 		server.bindPersister(aofHandler)
 	}
 	if config.Properties.RDBFilename != "" && !validAof {
-		// load rdb
+		// load rdb — missing dump on first start is normal (not an error)
 		err := server.loadRdbFile()
 		if err != nil {
-			logger.Errorf("load rdb file failed: %+v", err)
+			if os.IsNotExist(err) {
+				logger.Infof("RDB file %s not found, starting with empty DB", config.Properties.RDBFilename)
+			} else {
+				logger.Errorf("load rdb file failed: %+v", err)
+			}
 		}
 	}
 	server.slaveStatus = initReplSlaveStatus()
@@ -823,6 +827,7 @@ func (server *Server) startReplCron() {
 
 // GetAvgTTL calculates the average remaining TTL in milliseconds for keys that
 // have an expiration (Redis INFO keyspace avg_ttl semantics).
+// Samples the expires table (ttlMap), not the main keyspace — matching Redis.
 func (server *Server) GetAvgTTL(dbIndex, randomKeyCount int) (int64, error) {
 	var ttlSum int64
 	var withExpire int64
@@ -830,14 +835,28 @@ func (server *Server) GetAvgTTL(dbIndex, randomKeyCount int) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
-	keys := db.data.RandomKeys(randomKeyCount)
+	n := db.ttlMap.Len()
+	if n == 0 {
+		return 0, nil
+	}
+	// Sample from expires dict so we never spin RandomKeys over a huge empty
+	// keyspace (dataDictSize shards) and so avg_ttl only reflects keys with TTL.
+	var keys []string
+	if randomKeyCount <= 0 || n <= randomKeyCount {
+		keys = db.ttlMap.Keys()
+	} else {
+		keys = db.ttlMap.RandomDistinctKeys(randomKeyCount)
+	}
 	now := time.Now()
 	for _, k := range keys {
 		rawExpireTime, ok := db.ttlMap.Get(k)
 		if !ok {
 			continue
 		}
-		expireTime, _ := rawExpireTime.(time.Time)
+		expireTime, ok := rawExpireTime.(time.Time)
+		if !ok {
+			continue
+		}
 		remain := expireTime.Sub(now).Milliseconds()
 		if remain > 0 {
 			ttlSum += remain

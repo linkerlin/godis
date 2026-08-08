@@ -21,6 +21,10 @@ import (
 func (server *Server) loadRdbFile() error {
 	rdbFile, err := os.Open(config.Properties.RDBFilename)
 	if err != nil {
+		// Preserve os.IsNotExist so callers can treat first-start as non-fatal.
+		if os.IsNotExist(err) {
+			return err
+		}
 		return fmt.Errorf("open rdb file failed: %w", err)
 	}
 	defer func() {

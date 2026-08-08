@@ -14,6 +14,7 @@ import (
 	SortedSet "github.com/linkerlin/godis/datastruct/sortedset"
 	"github.com/linkerlin/godis/interface/database"
 	"github.com/linkerlin/godis/lib/logger"
+	"github.com/linkerlin/godis/lib/utils"
 )
 
 // GenerateRDB generates rdb file from aof file
@@ -38,8 +39,7 @@ func (persister *Persister) generateRDBToFile(rdbFilename string) error {
 	if err != nil {
 		return err
 	}
-	err = os.Rename(ctx.tmpFile.Name(), rdbFilename)
-	if err != nil {
+	if err := utils.ReplaceFile(ctx.tmpFile.Name(), rdbFilename); err != nil {
 		return err
 	}
 	return nil
@@ -67,8 +67,8 @@ func (persister *Persister) GenerateRDBForReplication(rdbFilename string, listen
 	if err != nil {
 		return err
 	}
-	err = os.Rename(ctx.tmpFile.Name(), rdbFilename)
-	if err != nil {
+	// Dest may already exist (caller often creates a TempFile path as target).
+	if err := utils.ReplaceFile(ctx.tmpFile.Name(), rdbFilename); err != nil {
 		return err
 	}
 	return nil
@@ -241,7 +241,7 @@ func WriteRDBFromDB(rdbFilename string, db database.DBEngine) error {
 	if err := tmpFile.Close(); err != nil {
 		return err
 	}
-	if err := os.Rename(tmpName, rdbFilename); err != nil {
+	if err := utils.ReplaceFile(tmpName, rdbFilename); err != nil {
 		return err
 	}
 	success = true

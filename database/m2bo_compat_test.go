@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/linkerlin/godis/config"
 	"github.com/linkerlin/godis/datastruct/redisearch"
 	"github.com/linkerlin/godis/lib/utils"
 	"github.com/linkerlin/godis/redis/connection"
@@ -13,9 +14,21 @@ import (
 )
 
 func TestM2boInfoKeyspaceAvgTTLAndSubexpiry(t *testing.T) {
+	// Isolate from suite-global config (AOF/RDB left on by other tests would
+	// load foreign keys and skew avg_ttl / key counts).
+	oldProps := config.Properties
+	config.Properties = &config.ServerProperties{
+		Databases:  16,
+		AppendOnly: false,
+	}
+	defer func() { config.Properties = oldProps }()
+
 	server := MustNewStandaloneServer()
 	defer server.Close()
 	c := connection.NewFakeConn()
+
+	// Ensure empty DB even if RDB/AOF load path was somehow armed.
+	_ = server.Exec(c, utils.ToCmdLine("FLUSHALL"))
 
 	asserts.AssertStatusReply(t, server.Exec(c, utils.ToCmdLine("SET", "k", "v", "EX", "10")), "OK")
 	_ = server.Exec(c, utils.ToCmdLine("HSET", "h", "f", "1"))

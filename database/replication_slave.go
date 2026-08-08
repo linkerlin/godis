@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net"
-	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -368,7 +367,7 @@ func (server *Server) loadMasterRDB(configVersion int32) error {
 	if config.Properties.AppendOnly {
 		// use new aof file
 		server.persister.Close()
-		err = os.Rename(newAofFilename, config.Properties.AppendFilename)
+		err = utils.ReplaceFile(newAofFilename, config.Properties.AppendFilename)
 		if err != nil {
 			return err
 		}

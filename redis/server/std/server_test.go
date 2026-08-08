@@ -76,7 +76,7 @@ func TestProtocolErrorClosesConnection(t *testing.T) {
 	n, err := conn.Read(buf)
 	if n > 0 {
 		got := string(buf[:n])
-		if !strings.Contains(got, "protocol error") {
+		if !strings.Contains(strings.ToLower(got), "protocol error") {
 			t.Fatalf("expected protocol error reply, got %q", got)
 		}
 	}

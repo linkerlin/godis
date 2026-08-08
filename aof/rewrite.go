@@ -141,7 +141,8 @@ func (persister *Persister) FinishRewrite(ctx *RewriteCtx) error {
 
 	// replace current aof file by tmp file
 	_ = persister.aofFile.Close()
-	if err := os.Rename(tmpFile.Name(), persister.aofFilename); err != nil {
+	// Windows cannot rename over an open/existing dest; ReplaceFile removes dest first.
+	if err := utils.ReplaceFile(tmpFile.Name(), persister.aofFilename); err != nil {
 		logger.Warn(err)
 	}
 	// reopen aof file for further write

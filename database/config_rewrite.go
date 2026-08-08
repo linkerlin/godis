@@ -8,6 +8,7 @@ import (
 
 	"github.com/linkerlin/godis/config"
 	"github.com/linkerlin/godis/interface/redis"
+	"github.com/linkerlin/godis/lib/utils"
 	"github.com/linkerlin/godis/redis/protocol"
 )
 
@@ -81,12 +82,9 @@ func rewriteConfigFile() redis.Reply {
 	if err := os.WriteFile(tmp, []byte(content), 0644); err != nil {
 		return protocol.MakeErrReply("ERR " + err.Error())
 	}
-	if err := os.Rename(tmp, path); err != nil {
-		_ = os.Remove(path)
-		if err2 := os.Rename(tmp, path); err2 != nil {
-			_ = os.Remove(tmp)
-			return protocol.MakeErrReply(fmt.Sprintf("ERR rewrite config: %v", err2))
-		}
+	if err := utils.ReplaceFile(tmp, path); err != nil {
+		_ = os.Remove(tmp)
+		return protocol.MakeErrReply(fmt.Sprintf("ERR rewrite config: %v", err))
 	}
 	return nil
 }

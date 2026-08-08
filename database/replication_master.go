@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/linkerlin/godis/aof"
 	"github.com/linkerlin/godis/config"
 	"github.com/linkerlin/godis/interface/redis"
 	"github.com/linkerlin/godis/lib/logger"
@@ -181,6 +182,10 @@ func (server *Server) saveForReplication() error {
 	// Close the placeholder handle: on Windows, renaming over a still-open
 	// file fails with "Access is denied", breaking full sync for replicas.
 	_ = rdbFile.Close()
+	// Drop the empty placeholder so GenerateRDB/WriteRDB can replace onto this path
+	// (Windows cannot rename onto an existing file).
+	_ = os.Remove(rdbFilename)
+
 	server.masterStatus.mu.Lock()
 	server.masterStatus.bgSaveState = bgSaveRunning
 	server.masterStatus.rdbFilename = rdbFilename // todo: can reuse config.Properties.RDBFilename?
@@ -191,7 +196,14 @@ func (server *Server) saveForReplication() error {
 	server.masterStatus.aofListener = aofListener
 	server.masterStatus.mu.Unlock()
 
-	err = server.persister.GenerateRDBForReplication(rdbFilename, aofListener, nil)
+	if server.persister != nil {
+		err = server.persister.GenerateRDBForReplication(rdbFilename, aofListener, nil)
+	} else {
+		// No AOF/persister (common after FAILOVER promotes a replica): snapshot memory.
+		// Wire write commands into the replication backlog so online slaves keep up.
+		server.wireReplicationBacklogFeed(aofListener)
+		err = aof.WriteRDBFromDB(rdbFilename, server)
+	}
 	if err != nil {
 		return err
 	}
@@ -225,6 +237,9 @@ func (server *Server) rewriteRDB() error {
 		return fmt.Errorf("create temp rdb failed: %v", err)
 	}
 	rdbFilename := rdbFile.Name()
+	_ = rdbFile.Close()
+	_ = os.Remove(rdbFilename)
+
 	newBacklog := newReplBacklog(maxBacklogSize)
 	aofListener := &replAofListener{
 		backlog: newBacklog,
@@ -239,20 +254,48 @@ func (server *Server) rewriteRDB() error {
 		newBacklog.beginOffset = off
 		newBacklog.currentOffset = off
 	}
-	err = server.persister.GenerateRDBForReplication(rdbFilename, aofListener, hook)
+	if server.persister != nil {
+		err = server.persister.GenerateRDBForReplication(rdbFilename, aofListener, hook)
+	} else {
+		hook()
+		server.wireReplicationBacklogFeed(aofListener)
+		err = aof.WriteRDBFromDB(rdbFilename, server)
+	}
 	if err != nil { // wait rdb result
 		return err
 	}
 	server.masterStatus.mu.Lock()
 	server.masterStatus.rdbFilename = rdbFilename
 	server.masterStatus.backlog = newBacklog
-	server.persister.RemoveListener(server.masterStatus.aofListener)
+	if server.persister != nil {
+		server.persister.RemoveListener(server.masterStatus.aofListener)
+	}
 	server.masterStatus.aofListener = aofListener
 	server.masterStatus.mu.Unlock()
 	// It is ok to know that new backlog is ready later, so we change readyToSend without sync
 	// But setting readyToSend=true must after new backlog is really ready (that means master.mu.Unlock)
 	aofListener.readyToSend = true
 	return nil
+}
+
+// wireReplicationBacklogFeed routes DB write commands into the replication backlog
+// when there is no AOF persister (listeners would otherwise never fire).
+// Idempotent: always points at the current aofListener via masterStatus.
+func (server *Server) wireReplicationBacklogFeed(listener *replAofListener) {
+	if listener == nil {
+		return
+	}
+	for _, holder := range server.dbSet {
+		db := holder.Load().(*DB)
+		db.addAof = func(line CmdLine) {
+			server.masterStatus.mu.RLock()
+			l := server.masterStatus.aofListener
+			server.masterStatus.mu.RUnlock()
+			if l != nil {
+				l.Callback([]CmdLine{line})
+			}
+		}
+	}
 }
 
 // masterFullReSyncWithSlave send replication header, rdb file and all backlogs to slave
