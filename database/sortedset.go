@@ -1585,12 +1585,12 @@ func execZSetOperation(db *DB, args [][]byte, op string, store bool) redis.Reply
 		return protocol.MakeScorePairsReply(members, scores, true)
 	}
 
-	// Return only members (no scores)
-	reply := make([][]byte, 0, len(result))
-	for _, ms := range sortedResult {
-		reply = append(reply, []byte(ms.member))
+	// Members only → Set in RESP3 (unordered); RESP2 array via SetReply.ToBytes.
+	out := make([]string, len(sortedResult))
+	for i, ms := range sortedResult {
+		out[i] = ms.member
 	}
-	return protocol.MakeMultiBulkReply(reply)
+	return stringsToSetReply(out)
 }
 
 // execZMPop removes and returns elements from multiple sorted sets

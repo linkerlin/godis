@@ -241,3 +241,23 @@ func TestResp3SPopSRandMemberSet(t *testing.T) {
 		t.Fatalf("empty SRANDMEMBER RESP3: %q", g)
 	}
 }
+
+func TestResp3ZUnionMembersSet(t *testing.T) {
+	db := makeTestDB()
+	db.Flush()
+	_ = db.Exec(nil, utils.ToCmdLine("ZADD", "z1", "1", "a", "2", "b"))
+	_ = db.Exec(nil, utils.ToCmdLine("ZADD", "z2", "3", "b", "4", "c"))
+	u := db.Exec(nil, utils.ToCmdLine("ZUNION", "2", "z1", "z2"))
+	if _, ok := u.(*protocol.SetReply); !ok {
+		t.Fatalf("ZUNION members type %T", u)
+	}
+	if protocol.ReplyToRESP3(u)[0] != '~' {
+		t.Fatalf("ZUNION members RESP3: %q", protocol.ReplyToRESP3(u))
+	}
+	asserts.AssertMultiBulkReplySize(t, u, 3)
+	// WITHSCORES stays ScorePairs (nested), not Set.
+	ws := db.Exec(nil, utils.ToCmdLine("ZUNION", "2", "z1", "z2", "WITHSCORES"))
+	if _, ok := ws.(*protocol.ScorePairsReply); !ok {
+		t.Fatalf("ZUNION WITHSCORES type %T", ws)
+	}
+}
