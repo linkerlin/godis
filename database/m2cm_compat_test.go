@@ -65,7 +65,7 @@ func TestM2cmACLGetUserFullPasswordHash(t *testing.T) {
 	asserts.AssertStatusReply(t, db.Exec(nil, utils.ToCmdLine("ACL", "SETUSER", "u1", "on", ">secret", "~*", "+@all")), "OK")
 
 	r := db.Exec(nil, utils.ToCmdLine("ACL", "GETUSER", "u1"))
-	mb, ok := r.(*protocol.MultiBulkReply)
+	m, ok := r.(*protocol.MapReply)
 	if !ok {
 		t.Fatalf("GETUSER: %T %s", r, r.ToBytes())
 	}
@@ -73,16 +73,8 @@ func TestM2cmACLGetUserFullPasswordHash(t *testing.T) {
 	if strings.Contains(joined, "sha256:") || strings.Contains(joined, "...") {
 		t.Fatalf("truncated/prefixed hash: %s", joined)
 	}
-	found := false
-	for i := 0; i+1 < len(mb.Args); i += 2 {
-		if string(mb.Args[i]) != "passwords" {
-			continue
-		}
-		// nested multi bulk encoded in next element — parse from raw bytes
-		found = strings.Contains(string(mb.Args[i+1]), "#")
-		break
-	}
-	if !found && !strings.Contains(joined, "#") {
+	pw, ok := m.Data["passwords"]
+	if !ok || !strings.Contains(string(pw.ToBytes()), "#") {
 		t.Fatalf("want #fullhash in GETUSER: %s", joined)
 	}
 	// full sha256 hex is 64 chars after #

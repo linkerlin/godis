@@ -364,6 +364,23 @@ func TestResp3MemoryStatsMap(t *testing.T) {
 	}
 }
 
+func TestResp3ACLGetUserMap(t *testing.T) {
+	db := makeTestDB()
+	asserts.AssertStatusReply(t, db.Exec(nil, utils.ToCmdLine(
+		"ACL", "SETUSER", "agu", "on", "nopass", "~*", "+@all",
+	)), "OK")
+	r := db.Exec(nil, utils.ToCmdLine("ACL", "GETUSER", "agu"))
+	if _, ok := r.(*protocol.MapReply); !ok {
+		t.Fatalf("ACL GETUSER type %T", r)
+	}
+	if r.ToBytes()[0] != '*' {
+		t.Fatalf("ACL GETUSER RESP2: %q", r.ToBytes())
+	}
+	if protocol.ReplyToRESP3(r)[0] != '%' {
+		t.Fatalf("ACL GETUSER RESP3: %q", protocol.ReplyToRESP3(r))
+	}
+}
+
 func TestResp3XReadMap(t *testing.T) {
 	db := makeTestDB()
 	db.Flush()

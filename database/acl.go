@@ -666,37 +666,28 @@ func formatACLUser(user *acl.User) []byte {
 	return []byte(acl.FormatACLFileLine(user))
 }
 
-// formatACLUserReply formats user details as Redis reply
+// formatACLUserReply formats user details as Redis reply.
+// RESP3: Map; RESP2: flat field/value array via MapReply.ToBytes.
+// Nested arrays (flags/passwords/…) are proper MultiBulk/MultiRaw, not bulk blobs.
 func formatACLUserReply(user *acl.User) redis.Reply {
-	var result [][]byte
+	m := protocol.MakeMapReply()
 
-	// Flags
-	flags := []string{}
+	flags := [][]byte{}
 	if user.Enabled {
-		flags = append(flags, "on")
+		flags = append(flags, []byte("on"))
 	} else {
-		flags = append(flags, "off")
+		flags = append(flags, []byte("off"))
 	}
+	m.Put("flags", protocol.MakeMultiBulkReply(flags))
 
-	var flagReplies [][]byte
-	for _, f := range flags {
-		flagReplies = append(flagReplies, []byte(f))
-	}
-	result = append(result, []byte("flags"))
-	result = append(result, protocol.MakeMultiBulkReply(flagReplies).ToBytes())
-
-	// Passwords
-	result = append(result, []byte("passwords"))
 	var pwdReplies [][]byte
 	for _, pwd := range user.Passwords {
 		if pwd.IsSHA {
 			pwdReplies = append(pwdReplies, []byte("#"+pwd.Hash))
 		}
 	}
-	result = append(result, protocol.MakeMultiBulkReply(pwdReplies).ToBytes())
+	m.Put("passwords", protocol.MakeMultiBulkReply(pwdReplies))
 
-	// Commands
-	result = append(result, []byte("commands"))
 	var cmdReplies [][]byte
 	if user.Commands.AllCommands {
 		cmdReplies = append(cmdReplies, []byte("+@all"))
@@ -704,10 +695,8 @@ func formatACLUserReply(user *acl.User) redis.Reply {
 	for cmd := range user.Commands.AllowedCommands {
 		cmdReplies = append(cmdReplies, []byte("+"+cmd))
 	}
-	result = append(result, protocol.MakeMultiBulkReply(cmdReplies).ToBytes())
+	m.Put("commands", protocol.MakeMultiBulkReply(cmdReplies))
 
-	// Keys
-	result = append(result, []byte("keys"))
 	var keyReplies [][]byte
 	for _, kp := range user.KeyPatterns {
 		if !kp.Allowed {
@@ -722,10 +711,8 @@ func formatACLUserReply(user *acl.User) redis.Reply {
 			keyReplies = append(keyReplies, []byte("~"+kp.Pattern))
 		}
 	}
-	result = append(result, protocol.MakeMultiBulkReply(keyReplies).ToBytes())
+	m.Put("keys", protocol.MakeMultiBulkReply(keyReplies))
 
-	// Channels (&pattern)
-	result = append(result, []byte("channels"))
 	var chReplies [][]byte
 	for _, ch := range user.Channels {
 		if !ch.Allowed {
@@ -733,17 +720,14 @@ func formatACLUserReply(user *acl.User) redis.Reply {
 		}
 		chReplies = append(chReplies, []byte("&"+ch.Pattern))
 	}
-	result = append(result, protocol.MakeMultiBulkReply(chReplies).ToBytes())
+	m.Put("channels", protocol.MakeMultiBulkReply(chReplies))
 
-	// Selectors (Redis 7+); empty array when none
-	result = append(result, []byte("selectors"))
-	var selNested [][]byte
+	var selReplies []redis.Reply
 	for _, sel := range user.Selectors {
 		if sel == nil {
 			continue
 		}
-		var parts [][]byte
-		parts = append(parts, []byte("commands"))
+		sm := protocol.MakeMapReply()
 		var cmdParts [][]byte
 		if sel.Commands != nil && sel.Commands.AllCommands {
 			cmdParts = append(cmdParts, []byte("+@all"))
@@ -753,8 +737,7 @@ func formatACLUserReply(user *acl.User) redis.Reply {
 				cmdParts = append(cmdParts, []byte("+"+cmd))
 			}
 		}
-		parts = append(parts, protocol.MakeMultiBulkReply(cmdParts).ToBytes())
-		parts = append(parts, []byte("keys"))
+		sm.Put("commands", protocol.MakeMultiBulkReply(cmdParts))
 		var keyParts [][]byte
 		for _, kp := range sel.KeyPatterns {
 			if !kp.Allowed {
@@ -762,20 +745,18 @@ func formatACLUserReply(user *acl.User) redis.Reply {
 			}
 			keyParts = append(keyParts, []byte("~"+kp.Pattern))
 		}
-		parts = append(parts, protocol.MakeMultiBulkReply(keyParts).ToBytes())
-		parts = append(parts, []byte("channels"))
+		sm.Put("keys", protocol.MakeMultiBulkReply(keyParts))
 		var chParts [][]byte
 		for _, ch := range sel.Channels {
 			if ch.Allowed {
 				chParts = append(chParts, []byte("&"+ch.Pattern))
 			}
 		}
-		parts = append(parts, protocol.MakeMultiBulkReply(chParts).ToBytes())
-		selNested = append(selNested, protocol.MakeMultiBulkReply(parts).ToBytes())
+		sm.Put("channels", protocol.MakeMultiBulkReply(chParts))
+		selReplies = append(selReplies, sm)
 	}
-	result = append(result, protocol.MakeMultiBulkReply(selNested).ToBytes())
-
-	return protocol.MakeMultiBulkReply(result)
+	m.Put("selectors", protocol.MakeMultiRawReply(selReplies))
+	return m
 }
 
 // generateRandomPassword generates a cryptographically random hex password

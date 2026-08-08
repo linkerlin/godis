@@ -91,15 +91,15 @@ func TestM2bwACLGetUserChannelsSelectors(t *testing.T) {
 		"ACL", "SETUSER", "pubu", "on", "nopass", "+@all", "~*", "&news:*",
 	)), "OK")
 	r := server.Exec(c, utils.ToCmdLine("ACL", "GETUSER", "pubu"))
-	mb, ok := r.(*protocol.MultiBulkReply)
+	m, ok := r.(*protocol.MapReply)
 	if !ok {
 		t.Fatalf("GETUSER: %T %s", r, r.ToBytes())
 	}
-	joined := string(bytesJoin(mb.Args))
-	if !strings.Contains(joined, "channels") || !strings.Contains(joined, "&news:*") {
+	joined := string(r.ToBytes())
+	if _, ok := m.Data["channels"]; !ok || !strings.Contains(joined, "&news:*") {
 		t.Fatalf("want channels &news:*: %s", joined)
 	}
-	if !strings.Contains(joined, "selectors") {
+	if _, ok := m.Data["selectors"]; !ok {
 		t.Fatalf("want selectors key: %s", joined)
 	}
 
@@ -107,8 +107,11 @@ func TestM2bwACLGetUserChannelsSelectors(t *testing.T) {
 		"ACL", "SETUSER", "selu", "on", "nopass", "clearselectors", "+@all", "~*",
 	)), "OK")
 	r = server.Exec(c, utils.ToCmdLine("ACL", "GETUSER", "selu"))
-	joined = string(bytesJoin(r.(*protocol.MultiBulkReply).Args))
-	if !strings.Contains(joined, "selectors") {
-		t.Fatalf("want selectors after clearselectors: %s", joined)
+	m2, ok := r.(*protocol.MapReply)
+	if !ok {
+		t.Fatalf("GETUSER selu: %T", r)
+	}
+	if _, ok := m2.Data["selectors"]; !ok {
+		t.Fatalf("want selectors after clearselectors: %s", r.ToBytes())
 	}
 }
