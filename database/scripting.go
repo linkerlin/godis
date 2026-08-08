@@ -351,9 +351,30 @@ func redisReplyToGo(reply redis.Reply, cmd string, args ...string) interface{} {
 	case *protocol.DoubleReply:
 		return r.Value
 	case *protocol.MapReply:
-		result := make(map[string]interface{}, len(r.Data))
+		if respVer == 3 {
+			result := make(map[string]interface{}, len(r.Data))
+			for k, v := range r.Data {
+				result[k] = redisReplyToGo(v, cmd, args...)
+			}
+			return result
+		}
+		// setresp(2): flatten Map to array like RESP2 wire form
+		result := make([]interface{}, 0, len(r.Data)*2)
 		for k, v := range r.Data {
-			result[k] = redisReplyToGo(v, cmd, args...)
+			result = append(result, k, redisReplyToGo(v, cmd, args...))
+		}
+		return result
+	case *protocol.SetReply:
+		if respVer == 3 {
+			m := make(map[string]interface{}, len(r.Data))
+			for _, elem := range r.Data {
+				m[fmt.Sprint(redisReplyToGo(elem, cmd, args...))] = true
+			}
+			return m
+		}
+		result := make([]interface{}, len(r.Data))
+		for i, elem := range r.Data {
+			result[i] = redisReplyToGo(elem, cmd, args...)
 		}
 		return result
 	case *protocol.MultiBulkReply:

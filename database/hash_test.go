@@ -167,29 +167,45 @@ func TestHGetAll(t *testing.T) {
 
 	// test HGetAll
 	result := testDB.Exec(nil, utils.ToCmdLine("hgetall", key))
-	multiBulk, ok := result.(*protocol.MultiBulkReply)
-	if !ok {
-		t.Errorf("expected MultiBulkReply, actually %s", string(result.ToBytes()))
-	}
-	if 2*len(fields) != len(multiBulk.Args) {
-		t.Errorf("expected %d items , actually %d ", 2*len(fields), len(multiBulk.Args))
-	}
-	for i := range fields {
-		field := string(multiBulk.Args[2*i])
-		actual := string(multiBulk.Args[2*i+1])
-		expected, ok := valueMap[field]
-		if !ok {
-			t.Errorf("unexpected field %s", field)
-			continue
+	switch r := result.(type) {
+	case *protocol.MapReply:
+		if len(r.Data) != len(fields) {
+			t.Errorf("expected %d items , actually %d ", len(fields), len(r.Data))
 		}
-		if actual != expected {
-			t.Errorf("expected %s, actually %s", expected, actual)
+		for field, expected := range valueMap {
+			v, ok := r.Data[field]
+			if !ok {
+				t.Errorf("missing field %s", field)
+				continue
+			}
+			bulk, ok := v.(*protocol.BulkReply)
+			if !ok || string(bulk.Arg) != expected {
+				t.Errorf("expected %s, actually %s", expected, v.ToBytes())
+			}
 		}
+	case *protocol.MultiBulkReply:
+		if 2*len(fields) != len(r.Args) {
+			t.Errorf("expected %d items , actually %d ", 2*len(fields), len(r.Args))
+		}
+		for i := range fields {
+			field := string(r.Args[2*i])
+			actual := string(r.Args[2*i+1])
+			expected, ok := valueMap[field]
+			if !ok {
+				t.Errorf("unexpected field %s", field)
+				continue
+			}
+			if actual != expected {
+				t.Errorf("expected %s, actually %s", expected, actual)
+			}
+		}
+	default:
+		t.Errorf("expected MapReply, actually %T %s", result, string(result.ToBytes()))
 	}
 
 	// test HKeys
 	result = testDB.Exec(nil, utils.ToCmdLine("hkeys", key))
-	multiBulk, ok = result.(*protocol.MultiBulkReply)
+	multiBulk, ok := result.(*protocol.MultiBulkReply)
 	if !ok {
 		t.Errorf("expected MultiBulkReply, actually %s", string(result.ToBytes()))
 	}

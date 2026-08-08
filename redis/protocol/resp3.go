@@ -42,8 +42,13 @@ type RESP3Reply interface {
 // NullReply represents RESP3 null value
 type NullReply struct{}
 
-// ToBytes marshals redis.Reply
+// ToBytes marshals as RESP2 null bulk for RESP2 connections.
 func (r *NullReply) ToBytes() []byte {
+	return nullBulkBytes
+}
+
+// ToRESP3 marshals as RESP3 null.
+func (r *NullReply) ToRESP3() []byte {
 	return []byte("_\r\n")
 }
 
@@ -57,8 +62,13 @@ func MakeDoubleReply(val float64) *DoubleReply {
 	return &DoubleReply{Value: val}
 }
 
-// ToBytes marshals redis.Reply
+// ToBytes marshals as RESP2 bulk string for RESP2 connections.
 func (r *DoubleReply) ToBytes() []byte {
+	return MakeBulkReply([]byte(formatFloat(r.Value))).ToBytes()
+}
+
+// ToRESP3 marshals as RESP3 double.
+func (r *DoubleReply) ToRESP3() []byte {
 	return []byte(fmt.Sprintf(",%s\r\n", formatFloat(r.Value)))
 }
 
@@ -72,8 +82,16 @@ func MakeBooleanReply(val bool) *BooleanReply {
 	return &BooleanReply{Value: val}
 }
 
-// ToBytes marshals redis.Reply
+// ToBytes marshals as RESP2 integer (1/0) for RESP2 connections.
 func (r *BooleanReply) ToBytes() []byte {
+	if r.Value {
+		return []byte(":1\r\n")
+	}
+	return []byte(":0\r\n")
+}
+
+// ToRESP3 marshals as RESP3 boolean.
+func (r *BooleanReply) ToRESP3() []byte {
 	if r.Value {
 		return []byte("#t\r\n")
 	}
@@ -90,8 +108,13 @@ func MakeBigNumberReply(val string) *BigNumberReply {
 	return &BigNumberReply{Value: val}
 }
 
-// ToBytes marshals redis.Reply
+// ToBytes marshals as RESP2 bulk string for RESP2 connections.
 func (r *BigNumberReply) ToBytes() []byte {
+	return MakeBulkReply([]byte(r.Value)).ToBytes()
+}
+
+// ToRESP3 marshals as RESP3 big number.
+func (r *BigNumberReply) ToRESP3() []byte {
 	return []byte(fmt.Sprintf("(%s\r\n", r.Value))
 }
 
@@ -106,8 +129,14 @@ func MakeVerbatimReply(format, value string) *VerbatimReply {
 	return &VerbatimReply{Format: format, Value: value}
 }
 
-// ToBytes marshals redis.Reply
+// ToBytes marshals as RESP2 bulk string (format:value) for RESP2 connections.
 func (r *VerbatimReply) ToBytes() []byte {
+	content := fmt.Sprintf("%s:%s", r.Format, r.Value)
+	return MakeBulkReply([]byte(content)).ToBytes()
+}
+
+// ToRESP3 marshals as RESP3 verbatim string.
+func (r *VerbatimReply) ToRESP3() []byte {
 	content := fmt.Sprintf("%s:%s", r.Format, r.Value)
 	return []byte(fmt.Sprintf("=%d\r\n%s\r\n", len(content), content))
 }
@@ -574,6 +603,16 @@ func ReplyToRESP3(reply redis.Reply) []byte {
 		return []byte("_\r\n")
 	case *NullMultiBulkReply:
 		return []byte("_\r\n")
+	case *NullReply:
+		return r.ToRESP3()
+	case *DoubleReply:
+		return r.ToRESP3()
+	case *BooleanReply:
+		return r.ToRESP3()
+	case *BigNumberReply:
+		return r.ToRESP3()
+	case *VerbatimReply:
+		return r.ToRESP3()
 	case *MultiBulkReply:
 		var buf bytes.Buffer
 		buf.WriteString("*" + strconv.Itoa(len(r.Args)) + CRLF)

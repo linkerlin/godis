@@ -195,7 +195,8 @@ done:
 	return rollbackZSetFields(db, key, fields...)
 }
 
-// execZScore gets score of a member in sortedset
+// execZScore gets score of a member in sortedset.
+// Returns DoubleReply so RESP3 connections get ,doubles while RESP2 still sees a bulk string.
 func execZScore(db *DB, args [][]byte) redis.Reply {
 	// parse args
 	key := string(args[0])
@@ -216,8 +217,7 @@ func execZScore(db *DB, args [][]byte) redis.Reply {
 	if !exists {
 		return &protocol.NullBulkReply{}
 	}
-	value := strconv.FormatFloat(element.Score, 'f', -1, 64)
-	return protocol.MakeBulkReply([]byte(value))
+	return protocol.MakeDoubleReply(element.Score)
 }
 
 // execZMScore gets scores of multiple members in sortedset
@@ -238,22 +238,21 @@ func execZMScore(db *DB, args [][]byte) redis.Reply {
 		return errReply
 	}
 
-	results := make([][]byte, len(members))
+	results := make([]redis.Reply, len(members))
 	for i, member := range members {
 		if sortedSet == nil {
-			results[i] = nil
+			results[i] = protocol.MakeNullBulkReply()
+			continue
+		}
+		element, exists := sortedSet.Get(string(member))
+		if !exists {
+			results[i] = protocol.MakeNullBulkReply()
 		} else {
-			element, exists := sortedSet.Get(string(member))
-			if !exists {
-				results[i] = nil
-			} else {
-				value := strconv.FormatFloat(element.Score, 'f', -1, 64)
-				results[i] = []byte(value)
-			}
+			results[i] = protocol.MakeDoubleReply(element.Score)
 		}
 	}
 
-	return protocol.MakeMultiBulkReply(results)
+	return protocol.MakeMultiRawReply(results)
 }
 
 // execZRank gets index of a member in sortedset, ascending order, start from 0

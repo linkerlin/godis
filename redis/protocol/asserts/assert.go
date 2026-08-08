@@ -36,13 +36,18 @@ func AssertIntReplyGreaterThan(t *testing.T, actual redis.Reply, expected int) {
 // AssertBulkReply checks if the given redis.Reply is the expected string
 func AssertBulkReply(t *testing.T, actual redis.Reply, expected string) {
 	bulkReply, ok := actual.(*protocol.BulkReply)
-	if !ok {
-		t.Errorf("expected bulk protocol, actually %s, %s", actual.ToBytes(), printStack())
+	if ok {
+		if !utils.BytesEquals(bulkReply.Arg, []byte(expected)) {
+			t.Errorf("expected %s, actually %s, %s", expected, actual.ToBytes(), printStack())
+		}
 		return
 	}
-	if !utils.BytesEquals(bulkReply.Arg, []byte(expected)) {
-		t.Errorf("expected %s, actually %s, %s", expected, actual.ToBytes(), printStack())
+	// DoubleReply (and other types) encode as bulk on RESP2 / ToBytes.
+	expectBytes := protocol.MakeBulkReply([]byte(expected)).ToBytes()
+	if utils.BytesEquals(actual.ToBytes(), expectBytes) {
+		return
 	}
+	t.Errorf("expected bulk protocol, actually %s, %s", actual.ToBytes(), printStack())
 }
 
 // AssertStatusReply checks if the given redis.Reply is the expected status
@@ -113,39 +118,86 @@ func AssertNullBulk(t *testing.T, result redis.Reply) {
 
 // AssertMultiBulkReply checks if the given redis.Reply has the expected content
 func AssertMultiBulkReply(t *testing.T, actual redis.Reply, expected []string) {
-	multiBulk, ok := actual.(*protocol.MultiBulkReply)
-	if !ok {
-		t.Errorf("expected bulk protocol, actually %s, %s", actual.ToBytes(), printStack())
-		return
-	}
-	if len(multiBulk.Args) != len(expected) {
-		t.Errorf("expected %d elements, actually %d, %s",
-			len(expected), len(multiBulk.Args), printStack())
-		return
-	}
-	for i, v := range multiBulk.Args {
-		str := string(v)
-		if str != expected[i] {
-			t.Errorf("expected %s, actually %s, %s", expected[i], actual, printStack())
+	switch r := actual.(type) {
+	case *protocol.MultiBulkReply:
+		if len(r.Args) != len(expected) {
+			t.Errorf("expected %d elements, actually %d, %s",
+				len(expected), len(r.Args), printStack())
+			return
 		}
+		for i, v := range r.Args {
+			str := string(v)
+			if str != expected[i] {
+				t.Errorf("expected %s, actually %s, %s", expected[i], actual, printStack())
+			}
+		}
+	case *protocol.SetReply:
+		if len(r.Data) != len(expected) {
+			t.Errorf("expected %d elements, actually %d, %s",
+				len(expected), len(r.Data), printStack())
+			return
+		}
+		got := make(map[string]bool, len(r.Data))
+		for _, elem := range r.Data {
+			bulk, ok := elem.(*protocol.BulkReply)
+			if !ok {
+				t.Errorf("expected bulk set elem, got %T %s", elem, printStack())
+				return
+			}
+			got[string(bulk.Arg)] = true
+		}
+		for _, e := range expected {
+			if !got[e] {
+				t.Errorf("missing expected member %s, %s", e, printStack())
+			}
+		}
+	case *protocol.MapReply:
+		if len(r.Data)*2 != len(expected) {
+			t.Errorf("expected %d elements, actually %d map entries, %s",
+				len(expected), len(r.Data), printStack())
+			return
+		}
+		for i := 0; i+1 < len(expected); i += 2 {
+			v, ok := r.Data[expected[i]]
+			if !ok {
+				t.Errorf("missing field %s, %s", expected[i], printStack())
+				continue
+			}
+			bulk, ok := v.(*protocol.BulkReply)
+			if !ok || string(bulk.Arg) != expected[i+1] {
+				t.Errorf("expected %s=%s, got %s, %s", expected[i], expected[i+1], v.ToBytes(), printStack())
+			}
+		}
+	default:
+		t.Errorf("expected bulk protocol, actually %T %s, %s", actual, actual.ToBytes(), printStack())
 	}
 }
 
 // AssertMultiBulkReplySize check if redis.Reply has expected length
 func AssertMultiBulkReplySize(t *testing.T, actual redis.Reply, expected int) {
-	multiBulk, ok := actual.(*protocol.MultiBulkReply)
-	if !ok {
-		if expected == 0 &&
-			utils.BytesEquals(actual.ToBytes(), protocol.MakeEmptyMultiBulkReply().ToBytes()) {
-			return
+	if multiBulk, ok := actual.(*protocol.MultiBulkReply); ok {
+		if len(multiBulk.Args) != expected {
+			t.Errorf("expected %d elements, actually %d, %s", expected, len(multiBulk.Args), printStack())
 		}
-		t.Errorf("expected bulk protocol, actually %s, %s", actual.ToBytes(), printStack())
 		return
 	}
-	if len(multiBulk.Args) != expected {
-		t.Errorf("expected %d elements, actually %d, %s", expected, len(multiBulk.Args), printStack())
+	if multiRaw, ok := actual.(*protocol.MultiRawReply); ok {
+		if len(multiRaw.Replies) != expected {
+			t.Errorf("expected %d elements, actually %d, %s", expected, len(multiRaw.Replies), printStack())
+		}
 		return
 	}
+	if set, ok := actual.(*protocol.SetReply); ok {
+		if len(set.Data) != expected {
+			t.Errorf("expected %d elements, actually %d, %s", expected, len(set.Data), printStack())
+		}
+		return
+	}
+	if expected == 0 &&
+		utils.BytesEquals(actual.ToBytes(), protocol.MakeEmptyMultiBulkReply().ToBytes()) {
+		return
+	}
+	t.Errorf("expected bulk protocol, actually %s, %s", actual.ToBytes(), printStack())
 }
 
 func printStack() string {

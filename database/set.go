@@ -185,7 +185,8 @@ func execSCard(db *DB, args [][]byte) redis.Reply {
 	return protocol.MakeIntReply(int64(set.Len()))
 }
 
-// execSMembers gets all members in a set
+// execSMembers gets all members in a set.
+// Returns SetReply so RESP3 connections get ~ sets while RESP2 still sees an array.
 func execSMembers(db *DB, args [][]byte) redis.Reply {
 	key := string(args[0])
 
@@ -195,17 +196,15 @@ func execSMembers(db *DB, args [][]byte) redis.Reply {
 		return errReply
 	}
 	if set == nil {
-		return &protocol.EmptyMultiBulkReply{}
+		return protocol.MakeSetReply(nil)
 	}
 
-	arr := make([][]byte, set.Len())
-	i := 0
+	arr := make([]redis.Reply, 0, set.Len())
 	set.ForEach(func(member string) bool {
-		arr[i] = []byte(member)
-		i++
+		arr = append(arr, protocol.MakeBulkReply([]byte(member)))
 		return true
 	})
-	return protocol.MakeMultiBulkReply(arr)
+	return protocol.MakeSetReply(arr)
 }
 
 func set2reply(set *HashSet.Set) redis.Reply {

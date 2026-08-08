@@ -384,7 +384,8 @@ func execHVals(db *DB, args [][]byte) redis.Reply {
 	return protocol.MakeMultiBulkReply(values[:i])
 }
 
-// execHGetAll gets all key-value entries in hash table
+// execHGetAll gets all key-value entries in hash table.
+// Returns MapReply so RESP3 connections get % maps while RESP2 still sees a flat array.
 func execHGetAll(db *DB, args [][]byte) redis.Reply {
 	key := string(args[0])
 
@@ -393,21 +394,16 @@ func execHGetAll(db *DB, args [][]byte) redis.Reply {
 	if errReply != nil {
 		return errReply
 	}
+	m := protocol.MakeMapReply()
 	if dict == nil {
-		return &protocol.EmptyMultiBulkReply{}
+		return m
 	}
-
-	size := dict.Len()
-	result := make([][]byte, size*2)
-	i := 0
-	dict.ForEach(func(key string, val interface{}) bool {
-		result[i] = []byte(key)
-		i++
-		result[i], _ = val.([]byte)
-		i++
+	dict.ForEach(func(field string, val interface{}) bool {
+		bytes, _ := val.([]byte)
+		m.Put(field, protocol.MakeBulkReply(bytes))
 		return true
 	})
-	return protocol.MakeMultiBulkReply(result[:i])
+	return m
 }
 
 // execHIncrBy increments the integer value of a hash field by the given number

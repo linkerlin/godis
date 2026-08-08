@@ -35,13 +35,19 @@ func TestSAdd(t *testing.T) {
 
 	// test members
 	result = testDB.Exec(nil, utils.ToCmdLine("SMembers", key))
-	multiBulk, ok := result.(*protocol.MultiBulkReply)
-	if !ok {
-		t.Errorf("expected bulk protocol, actually %s", result.ToBytes())
-		return
-	}
-	if len(multiBulk.Args) != size {
-		t.Errorf("expected %d elements, actually %d", size, len(multiBulk.Args))
+	switch r := result.(type) {
+	case *protocol.SetReply:
+		if len(r.Data) != size {
+			t.Errorf("expected %d elements, actually %d", size, len(r.Data))
+			return
+		}
+	case *protocol.MultiBulkReply:
+		if len(r.Args) != size {
+			t.Errorf("expected %d elements, actually %d", size, len(r.Args))
+			return
+		}
+	default:
+		t.Errorf("expected SetReply, actually %T %s", result, result.ToBytes())
 		return
 	}
 }

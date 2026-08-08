@@ -207,8 +207,16 @@ func TestM1GeoSearchStorePreservesScore(t *testing.T) {
 		"FROMLONLAT", "15", "37", "BYRADIUS", "200", "km"))
 	asserts.AssertIntReplyGreaterThan(t, n, 0)
 	score := testDB.Exec(nil, utils.ToCmdLine("ZSCORE", "g:out", "Catania"))
-	bulk, ok := score.(*protocol.BulkReply)
-	if !ok || string(bulk.Arg) == "0" || bulk.Arg == nil {
-		t.Fatalf("GEOSEARCHSTORE should store geohash score, got %s", score.ToBytes())
+	switch s := score.(type) {
+	case *protocol.BulkReply:
+		if s.Arg == nil || string(s.Arg) == "0" {
+			t.Fatalf("GEOSEARCHSTORE should store geohash score, got %s", score.ToBytes())
+		}
+	case *protocol.DoubleReply:
+		if s.Value == 0 {
+			t.Fatalf("GEOSEARCHSTORE should store geohash score, got %s", score.ToBytes())
+		}
+	default:
+		t.Fatalf("GEOSEARCHSTORE should store geohash score, got %T %s", score, score.ToBytes())
 	}
 }
