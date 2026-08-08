@@ -291,6 +291,19 @@ func TestResp3XInfoMap(t *testing.T) {
 	if wire3[0] != '*' || !bytes.Contains(wire3, []byte("%")) {
 		t.Fatalf("XINFO GROUPS RESP3: %q", wire3)
 	}
+
+	_ = db.Exec(nil, utils.ToCmdLine("XREADGROUP", "GROUP", "g", "c1", "STREAMS", "xi", ">"))
+	consumers := db.Exec(nil, utils.ToCmdLine("XINFO", "CONSUMERS", "xi", "g"))
+	cmr, ok := consumers.(*protocol.MultiRawReply)
+	if !ok || len(cmr.Replies) < 1 {
+		t.Fatalf("XINFO CONSUMERS type %T %s", consumers, consumers.ToBytes())
+	}
+	if _, ok := cmr.Replies[0].(*protocol.MapReply); !ok {
+		t.Fatalf("XINFO CONSUMERS[0] want Map, got %T", cmr.Replies[0])
+	}
+	if cw := protocol.ReplyToRESP3(consumers); cw[0] != '*' || !bytes.Contains(cw, []byte("%")) {
+		t.Fatalf("XINFO CONSUMERS RESP3: %q", cw)
+	}
 }
 
 func TestResp3ZRandMemberSet(t *testing.T) {

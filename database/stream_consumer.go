@@ -924,15 +924,12 @@ func execXInfoConsumers(db *DB, args [][]byte) redis.Reply {
 		if c.SeenTime.IsZero() {
 			idle = 0
 		}
-		pairs := []redis.Reply{
-			protocol.MakeBulkReply([]byte("name")),
-			protocol.MakeBulkReply([]byte(c.Name)),
-			protocol.MakeBulkReply([]byte("pending")),
-			protocol.MakeIntReply(int64(len(c.Pending))),
-			protocol.MakeBulkReply([]byte("idle")),
-			protocol.MakeIntReply(idle),
-		}
-		replies = append(replies, protocol.MakeMultiRawReply(pairs))
+		// Each consumer is a Map: RESP3 → %, RESP2 → flat field/value array.
+		cm := protocol.MakeMapReply()
+		cm.Put("name", protocol.MakeBulkReply([]byte(c.Name)))
+		cm.Put("pending", protocol.MakeIntReply(int64(len(c.Pending))))
+		cm.Put("idle", protocol.MakeIntReply(idle))
+		replies = append(replies, cm)
 		return true
 	})
 	return protocol.MakeMultiRawReply(replies)
