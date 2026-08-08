@@ -128,7 +128,7 @@ parsePairs:
 		db.addAof(utils.ToCmdLine3("zadd", args...))
 		notifyKeyspaceEvent(db, "zadd", key)
 		signalZSetWaiters(key)
-		return protocol.MakeBulkReply([]byte(strconv.FormatFloat(newScore, 'f', -1, 64)))
+		return protocol.MakeDoubleReply(newScore)
 	}
 
 	added, changed := 0, 0
@@ -193,6 +193,20 @@ done:
 		fields = append(fields, string(rest[j]))
 	}
 	return rollbackZSetFields(db, key, fields...)
+}
+
+// elementsToScorePairs builds a RESP2-flat / RESP3-(nested|flat) score-pairs reply.
+func elementsToScorePairs(elements []*SortedSet.Element, nest bool) redis.Reply {
+	if len(elements) == 0 {
+		return protocol.MakeEmptyMultiBulkReply()
+	}
+	members := make([]string, len(elements))
+	scores := make([]float64, len(elements))
+	for i, e := range elements {
+		members[i] = e.Member
+		scores[i] = e.Score
+	}
+	return protocol.MakeScorePairsReply(members, scores, nest)
 }
 
 // execZScore gets score of a member in sortedset.
@@ -299,7 +313,7 @@ func execZRankFamily(db *DB, args [][]byte, desc bool) redis.Reply {
 	ele, _ := sortedSet.Get(member)
 	return protocol.MakeMultiRawReply([]redis.Reply{
 		protocol.MakeIntReply(rank),
-		protocol.MakeBulkReply([]byte(strconv.FormatFloat(ele.Score, 'f', -1, 64))),
+		protocol.MakeDoubleReply(ele.Score),
 	})
 }
 
@@ -420,12 +434,7 @@ func execZRange(db *DB, args [][]byte) redis.Reply {
 	}
 
 	if withScores {
-		result := make([][]byte, len(elements)*2)
-		for i, e := range elements {
-			result[2*i] = []byte(e.Member)
-			result[2*i+1] = []byte(strconv.FormatFloat(e.Score, 'f', -1, 64))
-		}
-		return protocol.MakeMultiBulkReply(result)
+		return elementsToScorePairs(elements, true)
 	}
 	result := make([][]byte, len(elements))
 	for i, e := range elements {
@@ -494,16 +503,7 @@ func range0(db *DB, key string, start int64, stop int64, withScores bool, desc b
 	// assert: start in [0, size - 1], stop in [start, size]
 	slice := sortedSet.RangeByRank(start, stop, desc)
 	if withScores {
-		result := make([][]byte, len(slice)*2)
-		i := 0
-		for _, element := range slice {
-			result[i] = []byte(element.Member)
-			i++
-			scoreStr := strconv.FormatFloat(element.Score, 'f', -1, 64)
-			result[i] = []byte(scoreStr)
-			i++
-		}
-		return protocol.MakeMultiBulkReply(result)
+		return elementsToScorePairs(slice, true)
 	}
 	result := make([][]byte, len(slice))
 	i := 0
@@ -555,16 +555,7 @@ func rangeByScore0(db *DB, key string, min SortedSet.Border, max SortedSet.Borde
 
 	slice := sortedSet.Range(min, max, offset, limit, desc)
 	if withScores {
-		result := make([][]byte, len(slice)*2)
-		i := 0
-		for _, element := range slice {
-			result[i] = []byte(element.Member)
-			i++
-			scoreStr := strconv.FormatFloat(element.Score, 'f', -1, 64)
-			result[i] = []byte(scoreStr)
-			i++
-		}
-		return protocol.MakeMultiBulkReply(result)
+		return elementsToScorePairs(slice, true)
 	}
 	result := make([][]byte, len(slice))
 	i := 0
@@ -776,12 +767,8 @@ func execZPopMin(db *DB, args [][]byte) redis.Reply {
 	if len(removed) > 0 {
 		db.addAof(utils.ToCmdLine3("zpopmin", args...))
 	}
-	result := make([][]byte, 0, len(removed)*2)
-	for _, element := range removed {
-		scoreStr := strconv.FormatFloat(element.Score, 'f', -1, 64)
-		result = append(result, []byte(element.Member), []byte(scoreStr))
-	}
-	return protocol.MakeMultiBulkReply(result)
+	// Explicit COUNT → nested RESP3 pairs; bare ZPOPMIN → flat [member, score].
+	return elementsToScorePairs(removed, len(args) > 1)
 }
 
 // execZRem removes given members
@@ -856,17 +843,16 @@ func execZIncrBy(db *DB, args [][]byte) redis.Reply {
 		sortedSet.Add(field, delta)
 		db.addAof(utils.ToCmdLine3("zincrby", args...))
 		signalZSetWaiters(key)
-		return protocol.MakeBulkReply(args[1])
+		return protocol.MakeDoubleReply(delta)
 	}
 	score := element.Score + delta
 	if math.IsNaN(score) {
 		return protocol.MakeErrReply("ERR resulting score is not a number (NaN)")
 	}
 	sortedSet.Add(field, score)
-	bytes := []byte(strconv.FormatFloat(score, 'f', -1, 64))
 	db.addAof(utils.ToCmdLine3("zincrby", args...))
 	signalZSetWaiters(key)
-	return protocol.MakeBulkReply(bytes)
+	return protocol.MakeDoubleReply(score)
 }
 
 func undoZIncr(db *DB, args [][]byte) []CmdLine {
@@ -1119,12 +1105,7 @@ func execZPopMax(db *DB, args [][]byte) redis.Reply {
 	if len(removed) > 0 {
 		db.addAof(utils.ToCmdLine3("zpopmax", args...))
 	}
-	result := make([][]byte, 0, len(removed)*2)
-	for _, element := range removed {
-		scoreStr := strconv.FormatFloat(element.Score, 'f', -1, 64)
-		result = append(result, []byte(element.Member), []byte(scoreStr))
-	}
-	return protocol.MakeMultiBulkReply(result)
+	return elementsToScorePairs(removed, len(args) > 1)
 }
 
 // execBZPopMin BZPOPMIN key [key ...] timeout - 阻塞弹出最小分数成员
@@ -1185,11 +1166,10 @@ func execBlockingZPop(db *DB, args [][]byte, min bool) redis.Reply {
 			} else {
 				db.addAof(utils.ToCmdLine3("zpopmax", []byte(key)))
 			}
-			scoreStr := strconv.FormatFloat(removed[0].Score, 'f', -1, 64)
-			reply = protocol.MakeMultiBulkReply([][]byte{
-				[]byte(key),
-				[]byte(removed[0].Member),
-				[]byte(scoreStr),
+			reply = protocol.MakeMultiRawReply([]redis.Reply{
+				protocol.MakeBulkReply([]byte(key)),
+				protocol.MakeBulkReply([]byte(removed[0].Member)),
+				protocol.MakeDoubleReply(removed[0].Score),
 			})
 			break
 		}
@@ -1596,13 +1576,13 @@ func execZSetOperation(db *DB, args [][]byte, op string, store bool) redis.Reply
 	})
 
 	if withScores {
-		// Return members with scores
-		reply := make([][]byte, 0, len(result)*2)
-		for _, ms := range sortedResult {
-			reply = append(reply, []byte(ms.member))
-			reply = append(reply, []byte(strconv.FormatFloat(ms.score, 'f', -1, 64)))
+		members := make([]string, len(sortedResult))
+		scores := make([]float64, len(sortedResult))
+		for i, ms := range sortedResult {
+			members[i] = ms.member
+			scores[i] = ms.score
 		}
-		return protocol.MakeMultiBulkReply(reply)
+		return protocol.MakeScorePairsReply(members, scores, true)
 	}
 
 	// Return only members (no scores)
@@ -1686,7 +1666,7 @@ func execZMPop(db *DB, args [][]byte) redis.Reply {
 		for _, elem := range removed {
 			elements = append(elements, protocol.MakeMultiRawReply([]redis.Reply{
 				protocol.MakeBulkReply([]byte(elem.Member)),
-				protocol.MakeBulkReply([]byte(strconv.FormatFloat(elem.Score, 'f', -1, 64))),
+				protocol.MakeDoubleReply(elem.Score),
 			}))
 		}
 		if sortedSet.Len() == 0 {

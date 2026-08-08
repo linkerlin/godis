@@ -90,12 +90,7 @@ func TestGeoDist(t *testing.T) {
 		"15.087269", "37.502669", pos2,
 	))
 	result := execGeoDist(testDB, utils.ToCmdLine(key, pos1, pos2, "km"))
-	bulkReply, ok := result.(*protocol.BulkReply)
-	if !ok {
-		t.Errorf("expected bulk protocol, actually %s", result.ToBytes())
-		return
-	}
-	dist, err := strconv.ParseFloat(string(bulkReply.Arg), 10)
+	dist, err := parseReplyFloat(result)
 	if err != nil {
 		t.Error(err)
 		return
@@ -105,17 +100,23 @@ func TestGeoDist(t *testing.T) {
 	}
 
 	result = execGeoDist(testDB, utils.ToCmdLine(key, pos1, pos2, "m"))
-	bulkReply, ok = result.(*protocol.BulkReply)
-	if !ok {
-		t.Errorf("expected bulk protocol, actually %s", result.ToBytes())
-		return
-	}
-	dist, err = strconv.ParseFloat(string(bulkReply.Arg), 10)
+	dist, err = parseReplyFloat(result)
 	if err != nil {
 		t.Error(err)
 		return
 	}
 	if dist < 166274 || dist > 166275 {
 		t.Errorf("expected 166274, actual: %f", dist)
+	}
+}
+
+func parseReplyFloat(r interface{ ToBytes() []byte }) (float64, error) {
+	switch v := r.(type) {
+	case *protocol.BulkReply:
+		return strconv.ParseFloat(string(v.Arg), 64)
+	case *protocol.DoubleReply:
+		return v.Value, nil
+	default:
+		return 0, strconv.ErrSyntax
 	}
 }

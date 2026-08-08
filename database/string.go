@@ -550,13 +550,13 @@ func execIncrByFloat(db *DB, args [][]byte) redis.Reply {
 			Data: resultBytes,
 		})
 		db.addAof(utils.ToCmdLine3("incrbyfloat", args...))
-		return protocol.MakeBulkReply(resultBytes)
+		return protocol.MakeDoubleReply(result)
 	}
 	db.PutEntity(key, &database.DataEntity{
 		Data: args[1],
 	})
 	db.addAof(utils.ToCmdLine3("incrbyfloat", args...))
-	return protocol.MakeBulkReply(args[1])
+	return protocol.MakeDoubleReply(delta)
 }
 
 // execDecr decrements the integer value of a key by one

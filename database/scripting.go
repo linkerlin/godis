@@ -377,6 +377,24 @@ func redisReplyToGo(reply redis.Reply, cmd string, args ...string) interface{} {
 			result[i] = redisReplyToGo(elem, cmd, args...)
 		}
 		return result
+	case *protocol.ScorePairsReply:
+		if respVer == 3 && isMapFlatCmd(cmd, args) {
+			m := make(map[string]interface{}, len(r.Members))
+			for i := range r.Members {
+				m[r.Members[i]] = r.Scores[i]
+			}
+			return m
+		}
+		result := make([]interface{}, 0, len(r.Members)*2)
+		for i := range r.Members {
+			result = append(result, r.Members[i])
+			if respVer == 3 {
+				result = append(result, r.Scores[i])
+			} else {
+				result = append(result, strconv.FormatFloat(r.Scores[i], 'f', -1, 64))
+			}
+		}
+		return result
 	case *protocol.MultiBulkReply:
 		if respVer == 3 && isSetFlatCmd(cmd, args) {
 			m := make(map[string]interface{}, len(r.Args))

@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	"github.com/linkerlin/godis/lib/utils"
-	"github.com/linkerlin/godis/redis/protocol"
 	"github.com/linkerlin/godis/redis/protocol/asserts"
 )
 
@@ -34,15 +33,8 @@ func TestM2dZInterAggregateMinMax(t *testing.T) {
 	db.Exec(nil, utils.ToCmdLine("ZADD", "z2", "2", "a", "3", "b"))
 
 	r := db.Exec(nil, utils.ToCmdLine("ZINTER", "2", "z1", "z2", "AGGREGATE", "MIN", "WITHSCORES"))
-	mr, ok := r.(*protocol.MultiBulkReply)
-	if !ok || len(mr.Args) != 4 {
-		t.Fatalf("ZINTER MIN: %T %s", r, r.ToBytes())
-	}
 	// scores: a=min(1,2)=1, b=min(5,3)=3 — ordered by score
-	asserts.AssertBulkReply(t, protocol.MakeBulkReply(mr.Args[0]), "a")
-	asserts.AssertBulkReply(t, protocol.MakeBulkReply(mr.Args[1]), "1")
-	asserts.AssertBulkReply(t, protocol.MakeBulkReply(mr.Args[2]), "b")
-	asserts.AssertBulkReply(t, protocol.MakeBulkReply(mr.Args[3]), "3")
+	asserts.AssertMultiBulkReply(t, r, []string{"a", "1", "b", "3"})
 
 	r = db.Exec(nil, utils.ToCmdLine("ZINTERSTORE", "out", "2", "z1", "z2", "AGGREGATE", "MAX"))
 	asserts.AssertIntReply(t, r, 2)

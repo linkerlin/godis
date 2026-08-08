@@ -186,17 +186,13 @@ func execGeoDist(db *DB, args [][]byte) redis.Reply {
 	dis := geohash.Distance(positions[0][0], positions[0][1], positions[1][0], positions[1][1])
 	switch unit {
 	case "m":
-		disStr := strconv.FormatFloat(dis, 'f', -1, 64)
-		return protocol.MakeBulkReply([]byte(disStr))
+		return protocol.MakeDoubleReply(dis)
 	case "km":
-		disStr := strconv.FormatFloat(dis/1000, 'f', -1, 64)
-		return protocol.MakeBulkReply([]byte(disStr))
+		return protocol.MakeDoubleReply(dis / 1000)
 	case "mi":
-		disStr := strconv.FormatFloat(dis/1609.34, 'f', -1, 64)
-		return protocol.MakeBulkReply([]byte(disStr))
+		return protocol.MakeDoubleReply(dis / 1609.34)
 	case "ft":
-		disStr := strconv.FormatFloat(dis/0.3048, 'f', -1, 64)
-		return protocol.MakeBulkReply([]byte(disStr))
+		return protocol.MakeDoubleReply(dis / 0.3048)
 	}
 	return protocol.MakeErrReply("ERR unsupported unit provided. please use m, km, ft, mi")
 }

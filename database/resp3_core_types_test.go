@@ -88,3 +88,51 @@ func TestResp3CoreWireTypes(t *testing.T) {
 		t.Fatal("protocol version")
 	}
 }
+
+func TestResp3ScorePairsWireTypes(t *testing.T) {
+	db := makeTestDB()
+	_ = db.Exec(nil, utils.ToCmdLine("ZADD", "z", "1.5", "a", "2", "b", "3", "c"))
+
+	zr := db.Exec(nil, utils.ToCmdLine("ZRANGE", "z", "0", "-1", "WITHSCORES"))
+	sp, ok := zr.(*protocol.ScorePairsReply)
+	if !ok || !sp.Nest {
+		t.Fatalf("ZRANGE WITHSCORES type %T nest=%v", zr, ok && sp.Nest)
+	}
+	if zr.ToBytes()[0] != '*' || !bytes.Contains(zr.ToBytes(), []byte("$3\r\n1.5\r\n")) {
+		t.Fatalf("ZRANGE RESP2 flat: %q", zr.ToBytes())
+	}
+	got := protocol.ReplyToRESP3(zr)
+	if !bytes.HasPrefix(got, []byte("*3\r\n*2\r\n")) || !bytes.Contains(got, []byte(",1.5\r\n")) {
+		t.Fatalf("ZRANGE RESP3 nested: %q", got)
+	}
+
+	// Bare ZPOPMIN → flat RESP3
+	pop := db.Exec(nil, utils.ToCmdLine("ZPOPMIN", "z"))
+	sp2, ok := pop.(*protocol.ScorePairsReply)
+	if !ok || sp2.Nest {
+		t.Fatalf("ZPOPMIN bare type %T nest=%v", pop, ok && sp2.Nest)
+	}
+	if g := protocol.ReplyToRESP3(pop); !bytes.HasPrefix(g, []byte("*2\r\n")) || bytes.Contains(g, []byte("*2\r\n*2\r\n")) {
+		t.Fatalf("bare ZPOPMIN RESP3 should be flat: %q", g)
+	}
+
+	// Explicit COUNT → nested
+	_ = db.Exec(nil, utils.ToCmdLine("ZADD", "z2", "1", "x", "2", "y"))
+	popN := db.Exec(nil, utils.ToCmdLine("ZPOPMIN", "z2", "2"))
+	sp3, ok := popN.(*protocol.ScorePairsReply)
+	if !ok || !sp3.Nest {
+		t.Fatalf("ZPOPMIN count type %T nest=%v", popN, ok && sp3.Nest)
+	}
+	if g := protocol.ReplyToRESP3(popN); !bytes.HasPrefix(g, []byte("*2\r\n*2\r\n")) {
+		t.Fatalf("ZPOPMIN COUNT RESP3 nested: %q", g)
+	}
+
+	asserts.AssertBulkReply(t, db.Exec(nil, utils.ToCmdLine("ZINCRBY", "zi", "0.5", "m")), "0.5")
+	zi := db.Exec(nil, utils.ToCmdLine("ZINCRBY", "zi", "1", "m"))
+	if _, ok := zi.(*protocol.DoubleReply); !ok {
+		t.Fatalf("ZINCRBY type %T", zi)
+	}
+	if protocol.ReplyToRESP3(zi)[0] != ',' {
+		t.Fatalf("ZINCRBY RESP3: %q", protocol.ReplyToRESP3(zi))
+	}
+}

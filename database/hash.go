@@ -476,7 +476,7 @@ func execHIncrByFloat(db *DB, args [][]byte) redis.Reply {
 		db.addAof(utils.ToCmdLine3("hincrbyfloat", args...))
 	notifyKeyspaceEvent(db, "hincrby", key)
 		reindexHash(db, key)
-		return protocol.MakeBulkReply(args[2])
+		return protocol.MakeDoubleReply(delta)
 	}
 	val, err := strconv.ParseFloat(string(value.([]byte)), 64)
 	if err != nil {
@@ -491,7 +491,7 @@ func execHIncrByFloat(db *DB, args [][]byte) redis.Reply {
 	db.addAof(utils.ToCmdLine3("hincrbyfloat", args...))
 	notifyKeyspaceEvent(db, "hincrby", key)
 	reindexHash(db, key)
-	return protocol.MakeBulkReply(resultBytes)
+	return protocol.MakeDoubleReply(result)
 }
 
 // putHashValuePreservingTTL updates a hash field value without clearing an

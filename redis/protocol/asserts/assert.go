@@ -131,6 +131,14 @@ func AssertMultiBulkReply(t *testing.T, actual redis.Reply, expected []string) {
 				t.Errorf("expected %s, actually %s, %s", expected[i], actual, printStack())
 			}
 		}
+	case *protocol.ScorePairsReply:
+		expArgs := make([][]byte, len(expected))
+		for i, s := range expected {
+			expArgs[i] = []byte(s)
+		}
+		if !utils.BytesEquals(r.ToBytes(), protocol.MakeMultiBulkReply(expArgs).ToBytes()) {
+			t.Errorf("expected %v, actually %s, %s", expected, r.ToBytes(), printStack())
+		}
 	case *protocol.SetReply:
 		if len(r.Data) != len(expected) {
 			t.Errorf("expected %d elements, actually %d, %s",
@@ -190,6 +198,14 @@ func AssertMultiBulkReplySize(t *testing.T, actual redis.Reply, expected int) {
 	if set, ok := actual.(*protocol.SetReply); ok {
 		if len(set.Data) != expected {
 			t.Errorf("expected %d elements, actually %d, %s", expected, len(set.Data), printStack())
+		}
+		return
+	}
+	if pairs, ok := actual.(*protocol.ScorePairsReply); ok {
+		// Flat pair list length = 2 * N; tests often assert wire element count.
+		if len(pairs.Members)*2 != expected {
+			t.Errorf("expected %d elements, actually %d pairs (%d elems), %s",
+				expected, len(pairs.Members), len(pairs.Members)*2, printStack())
 		}
 		return
 	}
