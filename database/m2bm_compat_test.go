@@ -40,21 +40,15 @@ func TestM2bmMemoryStatsRedisKeys(t *testing.T) {
 	c := connection.NewFakeConn()
 	_ = server.Exec(c, utils.ToCmdLine("SET", "k1", "v"))
 	r := server.Exec(c, utils.ToCmdLine("MEMORY", "STATS"))
-	raw := ftSearchMultiRaw(r)
-	if raw == nil {
+	m, ok := r.(*protocol.MapReply)
+	if !ok {
 		t.Fatalf("MEMORY STATS: %T %s", r, r.ToBytes())
-	}
-	keys := map[string]bool{}
-	for i := 0; i+1 < len(raw.Replies); i += 2 {
-		if b, ok := raw.Replies[i].(*protocol.BulkReply); ok {
-			keys[string(b.Arg)] = true
-		}
 	}
 	for _, want := range []string{
 		"peak.allocated", "total.allocated", "startup.allocated",
 		"keys.count", "dataset.bytes", "allocator.allocated", "fragmentation",
 	} {
-		if !keys[want] {
+		if _, ok := m.Data[want]; !ok {
 			t.Fatalf("missing key %q in MEMORY STATS", want)
 		}
 	}

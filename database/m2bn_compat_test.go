@@ -61,18 +61,12 @@ func TestM2bnMemoryStatsShallowKeys(t *testing.T) {
 	defer server.Close()
 	c := connection.NewFakeConn()
 	r := server.Exec(c, utils.ToCmdLine("MEMORY", "STATS"))
-	raw, ok := r.(*protocol.MultiRawReply)
+	m, ok := r.(*protocol.MapReply)
 	if !ok {
 		t.Fatalf("MEMORY STATS: %T", r)
 	}
-	keys := map[string]bool{}
-	for i := 0; i+1 < len(raw.Replies); i += 2 {
-		if b, ok := raw.Replies[i].(*protocol.BulkReply); ok {
-			keys[string(b.Arg)] = true
-		}
-	}
 	for _, want := range []string{"keys.bytes-per-key", "dataset.percentage", "overhead.hashtable.main"} {
-		if !keys[want] {
+		if _, ok := m.Data[want]; !ok {
 			t.Fatalf("missing %q", want)
 		}
 	}

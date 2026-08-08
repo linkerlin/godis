@@ -339,6 +339,31 @@ func TestResp3ZRandMemberSet(t *testing.T) {
 	}
 }
 
+func TestResp3MemoryStatsMap(t *testing.T) {
+	server := MustNewStandaloneServer()
+	defer server.Close()
+	c := connection.NewFakeConn()
+	_ = server.Exec(c, utils.ToCmdLine("SET", "ms", "v"))
+	r := server.Exec(c, utils.ToCmdLine("MEMORY", "STATS"))
+	m, ok := r.(*protocol.MapReply)
+	if !ok {
+		t.Fatalf("MEMORY STATS type %T", r)
+	}
+	if r.ToBytes()[0] != '*' {
+		t.Fatalf("MEMORY STATS RESP2: %q", r.ToBytes())
+	}
+	wire3 := protocol.ReplyToRESP3(r)
+	if wire3[0] != '%' {
+		t.Fatalf("MEMORY STATS RESP3: %q", wire3)
+	}
+	if _, ok := m.Data["dataset.percentage"].(*protocol.DoubleReply); !ok {
+		t.Fatalf("dataset.percentage want Double, got %T", m.Data["dataset.percentage"])
+	}
+	if _, ok := m.Data["fragmentation"].(*protocol.DoubleReply); !ok {
+		t.Fatalf("fragmentation want Double, got %T", m.Data["fragmentation"])
+	}
+}
+
 func TestResp3XReadMap(t *testing.T) {
 	db := makeTestDB()
 	db.Flush()

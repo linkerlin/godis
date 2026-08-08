@@ -308,45 +308,26 @@ func execMemoryStats(server *Server) redis.Reply {
 		fragBytes = 0
 	}
 
-	stats := []redis.Reply{
-		protocol.MakeBulkReply([]byte("peak.allocated")),
-		protocol.MakeIntReply(int64(m.TotalAlloc)),
-		protocol.MakeBulkReply([]byte("total.allocated")),
-		protocol.MakeIntReply(int64(m.Alloc)),
-		protocol.MakeBulkReply([]byte("startup.allocated")),
-		protocol.MakeIntReply(int64(memoryStartupBytes)),
-		protocol.MakeBulkReply([]byte("keys.count")),
-		protocol.MakeIntReply(keyCount),
-		protocol.MakeBulkReply([]byte("dataset.bytes")),
-		protocol.MakeIntReply(dataset),
-		protocol.MakeBulkReply([]byte("keys.bytes-per-key")),
-		protocol.MakeIntReply(bytesPerKeyEstimate),
-		protocol.MakeBulkReply([]byte("dataset.percentage")),
-		protocol.MakeBulkReply([]byte(fmt.Sprintf("%.2f", datasetPct))),
-		protocol.MakeBulkReply([]byte("overhead.total")),
-		protocol.MakeIntReply(overhead),
-		protocol.MakeBulkReply([]byte("overhead.hashtable.main")),
-		protocol.MakeIntReply(overhead),
-		protocol.MakeBulkReply([]byte("overhead.hashtable.expires")),
-		protocol.MakeIntReply(overheadExpires),
-		protocol.MakeBulkReply([]byte("allocator.allocated")),
-		protocol.MakeIntReply(int64(m.HeapAlloc)),
-		protocol.MakeBulkReply([]byte("allocator.active")),
-		protocol.MakeIntReply(int64(m.HeapSys)),
-		protocol.MakeBulkReply([]byte("allocator.resident")),
-		protocol.MakeIntReply(int64(m.Sys)),
-		protocol.MakeBulkReply([]byte("fragmentation")),
-		protocol.MakeBulkReply([]byte(fmt.Sprintf("%.2f", frag))),
-		protocol.MakeBulkReply([]byte("fragmentation.bytes")),
-		protocol.MakeIntReply(fragBytes),
-		// Go-specific extras retained for debugging
-		protocol.MakeBulkReply([]byte("heap.allocated")),
-		protocol.MakeIntReply(int64(m.HeapAlloc)),
-		protocol.MakeBulkReply([]byte("gc.runs")),
-		protocol.MakeIntReply(int64(m.NumGC)),
-	}
-
-	return protocol.MakeMultiRawReply(stats)
+	stats := protocol.MakeMapReply()
+	stats.Put("peak.allocated", protocol.MakeIntReply(int64(m.TotalAlloc)))
+	stats.Put("total.allocated", protocol.MakeIntReply(int64(m.Alloc)))
+	stats.Put("startup.allocated", protocol.MakeIntReply(int64(memoryStartupBytes)))
+	stats.Put("keys.count", protocol.MakeIntReply(keyCount))
+	stats.Put("dataset.bytes", protocol.MakeIntReply(dataset))
+	stats.Put("keys.bytes-per-key", protocol.MakeIntReply(bytesPerKeyEstimate))
+	stats.Put("dataset.percentage", protocol.MakeDoubleReply(datasetPct))
+	stats.Put("overhead.total", protocol.MakeIntReply(overhead))
+	stats.Put("overhead.hashtable.main", protocol.MakeIntReply(overhead))
+	stats.Put("overhead.hashtable.expires", protocol.MakeIntReply(overheadExpires))
+	stats.Put("allocator.allocated", protocol.MakeIntReply(int64(m.HeapAlloc)))
+	stats.Put("allocator.active", protocol.MakeIntReply(int64(m.HeapSys)))
+	stats.Put("allocator.resident", protocol.MakeIntReply(int64(m.Sys)))
+	stats.Put("fragmentation", protocol.MakeDoubleReply(frag))
+	stats.Put("fragmentation.bytes", protocol.MakeIntReply(fragBytes))
+	// Go-specific extras retained for debugging
+	stats.Put("heap.allocated", protocol.MakeIntReply(int64(m.HeapAlloc)))
+	stats.Put("gc.runs", protocol.MakeIntReply(int64(m.NumGC)))
+	return stats
 }
 
 func init() {

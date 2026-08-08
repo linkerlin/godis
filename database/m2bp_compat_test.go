@@ -51,18 +51,12 @@ func TestM2bpMemoryStatsAndInfoDataset(t *testing.T) {
 	_ = server.Exec(c, utils.ToCmdLine("EXPIRE", "k", "60"))
 
 	r := server.Exec(c, utils.ToCmdLine("MEMORY", "STATS"))
-	raw, ok := r.(*protocol.MultiRawReply)
+	m, ok := r.(*protocol.MapReply)
 	if !ok {
 		t.Fatalf("MEMORY STATS: %T", r)
 	}
-	keys := map[string]bool{}
-	for i := 0; i+1 < len(raw.Replies); i += 2 {
-		if b, ok := raw.Replies[i].(*protocol.BulkReply); ok {
-			keys[string(b.Arg)] = true
-		}
-	}
 	for _, want := range []string{"fragmentation.bytes", "overhead.hashtable.expires"} {
-		if !keys[want] {
+		if _, ok := m.Data[want]; !ok {
 			t.Fatalf("missing %q", want)
 		}
 	}

@@ -14,7 +14,7 @@
 | **P1** | 运维与可观测 | 🔄 进行中 |
 | **P2** | 稳定性与质量门禁 | 🔄 进行中 |
 | **P3** | 部署与发布 | ⬜ 待开始 |
-| **Redis 8.x 兼容** | 协议/命令/集群深度对齐 | 🔴 新启动 |
+| **Redis 8.x 兼容** | 协议/命令/集群深度对齐 | 🔄 RESP3 双形回复进行中 |
 
 ---
 
@@ -62,6 +62,19 @@
   - 修复相关测试，新增 RESP3 解析/编码测试。
 
 **验收结果：** `go test ./...` 全绿；`go vet ./...` 无告警。
+
+### R1b — RESP3 命令回复形态对齐（进行中，2026-08）
+
+双形回复：`ToBytes`=RESP2，`ToRESP3`/`ReplyToRESP3`=RESP3。边界见 [`docs/COMPATIBILITY.md`](docs/COMPATIBILITY.md)「RESP3 核心回复形态」。
+
+- [x] Double/Boolean 等 RESP2 降级；`HGETALL`→Map；`SMEMBERS`→Set；`ZSCORE`/`ZMSCORE`→Double
+- [x] `ScorePairsReply`（ZRANGE WITHSCORES / ZPOP / ZINCRBY / GEODIST 等）
+- [x] `SINTER`/`SUNION`/`SDIFF`→Set；`CONFIG GET` / `HRANDFIELD`+WITHVALUES→Map
+- [x] `SPOP`/`SRANDMEMBER` 正 count→Set；`ZUNION`/`ZINTER`/`ZDIFF` 无 WITHSCORES→Set
+- [x] `XREAD`/`XREADGROUP`→`StreamReadReply`（顶层 Map）；`XINFO STREAM/GROUPS/CONSUMERS`→Map
+- [x] `ZRANDMEMBER` 正 count→Set（WITHSCORES→ScorePairs）
+- [x] `MEMORY STATS`→Map（百分比字段 Double）
+- [ ] 其它 introspection Map（按 Redis 官方 RESP3 标注逐步对齐）
 
 ### R2 — 关键 Redis 8.x 命令补齐
 

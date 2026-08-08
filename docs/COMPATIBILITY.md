@@ -8,7 +8,7 @@
 
 | 维度 | 大致覆盖 | 说明 |
 |------|----------|------|
-| RESP2/RESP3 协议 | 高 | HELLO 3、Push、客户端缓存、blob error `!` |
+| RESP2/RESP3 协议 | 高 | HELLO 3、Push、客户端缓存、blob error `!`；核心命令双形 Map/Set/Double（见下节） |
 | String/List/Hash/Set/ZSet | 高 | 常用命令齐全；List/ZSet **阻塞命令真阻塞** |
 | Stream / Bitmap / Geo | 中–高 | XCLAIM/XAUTOCLAIM/BITOP/BITFIELD；**XREAD BLOCK 真阻塞**；Stream 范围操作 O(log n)（有序切片+二分） |
 | FAILOVER | ✅ 真实协调切换 | TO/FORCE/ABORT/TIMEOUT、复制流注入 REPLCONF FAILOVER、从库自提升+原主降级；见 [`FAILOVER_DESIGN.md`](FAILOVER_DESIGN.md) |
@@ -90,7 +90,9 @@
 | INFO sync_* | ✅ sync_full / sync_partial_ok / sync_partial_err 计数（RESETSTAT 清零） |
 | INFO blocked_clients | ✅ 含 List/Stream/**ZSet** 阻塞等待者 |
 | OBJECT ENCODING | ✅ 含 hyperloglog / vectorset |
-| XINFO STREAM FULL | ✅ COUNT 截断 entries 嵌套数组 |
+| XINFO STREAM / GROUPS / CONSUMERS | ✅ STREAM（含 FULL）为 Map；GROUPS/CONSUMERS 外层数组、项为 Map |
+| XREAD / XREADGROUP | ✅ RESP2 正确嵌套 `[[stream,entries]]`；RESP3 顶层 Map（字段 Map） |
+| ZRANDMEMBER | ✅ 正 count→Set；负 count 仍数组；WITHSCORES→ScorePairs |
 | FT.SEARCH 选项 | ✅ 未知选项 syntax error；VERBATIM/NOSTOPWORDS/FILTER |
 | Pub/Sub RESP3 | ✅ 无参 UNSUBSCRIBE/PUNSUBSCRIBE 用 `_` |
 | MEMORY HELP | ✅ 子命令帮助数组 |
@@ -157,10 +159,27 @@ UNWATCH、WAIT（简版）、BITOP、BITFIELD、SMOVE、LPOS、XCLAIM、SHUTDOWN
 | Lua 引擎 | 内置 | 默认 **gopher-lua**（`GODIS_LUA_ENGINE`）；**FCALL 同引擎**（M2z） |
 | 优雅关闭 | SIGTERM | std 路径 in-flight 等待；`SHUTDOWN` + hook |
 
+## RESP3 核心回复形态（双形编码）
+
+模式：命令返回实现 `RESP3Reply` 的类型（或 `MapReply`/`SetReply`/`DoubleReply`/`ScorePairsReply`）；`ToBytes()` 保持 RESP2 线格式，连接协议为 3 时经 `ReplyToRESP3` 发原生 RESP3。
+
+| 类别 | 命令 / 回复 | RESP3 |
+|------|-------------|--------|
+| 简单类型 | Double/Boolean/BigNumber/Verbatim/Null | `,` `#` `(` `=` `_`（RESP2 降级为 bulk/int） |
+| HELLO 3 | `HELLO 3` | 顶层 Map |
+| Hash / Config | `HGETALL`、`CONFIG GET`、`HRANDFIELD` 正 count+WITHVALUES | Map |
+| Set | `SMEMBERS`、`SINTER`/`SUNION`/`SDIFF`、`SPOP`/`SRANDMEMBER` 正 count | Set |
+| ZSet 分数 | `ZSCORE`/`ZMSCORE`、`ZRANGE…WITHSCORES`、`ZPOP*`、`ZINCRBY`、`ZUNION…WITHSCORES` 等 | Double / ScorePairs |
+| ZSet 成员 | `ZUNION`/`ZINTER`/`ZDIFF` 无 WITHSCORES；`ZRANDMEMBER` 正 count | Set |
+| Stream | `XREAD`/`XREADGROUP`；`XINFO STREAM/GROUPS/CONSUMERS` | Map（GROUPS/CONSUMERS 为 Map 数组） |
+| Introspection | `MEMORY STATS` | Map（`dataset.percentage`/`fragmentation` 为 Double） |
+
+**仍延期 / 非本轮：** 集群 CRC16/MOVED/ASK；HSCAN/ZSCAN 第二段官方文档仍为 Array（Lua `setresp(3)` 已按 Map 解释）；jemalloc 级 `used_memory`；Vector Q8/BIN；完整 BM25/KNN；FUNCTION DUMP 官方互通。
+
 ## 测试
 
-- `go test ./...`；兼容批次测试见 `database/m2*_compat_test.go`、`m1_block_tx_bitmap_test.go` 等。
+- `go test ./...`；兼容批次测试见 `database/m2*_compat_test.go`、`m1_block_tx_bitmap_test.go` 等；RESP3 线格式见 `database/resp3_core_types_test.go`。
 
 ---
 
-**最后更新：** 2026-08-07（Redis 8 全兼容批次：FAILOVER 真实切换、HLL 互通、DEBUG 收口、复制/清库/恢复三隐藏 bug 修复；详见 [`REDIS8_COMPAT_AUDIT.md`](REDIS8_COMPAT_AUDIT.md)）
+**最后更新：** 2026-08-08（RESP3 双形回复：HGETALL/Set/ScorePairs/XREAD/XINFO/ZRANDMEMBER 等；详见本节与近期 `feat: RESP3 …` 提交）

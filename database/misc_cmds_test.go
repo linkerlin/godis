@@ -17,7 +17,7 @@ func TestMiscServerCommands(t *testing.T) {
 	asserts.AssertStatusReply(t, server.Exec(c, utils.ToCmdLine("SET", "mem-k", "value")), "OK")
 
 	memStats := server.Exec(c, utils.ToCmdLine("MEMORY", "STATS"))
-	if _, ok := memStats.(*protocol.MultiRawReply); !ok {
+	if _, ok := memStats.(*protocol.MapReply); !ok {
 		t.Fatalf("MEMORY STATS: got %T", memStats)
 	}
 	asserts.AssertStatusReply(t, server.Exec(c, utils.ToCmdLine("MEMORY", "PURGE")), "OK")
