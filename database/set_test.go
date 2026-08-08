@@ -91,14 +91,28 @@ func TestSPop(t *testing.T) {
 	for currentSize > 0 {
 		count := rand.Intn(currentSize) + 1
 		resultSpop := testDB.Exec(nil, utils.ToCmdLine("spop", key, strconv.FormatInt(int64(count), 10)))
-		multiBulk, ok := resultSpop.(*protocol.MultiBulkReply)
-		if !ok {
-			t.Errorf("expected bulk protocol, actually %s", resultSpop.ToBytes())
+		var removed []string
+		switch r := resultSpop.(type) {
+		case *protocol.SetReply:
+			for _, elem := range r.Data {
+				bulk, ok := elem.(*protocol.BulkReply)
+				if !ok {
+					t.Errorf("expected bulk set elem, got %T", elem)
+					return
+				}
+				removed = append(removed, string(bulk.Arg))
+			}
+		case *protocol.MultiBulkReply:
+			for _, arg := range r.Args {
+				removed = append(removed, string(arg))
+			}
+		default:
+			t.Errorf("expected SetReply, actually %T %s", resultSpop, resultSpop.ToBytes())
 			return
 		}
-		removedSize := len(multiBulk.Args)
-		for _, arg := range multiBulk.Args {
-			resultSIsMember := testDB.Exec(nil, utils.ToCmdLine("SIsMember", key, string(arg)))
+		removedSize := len(removed)
+		for _, arg := range removed {
+			resultSIsMember := testDB.Exec(nil, utils.ToCmdLine("SIsMember", key, arg))
 			asserts.AssertIntReply(t, resultSIsMember, 0)
 		}
 		currentSize -= removedSize
@@ -235,14 +249,19 @@ func TestSRandMember(t *testing.T) {
 
 	result = testDB.Exec(nil, utils.ToCmdLine("SRandMember", key, "10"))
 	asserts.AssertMultiBulkReplySize(t, result, 10)
-	multiBulk, ok := result.(*protocol.MultiBulkReply)
+	setReply, ok := result.(*protocol.SetReply)
 	if !ok {
-		t.Errorf("expected bulk protocol, actually %s", result.ToBytes())
+		t.Errorf("expected SetReply, actually %T %s", result, result.ToBytes())
 		return
 	}
 	m := make(map[string]struct{})
-	for _, arg := range multiBulk.Args {
-		m[string(arg)] = struct{}{}
+	for _, elem := range setReply.Data {
+		bulk, ok := elem.(*protocol.BulkReply)
+		if !ok {
+			t.Errorf("expected bulk set elem, got %T", elem)
+			return
+		}
+		m[string(bulk.Arg)] = struct{}{}
 	}
 	if len(m) != 10 {
 		t.Errorf("expected 10 members, actually %d", len(m))

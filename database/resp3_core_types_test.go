@@ -211,3 +211,33 @@ func TestResp3ConfigGetAndHRandFieldMap(t *testing.T) {
 		t.Fatalf("negative WITHVALUES RESP3 should be array: %q", protocol.ReplyToRESP3(neg))
 	}
 }
+
+func TestResp3SPopSRandMemberSet(t *testing.T) {
+	db := makeTestDB()
+	db.Flush()
+	_ = db.Exec(nil, utils.ToCmdLine("SADD", "s", "a", "b", "c", "d"))
+
+	sr := db.Exec(nil, utils.ToCmdLine("SRANDMEMBER", "s", "2"))
+	if _, ok := sr.(*protocol.SetReply); !ok {
+		t.Fatalf("SRANDMEMBER +count type %T", sr)
+	}
+	if protocol.ReplyToRESP3(sr)[0] != '~' {
+		t.Fatalf("SRANDMEMBER +count RESP3: %q", protocol.ReplyToRESP3(sr))
+	}
+	neg := db.Exec(nil, utils.ToCmdLine("SRANDMEMBER", "s", "-3"))
+	if _, ok := neg.(*protocol.MultiBulkReply); !ok {
+		t.Fatalf("SRANDMEMBER -count should stay MultiBulk, got %T", neg)
+	}
+
+	pop := db.Exec(nil, utils.ToCmdLine("SPOP", "s", "2"))
+	if _, ok := pop.(*protocol.SetReply); !ok {
+		t.Fatalf("SPOP count type %T", pop)
+	}
+	if protocol.ReplyToRESP3(pop)[0] != '~' {
+		t.Fatalf("SPOP count RESP3: %q", protocol.ReplyToRESP3(pop))
+	}
+	empty := db.Exec(nil, utils.ToCmdLine("SRANDMEMBER", "nosuch", "3"))
+	if g := protocol.ReplyToRESP3(empty); string(g) != "~0\r\n" {
+		t.Fatalf("empty SRANDMEMBER RESP3: %q", g)
+	}
+}

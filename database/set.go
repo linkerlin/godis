@@ -128,9 +128,9 @@ func execSPop(db *DB, args [][]byte) redis.Reply {
 		return errReply
 	}
 	if set == nil {
-		// Redis: no count → nil; with count → empty array
+		// Redis: no count → nil; with count → empty array/set
 		if len(args) == 2 {
-			return &protocol.EmptyMultiBulkReply{}
+			return protocol.MakeSetReply(nil)
 		}
 		return &protocol.NullBulkReply{}
 	}
@@ -148,10 +148,10 @@ func execSPop(db *DB, args [][]byte) redis.Reply {
 	}
 
 	members := set.RandomDistinctMembers(count)
-	result := make([][]byte, len(members))
+	result := make([]string, len(members))
 	for i, v := range members {
 		set.Remove(v)
-		result[i] = []byte(v)
+		result[i] = v
 	}
 
 	if set.Len() == 0 {
@@ -159,15 +159,16 @@ func execSPop(db *DB, args [][]byte) redis.Reply {
 	}
 	if count > 0 {
 		db.addAof(utils.ToCmdLine3("spop", args...))
-	notifyKeyspaceEvent(db, "spop", key)
+		notifyKeyspaceEvent(db, "spop", key)
 	}
 	if len(args) == 1 {
 		if len(result) == 0 {
 			return &protocol.NullBulkReply{}
 		}
-		return protocol.MakeBulkReply(result[0])
+		return protocol.MakeBulkReply([]byte(result[0]))
 	}
-	return protocol.MakeMultiBulkReply(result)
+	// Positive count → Set in RESP3 (distinct members).
+	return stringsToSetReply(result)
 }
 
 // execSCard gets the number of members in a set
@@ -358,9 +359,9 @@ func execSRandMember(db *DB, args [][]byte) redis.Reply {
 		return errReply
 	}
 	if set == nil {
-		// Redis: no count → nil; with count → empty array
+		// Redis: no count → nil; with count → empty
 		if len(args) == 2 {
-			return &protocol.EmptyMultiBulkReply{}
+			return protocol.MakeSetReply(nil)
 		}
 		return &protocol.NullBulkReply{}
 	}
@@ -375,13 +376,10 @@ func execSRandMember(db *DB, args [][]byte) redis.Reply {
 	}
 	count := int(count64)
 	if count > 0 {
-		members := set.RandomDistinctMembers(count)
-		result := make([][]byte, len(members))
-		for i, v := range members {
-			result[i] = []byte(v)
-		}
-		return protocol.MakeMultiBulkReply(result)
+		// Distinct members → Set in RESP3
+		return stringsToSetReply(set.RandomDistinctMembers(count))
 	} else if count < 0 {
+		// May contain duplicates → stay array
 		members := set.RandomMembers(-count)
 		result := make([][]byte, len(members))
 		for i, v := range members {
@@ -389,7 +387,18 @@ func execSRandMember(db *DB, args [][]byte) redis.Reply {
 		}
 		return protocol.MakeMultiBulkReply(result)
 	}
-	return &protocol.EmptyMultiBulkReply{}
+	return protocol.MakeSetReply(nil)
+}
+
+func stringsToSetReply(members []string) redis.Reply {
+	if len(members) == 0 {
+		return protocol.MakeSetReply(nil)
+	}
+	arr := make([]redis.Reply, len(members))
+	for i, m := range members {
+		arr[i] = protocol.MakeBulkReply([]byte(m))
+	}
+	return protocol.MakeSetReply(arr)
 }
 
 func execSScan(db *DB, args [][]byte) redis.Reply {
