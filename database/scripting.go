@@ -395,6 +395,8 @@ func redisReplyToGo(reply redis.Reply, cmd string, args ...string) interface{} {
 			}
 		}
 		return result
+	case *StreamReadReply:
+		return streamReadReplyToGo(r, respVer)
 	case *protocol.MultiBulkReply:
 		if respVer == 3 && isSetFlatCmd(cmd, args) {
 			m := make(map[string]interface{}, len(r.Args))
@@ -483,6 +485,43 @@ func isStreamRangeCmd(cmd string) bool {
 	default:
 		return false
 	}
+}
+
+func streamReadReplyToGo(r *StreamReadReply, respVer int) interface{} {
+	if r == nil {
+		if respVer == 3 {
+			return map[string]interface{}{}
+		}
+		return []interface{}{}
+	}
+	if respVer == 3 {
+		m := make(map[string]interface{}, len(r.buckets))
+		for _, b := range r.buckets {
+			entries := make([]interface{}, len(b.entries))
+			for i, e := range b.entries {
+				fm := make(map[string]interface{}, len(e.Fields))
+				for k, v := range e.Fields {
+					fm[k] = v
+				}
+				entries[i] = []interface{}{e.ID.String(), fm}
+			}
+			m[b.key] = entries
+		}
+		return m
+	}
+	result := make([]interface{}, len(r.buckets))
+	for i, b := range r.buckets {
+		entries := make([]interface{}, len(b.entries))
+		for j, e := range b.entries {
+			pairs := make([]interface{}, 0, len(e.Fields)*2)
+			for k, v := range e.Fields {
+				pairs = append(pairs, k, v)
+			}
+			entries[j] = []interface{}{e.ID.String(), pairs}
+		}
+		result[i] = []interface{}{b.key, entries}
+	}
+	return result
 }
 
 // isScoreBulkCmd reports whether bulk string values for this command are scores under setresp(3).

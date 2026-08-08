@@ -96,8 +96,7 @@ parseStreams:
 
 	startTime := time.Now()
 	for {
-		var result [][]byte
-		hasData := false
+		var buckets []streamReadBucket
 
 		for j, key := range keys {
 			s, errReply := db.getAsStream(key)
@@ -123,15 +122,12 @@ parseStreams:
 			}
 
 			if len(filtered) > 0 {
-				hasData = true
-				streamResult := streamEntriesToMultiBulk(filtered)
-				result = append(result, []byte(key))
-				result = append(result, streamResult...)
+				buckets = append(buckets, streamReadBucket{key: key, entries: filtered})
 			}
 		}
 
-		if hasData {
-			return protocol.MakeMultiBulkReply(result)
+		if len(buckets) > 0 {
+			return MakeStreamReadReply(buckets)
 		}
 
 		if blockTimeout < 0 {
@@ -229,8 +225,7 @@ parseStreams:
 
 	startTime := time.Now()
 	for {
-		var result [][]byte
-		hasData := false
+		var buckets []streamReadBucket
 
 		for j, key := range keys {
 			s, errReply := db.getAsStream(key)
@@ -318,8 +313,6 @@ parseStreams:
 			}
 
 			if len(entries) > 0 {
-				hasData = true
-
 				// 添加到pending（除非NOACK）；历史重读递增 DeliveryCount
 				if !noAck {
 					now := time.Now()
@@ -343,14 +336,12 @@ parseStreams:
 					}
 				}
 
-				streamResult := streamEntriesToMultiBulk(entries)
-				result = append(result, []byte(key))
-				result = append(result, streamResult...)
+				buckets = append(buckets, streamReadBucket{key: key, entries: entries})
 			}
 		}
 
-		if hasData {
-			return protocol.MakeMultiBulkReply(result)
+		if len(buckets) > 0 {
+			return MakeStreamReadReply(buckets)
 		}
 
 		if blockTimeout < 0 {
@@ -952,23 +943,6 @@ func execXInfoConsumers(db *DB, args [][]byte) redis.Reply {
 		return true
 	})
 	return protocol.MakeMultiRawReply(replies)
-}
-
-// 辅助函数：将条目列表转换为MultiBulk回复格式
-func streamEntriesToMultiBulk(entries []*stream.StreamEntry) [][]byte {
-	var result [][]byte
-	for _, entry := range entries {
-		var fields [][]byte
-		for k, v := range entry.Fields {
-			fields = append(fields, []byte(k), []byte(v))
-		}
-		entryResult := [][]byte{
-			[]byte(entry.ID.String()),
-			protocol.MakeMultiBulkReply(fields).ToBytes(),
-		}
-		result = append(result, protocol.MakeMultiBulkReply(entryResult).ToBytes())
-	}
-	return result
 }
 
 func init() {

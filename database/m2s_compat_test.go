@@ -31,12 +31,12 @@ func TestM2sXReadWokenByXAdd(t *testing.T) {
 		t.Fatalf("XADD: %s", idReply.ToBytes())
 	}
 	wg.Wait()
-	mb, ok := result.(*protocol.MultiBulkReply)
-	if !ok || len(mb.Args) < 2 {
+	sr, ok := result.(*StreamReadReply)
+	if !ok || len(sr.buckets) == 0 {
 		t.Fatalf("XREAD: expected data, got %T %v", result, result)
 	}
-	if string(mb.Args[0]) != key {
-		t.Fatalf("XREAD key: %q", mb.Args[0])
+	if sr.buckets[0].key != key {
+		t.Fatalf("XREAD key: %q", sr.buckets[0].key)
 	}
 }
 

@@ -29,9 +29,9 @@ func TestStreamConsumerGroupWorkflow(t *testing.T) {
 	read := db.Exec(nil, utils.ToCmdLine(
 		"XREADGROUP", "GROUP", "g1", "c1", "STREAMS", key, ">",
 	))
-	multi, ok := read.(*protocol.MultiBulkReply)
-	if !ok || len(multi.Args) < 2 {
-		t.Fatalf("XREADGROUP: got %s", read.ToBytes())
+	sr, ok := read.(*StreamReadReply)
+	if !ok || len(sr.buckets) == 0 || sr.buckets[0].key != key {
+		t.Fatalf("XREADGROUP: got %T %s", read, read.ToBytes())
 	}
 
 	pending := db.Exec(nil, utils.ToCmdLine("XPENDING", key, "g1"))
@@ -55,9 +55,9 @@ func TestStreamXReadNonBlocking(t *testing.T) {
 	streamEntryID(t, db, key)
 
 	read := db.Exec(nil, utils.ToCmdLine("XREAD", "COUNT", "1", "STREAMS", key, "0-0"))
-	multi, ok := read.(*protocol.MultiBulkReply)
-	if !ok || len(multi.Args) == 0 {
-		t.Fatalf("XREAD: got %s", read.ToBytes())
+	sr, ok := read.(*StreamReadReply)
+	if !ok || len(sr.buckets) == 0 || sr.buckets[0].key != key {
+		t.Fatalf("XREAD: got %T %s", read, read.ToBytes())
 	}
 
 	empty := db.Exec(nil, utils.ToCmdLine("XREAD", "BLOCK", "1", "STREAMS", "missing", "0-0"))
@@ -76,8 +76,8 @@ func TestStreamXReadGroupNoAck(t *testing.T) {
 	read := db.Exec(nil, utils.ToCmdLine(
 		"XREADGROUP", "GROUP", "g", "c", "NOACK", "STREAMS", key, ">",
 	))
-	if _, ok := read.(*protocol.MultiBulkReply); !ok {
-		t.Fatalf("XREADGROUP NOACK: got %s", read.ToBytes())
+	if _, ok := read.(*StreamReadReply); !ok {
+		t.Fatalf("XREADGROUP NOACK: got %T %s", read, read.ToBytes())
 	}
 
 	pending := db.Exec(nil, utils.ToCmdLine("XPENDING", key, "g"))

@@ -100,14 +100,14 @@ func TestM2mXReadGroupHistoryAndXPendingIdle(t *testing.T) {
 	asserts.AssertStatusReply(t, db.Exec(nil, utils.ToCmdLine("XGROUP", "CREATE", key, "g", "0-0")), "OK")
 
 	read := db.Exec(nil, utils.ToCmdLine("XREADGROUP", "GROUP", "g", "c1", "STREAMS", key, ">"))
-	if _, ok := read.(*protocol.MultiBulkReply); !ok {
-		t.Fatalf("XREADGROUP >: %s", read.ToBytes())
+	if _, ok := read.(*StreamReadReply); !ok {
+		t.Fatalf("XREADGROUP >: %T %s", read, read.ToBytes())
 	}
 
 	hist := db.Exec(nil, utils.ToCmdLine("XREADGROUP", "GROUP", "g", "c1", "STREAMS", key, "0-0"))
-	hm, ok := hist.(*protocol.MultiBulkReply)
-	if !ok || len(hm.Args) < 2 {
-		t.Fatalf("XREADGROUP history empty: %s", hist.ToBytes())
+	hm, ok := hist.(*StreamReadReply)
+	if !ok || len(hm.buckets) == 0 || len(hm.buckets[0].entries) == 0 {
+		t.Fatalf("XREADGROUP history empty: %T %s", hist, hist.ToBytes())
 	}
 
 	time.Sleep(5 * time.Millisecond)

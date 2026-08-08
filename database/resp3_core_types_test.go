@@ -261,3 +261,47 @@ func TestResp3ZUnionMembersSet(t *testing.T) {
 		t.Fatalf("ZUNION WITHSCORES type %T", ws)
 	}
 }
+
+func TestResp3XReadMap(t *testing.T) {
+	db := makeTestDB()
+	db.Flush()
+	idReply := db.Exec(nil, utils.ToCmdLine("XADD", "xr", "*", "f", "v"))
+	bulk, ok := idReply.(*protocol.BulkReply)
+	if !ok {
+		t.Fatalf("XADD: %T %s", idReply, idReply.ToBytes())
+	}
+	id := string(bulk.Arg)
+
+	read := db.Exec(nil, utils.ToCmdLine("XREAD", "COUNT", "1", "STREAMS", "xr", "0-0"))
+	sr, ok := read.(*StreamReadReply)
+	if !ok || len(sr.buckets) != 1 || sr.buckets[0].key != "xr" {
+		t.Fatalf("XREAD type %T %s", read, read.ToBytes())
+	}
+	// RESP2: nested [[key, entries]]
+	wire2 := read.ToBytes()
+	if wire2[0] != '*' {
+		t.Fatalf("XREAD RESP2 should be array: %q", wire2)
+	}
+	if !bytes.Contains(wire2, []byte("$2\r\nxr\r\n")) || !bytes.Contains(wire2, []byte(id)) {
+		t.Fatalf("XREAD RESP2 missing key/id: %q", wire2)
+	}
+	// RESP3: top-level map
+	wire3 := protocol.ReplyToRESP3(read)
+	if wire3[0] != '%' {
+		t.Fatalf("XREAD RESP3 should be map: %q", wire3)
+	}
+	if !bytes.Contains(wire3, []byte("$2\r\nxr\r\n")) || !bytes.Contains(wire3, []byte("%1\r\n")) {
+		t.Fatalf("XREAD RESP3 missing stream/field map: %q", wire3)
+	}
+
+	asserts.AssertStatusReply(t, db.Exec(nil, utils.ToCmdLine("XGROUP", "CREATE", "xr", "g", "0-0")), "OK")
+	groupRead := db.Exec(nil, utils.ToCmdLine(
+		"XREADGROUP", "GROUP", "g", "c1", "STREAMS", "xr", ">",
+	))
+	if _, ok := groupRead.(*StreamReadReply); !ok {
+		t.Fatalf("XREADGROUP type %T %s", groupRead, groupRead.ToBytes())
+	}
+	if protocol.ReplyToRESP3(groupRead)[0] != '%' {
+		t.Fatalf("XREADGROUP RESP3: %q", protocol.ReplyToRESP3(groupRead))
+	}
+}

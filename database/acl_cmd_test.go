@@ -45,6 +45,21 @@ func TestHelloCommand(t *testing.T) {
 	if _, exists := m.Data["proto"]; !exists {
 		t.Fatalf("HELLO missing proto: %v", m.Data)
 	}
+	if reply.ToBytes()[0] != '*' {
+		t.Fatalf("HELLO 3 RESP2 wire should be array: %q", reply.ToBytes())
+	}
+	if protocol.ReplyToRESP3(reply)[0] != '%' {
+		t.Fatalf("HELLO 3 RESP3 wire should be map: %q", protocol.ReplyToRESP3(reply))
+	}
+
+	c2 := connection.NewFakeConn()
+	r2 := server.Exec(c2, utils.ToCmdLine("HELLO", "2"))
+	if _, ok := r2.(*protocol.MultiBulkReply); !ok {
+		t.Fatalf("HELLO 2: got %T", r2)
+	}
+	if r2.ToBytes()[0] != '*' {
+		t.Fatalf("HELLO 2 wire: %q", r2.ToBytes())
+	}
 }
 
 func TestACLUsersCatDelUserDryRun(t *testing.T) {
