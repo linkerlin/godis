@@ -172,7 +172,7 @@ UNWATCH、WAIT（简版）、BITOP、BITFIELD、SMOVE、LPOS、XCLAIM、SHUTDOWN
 | ZSet 分数 | `ZSCORE`/`ZMSCORE`、`ZRANGE…WITHSCORES`、`ZPOP*`、`ZINCRBY`、`ZUNION…WITHSCORES` 等 | Double / ScorePairs |
 | ZSet 成员 | `ZUNION`/`ZINTER`/`ZDIFF` 无 WITHSCORES；`ZRANDMEMBER` 正 count | Set |
 | Stream | `XREAD`/`XREADGROUP`；`XINFO STREAM/GROUPS/CONSUMERS` | Map（GROUPS/CONSUMERS 为 Map 数组） |
-| Introspection | `MEMORY STATS` | Map（`dataset.percentage`/`fragmentation` 为 Double） |
+| Introspection | `MEMORY STATS`；`ACL GETUSER` | Map（`dataset.percentage`/`fragmentation` 为 Double） |
 
 **仍延期 / 非本轮：** 集群 CRC16/MOVED/ASK；HSCAN/ZSCAN 第二段官方文档仍为 Array（Lua `setresp(3)` 已按 Map 解释）；jemalloc 级 `used_memory`；Vector Q8/BIN；完整 BM25/KNN；FUNCTION DUMP 官方互通。
 

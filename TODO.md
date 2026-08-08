@@ -74,6 +74,7 @@
 - [x] `XREAD`/`XREADGROUP`→`StreamReadReply`（顶层 Map）；`XINFO STREAM/GROUPS/CONSUMERS`→Map
 - [x] `ZRANDMEMBER` 正 count→Set（WITHSCORES→ScorePairs）
 - [x] `MEMORY STATS`→Map（百分比字段 Double）
+- [x] `ACL GETUSER`→Map（selectors 为 Map 数组）
 - [ ] 其它 introspection Map（按 Redis 官方 RESP3 标注逐步对齐）
 
 ### R2 — 关键 Redis 8.x 命令补齐
