@@ -21,6 +21,9 @@ func (db *DB) getAsDict(key string) (Dict.Dict, protocol.ErrorReply) {
 	if !ok {
 		return nil, &protocol.WrongTypeErrReply{}
 	}
+	if ed, ok := dict.(*Dict.ExpireDict); ok {
+		db.wireExpireDict(key, ed)
+	}
 	return dict, nil
 }
 

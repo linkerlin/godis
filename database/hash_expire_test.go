@@ -3,6 +3,7 @@ package database
 import (
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -197,4 +198,75 @@ func TestHExpireInTransaction(t *testing.T) {
 	if len(got) != 1 || got[0] != 1 {
 		t.Fatalf("expected [[1]], got %v", got)
 	}
+}
+
+// TestHashFieldLazyExpirePropagatesHDel verifies that lazily expiring a hash field
+// writes HDEL to the AOF (so replicas drop the field too).
+func TestHashFieldLazyExpirePropagatesHDel(t *testing.T) {
+	db := makeTestDB()
+	var mu sync.Mutex
+	var aofLines []CmdLine
+	db.addAof = func(line CmdLine) {
+		mu.Lock()
+		aofLines = append(aofLines, line)
+		mu.Unlock()
+	}
+
+	asserts.AssertIntReply(t, db.Exec(nil, utils.ToCmdLine("HSET", "hk", "f1", "v1", "f2", "v2")), 2)
+	reply := db.Exec(nil, utils.ToCmdLine("HPEXPIRE", "hk", "50", "FIELDS", "1", "f1"))
+	if got := intArray(reply); len(got) != 1 || got[0] != 1 {
+		t.Fatalf("expected [1], got %v", got)
+	}
+
+	time.Sleep(80 * time.Millisecond)
+	asserts.AssertNullBulk(t, db.Exec(nil, utils.ToCmdLine("HGET", "hk", "f1")))
+	asserts.AssertBulkReply(t, db.Exec(nil, utils.ToCmdLine("HGET", "hk", "f2")), "v2")
+
+	mu.Lock()
+	defer mu.Unlock()
+	if !aofContainsHDel(aofLines, "hk", "f1") {
+		t.Fatalf("lazy field expire should propagate HDEL, got %v", aofLines)
+	}
+}
+
+// TestHashFieldActiveExpirePropagatesHDel waits for the time-wheel callback
+// (no HGET) and expects an AOF HDEL.
+func TestHashFieldActiveExpirePropagatesHDel(t *testing.T) {
+	db := makeTestDB()
+	var mu sync.Mutex
+	var aofLines []CmdLine
+	db.addAof = func(line CmdLine) {
+		mu.Lock()
+		aofLines = append(aofLines, line)
+		mu.Unlock()
+	}
+
+	asserts.AssertIntReply(t, db.Exec(nil, utils.ToCmdLine("HSET", "hk", "f1", "v1")), 1)
+	reply := db.Exec(nil, utils.ToCmdLine("HEXPIRE", "hk", "1", "FIELDS", "1", "f1"))
+	if got := intArray(reply); len(got) != 1 || got[0] != 1 {
+		t.Fatalf("expected [1], got %v", got)
+	}
+
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		mu.Lock()
+		ok := aofContainsHDel(aofLines, "hk", "f1")
+		mu.Unlock()
+		if ok {
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	t.Fatalf("active field expire should propagate HDEL within 3s, got %v", aofLines)
+}
+
+func aofContainsHDel(lines []CmdLine, key, field string) bool {
+	for _, line := range lines {
+		if len(line) >= 3 && string(line[0]) == "hdel" && string(line[1]) == key && string(line[2]) == field {
+			return true
+		}
+	}
+	return false
 }

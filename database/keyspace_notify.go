@@ -58,7 +58,7 @@ func keyspaceFlagsAllow(flags, event string) bool {
 		return strings.Contains(flags, "$")
 	case "lpush", "rpush", "lpop", "rpop", "lset", "ltrim":
 		return strings.Contains(flags, "l")
-	case "hset", "hdel", "hincrby":
+	case "hset", "hdel", "hincrby", "hexpire", "hexpired", "hpersist":
 		return strings.Contains(flags, "h")
 	case "sadd", "srem", "spop":
 		return strings.Contains(flags, "s")

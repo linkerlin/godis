@@ -1,6 +1,7 @@
 package database
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
 	"time"
@@ -8,9 +9,47 @@ import (
 	"github.com/linkerlin/godis/datastruct/dict"
 	"github.com/linkerlin/godis/interface/database"
 	"github.com/linkerlin/godis/interface/redis"
+	"github.com/linkerlin/godis/lib/timewheel"
 	"github.com/linkerlin/godis/lib/utils"
 	"github.com/linkerlin/godis/redis/protocol"
 )
+
+// wireExpireDict attaches the global time wheel and AOF/notify hooks for field TTL.
+func (db *DB) wireExpireDict(hashKey string, ed *dict.ExpireDict) {
+	if ed == nil {
+		return
+	}
+	ed.SetTimeWheel(timewheel.Default())
+	ed.SetJobPrefix(fmt.Sprintf("hexpire:%d:%s:", db.index, hashKey))
+	ed.SetAllowActiveExpire(func() bool { return activeExpireEnabled.Load() })
+	ed.SetOnExpired(func(field string) {
+		db.onHashFieldExpired(hashKey, field)
+	})
+}
+
+// onHashFieldExpired propagates a TTL-driven field deletion (AOF HDEL + notify).
+func (db *DB) onHashFieldExpired(hashKey, field string) {
+	if db.addAof != nil {
+		db.addAof(utils.ToCmdLine3("hdel", []byte(hashKey), []byte(field)))
+	}
+	notifyKeyspaceEvent(db, "hdel", hashKey)
+	notifyKeyspaceEvent(db, "hexpired", hashKey)
+
+	entity, ok := db.GetEntity(hashKey)
+	if !ok {
+		return
+	}
+	ed, ok := entity.Data.(*dict.ExpireDict)
+	if !ok {
+		return
+	}
+	if ed.Len() == 0 {
+		db.Remove(hashKey)
+		removeHashFromIndex(db, hashKey)
+		return
+	}
+	reindexHash(db, hashKey)
+}
 
 // getAsExpireDict 获取支持字段级过期的字典
 func (db *DB) getAsExpireDict(key string) (*dict.ExpireDict, protocol.ErrorReply) {
@@ -21,6 +60,7 @@ func (db *DB) getAsExpireDict(key string) (*dict.ExpireDict, protocol.ErrorReply
 
 	// 尝试类型断言为ExpireDict
 	if ed, ok := entity.Data.(*dict.ExpireDict); ok {
+		db.wireExpireDict(key, ed)
 		return ed, nil
 	}
 
@@ -32,6 +72,7 @@ func (db *DB) getAsExpireDict(key string) (*dict.ExpireDict, protocol.ErrorReply
 			ed.Set(key, val)
 			return true
 		})
+		db.wireExpireDict(key, ed)
 		// 更新实体
 		db.PutEntity(key, &database.DataEntity{Data: ed})
 		return ed, nil
@@ -48,6 +89,7 @@ func (db *DB) getOrInitExpireDict(key string) (*dict.ExpireDict, bool, protocol.
 	}
 	if ed == nil {
 		ed = dict.NewExpireDict(16)
+		db.wireExpireDict(key, ed)
 		db.PutEntity(key, &database.DataEntity{Data: ed})
 		return ed, true, nil
 	}

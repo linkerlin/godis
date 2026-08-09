@@ -8,6 +8,11 @@ func init() {
 	tw.Start()
 }
 
+// Default returns the process-wide time wheel used by key TTL and hash field TTL.
+func Default() *TimeWheel {
+	return tw
+}
+
 // Delay executes job after waiting the given duration
 func Delay(duration time.Duration, key string, job func()) {
 	tw.AddJob(duration, key, job)
