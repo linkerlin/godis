@@ -78,7 +78,8 @@
 - [x] `COMMAND DOCS`→外层 Map + 每命令文档 Map；`CLIENT TRACKINGINFO`→Map
 - [x] `FUNCTION STATS`→Map（`engines`/`running_script` 嵌套 Map；无运行中为 null）
 - [x] `FUNCTION LIST`→库项 Map 数组；`ACL LOG`→条目 Map 数组（`age-seconds` Double）；`MODULE LIST` 空数组结构就绪
-- [ ] 其它 introspection Map（如有官方 RESP3 Map 标注再扫）
+- [x] `BF/CMS/TOPK/TDIGEST.INFO`→Map；`FT.CONFIG GET`→Map
+- [ ] 其它 introspection Map（如有官方 RESP3 Map 标注再扫：如 `TS.INFO`、`LATENCY HISTOGRAM`、`LCS IDX`）
 
 ### R2 — 关键 Redis 8.x 命令补齐
 
