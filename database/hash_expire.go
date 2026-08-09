@@ -22,6 +22,14 @@ func (db *DB) wireExpireDict(hashKey string, ed *dict.ExpireDict) {
 	ed.SetTimeWheel(timewheel.Default())
 	ed.SetJobPrefix(fmt.Sprintf("hexpire:%d:%s:", db.index, hashKey))
 	ed.SetAllowActiveExpire(func() bool { return activeExpireEnabled.Load() })
+	// Time-wheel jobs run off the command path: take the DB key write lock
+	// (same check-lock-check pattern as key-level ExpireAt).
+	ed.SetActiveExpireGuard(func(run func()) {
+		keys := []string{hashKey}
+		db.RWLocks(keys, nil)
+		defer db.RWUnLocks(keys, nil)
+		run()
+	})
 	ed.SetOnExpired(func(field string) {
 		db.onHashFieldExpired(hashKey, field)
 	})
@@ -601,7 +609,7 @@ func validateHExpireFlags(flags hExpireFlags) redis.Reply {
 	return nil
 }
 
-func execHExpireFamily(db *DB, args [][]byte, at bool, unit time.Duration) redis.Reply {
+func execHExpireFamily(db *DB, args [][]byte, cmd string, at bool, unit time.Duration) redis.Reply {
 	if len(args) < 3 {
 		return protocol.MakeErrReply("ERR wrong number of arguments")
 	}
@@ -705,7 +713,12 @@ func execHExpireFamily(db *DB, args [][]byte, at bool, unit time.Duration) redis
 
 	// Field-level TTL changes trigger a hash reindex: a field may have been
 	// deleted (content change) or its TTL now affects FILTER/score evaluation.
+	// Persist the client command when anything mutated (align HGETEX/HPERSIST);
+	// Redis filters to successful fields only — Godis keeps the original line.
 	if mutated {
+		if db.addAof != nil {
+			db.addAof(utils.ToCmdLine3(cmd, args...))
+		}
 		reindexHash(db, key)
 	}
 
@@ -714,22 +727,22 @@ func execHExpireFamily(db *DB, args [][]byte, at bool, unit time.Duration) redis
 
 // execHExpire sets expiration on hash fields in seconds
 func execHExpire(db *DB, args [][]byte) redis.Reply {
-	return execHExpireFamily(db, args, false, time.Second)
+	return execHExpireFamily(db, args, "hexpire", false, time.Second)
 }
 
 // execHPExpire sets expiration on hash fields in milliseconds
 func execHPExpire(db *DB, args [][]byte) redis.Reply {
-	return execHExpireFamily(db, args, false, time.Millisecond)
+	return execHExpireFamily(db, args, "hpexpire", false, time.Millisecond)
 }
 
 // execHExpireAt sets absolute expiration on hash fields in unix seconds
 func execHExpireAt(db *DB, args [][]byte) redis.Reply {
-	return execHExpireFamily(db, args, true, time.Second)
+	return execHExpireFamily(db, args, "hexpireat", true, time.Second)
 }
 
 // execHPExpireAt sets absolute expiration on hash fields in unix milliseconds
 func execHPExpireAt(db *DB, args [][]byte) redis.Reply {
-	return execHExpireFamily(db, args, true, time.Millisecond)
+	return execHExpireFamily(db, args, "hpexpireat", true, time.Millisecond)
 }
 
 func undoHExpire(db *DB, args [][]byte) []CmdLine {

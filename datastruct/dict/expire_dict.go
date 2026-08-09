@@ -9,13 +9,14 @@ import (
 
 // ExpireDict 支持字段级过期的字典
 type ExpireDict struct {
-	data              Dict                 // 底层字典存储数据
-	expire            Dict                 // 字段 -> 过期时间的映射
-	tw                *timewheel.TimeWheel // 时间轮，用于TTL管理
-	mu                *lock.Locks          // 分片锁
-	jobPrefix         string               // 时间轮任务 key 前缀（避免跨 hash 字段名冲突）
-	onExpired         func(field string)   // 字段因 TTL 删除后回调（AOF/通知）
-	allowActiveExpire func() bool          // nil = always；false 时时间轮不删（惰性仍删）
+	data               Dict                 // 底层字典存储数据
+	expire             Dict                 // 字段 -> 过期时间的映射
+	tw                 *timewheel.TimeWheel // 时间轮，用于TTL管理
+	mu                 *lock.Locks          // 分片锁
+	jobPrefix          string               // 时间轮任务 key 前缀（避免跨 hash 字段名冲突）
+	onExpired          func(field string)   // 字段因 TTL 删除后回调（AOF/通知）
+	allowActiveExpire  func() bool          // nil = always；false 时时间轮不删（惰性仍删）
+	activeExpireGuard  func(run func())     // wraps time-wheel deletion (DB key lock); nil = direct
 }
 
 // NewExpireDict 创建支持字段级过期的字典
@@ -380,6 +381,12 @@ func (ed *ExpireDict) SetAllowActiveExpire(fn func() bool) {
 	ed.allowActiveExpire = fn
 }
 
+// SetActiveExpireGuard wraps time-wheel field deletion (e.g. DB key write lock).
+// Lazy expiry on access must not use this guard (avoid re-entrant RWMutex).
+func (ed *ExpireDict) SetActiveExpireGuard(fn func(run func())) {
+	ed.activeExpireGuard = fn
+}
+
 func (ed *ExpireDict) jobKey(field string) string {
 	return ed.jobPrefix + field
 }
@@ -390,10 +397,17 @@ func (ed *ExpireDict) scheduleExpireJob(field string, ttl time.Duration) {
 	}
 	fieldCopy := field
 	ed.tw.AddJob(ttl, ed.jobKey(fieldCopy), func() {
-		if ed.allowActiveExpire != nil && !ed.allowActiveExpire() {
-			return
+		run := func() {
+			if ed.allowActiveExpire != nil && !ed.allowActiveExpire() {
+				return
+			}
+			ed.removeExpired(fieldCopy)
 		}
-		ed.removeExpired(fieldCopy)
+		if ed.activeExpireGuard != nil {
+			ed.activeExpireGuard(run)
+		} else {
+			run()
+		}
 	})
 }
 

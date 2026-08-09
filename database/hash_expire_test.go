@@ -270,3 +270,79 @@ func aofContainsHDel(lines []CmdLine, key, field string) bool {
 	}
 	return false
 }
+
+func aofContainsCmd(lines []CmdLine, cmd string) bool {
+	for _, line := range lines {
+		if len(line) >= 1 && string(line[0]) == cmd {
+			return true
+		}
+	}
+	return false
+}
+
+// TestHExpireWritesAofWhenMutated ensures HEXPIRE-family commands themselves are AOF'd
+// (field expiry already propagates HDEL; this covers command replay of TTLs).
+func TestHExpireWritesAofWhenMutated(t *testing.T) {
+	cases := []struct {
+		cmd  string
+		args []string
+	}{
+		{"hexpire", []string{"HEXPIRE", "hk", "60", "FIELDS", "1", "f1"}},
+		{"hpexpire", []string{"HPEXPIRE", "hk", "60000", "FIELDS", "1", "f1"}},
+		{"hexpireat", []string{"HEXPIREAT", "hk", "4102444800", "FIELDS", "1", "f1"}},
+		{"hpexpireat", []string{"HPEXPIREAT", "hk", "4102444800000", "FIELDS", "1", "f1"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.cmd, func(t *testing.T) {
+			db := makeTestDB()
+			var mu sync.Mutex
+			var aofLines []CmdLine
+			db.addAof = func(line CmdLine) {
+				mu.Lock()
+				aofLines = append(aofLines, line)
+				mu.Unlock()
+			}
+			asserts.AssertIntReply(t, db.Exec(nil, utils.ToCmdLine("HSET", "hk", "f1", "v1")), 1)
+			reply := db.Exec(nil, utils.ToCmdLine(tc.args...))
+			if got := intArray(reply); len(got) != 1 || got[0] != 1 {
+				t.Fatalf("expected [1], got %v", got)
+			}
+			mu.Lock()
+			defer mu.Unlock()
+			if !aofContainsCmd(aofLines, tc.cmd) {
+				t.Fatalf("expected AOF %s, got %v", tc.cmd, aofLines)
+			}
+		})
+	}
+}
+
+func TestHExpireNoAofWhenAllConditionsFail(t *testing.T) {
+	db := makeTestDB()
+	var mu sync.Mutex
+	var aofLines []CmdLine
+	db.addAof = func(line CmdLine) {
+		mu.Lock()
+		aofLines = append(aofLines, line)
+		mu.Unlock()
+	}
+	asserts.AssertIntReply(t, db.Exec(nil, utils.ToCmdLine("HSET", "hk", "f1", "v1")), 1)
+	reply := db.Exec(nil, utils.ToCmdLine("HEXPIRE", "hk", "60", "FIELDS", "1", "f1"))
+	if got := intArray(reply); len(got) != 1 || got[0] != 1 {
+		t.Fatalf("setup expire: %v", got)
+	}
+	mu.Lock()
+	aofLines = nil // clear HSET + first HEXPIRE
+	mu.Unlock()
+
+	// NX fails because TTL already present
+	reply = db.Exec(nil, utils.ToCmdLine("HEXPIRE", "hk", "120", "NX", "FIELDS", "1", "f1"))
+	if got := intArray(reply); len(got) != 1 || got[0] != 0 {
+		t.Fatalf("expected [0], got %v", got)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if aofContainsCmd(aofLines, "hexpire") {
+		t.Fatalf("condition fail should not AOF hexpire: %v", aofLines)
+	}
+}
+
