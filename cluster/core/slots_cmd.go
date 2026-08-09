@@ -322,7 +322,12 @@ func (cluster *Cluster) execSetSlotNode(c redis.Connection, cmdLine CmdLine, slo
 				return protocol.MakeErrReply(err.Error())
 			}
 			defer cluster.connections.ReturnPeerClient(leaderConn)
-			return leaderConn.Send(cmdLine)
+			reply := leaderConn.Send(cmdLine)
+			// Clear migrate state on the node that received SETSLOT, not only the leader.
+			if !protocol.IsErrorReply(reply) {
+				cluster.clearLocalSlotMigrate(slot)
+			}
+			return reply
 		}
 		if _, err := cluster.raftNode.Propose(entry); err != nil {
 			return protocol.MakeErrReply(err.Error())

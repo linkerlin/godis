@@ -207,3 +207,59 @@ func TestClusterReadonlyReadwriteFlags(t *testing.T) {
 		t.Fatal("READWRITE should clear flag")
 	}
 }
+
+// Real doMigrate path writes FSM Migratings without SETSLOT; ASK must still fire
+// for missing keys on the exporter even when local state is still hosting.
+func TestFSMMigratingsAskWithoutLocalExporting(t *testing.T) {
+	ids := []string{"127.0.0.1:7200", "127.0.0.1:7201"}
+	nodes := MakeTestCluster(ids)
+	a := nodes[ids[0]]
+	a.inmemProxy = false
+	a.pickNodeImpl = func(uint32) string { return ids[0] }
+	a.raftNode = &raft.Node{
+		Cfg: &raft.RaftConfig{RedisAdvertiseAddr: ids[0]},
+		FSM: &raft.FSM{
+			Node2Slot:    map[string][]uint32{ids[0]: {}},
+			Slot2Node:    map[uint32]string{},
+			Migratings:   make(map[string]*raft.MigratingTask),
+			MasterSlaves: map[string]*raft.MasterSlave{ids[0]: {MasterId: ids[0]}},
+			SlaveMasters: make(map[string]string),
+			Failovers:    make(map[string]*raft.FailoverTask),
+		},
+	}
+
+	key := "fsm-ask"
+	slot := a.GetSlot(key)
+	a.raftNode.ApplyLocal(&raft.LogEntry{
+		Event:     raft.EventAddSlots,
+		SlotsTask: &raft.SlotsTask{NodeId: ids[0], Slots: []uint32{slot}},
+	})
+	a.raftNode.FSM.Migratings["t1"] = &raft.MigratingTask{
+		ID:         "t1",
+		SrcNode:    ids[0],
+		TargetNode: ids[1],
+		Slots:      []uint32{slot},
+	}
+
+	st := a.slotsManager.getSlot(slot)
+	st.mu.RLock()
+	state := st.state
+	st.mu.RUnlock()
+	if state != slotStateHosting {
+		t.Fatalf("precondition: local hosting, got %d", state)
+	}
+	if target := a.migrationTargetForSlot(slot); target != ids[1] {
+		t.Fatalf("migrationTarget=%q want %q", target, ids[1])
+	}
+
+	c := connection.NewFakeConn()
+	got := DefaultFunc(a, c, utils.ToCmdLine("GET", key))
+	ask, ok := got.(*protocol.AskErrReply)
+	if !ok {
+		t.Fatalf("want ASK from FSM Migratings, got %T %s", got, got.ToBytes())
+	}
+	if ask.Addr != ids[1] {
+		t.Fatalf("ASK addr=%q want %q", ask.Addr, ids[1])
+	}
+}
+

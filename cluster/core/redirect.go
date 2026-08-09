@@ -71,12 +71,14 @@ func (cluster *Cluster) migrationTargetForSlot(slot uint32) string {
 			return target
 		}
 	}
+	// Prefer FSM Migratings; else local SETSLOT MIGRATING migratePeer (even if state
+	// was cleared early — peer alone is enough when still mid-admin migrate).
 	if cluster.slotsManager != nil {
 		st := cluster.slotsManager.getSlot(slot)
 		st.mu.RLock()
 		peer, state := st.migratePeer, st.state
 		st.mu.RUnlock()
-		if state == slotStateExporting && peer != "" {
+		if peer != "" && (state == slotStateExporting || state == slotStateImporting) {
 			return peer
 		}
 	}

@@ -117,12 +117,10 @@ func DefaultFunc(cluster *Cluster, c redis.Connection, args [][]byte) redis.Repl
 	}
 
 	if peer == "" || peer == self {
-		// Exporter mid-migration without local key → ASK importer.
-		st := cluster.slotsManager.getSlot(slotId)
-		st.mu.RLock()
-		exporting := st.state == slotStateExporting
-		st.mu.RUnlock()
-		if exporting && !cluster.keyExistsLocal(key) {
+		// Mid-migration without local key → ASK importer.
+		// Uses FSM Migratings first, then local SETSLOT migratePeer (see migrationTargetForSlot).
+		// Do not require local exporting: finish may clear local state before FSM finishes.
+		if !cluster.keyExistsLocal(key) {
 			if target := cluster.migrationTargetForSlot(slotId); target != "" && target != self {
 				return protocol.MakeAskErrReply(slotId, target)
 			}

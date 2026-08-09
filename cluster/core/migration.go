@@ -83,13 +83,27 @@ func (ssm *slotsManager) getSlot(index uint32) *slotStatus {
 	return slot
 }
 
-func (sm *slotStatus) startExporting() protocol.ErrorReply {
+func (sm *slotStatus) startExporting(peer string) protocol.ErrorReply {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
+	// Idempotent with CLUSTER SETSLOT MIGRATING: reuse exporting state and adopt peer.
+	if sm.state == slotStateExporting {
+		if peer != "" {
+			sm.migratePeer = peer
+		}
+		if sm.exportSnapshot == nil {
+			sm.exportSnapshot = sm.keys.ShallowCopy()
+		}
+		if sm.dirtyKeys == nil {
+			sm.dirtyKeys = set.Make()
+		}
+		return nil
+	}
 	if sm.state != slotStateHosting {
 		return protocol.MakeErrReply("slot host is not hosting")
 	}
 	sm.state = slotStateExporting
+	sm.migratePeer = peer
 	sm.dirtyKeys = set.Make()
 	sm.exportSnapshot = sm.keys.ShallowCopy()
 	return nil
@@ -97,8 +111,32 @@ func (sm *slotStatus) startExporting() protocol.ErrorReply {
 
 func (sm *slotStatus) finishExportingWithinLock() {
 	sm.state = slotStateHosting
+	sm.migratePeer = ""
 	sm.dirtyKeys = nil
 	sm.exportSnapshot = nil
+}
+
+func (sm *slotStatus) markImporting(peer string) {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+	sm.state = slotStateImporting
+	sm.migratePeer = peer
+}
+
+func (sm *slotStatus) clearMigrateWithinLock() {
+	sm.state = slotStateHosting
+	sm.migratePeer = ""
+	sm.dirtyKeys = nil
+	sm.exportSnapshot = nil
+}
+
+func (cluster *Cluster) clearImportingTask() {
+	if cluster.slotsManager == nil {
+		return
+	}
+	cluster.slotsManager.mu.Lock()
+	cluster.slotsManager.importingTask = nil
+	cluster.slotsManager.mu.Unlock()
 }
 
 func (cluster *Cluster) dropSlot(index uint32) {
@@ -194,7 +232,7 @@ func execExport(cluster *Cluster, c redis.Connection, cmdLine CmdLine) redis.Rep
 
 	for _, slotId := range task.Slots {
 		slotManager := cluster.slotsManager.getSlot(slotId)
-		errReply := slotManager.startExporting()
+		errReply := slotManager.startExporting(task.TargetNode)
 		if errReply != nil {
 			return errReply
 		}
@@ -228,7 +266,8 @@ func execFinishExport(cluster *Cluster, c redis.Connection, cmdLine CmdLine) red
 	}
 	logger.Infof("finishing migration task %s, got task info", taskId)
 
-	// transport dirty keys within lock, lock will be released while migration done
+	// transport dirty keys within lock; keep exporting until route change succeeds
+	// so ASK/ASKING remain consistent during the finish window.
 	var lockedSlots []uint32
 	defer func() {
 		for i := len(lockedSlots) - 1; i >= 0; i-- {
@@ -242,7 +281,6 @@ func execFinishExport(cluster *Cluster, c redis.Connection, cmdLine CmdLine) red
 		slotManager.mu.Lock()
 		lockedSlots = append(lockedSlots, slotId)
 		cluster.dumpDataThroughConnection(c, slotManager.dirtyKeys)
-		slotManager.finishExportingWithinLock()
 	}
 	logger.Infof("finishing migration task %s, dirty keys transported", taskId)
 
@@ -255,27 +293,32 @@ func execFinishExport(cluster *Cluster, c redis.Connection, cmdLine CmdLine) red
 	reply := leaderConn.Send(utils.ToCmdLine(migrationChangeRouteCommand, taskId))
 	switch reply := reply.(type) {
 	case *protocol.StatusReply, *protocol.OkReply:
+		for _, slotId := range lockedSlots {
+			cluster.slotsManager.getSlot(slotId).finishExportingWithinLock()
+		}
+		cluster.clearImportingTask()
+		logger.Infof("finishing migration task %s, route changed", taskId)
+		// Drop local keys for migrated slots after unlock (dropSlot takes its own locks).
+		slotsToDrop := append([]uint32(nil), task.Slots...)
+		go func() {
+			defer func() {
+				if e := recover(); e != nil {
+					logger.Errorf("panic %v", e)
+				}
+			}()
+			for _, index := range slotsToDrop {
+				cluster.dropSlot(index)
+			}
+		}()
 		return protocol.MakeOkReply()
 	case *protocol.StandardErrReply:
 		logger.Infof("migration done command failed: %v", reply.Error())
+		return protocol.MakeErrReply(reply.Error())
 	default:
-		logger.Infof("finish migration request unknown response %s", string(reply.ToBytes()))
+		msg := fmt.Sprintf("finish migration unknown response %s", string(reply.ToBytes()))
+		logger.Infof("%s", msg)
+		return protocol.MakeErrReply(msg)
 	}
-	logger.Infof("finishing migration task %s, route changed", taskId)
-
-	// clean migrated slots
-	go func() {
-		defer func() {
-			if e := recover(); e != nil {
-				logger.Errorf("panic %v", e)
-			}
-		}()
-		for _, index := range task.Slots {
-			cluster.dropSlot(index)
-		}
-	}()
-	c.Write(protocol.MakeOkReply().ToBytes())
-	return &protocol.NoReply{}
 }
 
 // execStartMigration receives startMigrationCommand from leader and start migration job at background
@@ -313,7 +356,21 @@ func execStartMigration(cluster *Cluster, c redis.Connection, cmdLine CmdLine) r
 }
 
 func (cluster *Cluster) doImports(task *raft.MigratingTask) error {
-	/// STEP1: export
+	/// STEP1: mark local slots IMPORTING so ASKING works during real migrate.
+	for _, slotId := range task.Slots {
+		cluster.slotsManager.getSlot(slotId).markImporting(task.SrcNode)
+	}
+	defer func() {
+		for _, slotId := range task.Slots {
+			st := cluster.slotsManager.getSlot(slotId)
+			st.mu.Lock()
+			st.clearMigrateWithinLock()
+			st.mu.Unlock()
+		}
+		cluster.clearImportingTask()
+	}()
+
+	/// STEP2: export from src
 	cmdLine := utils.ToCmdLine(exportCommand, task.ID)
 	stream, err := cluster.connections.NewStream(task.SrcNode, cmdLine)
 	if err != nil {
