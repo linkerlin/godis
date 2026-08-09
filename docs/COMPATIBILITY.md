@@ -175,6 +175,7 @@ UNWATCH、WAIT（简版）、BITOP、BITFIELD、SMOVE、LPOS、XCLAIM、SHUTDOWN
 | Introspection | `MEMORY STATS`；`ACL GETUSER`；`COMMAND DOCS`；`CLIENT TRACKINGINFO`；`FUNCTION STATS` | Map（嵌套 docs/engines；百分比 Double） |
 | Functions / ACL / Module | `FUNCTION LIST`（每库 Map）；`ACL LOG`（条目 Map 数组）；`MODULE LIST`（空数组，有模块时为 Map） | 外层 Array + 元素 Map |
 | Probabilistic / Search 配置 | `BF.INFO`/`CMS.INFO`/`TOPK.INFO`/`TDIGEST.INFO`；`FT.CONFIG GET` | Map（数值 Int/Double） |
+| TimeSeries / LCS / Latency | `TS.INFO`（`labels` 嵌套 Map）；`LCS … IDX`；`LATENCY HISTOGRAM`（嵌套 histogram_usec） | Map |
 
 **仍延期 / 非本轮：** 集群 CRC16/MOVED/ASK；HSCAN/ZSCAN 第二段官方文档仍为 Array（Lua `setresp(3)` 已按 Map 解释）；jemalloc 级 `used_memory`；Vector Q8/BIN；完整 BM25/KNN；FUNCTION DUMP 官方互通。
 
@@ -184,4 +185,4 @@ UNWATCH、WAIT（简版）、BITOP、BITFIELD、SMOVE、LPOS、XCLAIM、SHUTDOWN
 
 ---
 
-**最后更新：** 2026-08-09（RESP3：FUNCTION LIST / ACL LOG 条目 Map；详见本节与近期 `feat: RESP3 …` 提交）
+**最后更新：** 2026-08-09（RESP3：TS.INFO / LCS IDX / LATENCY HISTOGRAM Map）

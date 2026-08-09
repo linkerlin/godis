@@ -79,7 +79,8 @@
 - [x] `FUNCTION STATS`→Map（`engines`/`running_script` 嵌套 Map；无运行中为 null）
 - [x] `FUNCTION LIST`→库项 Map 数组；`ACL LOG`→条目 Map 数组（`age-seconds` Double）；`MODULE LIST` 空数组结构就绪
 - [x] `BF/CMS/TOPK/TDIGEST.INFO`→Map；`FT.CONFIG GET`→Map
-- [ ] 其它 introspection Map（如有官方 RESP3 Map 标注再扫：如 `TS.INFO`、`LATENCY HISTOGRAM`、`LCS IDX`）
+- [x] `TS.INFO`→Map（`labels` 嵌套）；`LCS IDX`→Map；`LATENCY HISTOGRAM`→嵌套 Map
+- [ ] 其它 introspection Map（如有官方 RESP3 Map 标注再扫）
 
 ### R2 — 关键 Redis 8.x 命令补齐
 
