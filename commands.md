@@ -296,6 +296,7 @@ Godis 实现为 **HGETEX / HSETEX / HGETDEL** 族（非 Redis 文档中的 HEXPI
 | VS.QUERY | 查询向量 |
 | VS.RANGE | 范围查询 |
 | VS.REM / VS.DEL | 移除向量 |
+| VS.DROPINDEX | 删除整个向量集 |
 | VS.LEN / VS.CARD | 向量数量 |
 
 ---
@@ -598,19 +599,15 @@ Godis 支持 Redis 键空间通知机制，可通过配置启用。
 
 | 命令 | 说明 |
 |------|------|
-| BITOP | 位运算 |
-| SMOVE | 集合间移动 |
-| XCLAIM | Stream 认领 |
-| WAIT | 等待副本同步 |
-| UNWATCH | 无执行路径（ACL 分类存在） |
-| VS.DROPINDEX | 向量索引删除 |
-| FT.SYNADD | 使用 FT.SYNUPDATE 替代 |
-| CLUSTER MEET / ADDSLOTS / REPLICATE 等 | 见集群章节 |
+| CLUSTER MOVED / ASK | 错槽仍静默转发；重定向协议面未齐 |
+| CLUSTER CRC16 / 16384 | 槽位算法简化 |
+| FT.SYNADD | 已实现；更推荐 `FT.SYNUPDATE` |
+| MIGRATE / RESTORE-ASKING | 可用 DUMP/RESTORE |
 
 ## 其它说明
 
-- **模块相关**: `MODULE LOAD/UNLOAD/LIST` 未实现（使用内置 JSON/RediSearch 等）
-- **内存管理**: `MEMORY DOCTOR/MEMORY HELP` 未实现（保留 INFO 统计）
+- **模块相关**: `MODULE LIST` 返回空数组；动态 `LOAD/UNLOAD` 未实现（内置 JSON/RediSearch 等）
+- **内存管理**: `MEMORY DOCTOR/MEMORY HELP` 未实现（保留 INFO/MEMORY STATS）
 - **副本相关**: `REPLICAOF`/`SLAVEOF` 可用（主从复制、`FAILOVER` 协调切换，见 `docs/FAILOVER_DESIGN.md`）
 - **迁移命令**: `MIGRATE`/`RESTORE-ASKING` 未实现（可用 DUMP/RESTORE）
 

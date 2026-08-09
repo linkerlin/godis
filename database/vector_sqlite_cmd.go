@@ -125,3 +125,29 @@ func parseVSMetadata(args [][]byte) map[string]string {
 	}
 	return metadata
 }
+
+func sqliteVSDropIndex(db *DB, args [][]byte) redis.Reply {
+	if len(args) != 1 {
+		return protocol.MakeErrReply("ERR wrong number of arguments for 'vs.dropindex' command")
+	}
+	setKey := string(args[0])
+	sqlDB, err := getSQLiteIndexDB()
+	if err != nil {
+		return protocol.MakeErrReply(fmt.Sprintf("ERR sqlite index: %v", err))
+	}
+	deleted, err := sqliteVSDropIndexSet(sqlDB, setKey)
+	if err != nil {
+		return protocol.MakeErrReply(fmt.Sprintf("ERR %v", err))
+	}
+	// Also remove in-memory placeholder key if present.
+	if entity, exists := db.GetEntity(setKey); exists {
+		if _, ok := entity.Data.(*vector.VectorSet); ok {
+			db.Remove(setKey)
+		}
+	}
+	if deleted {
+		db.addAof(utils.ToCmdLine3("vs.dropindex", args...))
+		return protocol.MakeIntReply(1)
+	}
+	return protocol.MakeIntReply(0)
+}

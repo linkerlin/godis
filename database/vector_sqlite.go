@@ -222,3 +222,33 @@ func sqliteVSSearchVectors(db *sql.DB, setKey string, query []float64, k int) ([
 	}
 	return hits, rows.Err()
 }
+
+// sqliteVSDropIndexSet removes a vector set and its sqlite-vec virtual table.
+func sqliteVSDropIndexSet(db *sql.DB, setKey string) (bool, error) {
+	var table string
+	err := db.QueryRow(`SELECT vec_table FROM vector_set_meta WHERE set_key = ?`, setKey).Scan(&table)
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	tx, err := db.Begin()
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec(fmt.Sprintf(`DROP TABLE IF EXISTS %s`, table)); err != nil {
+		return false, err
+	}
+	if _, err := tx.Exec(`DELETE FROM vector_item_meta WHERE set_key = ?`, setKey); err != nil {
+		return false, err
+	}
+	if _, err := tx.Exec(`DELETE FROM vector_set_meta WHERE set_key = ?`, setKey); err != nil {
+		return false, err
+	}
+	if err := tx.Commit(); err != nil {
+		return false, err
+	}
+	return true, nil
+}

@@ -146,6 +146,29 @@ func execVSDel(db *DB, args [][]byte) redis.Reply {
 	return protocol.MakeIntReply(int64(deleted))
 }
 
+// execVSDropIndex drops an entire vector set (key).
+// VS.DROPINDEX key
+// Returns 1 if the set existed and was removed, 0 if missing.
+func execVSDropIndex(db *DB, args [][]byte) redis.Reply {
+	if currentVectorBackend().Name() == backendSQLite {
+		return sqliteVSDropIndex(db, args)
+	}
+	if len(args) != 1 {
+		return protocol.MakeErrReply("ERR wrong number of arguments for 'vs.dropindex' command")
+	}
+	key := string(args[0])
+	entity, exists := db.GetEntity(key)
+	if !exists {
+		return protocol.MakeIntReply(0)
+	}
+	if _, ok := entity.Data.(*vector.VectorSet); !ok {
+		return &protocol.WrongTypeErrReply{}
+	}
+	db.Remove(key)
+	db.addAof(utils.ToCmdLine3("vs.dropindex", args...))
+	return protocol.MakeIntReply(1)
+}
+
 // execVSSearch searches for similar vectors
 // VS.SEARCH key [K k] [METRIC COSINE|EUCLIDEAN|DOT] vector
 func execVSSearch(db *DB, args [][]byte) redis.Reply {
@@ -487,6 +510,8 @@ func init() {
 		attachCommandExtra([]string{redisFlagReadonly, redisFlagFast}, 1, 1, 1)
 	registerCommand("VSDel", execVSDel, prepareVSKey, nil, -3, flagWrite).
 		attachCommandExtra([]string{redisFlagWrite}, 1, 1, 1)
+	registerCommand("VSDropIndex", execVSDropIndex, prepareVSKey, nil, 2, flagWrite).
+		attachCommandExtra([]string{redisFlagWrite}, 1, 1, 1)
 	registerCommand("VSSearch", execVSSearch, prepareVSKey, nil, -3, flagReadOnly).
 		attachCommandExtra([]string{redisFlagReadonly}, 1, 1, 1)
 	registerCommand("VSQuery", execVSQuery, prepareVSKey, nil, -3, flagReadOnly).
@@ -497,4 +522,9 @@ func init() {
 		attachCommandExtra([]string{redisFlagReadonly, redisFlagFast}, 1, 1, 1)
 	registerCommand("VSCard", execVSCard, prepareVSKey, nil, 2, flagReadOnly).
 		attachCommandExtra([]string{redisFlagReadonly, redisFlagFast}, 1, 1, 1)
+	// Dotted aliases documented in AGENTS.md / commands.md
+	registerCommand("VS.Add", execVSAdd, prepareVSKey, nil, -4, flagWrite).
+		attachCommandExtra([]string{redisFlagWrite, redisFlagDenyOOM}, 1, 1, 1)
+	registerCommand("VS.DropIndex", execVSDropIndex, prepareVSKey, nil, 2, flagWrite).
+		attachCommandExtra([]string{redisFlagWrite}, 1, 1, 1)
 }

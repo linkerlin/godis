@@ -16,3 +16,7 @@ func sqliteVSAdd(_ *DB, _ [][]byte) redis.Reply {
 func sqliteVSSearch(_ *DB, _ [][]byte) redis.Reply {
 	return protocol.MakeErrReply(errSQLiteVectorDisabled)
 }
+
+func sqliteVSDropIndex(_ *DB, _ [][]byte) redis.Reply {
+	return protocol.MakeErrReply(errSQLiteVectorDisabled)
+}
