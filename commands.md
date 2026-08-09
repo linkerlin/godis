@@ -547,8 +547,8 @@ Godis 实现为 **HGETEX / HSETEX / HGETDEL** 族（非 Redis 文档中的 HEXPI
 
 ## 集群命令
 
-> 槽位算法：CRC16-XMODEM % 16384（`lib/hashslot`）。`NODES`/`SLOTS`/`INFO`/`SHARDS` 读 Raft FSM 真拓扑。  
-> MEET / ADDSLOTS 写路径 / gossip 仍延期，见 [`docs/COMPATIBILITY.md`](docs/COMPATIBILITY.md)。
+> 槽位算法：CRC16-XMODEM % 16384（`lib/hashslot`）。`NODES`/`SLOTS`/`INFO`/`SHARDS` 读 Raft FSM；`ADDSLOTS`/`DELSLOTS*` 写 FSM。  
+> MEET / SETSLOT 写路径 / gossip 仍延期，见 [`docs/COMPATIBILITY.md`](docs/COMPATIBILITY.md)。
 
 | 命令 | 描述 |
 |------|------|
@@ -561,7 +561,7 @@ Godis 实现为 **HGETEX / HSETEX / HGETDEL** 族（非 Redis 文档中的 HEXPI
 | CLUSTER COUNTKEYSINSLOT | 本节点槽内键数 |
 | CLUSTER SETNAME / GETNAME | 可读节点名 |
 | CLUSTER HELP | 帮助信息 |
-| CLUSTER ADDSLOTS / DELSLOTS / SETSLOT 等 | 参数校验后 OK（**写 FSM 仍为桩**） |
+| CLUSTER ADDSLOTS / DELSLOTS / SETSLOT 等 | ADDSLOTS/DELSLOTS* / FLUSHSLOTS **写 Raft FSM**；SETSLOT 仍为参数校验桩 |
 | FAILOVER | 主从协调切换（TO/FORCE/ABORT/TIMEOUT，见 `docs/FAILOVER_DESIGN.md`） |
 
 ---
@@ -605,7 +605,7 @@ Godis 支持 Redis 键空间通知机制，可通过配置启用。
 
 | 命令 / 能力 | 说明 |
 |------|------|
-| CLUSTER MEET / ADDSLOTS 写 FSM | 查询面已读 FSM；加入仍走 `cluster.join`，ADDSLOTS* 校验后 OK 桩 |
+| CLUSTER MEET / SETSLOT 写 FSM | 加入仍走 `cluster.join`；SETSLOT 校验后 OK 桩 |
 | FT.SYNADD | 已实现；更推荐 `FT.SYNUPDATE` |
 | MIGRATE / RESTORE-ASKING | 可用 DUMP/RESTORE |
 
