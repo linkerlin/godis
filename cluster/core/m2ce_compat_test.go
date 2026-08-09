@@ -25,6 +25,11 @@ func TestM2ceClusterReplicasSlaves(t *testing.T) {
 		}
 	}
 
+	unk := execCluster(cl, nil, [][]byte{[]byte("CLUSTER"), []byte("REPLICAS"), []byte("other")})
+	if !protocol.IsErrorReply(unk) || !strings.Contains(string(unk.ToBytes()), "Unknown node") {
+		t.Fatalf("unknown node: %s", unk.ToBytes())
+	}
+
 	help := string(execClusterHelp().ToBytes())
 	if !strings.Contains(help, "REPLICAS") || !strings.Contains(help, "SLAVES") {
 		t.Fatalf("HELP missing REPLICAS/SLAVES: %s", help)

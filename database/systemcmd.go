@@ -523,20 +523,28 @@ func GenGodisInfoString(section string, db *Server) []byte {
 		return []byte(s)
 	case "cluster":
 		if getGodisRunningMode() == config.ClusterMode {
-			s := "# Cluster\r\n" +
-				"cluster_enabled:1\r\n" +
-				"cluster_state:ok\r\n" +
-				"cluster_slots_assigned:16384\r\n" +
-				"cluster_slots_ok:16384\r\n" +
-				"cluster_slots_pfail:0\r\n" +
-				"cluster_slots_fail:0\r\n" +
-				"cluster_known_nodes:1\r\n" +
-				"cluster_size:1\r\n" +
-				"cluster_current_epoch:0\r\n" +
-				"cluster_my_epoch:0\r\n" +
-				"cluster_stats_messages_sent:0\r\n" +
-				"cluster_stats_messages_received:0\r\n"
-			return []byte(s)
+			var b strings.Builder
+			b.WriteString("# Cluster\r\ncluster_enabled:1\r\n")
+			if clusterInfoSectionProvider != nil {
+				body := strings.ReplaceAll(clusterInfoSectionProvider(), "\n", "\r\n")
+				b.WriteString(body)
+			} else {
+				// ClusterEnable without live Cluster (tests / misconfig): static fallback.
+				b.WriteString(
+					"cluster_state:ok\r\n" +
+						"cluster_slots_assigned:16384\r\n" +
+						"cluster_slots_ok:16384\r\n" +
+						"cluster_slots_pfail:0\r\n" +
+						"cluster_slots_fail:0\r\n" +
+						"cluster_known_nodes:1\r\n" +
+						"cluster_size:1\r\n" +
+						"cluster_current_epoch:0\r\n" +
+						"cluster_my_epoch:0\r\n" +
+						"cluster_stats_messages_sent:0\r\n" +
+						"cluster_stats_messages_received:0\r\n",
+				)
+			}
+			return []byte(b.String())
 		}
 		s := fmt.Sprintf("# Cluster\r\n"+
 			"cluster_enabled:%s\r\n",

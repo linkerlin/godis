@@ -138,28 +138,32 @@ func formatSlotRanges(slots []uint32) string {
 	return strings.Join(parts, " ")
 }
 
+func (v clusterView) formatNodeLine(id string) string {
+	host, port := parseAddr(id)
+	flags := []string{}
+	if id == v.selfID {
+		flags = append(flags, "myself")
+	}
+	masterField := "-"
+	if master, isSlave := v.slaveMaster[id]; isSlave {
+		flags = append(flags, "slave")
+		masterField = master
+	} else {
+		flags = append(flags, "master")
+	}
+	slots := formatSlotRanges(v.nodeSlots[id])
+	line := fmt.Sprintf("%s %s:%d %s %s 0 0 0 connected",
+		id, host, port, strings.Join(flags, ","), masterField)
+	if slots != "" {
+		line += " " + slots
+	}
+	return line
+}
+
 func (v clusterView) nodesBulk() []byte {
 	var b strings.Builder
 	for _, id := range v.allNodeIDs {
-		host, port := parseAddr(id)
-		flags := []string{}
-		if id == v.selfID {
-			flags = append(flags, "myself")
-		}
-		masterField := "-"
-		if master, isSlave := v.slaveMaster[id]; isSlave {
-			flags = append(flags, "slave")
-			masterField = master
-		} else {
-			flags = append(flags, "master")
-		}
-		slots := formatSlotRanges(v.nodeSlots[id])
-		line := fmt.Sprintf("%s %s:%d %s %s 0 0 0 connected",
-			id, host, port, strings.Join(flags, ","), masterField)
-		if slots != "" {
-			line += " " + slots
-		}
-		b.WriteString(line)
+		b.WriteString(v.formatNodeLine(id))
 		b.WriteByte('\n')
 	}
 	return []byte(b.String())

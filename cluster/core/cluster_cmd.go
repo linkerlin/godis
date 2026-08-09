@@ -51,15 +51,13 @@ func execCluster(cluster *Cluster, c redis.Connection, cmdLine CmdLine) redis.Re
 		if cluster == nil {
 			return protocol.MakeErrReply("ERR This instance has cluster support disabled")
 		}
+		// No-op: Godis FSM has no configEpoch; gossip bus / real bump is out of scope.
 		return protocol.MakeStatusReply("BUMPED 0")
 	case "REPLICAS", "SLAVES":
 		if len(cmdLine) != 3 {
 			return protocol.MakeErrReply(fmt.Sprintf("ERR wrong number of arguments for 'cluster|%s' command", strings.ToLower(subCmd)))
 		}
-		if cluster == nil {
-			return protocol.MakeErrReply("ERR This instance has cluster support disabled")
-		}
-		return protocol.MakeEmptyMultiBulkReply()
+		return execClusterReplicas(cluster, string(cmdLine[2]))
 	case "LINKS":
 		if len(cmdLine) != 2 {
 			return protocol.MakeErrReply("ERR wrong number of arguments for 'cluster|links' command")
@@ -84,19 +82,7 @@ func execCluster(cluster *Cluster, c redis.Connection, cmdLine CmdLine) redis.Re
 		if len(cmdLine) != 4 {
 			return protocol.MakeErrReply("ERR wrong number of arguments for 'cluster|getkeysinslot' command")
 		}
-		if cluster == nil {
-			return protocol.MakeErrReply("ERR This instance has cluster support disabled")
-		}
-		slot, err := strconv.ParseInt(string(cmdLine[2]), 10, 64)
-		if err != nil || slot < 0 || slot > 16383 {
-			return protocol.MakeErrReply("ERR Invalid slot")
-		}
-		count, err := strconv.ParseInt(string(cmdLine[3]), 10, 64)
-		if err != nil || count < 0 {
-			return protocol.MakeErrReply("ERR Invalid count")
-		}
-		_ = count
-		return protocol.MakeEmptyMultiBulkReply()
+		return execClusterGetKeysInSlot(cluster, string(cmdLine[2]), string(cmdLine[3]))
 	case "ADDSLOTSRANGE":
 		return execClusterAddSlotsRange(cluster, c, cmdLine)
 	case "ADDSLOTS":
@@ -252,6 +238,75 @@ func execClusterCountKeysInSlot(cluster *Cluster, slotStr string) redis.Reply {
 	return protocol.MakeIntReply(int64(st.keys.Len()))
 }
 
+// execClusterGetKeysInSlot returns up to count local keys tracked in the slot
+// (same slotsManager registry as COUNTKEYSINSLOT).
+func execClusterGetKeysInSlot(cluster *Cluster, slotStr, countStr string) redis.Reply {
+	if cluster == nil {
+		return protocol.MakeErrReply("ERR This instance has cluster support disabled")
+	}
+	slot, err := strconv.ParseInt(slotStr, 10, 64)
+	if err != nil || slot < 0 || slot > 16383 {
+		return protocol.MakeErrReply("ERR Invalid slot")
+	}
+	count, err := strconv.ParseInt(countStr, 10, 64)
+	if err != nil || count < 0 {
+		return protocol.MakeErrReply("ERR Invalid count")
+	}
+	if count == 0 || cluster.slotsManager == nil {
+		return protocol.MakeEmptyMultiBulkReply()
+	}
+	st := cluster.slotsManager.getSlot(uint32(slot))
+	if st == nil || st.keys == nil {
+		return protocol.MakeEmptyMultiBulkReply()
+	}
+	st.mu.RLock()
+	defer st.mu.RUnlock()
+	out := make([][]byte, 0)
+	st.keys.ForEach(func(k string) bool {
+		if int64(len(out)) >= count {
+			return false
+		}
+		out = append(out, []byte(k))
+		return true
+	})
+	if len(out) == 0 {
+		return protocol.MakeEmptyMultiBulkReply()
+	}
+	return protocol.MakeMultiBulkReply(out)
+}
+
+// execClusterReplicas lists replica node lines for a master (FSM MasterSlaves).
+func execClusterReplicas(cluster *Cluster, nodeID string) redis.Reply {
+	if cluster == nil {
+		return protocol.MakeErrReply("ERR This instance has cluster support disabled")
+	}
+	v := cluster.snapshotClusterView()
+	known := false
+	for _, id := range v.allNodeIDs {
+		if id == nodeID {
+			known = true
+			break
+		}
+	}
+	if !known {
+		if _, ok := v.masterSlave[nodeID]; ok {
+			known = true
+		}
+	}
+	if !known {
+		return protocol.MakeErrReply(fmt.Sprintf("ERR Unknown node %s", nodeID))
+	}
+	slaves := v.masterSlave[nodeID]
+	if len(slaves) == 0 {
+		return protocol.MakeEmptyMultiBulkReply()
+	}
+	args := make([][]byte, 0, len(slaves))
+	for _, slave := range slaves {
+		args = append(args, []byte(v.formatNodeLine(slave)))
+	}
+	return protocol.MakeMultiBulkReply(args)
+}
+
 // execClusterShards returns a Redis-compatible SHARDS view from FSM topology.
 // Outer array of shard Maps; each node is a Map (RESP3 % / RESP2 flat via Map.ToBytes).
 func execClusterShards(cluster *Cluster) redis.Reply {
@@ -279,7 +334,7 @@ func execClusterHelp() redis.Reply {
 		"CLUSTER COUNT-FAILURE-REPORTS node-id",
 		"    Return the number of failure reports for the specified node.",
 		"CLUSTER BUMPEPOCH",
-		"    Advance the cluster config epoch.",
+		"    No-op in Godis (config epoch not persisted; returns BUMPED 0).",
 		"CLUSTER REPLICAS node-id",
 		"    List replica nodes of the specified master node.",
 		"CLUSTER SLAVES node-id",
@@ -289,7 +344,7 @@ func execClusterHelp() redis.Reply {
 		"CLUSTER SET-CONFIG-EPOCH epoch",
 		"    Not supported.",
 		"CLUSTER GETKEYSINSLOT slot count",
-		"    Return local keys in the specified hash slot.",
+		"    Return local keys tracked in the specified hash slot.",
 		"CLUSTER ADDSLOTS slot [slot ...]",
 		"    Assign hash slots to this node (writes Raft FSM).",
 		"CLUSTER ADDSLOTSRANGE start-slot end-slot [start-slot end-slot ...]",

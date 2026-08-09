@@ -8,7 +8,7 @@ import (
 )
 
 func TestM2cgClusterGetKeysInSlotForgetResetSaveConfig(t *testing.T) {
-	cl := &Cluster{id_: "node-cg"}
+	cl := &Cluster{id_: "node-cg", slotsManager: newSlotsManager()}
 
 	r := execCluster(cl, nil, [][]byte{
 		[]byte("CLUSTER"), []byte("GETKEYSINSLOT"), []byte("0"), []byte("10"),
@@ -17,6 +17,15 @@ func TestM2cgClusterGetKeysInSlotForgetResetSaveConfig(t *testing.T) {
 		if mb, ok2 := r.(*protocol.MultiBulkReply); !ok2 || len(mb.Args) != 0 {
 			t.Fatalf("GETKEYSINSLOT want empty: %T %s", r, r.ToBytes())
 		}
+	}
+
+	cl.slotsManager.getSlot(0).keys.Add("k-in-slot")
+	r = execCluster(cl, nil, [][]byte{
+		[]byte("CLUSTER"), []byte("GETKEYSINSLOT"), []byte("0"), []byte("10"),
+	})
+	mb, ok := r.(*protocol.MultiBulkReply)
+	if !ok || len(mb.Args) != 1 || string(mb.Args[0]) != "k-in-slot" {
+		t.Fatalf("GETKEYSINSLOT want local key: %T %s", r, r.ToBytes())
 	}
 
 	for _, sub := range [][][]byte{

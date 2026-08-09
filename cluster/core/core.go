@@ -98,6 +98,10 @@ func NewCluster(cfg *Config) (*Cluster, error) {
 	cluster.injectDeleteCallback()
 	cluster.registerOnFailover()
 
+	dbimpl.SetClusterInfoSectionProvider(func() string {
+		return string(cluster.snapshotClusterView().infoBulk())
+	})
+
 	// setup
 	hasState, err := raftNode.HasExistingState()
 	if err != nil {
@@ -149,6 +153,7 @@ func (cluster *Cluster) AfterClientClose(c redis.Connection) {
 }
 
 func (cluster *Cluster) Close() {
+	dbimpl.SetClusterInfoSectionProvider(nil)
 	close(cluster.closeChan)
 	cluster.db.Close()
 	err := cluster.raftNode.Close()
