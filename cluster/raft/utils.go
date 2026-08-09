@@ -1,6 +1,7 @@
 package raft
 
 import (
+	"encoding/json"
 	"fmt"
 	"strconv"
 
@@ -9,6 +10,23 @@ import (
 
 func (node *Node) Self() string {
 	return node.Cfg.ID()
+}
+
+// RaftReady reports whether the Hashicorp Raft instance is started (Propose safe).
+func (node *Node) RaftReady() bool {
+	return node != nil && node.inner != nil
+}
+
+// ApplyLocal applies a log entry to the FSM without Raft consensus (tests / FSM-only stubs).
+func (node *Node) ApplyLocal(entry *LogEntry) {
+	if node == nil || node.FSM == nil || entry == nil {
+		return
+	}
+	bin, err := json.Marshal(entry)
+	if err != nil {
+		return
+	}
+	node.FSM.Apply(&raft.Log{Data: bin})
 }
 
 func (node *Node) State() raft.RaftState {

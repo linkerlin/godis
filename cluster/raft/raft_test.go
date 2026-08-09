@@ -176,6 +176,32 @@ func TestFSMApplyEvents(t *testing.T) {
 	}
 	data, _ = json.Marshal(entry)
 	fsm.Apply(&raft.Log{Data: data})
+
+	// EventRemoveSlots then EventAddSlots
+	entry = &LogEntry{
+		Event: EventRemoveSlots,
+		SlotsTask: &SlotsTask{
+			NodeId: "node2",
+			Slots:  []uint32{1},
+		},
+	}
+	data, _ = json.Marshal(entry)
+	fsm.Apply(&raft.Log{Data: data})
+	if _, ok := fsm.Slot2Node[1]; ok {
+		t.Fatal("slot 1 should be unassigned after RemoveSlots")
+	}
+	entry = &LogEntry{
+		Event: EventAddSlots,
+		SlotsTask: &SlotsTask{
+			NodeId: "node3",
+			Slots:  []uint32{1},
+		},
+	}
+	data, _ = json.Marshal(entry)
+	fsm.Apply(&raft.Log{Data: data})
+	if fsm.Slot2Node[1] != "node3" {
+		t.Fatalf("slot 1 owner=%q", fsm.Slot2Node[1])
+	}
 }
 
 func TestFSMSnapshotAndRestore(t *testing.T) {

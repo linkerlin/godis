@@ -64,6 +64,12 @@ type JoinTask struct {
 	Master string
 }
 
+// SlotsTask assigns or drops hash slots for a node (CLUSTER ADDSLOTS / DELSLOTS).
+type SlotsTask struct {
+	NodeId string
+	Slots  []uint32
+}
+
 // implements FSM.Apply after you created a new raft event
 const (
 	EventStartMigrate = iota + 1
@@ -71,6 +77,8 @@ const (
 	EventSeedStart
 	EventFinishFailover
 	EventJoin
+	EventAddSlots
+	EventRemoveSlots
 )
 
 // LogEntry is an entry in raft log, stores a change of cluster
@@ -80,6 +88,7 @@ type LogEntry struct {
 	InitTask      *InitTask
 	FailoverTask  *FailoverTask
 	JoinTask      *JoinTask
+	SlotsTask     *SlotsTask `json:"SlotsTask,omitempty"`
 }
 
 // Apply is called once a log entry is committed by a majority of the cluster.
@@ -145,6 +154,23 @@ func (fsm *FSM) Apply(log *raft.Log) interface{} {
 			return nil
 		}
 		fsm.addNode(task.NodeId, task.Master)
+	} else if entry.Event == EventAddSlots {
+		task := entry.SlotsTask
+		if task == nil {
+			logger.Error("raft FSM Apply: EventAddSlots with nil SlotsTask")
+			return nil
+		}
+		fsm.addSlots(task.NodeId, task.Slots)
+		if _, ok := fsm.MasterSlaves[task.NodeId]; !ok {
+			fsm.addNode(task.NodeId, "")
+		}
+	} else if entry.Event == EventRemoveSlots {
+		task := entry.SlotsTask
+		if task == nil {
+			logger.Error("raft FSM Apply: EventRemoveSlots with nil SlotsTask")
+			return nil
+		}
+		fsm.removeSlots(task.NodeId, task.Slots)
 	}
 	if fsm.changed != nil {
 		fsm.changed(fsm)

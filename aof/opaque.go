@@ -48,9 +48,23 @@ type streamEntryDump struct {
 }
 
 type streamGroupDump struct {
-	Name        string `json:"n"`
-	LastID      string `json:"lid"`
-	EntriesRead int64  `json:"er"`
+	Name        string               `json:"n"`
+	LastID      string               `json:"lid"`
+	EntriesRead int64                `json:"er"`
+	Consumers   []streamConsumerDump `json:"c,omitempty"`
+	Pending     []streamPendingDump  `json:"p,omitempty"`
+}
+
+type streamConsumerDump struct {
+	Name   string `json:"n"`
+	SeenMs int64  `json:"st"` // unix milliseconds
+}
+
+type streamPendingDump struct {
+	ID       string `json:"id"`
+	Consumer string `json:"c"`
+	Count    int    `json:"dc"`
+	TimeMs   int64  `json:"dt"` // delivery time unix ms
 }
 
 type vectorDump struct {
@@ -238,11 +252,33 @@ func dumpStream(s *stream.Stream) streamDump {
 		d.Entries = append(d.Entries, streamEntryDump{ID: e.ID.String(), Fields: fields})
 	}
 	for _, g := range s.GetGroups() {
-		d.Groups = append(d.Groups, streamGroupDump{
+		gd := streamGroupDump{
 			Name:        g.Name,
 			LastID:      g.LastID.String(),
 			EntriesRead: g.EntriesRead,
-		})
+		}
+		if g.Consumers != nil {
+			g.Consumers.ForEach(func(key string, val interface{}) bool {
+				c := val.(*stream.Consumer)
+				gd.Consumers = append(gd.Consumers, streamConsumerDump{
+					Name:   c.Name,
+					SeenMs: c.SeenTime.UnixMilli(),
+				})
+				return true
+			})
+		}
+		for _, pe := range g.Pending {
+			if pe == nil {
+				continue
+			}
+			gd.Pending = append(gd.Pending, streamPendingDump{
+				ID:       pe.ID.String(),
+				Consumer: pe.Consumer,
+				Count:    pe.DeliveryCount,
+				TimeMs:   pe.DeliveryTime.UnixMilli(),
+			})
+		}
+		d.Groups = append(d.Groups, gd)
 	}
 	return d
 }
@@ -263,8 +299,38 @@ func loadStream(raw []byte) (*stream.Stream, error) {
 			return nil, err
 		}
 		grp, err := s.GetGroup(g.Name)
-		if err == nil {
-			grp.EntriesRead = g.EntriesRead
+		if err != nil {
+			return nil, err
+		}
+		grp.EntriesRead = g.EntriesRead
+		for _, cd := range g.Consumers {
+			cons := grp.GetConsumer(cd.Name)
+			if cd.SeenMs > 0 {
+				cons.SeenTime = time.UnixMilli(cd.SeenMs)
+			}
+		}
+		for _, pd := range g.Pending {
+			id, err := stream.ParseStreamID(pd.ID, stream.StreamID{})
+			if err != nil {
+				return nil, err
+			}
+			pe := &stream.PendingEntry{
+				ID:            id,
+				Consumer:      pd.Consumer,
+				DeliveryCount: pd.Count,
+				DeliveryTime:  time.UnixMilli(pd.TimeMs),
+			}
+			if grp.Pending == nil {
+				grp.Pending = make(map[stream.StreamID]*stream.PendingEntry)
+			}
+			grp.Pending[id] = pe
+			if pd.Consumer != "" {
+				cons := grp.GetConsumer(pd.Consumer)
+				if cons.Pending == nil {
+					cons.Pending = make(map[stream.StreamID]*stream.PendingEntry)
+				}
+				cons.Pending[id] = pe
+			}
 		}
 	}
 	return s, nil

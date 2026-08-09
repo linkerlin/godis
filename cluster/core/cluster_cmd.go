@@ -98,47 +98,11 @@ func execCluster(cluster *Cluster, c redis.Connection, cmdLine CmdLine) redis.Re
 		_ = count
 		return protocol.MakeEmptyMultiBulkReply()
 	case "ADDSLOTSRANGE":
-		if len(cmdLine) < 4 || (len(cmdLine)-2)%2 != 0 {
-			return protocol.MakeErrReply("ERR wrong number of arguments for 'cluster|addslotsrange' command")
-		}
-		if cluster == nil {
-			return protocol.MakeErrReply("ERR This instance has cluster support disabled")
-		}
-		for i := 2; i < len(cmdLine); i++ {
-			n, err := strconv.ParseInt(string(cmdLine[i]), 10, 64)
-			if err != nil || n < 0 || n > 16383 {
-				return protocol.MakeErrReply("ERR Invalid or out of range slot")
-			}
-		}
-		return protocol.MakeOkReply()
+		return execClusterAddSlotsRange(cluster, c, cmdLine)
 	case "ADDSLOTS":
-		if len(cmdLine) < 3 {
-			return protocol.MakeErrReply("ERR wrong number of arguments for 'cluster|addslots' command")
-		}
-		if cluster == nil {
-			return protocol.MakeErrReply("ERR This instance has cluster support disabled")
-		}
-		for i := 2; i < len(cmdLine); i++ {
-			n, err := strconv.ParseInt(string(cmdLine[i]), 10, 64)
-			if err != nil || n < 0 || n > 16383 {
-				return protocol.MakeErrReply("ERR Invalid or out of range slot")
-			}
-		}
-		return protocol.MakeOkReply()
+		return execClusterAddSlots(cluster, c, cmdLine)
 	case "DELSLOTS":
-		if len(cmdLine) < 3 {
-			return protocol.MakeErrReply("ERR wrong number of arguments for 'cluster|delslots' command")
-		}
-		if cluster == nil {
-			return protocol.MakeErrReply("ERR This instance has cluster support disabled")
-		}
-		for i := 2; i < len(cmdLine); i++ {
-			n, err := strconv.ParseInt(string(cmdLine[i]), 10, 64)
-			if err != nil || n < 0 || n > 16383 {
-				return protocol.MakeErrReply("ERR Invalid or out of range slot")
-			}
-		}
-		return protocol.MakeOkReply()
+		return execClusterDelSlots(cluster, c, cmdLine)
 	case "SETSLOT":
 		if len(cmdLine) < 4 {
 			return protocol.MakeErrReply("ERR wrong number of arguments for 'cluster|setslot' command")
@@ -241,27 +205,9 @@ func execCluster(cluster *Cluster, c redis.Connection, cmdLine CmdLine) redis.Re
 		}
 		return protocol.MakeOkReply()
 	case "DELSLOTSRANGE":
-		if len(cmdLine) < 4 || (len(cmdLine)-2)%2 != 0 {
-			return protocol.MakeErrReply("ERR wrong number of arguments for 'cluster|delslotsrange' command")
-		}
-		if cluster == nil {
-			return protocol.MakeErrReply("ERR This instance has cluster support disabled")
-		}
-		for i := 2; i < len(cmdLine); i++ {
-			n, err := strconv.ParseInt(string(cmdLine[i]), 10, 64)
-			if err != nil || n < 0 || n > 16383 {
-				return protocol.MakeErrReply("ERR Invalid or out of range slot")
-			}
-		}
-		return protocol.MakeOkReply()
+		return execClusterDelSlotsRange(cluster, c, cmdLine)
 	case "FLUSHSLOTS":
-		if len(cmdLine) != 2 {
-			return protocol.MakeErrReply("ERR wrong number of arguments for 'cluster|flushslots' command")
-		}
-		if cluster == nil {
-			return protocol.MakeErrReply("ERR This instance has cluster support disabled")
-		}
-		return protocol.MakeOkReply()
+		return execClusterFlushSlots(cluster, c, cmdLine)
 	case "MYSHARDID":
 		if len(cmdLine) != 2 {
 			return protocol.MakeErrReply("ERR wrong number of arguments for 'cluster|myshardid' command")
@@ -369,12 +315,12 @@ func execClusterHelp() redis.Reply {
 		"    Set the config epoch for this node.",
 		"CLUSTER GETKEYSINSLOT slot count",
 		"    Return local keys in the specified hash slot.",
-		"CLUSTER ADDSLOTSRANGE start-slot end-slot [start-slot end-slot ...]",
-		"    Assign slots ranges to this node.",
 		"CLUSTER ADDSLOTS slot [slot ...]",
-		"    Assign hash slots to this node.",
+		"    Assign hash slots to this node (writes Raft FSM).",
+		"CLUSTER ADDSLOTSRANGE start-slot end-slot [start-slot end-slot ...]",
+		"    Assign slots ranges to this node (writes Raft FSM).",
 		"CLUSTER DELSLOTS slot [slot ...]",
-		"    Remove hash slots from this node.",
+		"    Remove hash slots from this node (writes Raft FSM).",
 		"CLUSTER SETSLOT slot MIGRATING|IMPORTING|STABLE|NODE ...",
 		"    Set hash slot state (stub).",
 		"CLUSTER FORGET node-id",
@@ -388,9 +334,9 @@ func execClusterHelp() redis.Reply {
 		"CLUSTER SAVECONFIG",
 		"    Force save the nodes.conf file.",
 		"CLUSTER DELSLOTSRANGE start-slot end-slot [start-slot end-slot ...]",
-		"    Remove slots ranges from this node.",
+		"    Remove slots ranges from this node (writes Raft FSM).",
 		"CLUSTER FLUSHSLOTS",
-		"    Delete the node's own slots information.",
+		"    Delete this node's slots from the FSM.",
 		"CLUSTER MYSHARDID",
 		"    Return the shard id of this node.",
 		"CLUSTER SETNAME name",
