@@ -69,6 +69,8 @@ type tsDump struct {
 	Retention int64             `json:"r"` // nanoseconds
 	Labels    map[string]string `json:"l"`
 	Samples   []tsSampleDump    `json:"s"`
+	DupPolicy string            `json:"dp,omitempty"` // BLOCK/FIRST/LAST/MIN/MAX/SUM
+	ChunkSize int               `json:"cs,omitempty"`
 }
 
 type tsSampleDump struct {
@@ -298,6 +300,8 @@ func dumpTimeSeries(ts *timeseries.TimeSeries) tsDump {
 		Key:       ts.Key,
 		Retention: int64(ts.GetRetention()),
 		Labels:    ts.GetLabels(),
+		DupPolicy: timeseries.FormatDuplicatePolicy(ts.DuplicatePolicy),
+		ChunkSize: ts.ChunkSize,
 	}
 	for _, s := range ts.Range(math.MinInt64, math.MaxInt64) {
 		d.Samples = append(d.Samples, tsSampleDump{Timestamp: s.Timestamp, Value: s.Value})
@@ -311,11 +315,20 @@ func loadTimeSeries(raw []byte) (*timeseries.TimeSeries, error) {
 		return nil, err
 	}
 	ts := timeseries.NewTimeSeries(d.Key, time.Duration(d.Retention))
+	if d.ChunkSize > 0 {
+		ts.ChunkSize = d.ChunkSize
+	}
+	if d.DupPolicy != "" {
+		if p, err := timeseries.ParseDuplicatePolicy(d.DupPolicy); err == nil {
+			ts.DuplicatePolicy = p
+		}
+	}
 	if len(d.Labels) > 0 {
 		ts.SetLabels(d.Labels)
 	}
+	// Restore samples with LAST so historical blobs with rare dups still load.
 	for _, s := range d.Samples {
-		if _, err := ts.Add(s.Timestamp, s.Value); err != nil {
+		if _, err := ts.AddWithPolicy(s.Timestamp, s.Value, timeseries.DupLast); err != nil {
 			return nil, err
 		}
 	}

@@ -66,6 +66,24 @@ func ParseDuplicatePolicy(s string) (DuplicatePolicy, error) {
 	}
 }
 
+// FormatDuplicatePolicy returns the Redis policy name (BLOCK/FIRST/…).
+func FormatDuplicatePolicy(p DuplicatePolicy) string {
+	switch p {
+	case DupFirst:
+		return "FIRST"
+	case DupLast:
+		return "LAST"
+	case DupMin:
+		return "MIN"
+	case DupMax:
+		return "MAX"
+	case DupSum:
+		return "SUM"
+	default:
+		return "BLOCK"
+	}
+}
+
 // DownsampleRule defines a downsample aggregation rule
 type DownsampleRule struct {
 	TimeBucket time.Duration
