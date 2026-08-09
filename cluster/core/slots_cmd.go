@@ -3,8 +3,10 @@ package core
 import (
 	"fmt"
 	"strconv"
+	"strings"
 
 	"github.com/linkerlin/godis/cluster/raft"
+	"github.com/linkerlin/godis/datastruct/set"
 	"github.com/linkerlin/godis/interface/redis"
 	"github.com/linkerlin/godis/lib/hashslot"
 	"github.com/linkerlin/godis/redis/protocol"
@@ -209,4 +211,67 @@ func execClusterFlushSlots(cluster *Cluster, c redis.Connection, cmdLine CmdLine
 		slots = append([]uint32(nil), fsm.Node2Slot[self]...)
 	})
 	return cluster.proposeSlotsChange(c, cmdLine, raft.EventRemoveSlots, slots)
+}
+
+// execClusterSetSlot handles CLUSTER SETSLOT.
+// MIGRATING / IMPORTING / STABLE update local slotsManager so ASK/ASKING align with admin state.
+// NODE (ownership / FSM write) remains unsupported — use ADDSLOTS/DELSLOTS or Godis migration.
+func execClusterSetSlot(cluster *Cluster, c redis.Connection, cmdLine CmdLine) redis.Reply {
+	if len(cmdLine) < 4 {
+		return protocol.MakeErrReply("ERR wrong number of arguments for 'cluster|setslot' command")
+	}
+	if cluster == nil {
+		return protocol.MakeErrReply("ERR This instance has cluster support disabled")
+	}
+	slot, err := strconv.ParseInt(string(cmdLine[2]), 10, 64)
+	if err != nil || slot < 0 || slot >= int64(hashslot.Count) {
+		return protocol.MakeErrReply("ERR Invalid or out of range slot")
+	}
+	sub := strings.ToUpper(string(cmdLine[3]))
+	switch sub {
+	case "MIGRATING", "IMPORTING":
+		if len(cmdLine) != 5 {
+			return protocol.MakeErrReply("ERR wrong number of arguments for 'cluster|setslot' command")
+		}
+	case "STABLE":
+		if len(cmdLine) != 4 {
+			return protocol.MakeErrReply("ERR wrong number of arguments for 'cluster|setslot' command")
+		}
+	case "NODE":
+		if len(cmdLine) != 5 {
+			return protocol.MakeErrReply("ERR wrong number of arguments for 'cluster|setslot' command")
+		}
+		return protocol.MakeErrReply("ERR CLUSTER SETSLOT NODE is not supported (use ADDSLOTS/DELSLOTS or Godis migration)")
+	default:
+		return protocol.MakeErrReply("ERR Invalid CLUSTER SETSLOT action")
+	}
+
+	if cluster.isClusterReplica() {
+		return protocol.MakeErrReply("ERR Please use SETSLOT only with masters.")
+	}
+	if cluster.slotsManager == nil {
+		cluster.slotsManager = newSlotsManager()
+	}
+
+	st := cluster.slotsManager.getSlot(uint32(slot))
+	st.mu.Lock()
+	defer st.mu.Unlock()
+
+	switch sub {
+	case "MIGRATING":
+		st.state = slotStateExporting
+		st.migratePeer = string(cmdLine[4])
+		if st.dirtyKeys == nil {
+			st.dirtyKeys = set.Make()
+		}
+	case "IMPORTING":
+		st.state = slotStateImporting
+		st.migratePeer = string(cmdLine[4])
+	case "STABLE":
+		st.state = slotStateHosting
+		st.migratePeer = ""
+		st.dirtyKeys = nil
+		st.exportSnapshot = nil
+	}
+	return protocol.MakeOkReply()
 }

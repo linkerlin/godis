@@ -50,25 +50,37 @@ func init() {
 }
 
 // migrationTargetForSlot returns the importing node address when this slot is mid-migration.
+// Prefers Raft FSM Migratings; falls back to local SETSLOT MIGRATING migratePeer.
 func (cluster *Cluster) migrationTargetForSlot(slot uint32) string {
-	if cluster.raftNode == nil || cluster.raftNode.FSM == nil {
-		return ""
-	}
-	var target string
-	cluster.raftNode.FSM.WithReadLock(func(fsm *raft.FSM) {
-		for _, task := range fsm.Migratings {
-			if task == nil {
-				continue
-			}
-			for _, s := range task.Slots {
-				if s == slot {
-					target = task.TargetNode
-					return
+	if cluster.raftNode != nil && cluster.raftNode.FSM != nil {
+		var target string
+		cluster.raftNode.FSM.WithReadLock(func(fsm *raft.FSM) {
+			for _, task := range fsm.Migratings {
+				if task == nil {
+					continue
+				}
+				for _, s := range task.Slots {
+					if s == slot {
+						target = task.TargetNode
+						return
+					}
 				}
 			}
+		})
+		if target != "" {
+			return target
 		}
-	})
-	return target
+	}
+	if cluster.slotsManager != nil {
+		st := cluster.slotsManager.getSlot(slot)
+		st.mu.RLock()
+		peer, state := st.migratePeer, st.state
+		st.mu.RUnlock()
+		if state == slotStateExporting && peer != "" {
+			return peer
+		}
+	}
+	return ""
 }
 
 // keyExistsLocal reports whether key is present on the local DB engine.

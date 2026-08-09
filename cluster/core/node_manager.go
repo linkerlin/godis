@@ -3,6 +3,8 @@ package core
 import (
 	"fmt"
 	"math"
+	"net"
+	"strconv"
 	"time"
 
 	"github.com/linkerlin/godis/cluster/raft"
@@ -83,6 +85,76 @@ func execJoin(cluster *Cluster, c redis.Connection, cmdLine CmdLine) redis.Reply
 	}
 
 	// join sucees, rebalance node
+	return protocol.MakeOkReply()
+}
+
+// execClusterMeet is the user-facing CLUSTER MEET ip port [raft-port].
+//
+// Godis is Raft/advertise based — this is NOT Redis Cluster gossip handshake.
+// When Hashicorp Raft is ready, optional raft-port is required and the request
+// follows the same AddToRaft + EventJoin / leader-forward path as cluster.join.
+// With FSM-only stubs (unit tests), EventJoin is applied locally without AddToRaft.
+func execClusterMeet(cluster *Cluster, c redis.Connection, cmdLine CmdLine) redis.Reply {
+	if len(cmdLine) != 4 && len(cmdLine) != 5 {
+		return protocol.MakeErrReply("ERR wrong number of arguments for 'cluster|meet' command")
+	}
+	if cluster == nil {
+		return protocol.MakeErrReply("ERR This instance has cluster support disabled")
+	}
+	if cluster.raftNode == nil {
+		return protocol.MakeErrReply("ERR CLUSTER MEET requires Raft")
+	}
+
+	ip := string(cmdLine[2])
+	if ip == "" {
+		return protocol.MakeErrReply("ERR Invalid node address specified")
+	}
+	port, err := strconv.ParseInt(string(cmdLine[3]), 10, 64)
+	if err != nil || port <= 0 || port > 65535 {
+		return protocol.MakeErrReply("ERR Invalid TCP base port specified: " + string(cmdLine[3]))
+	}
+	redisAddr := net.JoinHostPort(ip, strconv.FormatInt(port, 10))
+
+	raftAddr := ""
+	if len(cmdLine) == 5 {
+		raftPort, err := strconv.ParseInt(string(cmdLine[4]), 10, 64)
+		if err != nil || raftPort <= 0 || raftPort > 65535 {
+			return protocol.MakeErrReply("ERR Invalid raft port specified: " + string(cmdLine[4]))
+		}
+		raftAddr = net.JoinHostPort(ip, strconv.FormatInt(raftPort, 10))
+	}
+
+	// Already in FSM topology → idempotent OK (no gossip ping).
+	if cluster.raftNode.FSM != nil {
+		var known bool
+		cluster.raftNode.FSM.WithReadLock(func(fsm *raft.FSM) {
+			_, known = fsm.MasterSlaves[redisAddr]
+			if !known {
+				_, known = fsm.SlaveMasters[redisAddr]
+			}
+		})
+		if known {
+			return protocol.MakeOkReply()
+		}
+	}
+
+	if cluster.raftNode.RaftReady() {
+		if raftAddr == "" {
+			return protocol.MakeErrReply("ERR CLUSTER MEET requires raft-port (Godis uses Raft advertise, not gossip). Usage: CLUSTER MEET ip port raft-port")
+		}
+		return execJoin(cluster, c, utils.ToCmdLine(joinClusterCommand, redisAddr, raftAddr))
+	}
+
+	// FSM-only (no Hashicorp Raft): topology join without AddToRaft.
+	if cluster.raftNode.FSM == nil {
+		return protocol.MakeErrReply("ERR CLUSTER MEET requires Raft FSM")
+	}
+	cluster.raftNode.ApplyLocal(&raft.LogEntry{
+		Event: raft.EventJoin,
+		JoinTask: &raft.JoinTask{
+			NodeId: redisAddr,
+		},
+	})
 	return protocol.MakeOkReply()
 }
 

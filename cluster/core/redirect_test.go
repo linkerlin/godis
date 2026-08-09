@@ -1,6 +1,7 @@
 package core
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 
@@ -80,6 +81,60 @@ func TestDefaultFuncMovedAskAndAsking(t *testing.T) {
 	ask := protocol.MakeAskErrReply(slot, ids[1])
 	if !strings.HasPrefix(string(ask.ToBytes()), "-ASK ") {
 		t.Fatalf("ASK wire: %q", ask.ToBytes())
+	}
+}
+
+func TestSetSlotMigratingFeedsAsk(t *testing.T) {
+	ids := []string{"127.0.0.1:7100", "127.0.0.1:7101"}
+	nodes := MakeTestCluster(ids)
+	a := nodes[ids[0]]
+	a.inmemProxy = false
+	a.pickNodeImpl = func(uint32) string { return ids[0] }
+
+	key := "ask-me"
+	slot := a.GetSlot(key)
+	slotStr := strconv.FormatUint(uint64(slot), 10)
+
+	r := execCluster(a, nil, [][]byte{
+		[]byte("CLUSTER"), []byte("SETSLOT"),
+		[]byte(slotStr), []byte("MIGRATING"), []byte(ids[1]),
+	})
+	if _, ok := r.(*protocol.OkReply); !ok {
+		t.Fatalf("SETSLOT MIGRATING: %T %s", r, r.ToBytes())
+	}
+
+	st := a.slotsManager.getSlot(slot)
+	st.mu.RLock()
+	if st.state != slotStateExporting || st.migratePeer != ids[1] {
+		st.mu.RUnlock()
+		t.Fatalf("slot state=%d peer=%q", st.state, st.migratePeer)
+	}
+	st.mu.RUnlock()
+
+	if target := a.migrationTargetForSlot(slot); target != ids[1] {
+		t.Fatalf("migrationTarget=%q want %q", target, ids[1])
+	}
+
+	c := connection.NewFakeConn()
+	got := DefaultFunc(a, c, utils.ToCmdLine("GET", key))
+	ask, ok := got.(*protocol.AskErrReply)
+	if !ok {
+		t.Fatalf("want ASK, got %T %s", got, got.ToBytes())
+	}
+	if ask.Addr != ids[1] {
+		t.Fatalf("ASK addr=%q want %q", ask.Addr, ids[1])
+	}
+
+	r = execCluster(a, nil, [][]byte{
+		[]byte("CLUSTER"), []byte("SETSLOT"),
+		[]byte(slotStr), []byte("STABLE"),
+	})
+	if _, ok := r.(*protocol.OkReply); !ok {
+		t.Fatalf("SETSLOT STABLE: %s", r.ToBytes())
+	}
+	got = DefaultFunc(a, c, utils.ToCmdLine("GET", key))
+	if _, ok := got.(*protocol.AskErrReply); ok {
+		t.Fatal("STABLE should clear ASK")
 	}
 }
 

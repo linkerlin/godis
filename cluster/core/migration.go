@@ -46,6 +46,11 @@ type slotStatus struct {
 
 	exportSnapshot *set.Set // 开始传输时拷贝 slot 中的 key, 避免并发
 	dirtyKeys      *set.Set // 传输开始后被修改的key, 在传输结束阶段需要重传一遍
+
+	// migratePeer is set by CLUSTER SETSLOT MIGRATING|IMPORTING (local admin state).
+	// On exporter (MIGRATING): peer is the importing node → ASK target.
+	// On importer (IMPORTING): peer is the exporting node (informational).
+	migratePeer string
 }
 
 func newSlotsManager() *slotsManager {

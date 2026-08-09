@@ -103,34 +103,10 @@ func execCluster(cluster *Cluster, c redis.Connection, cmdLine CmdLine) redis.Re
 		return execClusterAddSlots(cluster, c, cmdLine)
 	case "DELSLOTS":
 		return execClusterDelSlots(cluster, c, cmdLine)
+	case "MEET":
+		return execClusterMeet(cluster, c, cmdLine)
 	case "SETSLOT":
-		if len(cmdLine) < 4 {
-			return protocol.MakeErrReply("ERR wrong number of arguments for 'cluster|setslot' command")
-		}
-		if cluster == nil {
-			return protocol.MakeErrReply("ERR This instance has cluster support disabled")
-		}
-		slot, err := strconv.ParseInt(string(cmdLine[2]), 10, 64)
-		if err != nil || slot < 0 || slot > 16383 {
-			return protocol.MakeErrReply("ERR Invalid or out of range slot")
-		}
-		sub := strings.ToUpper(string(cmdLine[3]))
-		switch sub {
-		case "MIGRATING", "IMPORTING":
-			if len(cmdLine) != 5 {
-				return protocol.MakeErrReply("ERR wrong number of arguments for 'cluster|setslot' command")
-			}
-		case "STABLE", "NODE":
-			if sub == "NODE" && len(cmdLine) != 5 {
-				return protocol.MakeErrReply("ERR wrong number of arguments for 'cluster|setslot' command")
-			}
-			if sub == "STABLE" && len(cmdLine) != 4 {
-				return protocol.MakeErrReply("ERR wrong number of arguments for 'cluster|setslot' command")
-			}
-		default:
-			return protocol.MakeErrReply("ERR Invalid CLUSTER SETSLOT action")
-		}
-		return protocol.MakeErrReply("ERR CLUSTER SETSLOT is not supported (use Godis migration / Raft path)")
+		return execClusterSetSlot(cluster, c, cmdLine)
 	case "FORGET":
 		if len(cmdLine) != 3 {
 			return protocol.MakeErrReply("ERR wrong number of arguments for 'cluster|forget' command")
@@ -320,8 +296,11 @@ func execClusterHelp() redis.Reply {
 		"    Assign slots ranges to this node (writes Raft FSM).",
 		"CLUSTER DELSLOTS slot [slot ...]",
 		"    Remove hash slots from this node (writes Raft FSM).",
+		"CLUSTER MEET ip port [raft-port]",
+		"    Join peer into cluster via Raft/FSM (not gossip). Raft-ready nodes require raft-port.",
 		"CLUSTER SETSLOT slot MIGRATING|IMPORTING|STABLE|NODE ...",
-		"    Not supported (use Godis migration / Raft path).",
+		"    MIGRATING/IMPORTING/STABLE update local slotsManager (ASK/ASKING).",
+		"    NODE is not supported (use ADDSLOTS/DELSLOTS or Godis migration).",
 		"CLUSTER FORGET node-id",
 		"    Not supported.",
 		"CLUSTER REPLICATE node-id",
