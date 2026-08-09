@@ -35,6 +35,12 @@ func (c *FakeConn) SetRemoteAddr(addr string) {
 	c.fakeRemote = addr
 }
 
+func (c *FakeConn) SetClusterReadOnly(v bool) { c.Connection.SetClusterReadOnly(v) }
+func (c *FakeConn) IsClusterReadOnly() bool   { return c.Connection.IsClusterReadOnly() }
+func (c *FakeConn) SetAsking(v bool)          { c.Connection.SetAsking(v) }
+func (c *FakeConn) IsAsking() bool            { return c.Connection.IsAsking() }
+func (c *FakeConn) ConsumeAsking() bool       { return c.Connection.ConsumeAsking() }
+
 func (c *FakeConn) RemoteAddr() string {
 	if c.fakeRemote != "" {
 		return c.fakeRemote

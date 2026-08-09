@@ -20,6 +20,7 @@ func TestConnectionCommandsViaServer(t *testing.T) {
 	asserts.AssertStatusReply(t, server.Exec(c, utils.ToCmdLine("QUIT")), "OK")
 	asserts.AssertStatusReply(t, server.Exec(c, utils.ToCmdLine("READONLY")), "OK")
 	asserts.AssertStatusReply(t, server.Exec(c, utils.ToCmdLine("READWRITE")), "OK")
+	asserts.AssertStatusReply(t, server.Exec(c, utils.ToCmdLine("ASKING")), "OK")
 }
 
 func TestConnectionCommandsViaDB(t *testing.T) {

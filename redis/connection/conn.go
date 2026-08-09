@@ -20,6 +20,10 @@ const (
 	flagMaster
 	// flagMulti means this connection is within a transaction
 	flagMulti
+	// flagClusterReadOnly is set by READONLY (cluster replica reads)
+	flagClusterReadOnly
+	// flagAsking is set by ASKING (one-shot import-slot access)
+	flagAsking
 )
 
 // Connection represents a connection with a redis-cli
@@ -526,4 +530,41 @@ func (c *Connection) SetMaster() {
 
 func (c *Connection) IsMaster() bool {
 	return c.flags&flagMaster > 0
+}
+
+// SetClusterReadOnly enables READONLY mode for cluster replica reads.
+func (c *Connection) SetClusterReadOnly(v bool) {
+	if v {
+		c.flags |= flagClusterReadOnly
+	} else {
+		c.flags &^= flagClusterReadOnly
+	}
+}
+
+// IsClusterReadOnly reports whether READONLY was issued.
+func (c *Connection) IsClusterReadOnly() bool {
+	return c.flags&flagClusterReadOnly > 0
+}
+
+// SetAsking enables one-shot ASKING mode (importing slot access).
+func (c *Connection) SetAsking(v bool) {
+	if v {
+		c.flags |= flagAsking
+	} else {
+		c.flags &^= flagAsking
+	}
+}
+
+// IsAsking reports whether ASKING is active for the next command.
+func (c *Connection) IsAsking() bool {
+	return c.flags&flagAsking > 0
+}
+
+// ConsumeAsking clears ASKING after the next command (Redis one-shot semantics).
+func (c *Connection) ConsumeAsking() bool {
+	if c.flags&flagAsking == 0 {
+		return false
+	}
+	c.flags &^= flagAsking
+	return true
 }

@@ -89,15 +89,46 @@ func RegisterDefaultCmd(name string) {
 	RegisterCmd(name, DefaultFunc)
 }
 
-// relay command to responsible peer, and return its protocol to client
+// DefaultFunc routes a single-key command or returns MOVED/ASK for Redis Cluster clients.
+// Internal multi-key helpers still call Relay explicitly.
 func DefaultFunc(cluster *Cluster, c redis.Connection, args [][]byte) redis.Reply {
+	if len(args) < 2 {
+		return protocol.MakeErrReply("ERR wrong number of arguments")
+	}
 	key := string(args[1])
 	slotId := cluster.GetSlot(key)
 	peer := cluster.PickNode(slotId)
-	if peer == cluster.SelfID() {
-		// to self db
-		//return cluster.db.Exec(c, cmdLine)
+	self := cluster.SelfID()
+
+	asking := false
+	if cc := asClusterConn(c); cc != nil {
+		asking = cc.ConsumeAsking()
+	}
+
+	// ASKING: allow serving on importing node even if topology still points at exporter.
+	if asking {
+		st := cluster.slotsManager.getSlot(slotId)
+		st.mu.RLock()
+		importing := st.state == slotStateImporting
+		st.mu.RUnlock()
+		if importing || peer == self || peer == "" {
+			return cluster.db.Exec(c, args)
+		}
+	}
+
+	if peer == "" || peer == self {
+		// Exporter mid-migration without local key → ASK importer.
+		st := cluster.slotsManager.getSlot(slotId)
+		st.mu.RLock()
+		exporting := st.state == slotStateExporting
+		st.mu.RUnlock()
+		if exporting && !cluster.keyExistsLocal(key) {
+			if target := cluster.migrationTargetForSlot(slotId); target != "" && target != self {
+				return protocol.MakeAskErrReply(slotId, target)
+			}
+		}
 		return cluster.db.Exec(c, args)
 	}
-	return cluster.Relay(peer, c, args)
+
+	return protocol.MakeMovedErrReply(slotId, peer)
 }

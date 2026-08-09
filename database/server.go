@@ -314,6 +314,30 @@ func (server *Server) Exec(c redis.Connection, cmdLine [][]byte) (result redis.R
 		return execTime(cmdLine[1:])
 	} else if cmdName == "role" {
 		return server.execRole(cmdLine[1:])
+	} else if cmdName == "readonly" {
+		if len(cmdLine) != 1 {
+			return protocol.MakeArgNumErrReply("readonly")
+		}
+		if cc, ok := c.(interface{ SetClusterReadOnly(bool) }); ok {
+			cc.SetClusterReadOnly(true)
+		}
+		return protocol.MakeOkReply()
+	} else if cmdName == "readwrite" {
+		if len(cmdLine) != 1 {
+			return protocol.MakeArgNumErrReply("readwrite")
+		}
+		if cc, ok := c.(interface{ SetClusterReadOnly(bool) }); ok {
+			cc.SetClusterReadOnly(false)
+		}
+		return protocol.MakeOkReply()
+	} else if cmdName == "asking" {
+		if len(cmdLine) != 1 {
+			return protocol.MakeArgNumErrReply("asking")
+		}
+		if cc, ok := c.(interface{ SetAsking(bool) }); ok {
+			cc.SetAsking(true)
+		}
+		return protocol.MakeOkReply()
 	} else if cmdName == "lolwut" {
 		return execLolwut(cmdLine[1:])
 	} else if cmdName == "debug" {

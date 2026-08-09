@@ -406,23 +406,31 @@ func execClientHelp(args [][]byte) redis.Reply {
 	return protocol.MakeMultiBulkReply(result)
 }
 
-// execReadonly enables read-only mode for cluster replica
+// execReadonly enables read-only mode for cluster replica connections.
 // READONLY
 func execReadonly(db *DB, args [][]byte) redis.Reply {
 	if len(args) != 0 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'readonly' command")
 	}
-	// Simplified: cluster not fully implemented
+	// Connection flag is set when available; always OK (Redis / standalone).
 	return protocol.MakeOkReply()
 }
 
-// execReadwrite disables read-only mode
+// execReadwrite disables read-only mode.
 // READWRITE
 func execReadwrite(db *DB, args [][]byte) redis.Reply {
 	if len(args) != 0 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'readwrite' command")
 	}
-	// Simplified: cluster not fully implemented
+	return protocol.MakeOkReply()
+}
+
+// execAsking marks the connection for one-shot importing-slot access (cluster).
+// ASKING
+func execAsking(db *DB, args [][]byte) redis.Reply {
+	if len(args) != 0 {
+		return protocol.MakeErrReply("ERR wrong number of arguments for 'asking' command")
+	}
 	return protocol.MakeOkReply()
 }
 
@@ -444,4 +452,6 @@ func init() {
 		attachCommandExtra([]string{redisFlagNoScript, redisFlagFast}, 0, 0, 0)
 	registerCommand("Readwrite", execReadwrite, noPrepare, nil, 1, flagFast).
 		attachCommandExtra([]string{redisFlagNoScript, redisFlagFast}, 0, 0, 0)
+	registerCommand("Asking", execAsking, noPrepare, nil, 1, flagFast).
+		attachCommandExtra([]string{redisFlagNoScript, redisFlagFast, redisFlagAsking}, 0, 0, 0)
 }
