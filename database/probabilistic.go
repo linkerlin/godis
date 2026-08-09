@@ -315,14 +315,7 @@ func execBFInfo(db *DB, args [][]byte) redis.Reply {
 	}
 
 	info := bf.Info()
-
-	var reply [][]byte
-	for k, v := range info {
-		reply = append(reply, []byte(k))
-		reply = append(reply, []byte(fmt.Sprintf("%v", v)))
-	}
-
-	return protocol.MakeMultiBulkReply(reply)
+	return mapReplyFromInfo(info)
 }
 
 // === Cuckoo Filter Commands ===
@@ -887,11 +880,11 @@ func execCMSInfo(db *DB, args [][]byte) redis.Reply {
 		return &protocol.WrongTypeErrReply{}
 	}
 	info := cms.Info()
-	return protocol.MakeMultiBulkReply([][]byte{
-		[]byte("width"), []byte(fmt.Sprintf("%v", info["width"])),
-		[]byte("depth"), []byte(fmt.Sprintf("%v", info["depth"])),
-		[]byte("count"), []byte(fmt.Sprintf("%v", info["count"])),
-	})
+	m := protocol.MakeMapReply()
+	m.Put("width", infoScalarReply(info["width"]))
+	m.Put("depth", infoScalarReply(info["depth"]))
+	m.Put("count", infoScalarReply(info["count"]))
+	return m
 }
 
 // === Top-K Commands ===
@@ -1097,11 +1090,7 @@ func execTopKInfo(db *DB, args [][]byte) redis.Reply {
 		return &protocol.WrongTypeErrReply{}
 	}
 	info := topk.Info()
-	reply := make([][]byte, 0, len(info)*2)
-	for k, v := range info {
-		reply = append(reply, []byte(k), []byte(fmt.Sprintf("%v", v)))
-	}
-	return protocol.MakeMultiBulkReply(reply)
+	return mapReplyFromInfo(info)
 }
 
 // execTopKIncrBy increments item counts (via repeated Add)
@@ -1161,6 +1150,42 @@ func prepareCMSMerge(args [][]byte) ([]string, []string) {
 		keys = append(keys, string(args[2+i]))
 	}
 	return keys, nil
+}
+
+// mapReplyFromInfo builds a RESP3 Map from *INFO-style key/value data.
+func mapReplyFromInfo(info map[string]interface{}) *protocol.MapReply {
+	m := protocol.MakeMapReply()
+	for k, v := range info {
+		m.Put(k, infoScalarReply(v))
+	}
+	return m
+}
+
+func infoScalarReply(v interface{}) redis.Reply {
+	switch val := v.(type) {
+	case float64:
+		return protocol.MakeDoubleReply(val)
+	case float32:
+		return protocol.MakeDoubleReply(float64(val))
+	case int:
+		return protocol.MakeIntReply(int64(val))
+	case int32:
+		return protocol.MakeIntReply(int64(val))
+	case int64:
+		return protocol.MakeIntReply(val)
+	case uint:
+		return protocol.MakeIntReply(int64(val))
+	case uint32:
+		return protocol.MakeIntReply(int64(val))
+	case uint64:
+		return protocol.MakeIntReply(int64(val))
+	case bool:
+		return protocol.MakeBooleanReply(val)
+	case string:
+		return protocol.MakeBulkReply([]byte(val))
+	default:
+		return protocol.MakeBulkReply([]byte(fmt.Sprintf("%v", v)))
+	}
 }
 
 func init() {

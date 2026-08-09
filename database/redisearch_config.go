@@ -98,13 +98,13 @@ func execFTConfig(db *DB, args [][]byte) redis.Reply {
 		pattern := string(args[1])
 		ftConfigMu.RLock()
 		defer ftConfigMu.RUnlock()
-		var out [][]byte
+		m := protocol.MakeMapReply()
 		for k, v := range ftConfig {
 			if pattern == "*" || strings.EqualFold(k, pattern) {
-				out = append(out, []byte(k), []byte(v))
+				m.Put(k, protocol.MakeBulkReply([]byte(v)))
 			}
 		}
-		return protocol.MakeMultiBulkReply(out)
+		return m
 	case "SET":
 		if len(args) != 3 {
 			return protocol.MakeErrReply("ERR wrong number of arguments for 'ft.config|set' command")

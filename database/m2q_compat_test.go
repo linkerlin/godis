@@ -55,9 +55,13 @@ func TestM2qPFDebugDecodeFTConfigShutdown(t *testing.T) {
 
 	asserts.AssertStatusReply(t, db.Exec(nil, utils.ToCmdLine("FT.CONFIG", "SET", "TIMEOUT", "100")), "OK")
 	got := db.Exec(nil, utils.ToCmdLine("FT.CONFIG", "GET", "TIMEOUT"))
-	multi, ok := got.(*protocol.MultiBulkReply)
-	if !ok || len(multi.Args) < 2 || string(multi.Args[1]) != "100" {
-		t.Fatalf("FT.CONFIG GET: %s", got.ToBytes())
+	m, ok := got.(*protocol.MapReply)
+	if !ok {
+		t.Fatalf("FT.CONFIG GET: %T %s", got, got.ToBytes())
+	}
+	v, ok := m.Data["TIMEOUT"].(*protocol.BulkReply)
+	if !ok || string(v.Arg) != "100" {
+		t.Fatalf("FT.CONFIG GET TIMEOUT: %s", got.ToBytes())
 	}
 
 	r := execShutdown(nil, nil)

@@ -40,17 +40,12 @@ func TestP10SearchKebabConfigSet(t *testing.T) {
 	}()
 	asserts.AssertStatusReply(t, server.Exec(c, utils.ToCmdLine("CONFIG", "SET", "search-default-dialect", "2")), "OK")
 	r := server.Exec(c, utils.ToCmdLine("FT.CONFIG", "GET", "DEFAULT_DIALECT"))
-	mb, ok := r.(*protocol.MultiBulkReply)
+	m, ok := r.(*protocol.MapReply)
 	if !ok {
 		t.Fatalf("FT.CONFIG GET shape: %T %s", r, r.ToBytes())
 	}
-	found := false
-	for i := 0; i+1 < len(mb.Args); i += 2 {
-		if string(mb.Args[i]) == "DEFAULT_DIALECT" && string(mb.Args[i+1]) == "2" {
-			found = true
-		}
-	}
-	if !found {
+	v, ok := m.Data["DEFAULT_DIALECT"].(*protocol.BulkReply)
+	if !ok || string(v.Arg) != "2" {
 		t.Fatalf("CONFIG SET search-default-dialect 2 should be visible to FT.CONFIG GET: %s", r.ToBytes())
 	}
 }

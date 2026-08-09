@@ -65,8 +65,8 @@ func TestBloomFilterBasic(t *testing.T) {
 	asserts.AssertIntReply(t, db.Exec(nil, utils.ToCmdLine("BF.EXISTS", "bf:1", "item")), 1)
 
 	info := db.Exec(nil, utils.ToCmdLine("BF.INFO", "bf:1"))
-	if _, ok := info.(*protocol.MultiBulkReply); !ok {
-		t.Fatalf("BF.INFO: got %s", info.ToBytes())
+	if _, ok := info.(*protocol.MapReply); !ok {
+		t.Fatalf("BF.INFO: got %T %s", info, info.ToBytes())
 	}
 }
 

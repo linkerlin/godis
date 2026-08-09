@@ -58,17 +58,12 @@ func TestP8FTPersistence(t *testing.T) {
 
 	// FT.CONFIG setting survived.
 	r = readSrv.Exec(rc, utils.ToCmdLine("FT.CONFIG", "GET", "MINPREFIX"))
-	mb, ok := r.(*protocol.MultiBulkReply)
+	m, ok := r.(*protocol.MapReply)
 	if !ok {
 		t.Fatalf("FT.CONFIG GET shape: %T %s", r, r.ToBytes())
 	}
-	found := false
-	for _, a := range mb.Args {
-		if string(a) == "3" {
-			found = true
-		}
-	}
-	if !found {
+	v, ok := m.Data["MINPREFIX"].(*protocol.BulkReply)
+	if !ok || string(v.Arg) != "3" {
 		t.Fatalf("FT.CONFIG MINPREFIX not restored to 3: %s", r.ToBytes())
 	}
 

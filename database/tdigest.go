@@ -1,7 +1,6 @@
 package database
 
 import (
-	"fmt"
 	"strconv"
 	"strings"
 
@@ -193,25 +192,7 @@ func execTDigestInfo(db *DB, args [][]byte) redis.Reply {
 	}
 
 	info := td.Info()
-
-	var reply [][]byte
-	for k, v := range info {
-		reply = append(reply, []byte(k))
-		switch val := v.(type) {
-		case float64:
-			reply = append(reply, []byte(strconv.FormatFloat(val, 'f', -1, 64)))
-		case int:
-			reply = append(reply, []byte(strconv.Itoa(val)))
-		case int64:
-			reply = append(reply, []byte(strconv.FormatInt(val, 10)))
-		case uint64:
-			reply = append(reply, []byte(strconv.FormatUint(val, 10)))
-		default:
-			reply = append(reply, []byte(fmt.Sprintf("%v", v)))
-		}
-	}
-
-	return protocol.MakeMultiBulkReply(reply)
+	return mapReplyFromInfo(info)
 }
 
 // execTDigestMin returns the minimum observed value

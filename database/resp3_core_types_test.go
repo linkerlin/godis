@@ -523,3 +523,49 @@ func TestResp3ACLLogEntryMaps(t *testing.T) {
 		t.Fatalf("ACL LOG RESP3 want array of maps: %q", wire3)
 	}
 }
+
+func TestResp3ProbabilisticInfoMaps(t *testing.T) {
+	db := makeTestDB()
+	asserts.AssertStatusReply(t, db.Exec(nil, utils.ToCmdLine("BF.RESERVE", "bf", "0.01", "100")), "OK")
+	asserts.AssertStatusReply(t, db.Exec(nil, utils.ToCmdLine("CMS.INITBYDIM", "cms", "100", "5")), "OK")
+	asserts.AssertStatusReply(t, db.Exec(nil, utils.ToCmdLine("TOPK.RESERVE", "tk", "3")), "OK")
+	asserts.AssertStatusReply(t, db.Exec(nil, utils.ToCmdLine("TDIGEST.CREATE", "td")), "OK")
+
+	for _, cmd := range [][]string{
+		{"BF.INFO", "bf"},
+		{"CMS.INFO", "cms"},
+		{"TOPK.INFO", "tk"},
+		{"TDIGEST.INFO", "td"},
+	} {
+		r := db.Exec(nil, utils.ToCmdLine(cmd...))
+		m, ok := r.(*protocol.MapReply)
+		if !ok {
+			t.Fatalf("%v type %T %s", cmd, r, r.ToBytes())
+		}
+		if r.ToBytes()[0] != '*' {
+			t.Fatalf("%v RESP2: %q", cmd, r.ToBytes())
+		}
+		if protocol.ReplyToRESP3(r)[0] != '%' {
+			t.Fatalf("%v RESP3: %q", cmd, protocol.ReplyToRESP3(r))
+		}
+		if len(m.Data) == 0 {
+			t.Fatalf("%v empty map", cmd)
+		}
+	}
+	tk := db.Exec(nil, utils.ToCmdLine("TOPK.INFO", "tk")).(*protocol.MapReply)
+	if _, ok := tk.Data["decay"].(*protocol.DoubleReply); !ok {
+		t.Fatalf("TOPK.INFO decay should be Double, got %T", tk.Data["decay"])
+	}
+}
+
+func TestResp3FTConfigGetMap(t *testing.T) {
+	db := makeTestDB()
+	asserts.AssertStatusReply(t, db.Exec(nil, utils.ToCmdLine("FT.CONFIG", "SET", "MINPREFIX", "2")), "OK")
+	r := db.Exec(nil, utils.ToCmdLine("FT.CONFIG", "GET", "MINPREFIX"))
+	if _, ok := r.(*protocol.MapReply); !ok {
+		t.Fatalf("FT.CONFIG GET type %T", r)
+	}
+	if protocol.ReplyToRESP3(r)[0] != '%' {
+		t.Fatalf("FT.CONFIG GET RESP3: %q", protocol.ReplyToRESP3(r))
+	}
+}
