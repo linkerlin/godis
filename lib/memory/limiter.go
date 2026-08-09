@@ -195,10 +195,11 @@ func (l *Limiter) getMemoryUsage() int64 {
 		return l.memUsageFunc()
 	}
 
-	// Default: use runtime stats
+	// Default: live heap in use (Alloc). TotalAlloc is cumulative and never shrinks,
+	// which would permanently trip maxmemory after any allocation spike. Not jemalloc.
 	var m runtime.MemStats
 	runtime.ReadMemStats(&m)
-	return int64(m.TotalAlloc)
+	return int64(m.Alloc)
 }
 
 // EvictIfNeeded performs eviction if memory limit is exceeded

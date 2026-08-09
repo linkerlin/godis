@@ -280,9 +280,10 @@ func execMemoryStats(server *Server) redis.Reply {
 		}
 	}
 	dataset := keyCount * bytesPerKeyEstimate
-	overhead := int64(m.Sys) - dataset
-	if overhead < 0 {
-		overhead = 0
+	// Align with INFO memory: overhead = Alloc − dataset (not Sys − dataset).
+	overhead := int64(0)
+	if int64(m.Alloc) > dataset {
+		overhead = int64(m.Alloc) - dataset
 	}
 	frag := 1.0
 	if m.Alloc > 0 {
@@ -307,9 +308,10 @@ func execMemoryStats(server *Server) redis.Reply {
 	if fragBytes < 0 {
 		fragBytes = 0
 	}
+	peak := noteUsedMemoryPeak(m.Alloc)
 
 	stats := protocol.MakeMapReply()
-	stats.Put("peak.allocated", protocol.MakeIntReply(int64(m.TotalAlloc)))
+	stats.Put("peak.allocated", protocol.MakeIntReply(int64(peak)))
 	stats.Put("total.allocated", protocol.MakeIntReply(int64(m.Alloc)))
 	stats.Put("startup.allocated", protocol.MakeIntReply(int64(memoryStartupBytes)))
 	stats.Put("keys.count", protocol.MakeIntReply(keyCount))

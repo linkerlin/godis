@@ -21,10 +21,28 @@ import (
 // memoryStartupBytes is a coarse baseline for used_memory_startup (captured once).
 var memoryStartupBytes uint64
 
+// peakUsedMemory tracks the high-watermark of runtime.MemStats.Alloc (not TotalAlloc /
+// jemalloc). Observed by INFO memory and MEMORY STATS.
+var peakUsedMemory uint64
+
 func init() {
 	var m runtime.MemStats
 	runtime.ReadMemStats(&m)
 	memoryStartupBytes = m.Sys
+	peakUsedMemory = m.Alloc
+}
+
+// noteUsedMemoryPeak records Alloc as a candidate for used_memory_peak / peak.allocated.
+func noteUsedMemoryPeak(alloc uint64) uint64 {
+	for {
+		cur := atomic.LoadUint64(&peakUsedMemory)
+		if alloc <= cur {
+			return cur
+		}
+		if atomic.CompareAndSwapUint64(&peakUsedMemory, cur, alloc) {
+			return alloc
+		}
+	}
 }
 
 // Server stats for INFO command
@@ -344,10 +362,7 @@ func GenGodisInfoString(section string, db *Server) []byte {
 		if maxMem > 0 {
 			maxMemU = uint64(maxMem)
 		}
-		peak := m.TotalAlloc
-		if m.Sys > peak {
-			peak = m.Sys
-		}
+		peak := noteUsedMemoryPeak(m.Alloc)
 		peakPerc := 0.0
 		if peak > 0 {
 			peakPerc = float64(m.Alloc) * 100.0 / float64(peak)
