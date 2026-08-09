@@ -38,8 +38,10 @@ type opaqueEnvelope struct {
 }
 
 type streamDump struct {
-	Entries []streamEntryDump `json:"e"`
-	Groups  []streamGroupDump `json:"g"`
+	Entries      []streamEntryDump `json:"e"`
+	Groups       []streamGroupDump `json:"g"`
+	EntriesAdded int64             `json:"ea,omitempty"`
+	MaxDeletedID string            `json:"md,omitempty"` // StreamID string
 }
 
 type streamEntryDump struct {
@@ -251,7 +253,12 @@ func IsOpaquePayload(payload []byte) bool {
 }
 
 func dumpStream(s *stream.Stream) streamDump {
-	d := streamDump{}
+	d := streamDump{
+		EntriesAdded: s.GetEntriesAdded(),
+	}
+	if md := s.GetMaxDeletedID(); !md.IsZero() {
+		d.MaxDeletedID = md.String()
+	}
 	for _, e := range s.Range(stream.StreamID{}, stream.StreamID{Timestamp: math.MaxInt64, Sequence: math.MaxInt64}) {
 		fields := make(map[string]string, len(e.Fields))
 		for k, v := range e.Fields {
@@ -301,6 +308,17 @@ func loadStream(raw []byte) (*stream.Stream, error) {
 		if _, err := s.Add(e.ID, e.Fields, nil); err != nil {
 			return nil, err
 		}
+	}
+	// Prefer persisted counter when present (survives XDEL / XSETID); else keep Add tally.
+	if d.EntriesAdded > 0 {
+		s.SetEntriesAdded(d.EntriesAdded)
+	}
+	if d.MaxDeletedID != "" {
+		md, err := stream.ParseStreamID(d.MaxDeletedID, stream.StreamID{})
+		if err != nil {
+			return nil, err
+		}
+		s.SetMaxDeletedID(md)
 	}
 	for _, g := range d.Groups {
 		if err := s.CreateGroup(g.Name, g.LastID); err != nil {

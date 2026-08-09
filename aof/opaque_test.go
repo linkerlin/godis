@@ -94,6 +94,36 @@ func TestOpaqueStreamPELRoundTrip(t *testing.T) {
 	}
 }
 
+func TestOpaqueStreamEntriesAddedMaxDeleted(t *testing.T) {
+	s := stream.NewStream()
+	if _, err := s.Add("1-0", map[string]string{"a": "1"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Add("2-0", map[string]string{"b": "2"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	// Simulate deletes / XSETID so entries-added != current length.
+	s.SetEntriesAdded(99)
+	md, _ := stream.ParseStreamID("50-0", stream.StreamID{})
+	s.SetMaxDeletedID(md)
+
+	payload, ok := EncodeOpaque(&database.DataEntity{Data: s})
+	if !ok {
+		t.Fatal("encode")
+	}
+	entity, ok := DecodeOpaque(payload)
+	if !ok {
+		t.Fatal("decode")
+	}
+	got := entity.Data.(*stream.Stream)
+	if got.GetEntriesAdded() != 99 {
+		t.Fatalf("entries-added=%d want 99", got.GetEntriesAdded())
+	}
+	if got.GetMaxDeletedID().String() != "50-0" {
+		t.Fatalf("max-deleted=%s", got.GetMaxDeletedID())
+	}
+}
+
 func TestOpaqueJSONAndVector(t *testing.T) {
 	jv, err := godisjson.NewJSONValueFromString(`{"x":1}`)
 	if err != nil {

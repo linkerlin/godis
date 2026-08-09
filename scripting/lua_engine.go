@@ -51,7 +51,11 @@ func (e *LuaEngine) GetMemoryUsed() uint64 {
 func (e *LuaEngine) ExecuteWithCancel(code string, keys []string, args []string, callFunc func(cmd string, args ...string) (interface{}, error), cancel <-chan struct{}) (interface{}, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	
+
+	if err := denyUnsafeLegacyLua(code); err != nil {
+		return nil, err
+	}
+
 	// Estimate memory usage based on code size and data
 	codeMemory := uint64(len(code))
 	dataMemory := uint64(len(keys)+len(args)) * 256 // Estimate 256 bytes per key/arg
@@ -85,6 +89,18 @@ func (e *LuaEngine) ExecuteWithCancel(code string, keys []string, args []string,
 	}
 	
 	return result, nil
+}
+
+// denyUnsafeLegacyLua rejects host-escape style APIs that gopher-lua sandboxes
+// via SkipOpenLibs. Legacy has no real os/io libs; without this, scripts may
+// still "succeed" returning garbage expression strings.
+var unsafeLegacyLuaRe = regexp.MustCompile(`(?i)(\bos\.|\bio\.|\bpackage\.|\bdebug\.|\brequire\s*\(|\bdofile\s*\(|\bloadfile\s*\()`)
+
+func denyUnsafeLegacyLua(code string) error {
+	if unsafeLegacyLuaRe.MatchString(code) {
+		return fmt.Errorf("ERR Error running script: attempt to call a nil value")
+	}
+	return nil
 }
 
 // luaContext holds execution state
