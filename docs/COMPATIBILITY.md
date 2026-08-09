@@ -171,6 +171,7 @@ UNWATCH、WAIT（简版）、BITOP、BITFIELD、SMOVE、LPOS、XCLAIM、SHUTDOWN
 | Hash / Config | `HGETALL`、`CONFIG GET`、`HRANDFIELD` 正 count+WITHVALUES | Map |
 | Set | `SMEMBERS`、`SINTER`/`SUNION`/`SDIFF`、`SPOP`/`SRANDMEMBER` 正 count | Set |
 | ZSet 分数 | `ZSCORE`/`ZMSCORE`、`ZRANGE…WITHSCORES`、`ZPOP*`、`ZINCRBY`、`ZUNION…WITHSCORES` 等 | Double / ScorePairs |
+| ZSet 阻塞弹出 | `BZPOPMIN`/`BZPOPMAX` | MultiRaw `[key, member, Double]`（RESP2 score 仍为 bulk） |
 | ZSet 成员 | `ZUNION`/`ZINTER`/`ZDIFF` 无 WITHSCORES；`ZRANDMEMBER` 正 count | Set |
 | Stream | `XREAD`/`XREADGROUP`；`XINFO STREAM/GROUPS/CONSUMERS` | Map（GROUPS/CONSUMERS 为 Map 数组） |
 | Introspection | `MEMORY STATS`；`ACL GETUSER`；`COMMAND DOCS`；`CLIENT TRACKINGINFO`；`FUNCTION STATS` | Map（嵌套 docs/engines；百分比 Double） |
@@ -187,4 +188,4 @@ UNWATCH、WAIT（简版）、BITOP、BITFIELD、SMOVE、LPOS、XCLAIM、SHUTDOWN
 
 ---
 
-**最后更新：** 2026-08-09（HEXPIRE 族写 AOF；字段主动过期持键锁；GETKEYSINSLOT/REPLICAS/`INFO cluster` 诚实化；Stream opaque entriesAdded/maxDeletedID；legacy Lua 沙箱拒绝）
+**最后更新：** 2026-08-09（HEXPIRE 族写 AOF；字段主动过期持键锁；GETKEYSINSLOT/REPLICAS/`INFO cluster` 诚实化；Stream opaque entriesAdded/maxDeletedID；legacy Lua 沙箱拒绝；BZPOPMIN/MAX MultiRaw+Double）

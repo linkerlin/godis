@@ -4,6 +4,11 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- 测试对齐 RESP3 双形回复：`BZPOPMIN` MultiRaw+Double、`ZRANGE WITHSCORES` ScorePairs、`ACL LOG` Map 数组；空 `ACL LOG` 统一为 `MultiRawReply`
+- `TestP8FTPersistence`：恢复全局 `config.Properties` 并用 `filepath.Join`，避免 Windows 上误删临时目录后拖垮后续用例
+
 ### Added
 
 - `CLUSTER GETKEYSINSLOT`：返回本节点 `slotsManager` 登记的槽内键（与 `COUNTKEYSINSLOT` 同源）
