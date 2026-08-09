@@ -74,45 +74,36 @@ func execLCS(db *DB, args [][]byte) redis.Reply {
 	}
 
 	if showIdx {
-		// Return matches with indices
-		result := make([]redis.Reply, 0)
-		result = append(result, protocol.MakeBulkReply([]byte("matches")))
-
-		matchReplies := make([]redis.Reply, 0)
+		// RESP3 Map {matches, len}; RESP2 flat field array via Map.ToBytes.
+		matchReplies := make([]redis.Reply, 0, len(matches))
 		for _, match := range matches {
 			if match.len < minMatchLen {
 				continue
 			}
-			matchInfo := make([]redis.Reply, 0)
+			matchInfo := make([]redis.Reply, 0, 3)
 
-			// Key1 range
-			range1 := make([]redis.Reply, 2)
-			range1[0] = protocol.MakeIntReply(int64(match.start1))
-			range1[1] = protocol.MakeIntReply(int64(match.start1 + match.len - 1))
+			range1 := []redis.Reply{
+				protocol.MakeIntReply(int64(match.start1)),
+				protocol.MakeIntReply(int64(match.start1 + match.len - 1)),
+			}
 			matchInfo = append(matchInfo, protocol.MakeMultiRawReply(range1))
 
-			// Key2 range
-			range2 := make([]redis.Reply, 2)
-			range2[0] = protocol.MakeIntReply(int64(match.start2))
-			range2[1] = protocol.MakeIntReply(int64(match.start2 + match.len - 1))
+			range2 := []redis.Reply{
+				protocol.MakeIntReply(int64(match.start2)),
+				protocol.MakeIntReply(int64(match.start2 + match.len - 1)),
+			}
 			matchInfo = append(matchInfo, protocol.MakeMultiRawReply(range2))
 
-			// Match length
 			if withMatchLen {
 				matchInfo = append(matchInfo, protocol.MakeIntReply(int64(match.len)))
 			}
 
 			matchReplies = append(matchReplies, protocol.MakeMultiRawReply(matchInfo))
 		}
-		result = append(result, protocol.MakeMultiRawReply(matchReplies))
-
-		// LEN sub-reply
-		if showLen {
-			result = append(result, protocol.MakeBulkReply([]byte("len")))
-			result = append(result, protocol.MakeIntReply(int64(len(lcsStr))))
-		}
-
-		return protocol.MakeMultiRawReply(result)
+		m := protocol.MakeMapReply()
+		m.Put("matches", protocol.MakeMultiRawReply(matchReplies))
+		m.Put("len", protocol.MakeIntReply(int64(len(lcsStr))))
+		return m
 	}
 
 	// Default: return the LCS string

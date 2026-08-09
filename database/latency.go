@@ -2,6 +2,7 @@ package database
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -317,6 +318,7 @@ func execLatencyReset(eventNames [][]byte) redis.Reply {
 }
 
 // execLatencyHistogram LATENCY HISTOGRAM [command ...] — per-command latency samples.
+// RESP3: Map{cmd → Map{calls, histogram_usec→Map{bound→cum}}}；RESP2 经 Map.ToBytes 扁平化。
 func execLatencyHistogram(args [][]byte) redis.Reply {
 	cmdLatencyMu.Lock()
 	defer cmdLatencyMu.Unlock()
@@ -326,29 +328,29 @@ func execLatencyHistogram(args [][]byte) redis.Reply {
 		want[strings.ToLower(string(a))] = struct{}{}
 	}
 
-	result := make([]redis.Reply, 0)
+	outer := protocol.MakeMapReply()
 	for name, h := range cmdLatencyHist {
 		if len(want) > 0 {
 			if _, ok := want[name]; !ok {
 				continue
 			}
 		}
-		// Shape: [cmd, [calls, sum_us, ...bucket pairs...]] simplified flat map.
-		inner := []redis.Reply{
-			protocol.MakeBulkReply([]byte("calls")),
-			protocol.MakeIntReply(int64(h.count)),
-			protocol.MakeBulkReply([]byte("histogram_usec")),
-			protocol.MakeIntReply(int64(h.sumUs)),
-			protocol.MakeBulkReply([]byte("histogram_usec_max")),
-			protocol.MakeIntReply(int64(h.maxUs)),
+		hist := protocol.MakeMapReply()
+		var cum uint64
+		for i, c := range h.bucket {
+			if c == 0 {
+				continue
+			}
+			cum += c
+			bound := int64(1) << uint(i)
+			hist.Put(strconv.FormatInt(bound, 10), protocol.MakeIntReply(int64(cum)))
 		}
-		result = append(result, protocol.MakeBulkReply([]byte(name)))
-		result = append(result, protocol.MakeMultiRawReply(inner))
+		inner := protocol.MakeMapReply()
+		inner.Put("calls", protocol.MakeIntReply(int64(h.count)))
+		inner.Put("histogram_usec", hist)
+		outer.Put(name, inner)
 	}
-	if len(result) == 0 {
-		return protocol.MakeEmptyMultiBulkReply()
-	}
-	return protocol.MakeMultiRawReply(result)
+	return outer
 }
 
 // execLatencyHelp 获取帮助信息

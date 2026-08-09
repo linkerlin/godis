@@ -36,13 +36,9 @@ func TestM2buLatencyHistogram(t *testing.T) {
 	_ = server.Exec(c, utils.ToCmdLine("LATENCY", "RESET"))
 
 	r := server.Exec(c, utils.ToCmdLine("LATENCY", "HISTOGRAM"))
-	if _, ok := r.(*protocol.EmptyMultiBulkReply); !ok {
-		if mb, ok2 := r.(*protocol.MultiBulkReply); !ok2 || len(mb.Args) != 0 {
-			// MultiRawReply is also used for non-empty histograms.
-			if raw, ok3 := r.(*protocol.MultiRawReply); !ok3 || len(raw.Replies) != 0 {
-				t.Fatalf("HISTOGRAM want empty: %T %s", r, r.ToBytes())
-			}
-		}
+	m, ok := r.(*protocol.MapReply)
+	if !ok || len(m.Data) != 0 {
+		t.Fatalf("HISTOGRAM want empty map: %T %s", r, r.ToBytes())
 	}
 	help := server.Exec(c, utils.ToCmdLine("LATENCY", "HELP"))
 	if !strings.Contains(string(help.ToBytes()), "HISTOGRAM") {

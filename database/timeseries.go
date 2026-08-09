@@ -459,27 +459,19 @@ func execTSInfo(db *DB, args [][]byte) redis.Reply {
 	}
 
 	info := ts.Info()
-
-	// Format as flat array
-	var reply [][]byte
+	m := protocol.MakeMapReply()
 	for k, v := range info {
-		reply = append(reply, []byte(k))
-		reply = append(reply, []byte(fmt.Sprintf("%v", v)))
+		m.Put(k, infoScalarReply(v))
 	}
 
-	// Add labels
+	// RESP3: labels as nested Map; RESP2 flat via MapReply.ToBytes.
 	labels := ts.GetLabels()
-	if len(labels) > 0 {
-		reply = append(reply, []byte("labels"))
-		var labelPairs [][]byte
-		for k, v := range labels {
-			labelPairs = append(labelPairs, []byte(k))
-			labelPairs = append(labelPairs, []byte(v))
-		}
-		reply = append(reply, protocol.MakeMultiBulkReply(labelPairs).ToBytes())
+	labelMap := protocol.MakeMapReply()
+	for k, v := range labels {
+		labelMap.Put(k, protocol.MakeBulkReply([]byte(v)))
 	}
-
-	return protocol.MakeMultiBulkReply(reply)
+	m.Put("labels", labelMap)
+	return m
 }
 
 // execTSDel deletes samples in a range

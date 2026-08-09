@@ -3,6 +3,7 @@ package database
 import (
 	"bytes"
 	"testing"
+	"time"
 
 	"github.com/linkerlin/godis/lib/utils"
 	"github.com/linkerlin/godis/redis/connection"
@@ -568,4 +569,70 @@ func TestResp3FTConfigGetMap(t *testing.T) {
 	if protocol.ReplyToRESP3(r)[0] != '%' {
 		t.Fatalf("FT.CONFIG GET RESP3: %q", protocol.ReplyToRESP3(r))
 	}
+}
+
+func TestResp3TSInfoAndLCSIdxMaps(t *testing.T) {
+	db := makeTestDB()
+	asserts.AssertStatusReply(t, db.Exec(nil, utils.ToCmdLine(
+		"TS.CREATE", "ts", "LABELS", "room", "lab",
+	)), "OK")
+	info := db.Exec(nil, utils.ToCmdLine("TS.INFO", "ts"))
+	m, ok := info.(*protocol.MapReply)
+	if !ok {
+		t.Fatalf("TS.INFO type %T", info)
+	}
+	if protocol.ReplyToRESP3(info)[0] != '%' {
+		t.Fatalf("TS.INFO RESP3: %q", protocol.ReplyToRESP3(info))
+	}
+	labels, ok := m.Data["labels"].(*protocol.MapReply)
+	if !ok {
+		t.Fatalf("TS.INFO labels type %T", m.Data["labels"])
+	}
+	if _, ok := labels.Data["room"]; !ok {
+		t.Fatalf("TS.INFO labels missing room: %v", labels.Data)
+	}
+
+	_ = db.Exec(nil, utils.ToCmdLine("MSET", "a", "ohmytext", "b", "mynewtext"))
+	lcs := db.Exec(nil, utils.ToCmdLine("LCS", "a", "b", "IDX"))
+	lm, ok := lcs.(*protocol.MapReply)
+	if !ok {
+		t.Fatalf("LCS IDX type %T %s", lcs, lcs.ToBytes())
+	}
+	if _, ok := lm.Data["matches"]; !ok {
+		t.Fatalf("LCS IDX missing matches")
+	}
+	if _, ok := lm.Data["len"].(*protocol.IntReply); !ok {
+		t.Fatalf("LCS IDX len type %T", lm.Data["len"])
+	}
+	if protocol.ReplyToRESP3(lcs)[0] != '%' {
+		t.Fatalf("LCS IDX RESP3: %q", protocol.ReplyToRESP3(lcs))
+	}
+}
+
+func TestResp3LatencyHistogramMap(t *testing.T) {
+	server := MustNewStandaloneServer()
+	defer server.Close()
+	c := connection.NewFakeConn()
+	_ = server.Exec(c, utils.ToCmdLine("LATENCY", "RESET"))
+	RecordCommandLatency("set", 2*time.Millisecond)
+	r := server.Exec(c, utils.ToCmdLine("LATENCY", "HISTOGRAM", "set"))
+	m, ok := r.(*protocol.MapReply)
+	if !ok {
+		t.Fatalf("HISTOGRAM type %T %s", r, r.ToBytes())
+	}
+	inner, ok := m.Data["set"].(*protocol.MapReply)
+	if !ok {
+		t.Fatalf("HISTOGRAM set entry: %v", m.Data)
+	}
+	if _, ok := inner.Data["calls"].(*protocol.IntReply); !ok {
+		t.Fatalf("calls type %T", inner.Data["calls"])
+	}
+	hist, ok := inner.Data["histogram_usec"].(*protocol.MapReply)
+	if !ok || len(hist.Data) == 0 {
+		t.Fatalf("histogram_usec: %T %v", inner.Data["histogram_usec"], hist)
+	}
+	if protocol.ReplyToRESP3(r)[0] != '%' {
+		t.Fatalf("HISTOGRAM RESP3: %q", protocol.ReplyToRESP3(r))
+	}
+	_ = server.Exec(c, utils.ToCmdLine("LATENCY", "RESET"))
 }
