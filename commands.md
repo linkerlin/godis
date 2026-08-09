@@ -550,7 +550,7 @@ Godis 实现为 **HGETEX / HSETEX / HGETDEL** 族（非 Redis 文档中的 HEXPI
 ## 集群命令
 
 > 槽位算法：CRC16-XMODEM % 16384（`lib/hashslot`）。`NODES`/`SLOTS`/`INFO`/`SHARDS` 读 Raft FSM；`ADDSLOTS`/`DELSLOTS*` 写 FSM。  
-> MEET / SETSLOT 写路径 / gossip 仍延期；未实现管理写命令返回明确 ERR（不再假 OK），见 [`docs/COMPATIBILITY.md`](docs/COMPATIBILITY.md)。
+> `MEET` 为 Raft/FSM 加入缝（非整套 gossip）；`SETSLOT` 本地迁移态已接；其余未实现管理写命令返回明确 ERR，见 [`docs/COMPATIBILITY.md`](docs/COMPATIBILITY.md)。
 
 | 命令 | 描述 |
 |------|------|
@@ -563,8 +563,10 @@ Godis 实现为 **HGETEX / HSETEX / HGETDEL** 族（非 Redis 文档中的 HEXPI
 | CLUSTER COUNTKEYSINSLOT | 本节点槽内键数 |
 | CLUSTER SETNAME / GETNAME | 可读节点名 |
 | CLUSTER HELP | 帮助信息 |
+| CLUSTER MEET | `ip port [raft-port]`→`cluster.join`/EventJoin（Godis Raft；非 gossip） |
 | CLUSTER ADDSLOTS / DELSLOTS / *RANGE / FLUSHSLOTS | **写 Raft FSM** |
-| CLUSTER SETSLOT / REPLICATE / FORGET / RESET / SAVECONFIG / SET-CONFIG-EPOCH / FAILOVER | **未支持**：返回 `ERR … is not supported` |
+| CLUSTER SETSLOT MIGRATING\|IMPORTING\|STABLE | **本地** slotsManager（ASK/ASKING） |
+| CLUSTER SETSLOT NODE / REPLICATE / FORGET / RESET / SAVECONFIG / SET-CONFIG-EPOCH / FAILOVER | **未支持**：返回 `ERR … is not supported` |
 | FAILOVER | 主从协调切换（TO/FORCE/ABORT/TIMEOUT，见 `docs/FAILOVER_DESIGN.md`；非 CLUSTER FAILOVER） |
 
 ---
@@ -608,7 +610,8 @@ Godis 支持 Redis 键空间通知机制，可通过配置启用。
 
 | 命令 / 能力 | 说明 |
 |------|------|
-| CLUSTER MEET / SETSLOT 写 FSM | 加入仍走 `cluster.join`；SETSLOT/REPLICATE/FORGET 等返回 `ERR not supported` |
+| Redis Cluster gossip bus | `CLUSTER MEET` 仅为 Raft/FSM 加入；无 gossip ping |
+| CLUSTER SETSLOT NODE 写 FSM | `NODE` 未支持；归属请用 ADDSLOTS/DELSLOTS 或 Godis migration |
 | FT.SYNADD | 已实现；更推荐 `FT.SYNUPDATE` |
 | MIGRATE / RESTORE-ASKING | 可用 DUMP/RESTORE |
 
