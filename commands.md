@@ -597,10 +597,9 @@ Godis 支持 Redis 键空间通知机制，可通过配置启用。
 
 以下命令在 `commands.md` 历史版本中曾列出，**当前未实现**或仅有部分替代：
 
-| 命令 | 说明 |
+| 命令 / 能力 | 说明 |
 |------|------|
-| CLUSTER MOVED / ASK | 错槽仍静默转发；重定向协议面未齐 |
-| CLUSTER CRC16 / 16384 | 槽位算法简化 |
+| CLUSTER CRC16 / 16384 | 槽位算法仍为简化版（与官方客户端拓扑不互通） |
 | FT.SYNADD | 已实现；更推荐 `FT.SYNUPDATE` |
 | MIGRATE / RESTORE-ASKING | 可用 DUMP/RESTORE |
 
