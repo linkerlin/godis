@@ -6,6 +6,9 @@
 
 ### Fixed
 
+- `MEMORY STATS` / `INFO memory`：`peak.allocated`/`used_memory_peak` 跟踪 `runtime.MemStats.Alloc` 高水位（不再用 `TotalAlloc` 冒充峰值）；`overhead.total` 与 INFO 一致为 `Alloc−dataset`；Limiter 默认用量改 `Alloc`（仍非 jemalloc）
+- `CLUSTER` 迁移闭环缝：`execFinishExport` 成功才 `dropSlot`+清 `importingTask`、失败不丢键；真实 migrate 设 `IMPORTING`/`migratePeer`；`startExporting` 对 SETSLOT MIGRATING 幂等；ASK 可读 FSM `Migratings`（不强制本地 exporting）；`SETSLOT NODE` 转发后在本节点清迁移态
+- Failover 集成测加固：关 TCP listener、`UnregisterClient`、短 `TIMEOUT`、`failoverState` Cleanup（缓解 Windows 挂起 flake）
 - 测试对齐 RESP3 双形回复：`BZPOPMIN` MultiRaw+Double、`ZRANGE WITHSCORES` ScorePairs、`ACL LOG` Map 数组；空 `ACL LOG` 统一为 `MultiRawReply`
 - `TestP8FTPersistence`：恢复全局 `config.Properties` 并用 `filepath.Join`，避免 Windows 上误删临时目录后拖垮后续用例
 

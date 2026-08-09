@@ -110,12 +110,14 @@
 - [x] **R3-1c ADDSLOTS 写 FSM**：`ADDSLOTS`/`DELSLOTS`/`ADDSLOTSRANGE`/`DELSLOTSRANGE`/`FLUSHSLOTS` 经 Raft Propose（或 FSM-only `ApplyLocal`）；busy/unassigned 校验。
 - [x] **R3-1d 集群管理 seam（最小）**：`CLUSTER MEET ip port [raft-port]`→与 `cluster.join` 等价的 AddToRaft/EventJoin（或 FSM-only ApplyLocal）；无 Raft 时明确 ERR。`SETSLOT MIGRATING|IMPORTING|STABLE` 写本地 `slotsManager`（ASK/ASKING）；`SETSLOT NODE`→FSM `EventAssignSlots`。`REPLICATE`/`FORGET`/`RESET`/`SAVECONFIG`/`SET-CONFIG-EPOCH`/`CLUSTER FAILOVER` 仍显式 `ERR … is not supported`。仍延期（远期）：完整 Redis gossip bus。
 - [x] **R3-1e 读面诚实化**：`GETKEYSINSLOT` 返回本地 slotsManager 键；`REPLICAS`/`SLAVES` 读 FSM；`INFO cluster` 与 CLUSTER INFO 同源；BUMPEPOCH 为 `BUMPED 0` no-op（FSM 无 config epoch，远期）。
+- [x] **R3-1f 迁移闭环缝（最小）**：`execFinishExport` 成功才 dropSlot+清 importingTask；`doImports` 标 IMPORTING；`startExporting` 幂等 SETSLOT；ASK 读 FSM Migratings；`SETSLOT NODE` 本节点清迁移态。仍延期：完整 redis-cli reshard/gossip、与官方迁移编排 100% 一致。
+- [x] **R3-mem 一小步**：`used_memory_peak`/`peak.allocated` 跟踪 `Alloc` 高水位；INFO/MEMORY STATS overhead 口径对齐；Limiter 默认 `Alloc`。仍延期：jemalloc / OS RSS。
 
 ### R4 — 测试与文档
 
 - [ ] **R4-1 Redis 8.x 响应比对套件**：CI 中用 Redis 8 sidecar 做参考，diff 关键命令输出。（远期）
 - [ ] **R4-2 覆盖率提升**：`aof`、`pubsub`、`redis/protocol`、`redis/connection`、新数据类型包达到可接受覆盖。（远期）
-- [x] **R4-3 文档同步（本轮）**：`CHANGELOG.md` Unreleased；`docs/COMPATIBILITY.md` / `commands.md` / `TODO.md` / `AGENTS.md` 与 HEXPIRE AOF、CLUSTER 读面、Stream opaque、legacy Lua 沙箱对齐。仍延期：R4-1 旁路比对套件、R4-2 覆盖率专项。
+- [x] **R4-3 文档同步（本轮）**：`CHANGELOG.md` Unreleased；`docs/COMPATIBILITY.md` / `commands.md` / `TODO.md` 与 MEMORY peak、CLUSTER 迁移缝、Failover 测加固对齐。仍延期：R4-1 旁路比对套件、R4-2 覆盖率专项。
 
 ---
 
