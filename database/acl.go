@@ -111,7 +111,7 @@ func getACLLogEntries(count int) redis.Reply {
 		entries = entries[len(entries)-count:]
 	}
 	if len(entries) == 0 {
-		return protocol.MakeEmptyMultiBulkReply()
+		return protocol.MakeMultiRawReply([]redis.Reply{})
 	}
 
 	replies := make([]redis.Reply, 0, len(entries))

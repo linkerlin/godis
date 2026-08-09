@@ -17,6 +17,7 @@ import (
 func TestM2akClientPauseBlocksWrite(t *testing.T) {
 	server := getTestServer()
 	c := connection.NewFakeConn()
+	t.Cleanup(func() { _ = server.Exec(c, utils.ToCmdLine("CLIENT", "UNPAUSE")) })
 	asserts.AssertStatusReply(t, server.Exec(c, utils.ToCmdLine("CLIENT", "PAUSE", "300", "WRITE")), "OK")
 
 	done := make(chan redis.Reply, 1)

@@ -26,15 +26,10 @@ func TestM2ZRangeUnified(t *testing.T) {
 	db := makeTestDB()
 	db.Exec(nil, utils.ToCmdLine("ZADD", "z", "1", "a", "2", "b", "3", "c"))
 	rev := db.Exec(nil, utils.ToCmdLine("ZRANGE", "z", "0", "-1", "REV"))
-	mb := rev.(*protocol.MultiBulkReply)
-	if len(mb.Args) != 3 || string(mb.Args[0]) != "c" {
-		t.Fatalf("REV: %s", rev.ToBytes())
-	}
+	asserts.AssertMultiBulkReply(t, rev, []string{"c", "b", "a"})
+	// WITHSCORES → ScorePairsReply (RESP2 flat wire still [member, score, ...]).
 	byScore := db.Exec(nil, utils.ToCmdLine("ZRANGE", "z", "1", "2", "BYSCORE", "WITHSCORES"))
-	smb := byScore.(*protocol.MultiBulkReply)
-	if len(smb.Args) != 4 {
-		t.Fatalf("BYSCORE WITHSCORES: %s", byScore.ToBytes())
-	}
+	asserts.AssertMultiBulkReply(t, byScore, []string{"a", "1", "b", "2"})
 }
 
 func TestM2MSetClearsTTL(t *testing.T) {

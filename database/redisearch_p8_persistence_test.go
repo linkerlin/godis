@@ -1,9 +1,8 @@
 package database
 
 import (
-	"io/ioutil"
 	"os"
-	"path"
+	"path/filepath"
 	"testing"
 
 	"github.com/linkerlin/godis/aof"
@@ -21,12 +20,16 @@ import (
 // addAof fixes for CONFIG SET / DICTADD/DEL actually persist.
 func TestP8FTPersistence(t *testing.T) {
 	skipHeavyTests(t)
-	tmpDir, err := ioutil.TempDir("", "godis-ft")
+	tmpDir, err := os.MkdirTemp("", "godis-ft")
 	if err != nil {
 		t.Fatal(err)
 	}
-	aofFilename := path.Join(tmpDir, "ft.aof")
-	defer os.RemoveAll(tmpDir)
+	aofFilename := filepath.Join(tmpDir, "ft.aof")
+	oldProps := config.Properties
+	t.Cleanup(func() {
+		config.Properties = oldProps
+		_ = os.RemoveAll(tmpDir)
+	})
 	config.Properties = &config.ServerProperties{
 		AppendOnly:        true,
 		AppendFilename:    aofFilename,

@@ -90,8 +90,9 @@ func TestACLUsersCatDelUserDryRun(t *testing.T) {
 
 	asserts.AssertStatusReply(t, server.Exec(c, utils.ToCmdLine("ACL", "LOG", "RESET")), "OK")
 	log := server.Exec(c, utils.ToCmdLine("ACL", "LOG"))
-	if _, ok := log.(*protocol.MultiBulkReply); !ok {
-		t.Fatalf("ACL LOG: got %s", log.ToBytes())
+	mr, ok := log.(*protocol.MultiRawReply)
+	if !ok || len(mr.Replies) != 0 {
+		t.Fatalf("ACL LOG after RESET: got %T %s", log, log.ToBytes())
 	}
 }
 

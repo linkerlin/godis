@@ -56,12 +56,17 @@ func TestBZPopMinWokenByZAdd(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 	testDB.Exec(nil, utils.ToCmdLine("ZADD", key, "1.5", "m"))
 	wg.Wait()
-	mb, ok := result.(*protocol.MultiBulkReply)
-	if !ok || len(mb.Args) != 3 {
-		t.Fatalf("BZPOPMIN: expected [key member score], got %T %v", result, result)
+	// RESP3 duality: [key, member, Double] as MultiRawReply (not flat MultiBulk).
+	mr, ok := result.(*protocol.MultiRawReply)
+	if !ok || len(mr.Replies) != 3 {
+		t.Fatalf("BZPOPMIN: expected MultiRaw [key member score], got %T %v", result, result)
 	}
-	if string(mb.Args[1]) != "m" {
-		t.Fatalf("member: %q", mb.Args[1])
+	bulk, ok := mr.Replies[1].(*protocol.BulkReply)
+	if !ok || string(bulk.Arg) != "m" {
+		t.Fatalf("member: %T %v", mr.Replies[1], mr.Replies[1])
+	}
+	if d, ok := mr.Replies[2].(*protocol.DoubleReply); !ok || d.Value != 1.5 {
+		t.Fatalf("score: %T %v", mr.Replies[2], mr.Replies[2])
 	}
 }
 

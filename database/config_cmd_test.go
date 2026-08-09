@@ -68,15 +68,23 @@ func TestConfigSetAclLogMaxLenHotReload(t *testing.T) {
 	asserts.AssertStatusReply(t, server.Exec(c, utils.ToCmdLine("CONFIG", "SET", "acllog-max-len", "2")), "OK")
 
 	ret := server.Exec(c, utils.ToCmdLine("ACL", "LOG"))
-	multi, ok := ret.(*protocol.MultiBulkReply)
+	mr, ok := ret.(*protocol.MultiRawReply)
 	if !ok {
-		t.Fatalf("expected multi bulk, got %T", ret)
+		t.Fatalf("expected MultiRawReply, got %T", ret)
 	}
-	if len(multi.Args) != 2 {
-		t.Fatalf("expected 2 acl log entries after trim, got %d", len(multi.Args))
+	if len(mr.Replies) != 2 {
+		t.Fatalf("expected 2 acl log entries after trim, got %d", len(mr.Replies))
 	}
-	if !strings.Contains(string(multi.Args[0]), "get") || !strings.Contains(string(multi.Args[1]), "del") {
-		t.Fatalf("expected newest acl log entries, got %v", multi.Args)
+	// Most recent first: del, then get (set trimmed by max-len=2).
+	for i, want := range []string{"del", "get"} {
+		entry, ok := mr.Replies[i].(*protocol.MapReply)
+		if !ok {
+			t.Fatalf("entry %d type %T", i, mr.Replies[i])
+		}
+		obj, ok := entry.Data["object"].(*protocol.BulkReply)
+		if !ok || string(obj.Arg) != want {
+			t.Fatalf("entry %d object want %q, got %v", i, want, entry.Data["object"])
+		}
 	}
 }
 
