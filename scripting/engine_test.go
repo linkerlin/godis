@@ -337,3 +337,37 @@ func TestEngineSwitch(t *testing.T) {
 		t.Error("Expected gopher-lua engine after second switch")
 	}
 }
+
+func TestEvalDeniesOsExecute(t *testing.T) {
+	engine := NewEngineWithType(mockDBExec, EngineTypeGopherLua)
+	defer engine.Close()
+
+	cases := []struct {
+		name   string
+		script string
+	}{
+		{"os.execute", `return os.execute("echo pwned")`},
+		{"os.getenv", `return os.getenv("PATH")`},
+		{"require os", `return require("os")`},
+		{"io.open", `return io.open("/etc/passwd")`},
+		{"dofile", `return dofile("x.lua")`},
+		{"loadfile", `return loadfile("x.lua")`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := engine.Eval(tc.script, nil, nil)
+			if err == nil {
+				t.Fatalf("expected sandbox denial for %s", tc.name)
+			}
+		})
+	}
+
+	// Safe libs must still work.
+	out, err := engine.Eval(`return string.upper("ab") .. tostring(math.floor(3.7)) .. #({1,2})`, nil, nil)
+	if err != nil {
+		t.Fatalf("safe libs failed: %v", err)
+	}
+	if out != "AB32" {
+		t.Fatalf("safe libs result: got %v want AB32", out)
+	}
+}

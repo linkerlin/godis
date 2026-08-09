@@ -128,11 +128,7 @@ func NewGopherEngine(dbExec func(cmd string, args ...string) (interface{}, error
 
 	// Initialize LState pool with default size 50
 	e.statePool = newLStatePool(50, func() *lua.LState {
-		L := lua.NewState(lua.Options{
-			CallStackSize:       256,
-			RegistrySize:        1024,
-			MinimizeStackMemory: true,
-		})
+		L := newSandboxedLState()
 		e.registerRedisAPI(L)
 		registerCJSON(L)
 		registerCMsgPack(L)
@@ -141,6 +137,40 @@ func NewGopherEngine(dbExec func(cmd string, args ...string) (interface{}, error
 	})
 
 	return e
+}
+
+// newSandboxedLState creates an LState with only Redis-safe standard libraries.
+// os / io / package / debug / coroutine / channel are not opened.
+func newSandboxedLState() *lua.LState {
+	L := lua.NewState(lua.Options{
+		CallStackSize:       256,
+		RegistrySize:        1024,
+		MinimizeStackMemory: true,
+		SkipOpenLibs:        true,
+	})
+	for _, pair := range []struct {
+		n string
+		f lua.LGFunction
+	}{
+		{lua.BaseLibName, lua.OpenBase},
+		{lua.TabLibName, lua.OpenTable},
+		{lua.StringLibName, lua.OpenString},
+		{lua.MathLibName, lua.OpenMath},
+	} {
+		if err := L.CallByParam(lua.P{
+			Fn:      L.NewFunction(pair.f),
+			NRet:    0,
+			Protect: true,
+		}, lua.LString(pair.n)); err != nil {
+			L.Close()
+			panic(fmt.Sprintf("open lua lib %s: %v", pair.n, err))
+		}
+	}
+	// OpenBase registers require/module/dofile/loadfile; drop host-escape helpers.
+	for _, name := range []string{"dofile", "loadfile", "require", "module"} {
+		L.SetGlobal(name, lua.LNil)
+	}
+	return L
 }
 
 // SetACLCheckCmd sets the optional redis.acl_check_cmd implementation.
