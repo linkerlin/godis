@@ -104,13 +104,14 @@
 - [x] **R3-1 集群槽位统一为 16384**：`lib/hashslot` CRC16-XMODEM；`cluster/core` 与 Sharded Pub/Sub 共用；对外 `CLUSTER KEYSLOT` / INFO 一致。
 - [x] **R3-1a 重定向协议面**：`MOVED`/`ASK` 错误线；`ASKING`；`READONLY`/`READWRITE` 连接标志（单键 DefaultFunc；内部 Relay 仍用于 TCC 等）。
 - [x] **R3-2 ACL 细粒度权限**：key/channel/selectors 检查（含 `%R~`/`%W~`/`(...)` 选择器/`&channel` DRYRUN）；集群路径也接入 ACL（`CheckACLPermission`）。
-- [ ] **R3-3 持久化扩展**：AOF marshal 与 RDB 加载覆盖 JSON/Vector/Timeseries/Stream/概率结构；RDB aux 版本号更新。
+- [x] **R3-3 持久化扩展（阶段）**：Godis opaque（`GODIS1`）覆盖 JSON/Vector/TS/Stream/概率结构的 AOF 重写与 RDB 伪-String；TS opaque 保留 `DuplicatePolicy`/`ChunkSize`。仍延期：与 Redis 原生 Stream/模块 RDB 互通；Stream opaque 丢 PEL/consumer；downsample rules。
+- [x] **R3-1b 集群管理查询面**：`CLUSTER NODES`/`SLOTS`/`INFO`/`SHARDS` 读 Raft FSM 真拓扑（无 FSM 时本节点占满槽）。仍延期：CLUSTER MEET/gossip、ADDSLOTS 写 FSM。
 
 ### R4 — 测试与文档
 
 - [ ] **R4-1 Redis 8.x 响应比对套件**：CI 中用 Redis 8 sidecar 做参考，diff 关键命令输出。
 - [ ] **R4-2 覆盖率提升**：`aof`、`pubsub`、`redis/protocol`、`redis/connection`、新数据类型包达到可接受覆盖。
-- [ ] **R4-3 文档同步**：`commands.md`、`AGENTS.md`、`README` 与代码一致，移除“100% 兼容”表述；新增 `CHANGELOG.md`。
+- [x] **R4-3 文档同步（本轮）**：`CHANGELOG.md` Unreleased；`docs/COMPATIBILITY.md` / `commands.md` / `TODO.md` 与 CRC16、NODES/SLOTS FSM、持久化 opaque 阶段对齐。仍延期：R4-1 旁路比对套件、R4-2 覆盖率专项。
 
 ---
 

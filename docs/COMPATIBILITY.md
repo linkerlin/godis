@@ -14,7 +14,7 @@
 | FAILOVER | ✅ 真实协调切换 | TO/FORCE/ABORT/TIMEOUT、复制流注入 REPLCONF FAILOVER、从库自提升+原主降级；见 [`FAILOVER_DESIGN.md`](FAILOVER_DESIGN.md) |
 | JSON / Vector / Time Series | 中–高 | 子集 + 持续补全；Vector 保留 VS* 与 Redis 名双名 |
 | RediSearch (FT.*) | 中–高 | Phase A/B：初始扫描、STOPWORDS、同义词、内联 GEO、AGGREGATE WITHCURSOR/APPLY；见下文 |
-| 集群 (CLUSTER *) | 中 | 16384+CRC16；MOVED/ASK；管理面/gossip 仍有限 |
+| 集群 (CLUSTER *) | 中–高 | 16384+CRC16；MOVED/ASK；NODES/SLOTS/INFO/SHARDS 读 FSM；MEET/gossip 仍缺 |
 | ACL / 安全 | 中–高 | ACL 引擎；CONFIG `aclfile` 可存取（M2bh）；文件见 ACL LOAD/SAVE |
 | 配置 | 中–高 | 布尔解析；CONFIG SET 含 maxmemory/save/tcp-backlog；**eviction 写路径已接**（键数估算）；部分 CF-3 为存取桩 |
 | 概率数据结构 (BF/CF/CMS…) | 中–高 | 见 `database/probabilistic.go`；CF EXPANSION 已接扩容 |
@@ -36,7 +36,7 @@
 | 主题 | 说明 |
 |------|------|
 | 默认端口 | Redis 6379；Godis **6399** |
-| 集群 | ✅ 16384 槽 + CRC16-XMODEM（`lib/hashslot`，与 Sharded Pub/Sub 一致）；单键 `MOVED`/`ASK`/`ASKING`/`READONLY` |
+| 集群 | ✅ 16384 槽 + CRC16；MOVED/ASK/ASKING/READONLY；NODES/SLOTS/INFO/SHARDS 读 Raft FSM（非硬编码 6379） |
 | HLL | ✅ 算法/编码与 Redis 互通（xxHash64 + dense `HYLL` 编码 + 大范围修正）；稀疏 blob 拒绝 |
 | EXEC | 已按 Redis：出错继续、不整事务回滚 |
 | BLPOP / XREAD BLOCK | 真阻塞（等待队列 + 写路径唤醒） |
@@ -178,7 +178,7 @@ UNWATCH、WAIT（简版）、BITOP、BITFIELD、SMOVE、LPOS、XCLAIM、SHUTDOWN
 | TimeSeries / LCS / Latency | `TS.INFO`（`labels` 嵌套 Map）；`LCS … IDX`；`LATENCY HISTOGRAM`（嵌套 histogram_usec） | Map |
 | Search / Cluster | `FT.SYNDUMP`；`FT.SPELLCHECK`（`results`）；`FT.PROFILE`（`Results`/`Profile`）；`CLUSTER SHARDS` | Map / 外层 Array+Map |
 
-**仍延期 / 非本轮：** HSCAN/ZSCAN 第二段官方仍为 Array；jemalloc 级 `used_memory`；Vector Q8/BIN；完整 BM25/KNN；FUNCTION DUMP 官方互通；完整集群 gossip/`redis-cli --cluster`。
+**仍延期 / 非本轮：** HSCAN/ZSCAN 第二段官方仍为 Array；jemalloc 级 `used_memory`；Vector Q8/BIN；完整 BM25/KNN；FUNCTION DUMP 官方互通；集群 MEET/gossip 与 ADDSLOTS 写 FSM；opaque 与 Redis 原生模块 RDB 互通。
 
 ## 测试
 
@@ -186,4 +186,4 @@ UNWATCH、WAIT（简版）、BITOP、BITFIELD、SMOVE、LPOS、XCLAIM、SHUTDOWN
 
 ---
 
-**最后更新：** 2026-08-09（集群 CRC16/16384 + Sharded Pub/Sub 对齐；MOVED/ASK/ASKING）
+**最后更新：** 2026-08-09（R3-3 TS opaque 元数据；CLUSTER NODES/SLOTS/INFO/SHARDS←FSM）
