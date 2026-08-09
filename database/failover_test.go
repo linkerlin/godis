@@ -3,9 +3,10 @@ package database
 import (
 	"fmt"
 	"net"
-	"strconv"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -53,8 +54,8 @@ func startTestReplicaPair(t *testing.T) (*Server, *Server, func()) {
 		db.addAof = func(line CmdLine) { persister.SaveCmdLine(0, line) }
 	}
 	// Use real TCP listeners so replication handshake works.
-	masterAddr := startTCPListener(t, master)
-	replicaAddr := startTCPListener(t, replica)
+	masterAddr, closeMasterLn := startTCPListener(t, master)
+	replicaAddr, closeReplicaLn := startTCPListener(t, replica)
 	_, replicaPortStr := splitAddr(replicaAddr)
 	// Tell the replica to announce itself to the master with a real address
 	// (FAILOVER demotion needs the replica's host/port).
@@ -99,8 +100,11 @@ func startTestReplicaPair(t *testing.T) (*Server, *Server, func()) {
 		t.Fatalf("replica should announce its address for FAILOVER")
 	}
 	cleanup := func() {
+		closeMasterLn()
+		closeReplicaLn()
 		master.Close()
 		replica.Close()
+		atomic.StoreInt32(&failoverState, failoverIdle)
 		config.Properties.SlaveAnnounceIP = oldAnnIP
 		config.Properties.SlaveAnnouncePort = oldAnnPort
 		config.Properties = old
@@ -110,12 +114,15 @@ func startTestReplicaPair(t *testing.T) (*Server, *Server, func()) {
 
 // startTCPListener binds a real listener and serves commands for server
 // (mirroring the std handler's parse/exec loop, enough for replication).
-func startTCPListener(t *testing.T, server *Server) string {
+// The returned close func stops Accept; t.Cleanup also closes it.
+func startTCPListener(t *testing.T, server *Server) (addr string, closeFn func()) {
 	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("listen: %v", err)
 	}
+	closeFn = sync.OnceFunc(func() { _ = ln.Close() })
+	t.Cleanup(closeFn)
 	go func() {
 		for {
 			conn, err := ln.Accept()
@@ -125,12 +132,14 @@ func startTCPListener(t *testing.T, server *Server) string {
 			go serveConn(server, conn)
 		}
 	}()
-	return ln.Addr().String()
+	return ln.Addr().String(), closeFn
 }
 
 func serveConn(server *Server, conn net.Conn) {
 	client := connection.NewConn(conn)
 	RegisterClient(client)
+	defer UnregisterClient(client)
+	defer func() { _ = client.Close() }()
 	ch := parser.ParseStream(conn)
 	for payload := range ch {
 		if payload.Err != nil {
@@ -194,8 +203,8 @@ func TestFailoverPromotesReplica(t *testing.T) {
 		t.Fatalf("replica should have applied replicated data before failover: %s", replica.Exec(rc, utils.ToCmdLine("GET", "k5")).ToBytes())
 	}
 
-	// Run FAILOVER on the master.
-	r := master.Exec(mc, utils.ToCmdLine("FAILOVER"))
+	// Run FAILOVER on the master (short TIMEOUT avoids Windows hang if ACK lags).
+	r := master.Exec(mc, utils.ToCmdLine("FAILOVER", "TIMEOUT", "3000"))
 	if protocol.IsErrorReply(r) {
 		t.Fatalf("failover: %s", r.ToBytes())
 	}
@@ -289,6 +298,7 @@ func TestFailoverRequiresReplicas(t *testing.T) {
 	}
 	// With a failover in progress (simulated), ABORT succeeds and resets state.
 	atomic.StoreInt32(&failoverState, failoverWaitingSync)
+	t.Cleanup(func() { atomic.StoreInt32(&failoverState, failoverIdle) })
 	if r := server.Exec(c, utils.ToCmdLine("FAILOVER", "ABORT")); protocol.IsErrorReply(r) {
 		t.Fatalf("FAILOVER ABORT should succeed: %s", r.ToBytes())
 	}
@@ -297,7 +307,6 @@ func TestFailoverRequiresReplicas(t *testing.T) {
 	}
 	// A second FAILOVER while one is in progress errors.
 	atomic.StoreInt32(&failoverState, failoverWaitingSync)
-	defer atomic.StoreInt32(&failoverState, failoverIdle)
 	if r := server.Exec(c, utils.ToCmdLine("FAILOVER")); !protocol.IsErrorReply(r) ||
 		!strings.Contains(string(r.ToBytes()), "already in progress") {
 		t.Fatalf("FAILOVER while in progress should error: %s", r.ToBytes())
@@ -320,7 +329,7 @@ func TestFailoverForceSwitchesLaggedReplica(t *testing.T) {
 		}
 	}
 
-	if r := master.Exec(mc, utils.ToCmdLine("FAILOVER", "FORCE")); protocol.IsErrorReply(r) {
+	if r := master.Exec(mc, utils.ToCmdLine("FAILOVER", "FORCE", "TIMEOUT", "3000")); protocol.IsErrorReply(r) {
 		t.Fatalf("failover force: %s", r.ToBytes())
 	}
 
