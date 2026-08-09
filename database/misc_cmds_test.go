@@ -78,6 +78,10 @@ func TestCFAndCMSBasic(t *testing.T) {
 	)), "OK")
 	asserts.AssertIntReply(t, db.Exec(nil, utils.ToCmdLine("CF.ADD", "cf:1", "x")), 1)
 	asserts.AssertIntReply(t, db.Exec(nil, utils.ToCmdLine("CF.EXISTS", "cf:1", "x")), 1)
+	info := db.Exec(nil, utils.ToCmdLine("CF.INFO", "cf:1"))
+	if _, ok := info.(*protocol.MapReply); !ok {
+		t.Fatalf("CF.INFO: got %T %s", info, info.ToBytes())
+	}
 
 	asserts.AssertStatusReply(t, db.Exec(nil, utils.ToCmdLine(
 		"CMS.INITBYDIM", "cms:1", "1000", "5",

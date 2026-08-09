@@ -528,12 +528,14 @@ func TestResp3ACLLogEntryMaps(t *testing.T) {
 func TestResp3ProbabilisticInfoMaps(t *testing.T) {
 	db := makeTestDB()
 	asserts.AssertStatusReply(t, db.Exec(nil, utils.ToCmdLine("BF.RESERVE", "bf", "0.01", "100")), "OK")
+	asserts.AssertStatusReply(t, db.Exec(nil, utils.ToCmdLine("CF.RESERVE", "cf", "100")), "OK")
 	asserts.AssertStatusReply(t, db.Exec(nil, utils.ToCmdLine("CMS.INITBYDIM", "cms", "100", "5")), "OK")
 	asserts.AssertStatusReply(t, db.Exec(nil, utils.ToCmdLine("TOPK.RESERVE", "tk", "3")), "OK")
 	asserts.AssertStatusReply(t, db.Exec(nil, utils.ToCmdLine("TDIGEST.CREATE", "td")), "OK")
 
 	for _, cmd := range [][]string{
 		{"BF.INFO", "bf"},
+		{"CF.INFO", "cf"},
 		{"CMS.INFO", "cms"},
 		{"TOPK.INFO", "tk"},
 		{"TDIGEST.INFO", "td"},

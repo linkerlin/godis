@@ -226,6 +226,8 @@ func (cf *CuckooFilter) Info() map[string]interface{} {
 		"count":       cf.count,
 		"usedBuckets": usedBuckets,
 		"loadFactor":  float64(cf.count) / float64(cf.size*cf.bucketSize),
+		"expansion":   cf.expansion,
+		"maxKicks":    cf.maxKicks,
 	}
 }
 

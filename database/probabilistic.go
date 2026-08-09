@@ -644,6 +644,23 @@ items:
 	return protocol.MakeMultiBulkReply(results)
 }
 
+// execCFInfo returns Cuckoo filter info as Map (RESP3 %) / flat array (RESP2).
+// CF.INFO key
+func execCFInfo(db *DB, args [][]byte) redis.Reply {
+	if len(args) != 1 {
+		return protocol.MakeErrReply("ERR wrong number of arguments for 'cf.info' command")
+	}
+	entity, exists := db.GetEntity(string(args[0]))
+	if !exists {
+		return protocol.MakeErrReply("ERR key does not exist")
+	}
+	cf, ok := entity.Data.(*probabilistic.CuckooFilter)
+	if !ok {
+		return &protocol.WrongTypeErrReply{}
+	}
+	return mapReplyFromInfo(cf.Info())
+}
+
 // execCFCompact is a no-op compatibility stub (Redis may rearrange buckets)
 // CF.COMPACT key
 func execCFCompact(db *DB, args [][]byte) redis.Reply {
@@ -1228,6 +1245,8 @@ func init() {
 		attachCommandExtra([]string{redisFlagWrite, redisFlagDenyOOM}, 1, 1, 1)
 	registerCommand("CF.Compact", execCFCompact, writeFirstKey, nil, 2, flagWrite).
 		attachCommandExtra([]string{redisFlagWrite}, 1, 1, 1)
+	registerCommand("CF.Info", execCFInfo, readFirstKey, nil, 2, flagReadOnly).
+		attachCommandExtra([]string{redisFlagReadonly}, 1, 1, 1)
 
 	// Count-Min Sketch
 	registerCommand("CMS.InitByDim", execCMSInitByDim, writeFirstKey, nil, 4, flagWrite).
