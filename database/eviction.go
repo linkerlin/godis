@@ -2,11 +2,13 @@ package database
 
 import (
 	"math/rand"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/linkerlin/godis/config"
+	"github.com/linkerlin/godis/interface/database"
 	"github.com/linkerlin/godis/interface/redis"
 	"github.com/linkerlin/godis/lib/memory"
 	"github.com/linkerlin/godis/redis/protocol"
@@ -162,10 +164,10 @@ func (em *EvictionManager) EvictKeys(target int64) int {
 		if !ok {
 			break
 		}
+		freed += estimateStoredKeyBytes(em.db, key)
 		em.db.Remove(key)
 		em.Forget(key)
 		evicted++
-		freed += bytesPerKeyEstimate
 	}
 
 	return evicted
@@ -314,7 +316,7 @@ func (server *Server) ensureMemoryForWrite(db *DB, approxWrite int64) redis.Repl
 		}
 		n := 0
 		if db.evictionManager != nil {
-			n = db.evictionManager.EvictKeys(bytesPerKeyEstimate)
+			n = db.evictionManager.EvictKeys(approxWrite)
 		}
 		if n == 0 {
 			for _, holder := range server.dbSet {
@@ -322,7 +324,7 @@ func (server *Server) ensureMemoryForWrite(db *DB, approxWrite int64) redis.Repl
 				if other == db || other.evictionManager == nil {
 					continue
 				}
-				n = other.evictionManager.EvictKeys(bytesPerKeyEstimate)
+				n = other.evictionManager.EvictKeys(approxWrite)
 				if n > 0 {
 					break
 				}
@@ -356,7 +358,10 @@ func (server *Server) syncMemoryConfig() {
 	}
 }
 
-// approxKeyMemoryUsage estimates used memory from key counts (test-friendly).
+// approxKeyMemoryUsage estimates dataset memory for maxmemory.
+// Per key: max(bytesPerKeyEstimate, estimateEntityBytes) so small keys stay
+// test-friendly (~128B) while large string/values are not severely undercounted.
+// Still approximate (not jemalloc / Go allocator truth).
 func (server *Server) approxKeyMemoryUsage() int64 {
 	if server == nil {
 		return 0
@@ -364,7 +369,63 @@ func (server *Server) approxKeyMemoryUsage() int64 {
 	var n int64
 	for _, holder := range server.dbSet {
 		db := holder.Load().(*DB)
-		n += int64(db.data.Len()) * bytesPerKeyEstimate
+		db.data.ForEach(func(key string, val interface{}) bool {
+			sz := int64(bytesPerKeyEstimate)
+			if entity, ok := val.(*database.DataEntity); ok && entity != nil {
+				if est := estimateEntityBytes(key, entity.Data, 5); est > sz {
+					sz = est
+				}
+			}
+			n += sz
+			return true
+		})
 	}
 	return n
+}
+
+// approxCmdWriteBytes estimates bytes a write command may add (for maxmemory).
+func approxCmdWriteBytes(cmdLine [][]byte) int64 {
+	if len(cmdLine) < 2 {
+		return bytesPerKeyEstimate
+	}
+	cmd := strings.ToLower(string(cmdLine[0]))
+	switch cmd {
+	case "set", "setnx", "setex", "psetex", "getset":
+		if len(cmdLine) >= 3 {
+			return floorKeyEstimate(int64(len(cmdLine[1]) + len(cmdLine[2]) + 64))
+		}
+	case "mset", "msetnx":
+		var sum int64
+		for i := 1; i+1 < len(cmdLine); i += 2 {
+			sum += int64(len(cmdLine[i]) + len(cmdLine[i+1]) + 64)
+		}
+		return floorKeyEstimate(sum)
+	case "append", "setrange":
+		if len(cmdLine) >= 3 {
+			return floorKeyEstimate(int64(len(cmdLine[len(cmdLine)-1]) + 64))
+		}
+	}
+	return bytesPerKeyEstimate
+}
+
+func floorKeyEstimate(n int64) int64 {
+	if n < bytesPerKeyEstimate {
+		return bytesPerKeyEstimate
+	}
+	return n
+}
+
+func estimateStoredKeyBytes(db *DB, key string) int64 {
+	sz := int64(bytesPerKeyEstimate)
+	if db == nil {
+		return sz
+	}
+	entity, ok := db.GetEntity(key)
+	if !ok || entity == nil {
+		return sz
+	}
+	if est := estimateEntityBytes(key, entity.Data, 5); est > sz {
+		return est
+	}
+	return sz
 }

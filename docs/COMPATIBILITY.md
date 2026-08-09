@@ -16,7 +16,7 @@
 | RediSearch (FT.*) | 中–高 | Phase A/B：初始扫描、STOPWORDS、同义词、内联 GEO、AGGREGATE WITHCURSOR/APPLY；见下文 |
 | 集群 (CLUSTER *) | 中–高 | 16384+CRC16；MOVED/ASK；NODES/SLOTS/INFO/SHARDS 读 FSM；MEET/gossip 仍缺 |
 | ACL / 安全 | 中–高 | ACL 引擎；CONFIG `aclfile` 可存取（M2bh）；文件见 ACL LOAD/SAVE |
-| 配置 | 中–高 | 布尔解析；CONFIG SET 含 maxmemory/save/tcp-backlog；**eviction 写路径已接**（键数估算）；部分 CF-3 为存取桩 |
+| 配置 | 中–高 | 布尔解析；CONFIG SET 含 maxmemory/save/tcp-backlog；**eviction 写路径已接**（per-key 估算，大 value 计入；非 jemalloc）；部分 CF-3 为存取桩 |
 | 概率数据结构 (BF/CF/CMS…) | 中–高 | 见 `database/probabilistic.go`；CF EXPANSION 已接扩容 |
 
 **M2 里程碑：** 至 **M2cm**。M2cl：Pub/Sub RESP3 Push、Lua HKEYS/HVALS/SSCAN→Array。M2cm：UNWATCH 可在 MULTI 内排队；CLIENT LIST 字段 `watch=`（及 tot-net-in/out、rbs/rbp）；ACL GETUSER 完整 `#`+SHA256；CLUSTER ADDSLOTS/DELSLOTS 写 FSM；SETSLOT 等未实现写路径显式 `ERR not supported`。
@@ -73,7 +73,7 @@
 | LCS 缺键 | ✅ 视为空串（非空数组） |
 | Protocol error | ✅ 消息用双引号包裹 |
 | SRANDMEMBER 负 count | ✅ SimpleDict 真随机（可重复） |
-| DUMP 扩展类型 | ✅ stream/JSON/vector/TS 经 Godis opaque（非 Redis 互通） |
+| DUMP 扩展类型 | ✅ stream/JSON/vector/TS 经 Godis opaque（非 Redis 互通）；TS 含 DownsampleRules；Vector item 含 Attributes |
 | FT.CREATE ON | ✅ HASH/JSON 校验并记录；仅 HASH 自动索引 HSET |
 | CLIENT LIST TYPE | ✅ normal/master/replica/pubsub 过滤；flags/psub 对齐 |
 | CLIENT PAUSE | ✅ WRITE/ALL 在 Exec 路径真正阻塞（UNPAUSE/CLIENT 豁免） |
@@ -178,7 +178,7 @@ UNWATCH、WAIT（简版）、BITOP、BITFIELD、SMOVE、LPOS、XCLAIM、SHUTDOWN
 | TimeSeries / LCS / Latency | `TS.INFO`（`labels` 嵌套 Map）；`LCS … IDX`；`LATENCY HISTOGRAM`（嵌套 histogram_usec） | Map |
 | Search / Cluster | `FT.SYNDUMP`；`FT.SPELLCHECK`（`results`）；`FT.PROFILE`（`Results`/`Profile`）；`CLUSTER SHARDS` | Map / 外层 Array+Map |
 
-**仍延期 / 非本轮：** HSCAN/ZSCAN 第二段官方仍为 Array；jemalloc 级 `used_memory`；Vector Q8/BIN；完整 BM25/KNN；FUNCTION DUMP 官方互通；集群 MEET/gossip 与 SETSLOT 写 FSM；opaque 与 Redis 原生模块 RDB 互通。
+**仍延期 / 非本轮：** HSCAN/ZSCAN 第二段官方仍为 Array；jemalloc 级精确 `used_memory`（当前 maxmemory 为 per-key/大 value 近似）；Vector Q8/BIN；完整 BM25/KNN；FUNCTION DUMP 官方互通；集群 MEET/gossip 与 SETSLOT 写 FSM；opaque 与 Redis 原生模块 RDB 互通。
 
 ## 测试
 
@@ -186,4 +186,4 @@ UNWATCH、WAIT（简版）、BITOP、BITFIELD、SMOVE、LPOS、XCLAIM、SHUTDOWN
 
 ---
 
-**最后更新：** 2026-08-09（Lua 沙箱；CLUSTER 假 OK→ERR；ADDSLOTS 写 FSM；Stream opaque PEL/consumers）
+**最后更新：** 2026-08-09（opaque TS rules + vector attrs；maxmemory 大 value 估账）

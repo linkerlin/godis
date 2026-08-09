@@ -60,6 +60,32 @@ func TestM2uAllKeysRandomEvict(t *testing.T) {
 	}
 }
 
+// Large SET value must trip maxmemory (not undercounted as 128B/key).
+func TestM2uLargeValueMaxmemory(t *testing.T) {
+	server := newM2uServer(t)
+	c := connection.NewFakeConn()
+	asserts.AssertStatusReply(t, server.Exec(c, utils.ToCmdLine("CONFIG", "SET", "maxmemory-policy", "noeviction")), "OK")
+	asserts.AssertStatusReply(t, server.Exec(c, utils.ToCmdLine("CONFIG", "SET", "maxmemory", "1024")), "OK")
+	big := strings.Repeat("x", 4096)
+	oom := server.Exec(c, utils.ToCmdLine("SET", "big", big))
+	if !protocol.IsErrorReply(oom) || !strings.Contains(string(oom.ToBytes()), "OOM") {
+		t.Fatalf("expected OOM for large SET, got %s", oom.ToBytes())
+	}
+
+	// Stored large value also counted in used estimate.
+	asserts.AssertStatusReply(t, server.Exec(c, utils.ToCmdLine("CONFIG", "SET", "maxmemory", "0")), "OK")
+	asserts.AssertStatusReply(t, server.Exec(c, utils.ToCmdLine("SET", "stored", big)), "OK")
+	asserts.AssertStatusReply(t, server.Exec(c, utils.ToCmdLine("CONFIG", "SET", "maxmemory", "2048")), "OK")
+	oom2 := server.Exec(c, utils.ToCmdLine("SET", "tiny", "1"))
+	if !protocol.IsErrorReply(oom2) || !strings.Contains(string(oom2.ToBytes()), "OOM") {
+		t.Fatalf("expected OOM after large value stored, got %s", oom2.ToBytes())
+	}
+	used := server.approxKeyMemoryUsage()
+	if used < 4096 {
+		t.Fatalf("used estimate %d still looks like 128B/key undercount", used)
+	}
+}
+
 func TestM2uConfigExtraDirectives(t *testing.T) {
 	server := newM2uServer(t)
 	c := connection.NewFakeConn()

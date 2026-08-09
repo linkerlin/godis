@@ -205,7 +205,7 @@ func (db *DB) execNormalCommand(c redis.Connection, cmdLine [][]byte) redis.Repl
 	}
 	// Enforce maxmemory before taking key locks (eviction may remove other keys).
 	if (cmd.flags&flagReadOnly) == 0 && db.server != nil {
-		if errReply := db.server.ensureMemoryForWrite(db, bytesPerKeyEstimate); errReply != nil {
+		if errReply := db.server.ensureMemoryForWrite(db, approxCmdWriteBytes(cmdLine)); errReply != nil {
 			return errReply
 		}
 	}
