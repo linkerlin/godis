@@ -202,6 +202,23 @@ func TestFSMApplyEvents(t *testing.T) {
 	if fsm.Slot2Node[1] != "node3" {
 		t.Fatalf("slot 1 owner=%q", fsm.Slot2Node[1])
 	}
+
+	// EventAssignSlots transfers ownership atomically
+	entry = &LogEntry{
+		Event: EventAssignSlots,
+		SlotsTask: &SlotsTask{
+			NodeId: "node4",
+			Slots:  []uint32{1},
+		},
+	}
+	data, _ = json.Marshal(entry)
+	fsm.Apply(&raft.Log{Data: data})
+	if fsm.Slot2Node[1] != "node4" {
+		t.Fatalf("assign owner=%q", fsm.Slot2Node[1])
+	}
+	if _, ok := fsm.MasterSlaves["node4"]; !ok {
+		t.Fatal("AssignSlots should register node4 as master")
+	}
 }
 
 func TestFSMSnapshotAndRestore(t *testing.T) {

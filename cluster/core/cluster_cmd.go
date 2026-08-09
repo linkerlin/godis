@@ -300,7 +300,7 @@ func execClusterHelp() redis.Reply {
 		"    Join peer into cluster via Raft/FSM (not gossip). Raft-ready nodes require raft-port.",
 		"CLUSTER SETSLOT slot MIGRATING|IMPORTING|STABLE|NODE ...",
 		"    MIGRATING/IMPORTING/STABLE update local slotsManager (ASK/ASKING).",
-		"    NODE is not supported (use ADDSLOTS/DELSLOTS or Godis migration).",
+		"    NODE assigns slot ownership in the Raft FSM and clears local migrate state.",
 		"CLUSTER FORGET node-id",
 		"    Not supported.",
 		"CLUSTER REPLICATE node-id",

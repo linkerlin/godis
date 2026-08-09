@@ -94,3 +94,46 @@ func TestAddSlotsDuplicateReject(t *testing.T) {
 		t.Fatalf("want duplicate: %s", bad.ToBytes())
 	}
 }
+
+func TestSetSlotNodeWritesFSMAndClearsMigrate(t *testing.T) {
+	src := newFSMCluster("127.0.0.1:7000")
+	_ = execCluster(src, nil, [][]byte{
+		[]byte("CLUSTER"), []byte("ADDSLOTS"), []byte("7"),
+	})
+	if src.raftNode.FSM.Slot2Node[7] != src.SelfID() {
+		t.Fatalf("precondition owner=%v", src.raftNode.FSM.Slot2Node[7])
+	}
+
+	r := execCluster(src, nil, [][]byte{
+		[]byte("CLUSTER"), []byte("SETSLOT"), []byte("7"), []byte("MIGRATING"), []byte("127.0.0.1:7001"),
+	})
+	if _, ok := r.(*protocol.OkReply); !ok {
+		t.Fatalf("MIGRATING: %s", r.ToBytes())
+	}
+
+	dst := "127.0.0.1:7001"
+	r = execCluster(src, nil, [][]byte{
+		[]byte("CLUSTER"), []byte("SETSLOT"), []byte("7"), []byte("NODE"), []byte(dst),
+	})
+	if _, ok := r.(*protocol.OkReply); !ok {
+		t.Fatalf("NODE: %T %s", r, r.ToBytes())
+	}
+	if src.raftNode.FSM.Slot2Node[7] != dst {
+		t.Fatalf("Slot2Node[7]=%q want %q", src.raftNode.FSM.Slot2Node[7], dst)
+	}
+	st := src.slotsManager.getSlot(7)
+	st.mu.RLock()
+	state, peer := st.state, st.migratePeer
+	st.mu.RUnlock()
+	if state != slotStateHosting || peer != "" {
+		t.Fatalf("after NODE: state=%d peer=%q", state, peer)
+	}
+
+	// Idempotent re-assign to same owner.
+	r = execCluster(src, nil, [][]byte{
+		[]byte("CLUSTER"), []byte("SETSLOT"), []byte("7"), []byte("NODE"), []byte(dst),
+	})
+	if _, ok := r.(*protocol.OkReply); !ok {
+		t.Fatalf("NODE idempotent: %s", r.ToBytes())
+	}
+}

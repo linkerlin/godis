@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/linkerlin/godis/cluster/raft"
 	"github.com/linkerlin/godis/lib/utils"
 	"github.com/linkerlin/godis/redis/connection"
 	"github.com/linkerlin/godis/redis/protocol"
@@ -135,6 +136,63 @@ func TestSetSlotMigratingFeedsAsk(t *testing.T) {
 	got = DefaultFunc(a, c, utils.ToCmdLine("GET", key))
 	if _, ok := got.(*protocol.AskErrReply); ok {
 		t.Fatal("STABLE should clear ASK")
+	}
+}
+
+func TestSetSlotNodeClearsAsk(t *testing.T) {
+	ids := []string{"127.0.0.1:7100", "127.0.0.1:7101"}
+	nodes := MakeTestCluster(ids)
+	a := nodes[ids[0]]
+	a.inmemProxy = false
+	a.pickNodeImpl = func(uint32) string { return ids[0] }
+	// FSM-only so NODE can ApplyLocal
+	a.raftNode = &raft.Node{
+		Cfg: &raft.RaftConfig{RedisAdvertiseAddr: ids[0]},
+		FSM: &raft.FSM{
+			Node2Slot:    map[string][]uint32{ids[0]: {}},
+			Slot2Node:    map[uint32]string{},
+			Migratings:   make(map[string]*raft.MigratingTask),
+			MasterSlaves: map[string]*raft.MasterSlave{ids[0]: {MasterId: ids[0]}},
+			SlaveMasters: make(map[string]string),
+			Failovers:    make(map[string]*raft.FailoverTask),
+		},
+	}
+
+	key := "ask-node"
+	slot := a.GetSlot(key)
+	slotStr := strconv.FormatUint(uint64(slot), 10)
+
+	// Own the slot in FSM, then mark MIGRATING → ASK
+	a.raftNode.ApplyLocal(&raft.LogEntry{
+		Event: raft.EventAddSlots,
+		SlotsTask: &raft.SlotsTask{NodeId: ids[0], Slots: []uint32{slot}},
+	})
+	r := execCluster(a, nil, [][]byte{
+		[]byte("CLUSTER"), []byte("SETSLOT"),
+		[]byte(slotStr), []byte("MIGRATING"), []byte(ids[1]),
+	})
+	if _, ok := r.(*protocol.OkReply); !ok {
+		t.Fatalf("MIGRATING: %s", r.ToBytes())
+	}
+	c := connection.NewFakeConn()
+	got := DefaultFunc(a, c, utils.ToCmdLine("GET", key))
+	if _, ok := got.(*protocol.AskErrReply); !ok {
+		t.Fatalf("want ASK before NODE, got %T %s", got, got.ToBytes())
+	}
+
+	r = execCluster(a, nil, [][]byte{
+		[]byte("CLUSTER"), []byte("SETSLOT"),
+		[]byte(slotStr), []byte("NODE"), []byte(ids[1]),
+	})
+	if _, ok := r.(*protocol.OkReply); !ok {
+		t.Fatalf("NODE: %s", r.ToBytes())
+	}
+	if a.raftNode.FSM.Slot2Node[slot] != ids[1] {
+		t.Fatalf("owner=%q want %q", a.raftNode.FSM.Slot2Node[slot], ids[1])
+	}
+	got = DefaultFunc(a, c, utils.ToCmdLine("GET", key))
+	if _, ok := got.(*protocol.AskErrReply); ok {
+		t.Fatal("NODE should clear ASK migrate state")
 	}
 }
 

@@ -31,11 +31,12 @@ func TestM2cmClusterAddDelSlotsSetSlot(t *testing.T) {
 		t.Fatalf("SETSLOT STABLE want OK: %T %s", r, r.ToBytes())
 	}
 
+	// No raft: NODE clears local migrate state and returns OK (like ADDSLOTS).
 	r = execCluster(cl, nil, [][]byte{
 		[]byte("CLUSTER"), []byte("SETSLOT"), []byte("10"), []byte("NODE"), []byte("node-cm"),
 	})
-	if !protocol.IsErrorReply(r) || !strings.Contains(string(r.ToBytes()), "not supported") {
-		t.Fatalf("SETSLOT NODE want not supported: %T %s", r, r.ToBytes())
+	if _, ok := r.(*protocol.OkReply); !ok {
+		t.Fatalf("SETSLOT NODE want OK: %T %s", r, r.ToBytes())
 	}
 
 	bad := execCluster(cl, nil, [][]byte{
@@ -50,5 +51,8 @@ func TestM2cmClusterAddDelSlotsSetSlot(t *testing.T) {
 		if !strings.Contains(help, want) {
 			t.Fatalf("HELP missing %s: %s", want, help)
 		}
+	}
+	if !strings.Contains(help, "Raft FSM") && !strings.Contains(help, "assigns slot ownership") {
+		t.Fatalf("HELP should mention NODE FSM ownership: %s", help)
 	}
 }

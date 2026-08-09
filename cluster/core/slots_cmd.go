@@ -215,7 +215,7 @@ func execClusterFlushSlots(cluster *Cluster, c redis.Connection, cmdLine CmdLine
 
 // execClusterSetSlot handles CLUSTER SETSLOT.
 // MIGRATING / IMPORTING / STABLE update local slotsManager so ASK/ASKING align with admin state.
-// NODE (ownership / FSM write) remains unsupported — use ADDSLOTS/DELSLOTS or Godis migration.
+// NODE assigns slot ownership in the Raft FSM and clears local MIGRATING/IMPORTING.
 func execClusterSetSlot(cluster *Cluster, c redis.Connection, cmdLine CmdLine) redis.Reply {
 	if len(cmdLine) < 4 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'cluster|setslot' command")
@@ -241,7 +241,7 @@ func execClusterSetSlot(cluster *Cluster, c redis.Connection, cmdLine CmdLine) r
 		if len(cmdLine) != 5 {
 			return protocol.MakeErrReply("ERR wrong number of arguments for 'cluster|setslot' command")
 		}
-		return protocol.MakeErrReply("ERR CLUSTER SETSLOT NODE is not supported (use ADDSLOTS/DELSLOTS or Godis migration)")
+		return cluster.execSetSlotNode(c, cmdLine, uint32(slot), string(cmdLine[4]))
 	default:
 		return protocol.MakeErrReply("ERR Invalid CLUSTER SETSLOT action")
 	}
@@ -273,5 +273,70 @@ func execClusterSetSlot(cluster *Cluster, c redis.Connection, cmdLine CmdLine) r
 		st.dirtyKeys = nil
 		st.exportSnapshot = nil
 	}
+	return protocol.MakeOkReply()
+}
+
+func (cluster *Cluster) clearLocalSlotMigrate(slot uint32) {
+	if cluster.slotsManager == nil {
+		return
+	}
+	st := cluster.slotsManager.getSlot(slot)
+	st.mu.Lock()
+	st.state = slotStateHosting
+	st.migratePeer = ""
+	st.dirtyKeys = nil
+	st.exportSnapshot = nil
+	st.mu.Unlock()
+}
+
+// execSetSlotNode writes slot ownership to the FSM (EventAssignSlots) and clears local migrate state.
+func (cluster *Cluster) execSetSlotNode(c redis.Connection, cmdLine CmdLine, slot uint32, nodeID string) redis.Reply {
+	if cluster.isClusterReplica() {
+		return protocol.MakeErrReply("ERR Please use SETSLOT only with masters.")
+	}
+	if nodeID == "" {
+		return protocol.MakeErrReply("ERR Invalid node id")
+	}
+
+	// No raft node: keep local-admin semantics (same as ADDSLOTS with nil raft).
+	if cluster.raftNode == nil {
+		if cluster.slotsManager == nil {
+			cluster.slotsManager = newSlotsManager()
+		}
+		cluster.clearLocalSlotMigrate(slot)
+		return protocol.MakeOkReply()
+	}
+
+	entry := &raft.LogEntry{
+		Event: raft.EventAssignSlots,
+		SlotsTask: &raft.SlotsTask{
+			NodeId: nodeID,
+			Slots:  []uint32{slot},
+		},
+	}
+
+	if cluster.raftNode.RaftReady() {
+		if cluster.raftNode.State() != raft.Leader {
+			leaderConn, err := cluster.BorrowLeaderClient()
+			if err != nil {
+				return protocol.MakeErrReply(err.Error())
+			}
+			defer cluster.connections.ReturnPeerClient(leaderConn)
+			return leaderConn.Send(cmdLine)
+		}
+		if _, err := cluster.raftNode.Propose(entry); err != nil {
+			return protocol.MakeErrReply(err.Error())
+		}
+		cluster.clearLocalSlotMigrate(slot)
+		return protocol.MakeOkReply()
+	}
+
+	// FSM injected without Hashicorp Raft (unit tests).
+	if cluster.raftNode.FSM == nil {
+		cluster.clearLocalSlotMigrate(slot)
+		return protocol.MakeOkReply()
+	}
+	cluster.raftNode.ApplyLocal(entry)
+	cluster.clearLocalSlotMigrate(slot)
 	return protocol.MakeOkReply()
 }

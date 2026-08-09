@@ -65,6 +65,7 @@ type JoinTask struct {
 }
 
 // SlotsTask assigns or drops hash slots for a node (CLUSTER ADDSLOTS / DELSLOTS).
+// For EventAssignSlots, NodeId is the new owner (slot may move from another node).
 type SlotsTask struct {
 	NodeId string
 	Slots  []uint32
@@ -79,6 +80,7 @@ const (
 	EventJoin
 	EventAddSlots
 	EventRemoveSlots
+	EventAssignSlots // SETSLOT NODE: set ownership (transfer if needed)
 )
 
 // LogEntry is an entry in raft log, stores a change of cluster
@@ -171,6 +173,16 @@ func (fsm *FSM) Apply(log *raft.Log) interface{} {
 			return nil
 		}
 		fsm.removeSlots(task.NodeId, task.Slots)
+	} else if entry.Event == EventAssignSlots {
+		task := entry.SlotsTask
+		if task == nil {
+			logger.Error("raft FSM Apply: EventAssignSlots with nil SlotsTask")
+			return nil
+		}
+		fsm.assignSlots(task.NodeId, task.Slots)
+		if _, ok := fsm.MasterSlaves[task.NodeId]; !ok {
+			fsm.addNode(task.NodeId, "")
+		}
 	}
 	if fsm.changed != nil {
 		fsm.changed(fsm)

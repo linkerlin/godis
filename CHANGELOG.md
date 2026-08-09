@@ -7,7 +7,8 @@
 ### Added
 
 - `CLUSTER MEET ip port [raft-port]`：走 Raft `AddToRaft`+`EventJoin`（或 FSM-only）；**非** Redis gossip；Raft 就绪时必须带 `raft-port`
-- `CLUSTER SETSLOT` `MIGRATING`/`IMPORTING`/`STABLE`：更新本地 `slotsManager`，与 ASK/ASKING 一致；`NODE` 仍 `ERR not supported`
+- `CLUSTER SETSLOT` `MIGRATING`/`IMPORTING`/`STABLE`：更新本地 `slotsManager`，与 ASK/ASKING 一致；`NODE` 写 Raft FSM 归属（`EventAssignSlots`）并清理本地迁移态
+- Hash field TTL：字段到期（时间轮主动 / 访问惰性）写 AOF `HDEL` 并接全局时间轮；键空间 `hexpired`
 - 集群槽位统一为 **CRC16-XMODEM % 16384**（`lib/hashslot`），Sharded Pub/Sub 共用；单键 `MOVED`/`ASK`/`ASKING`/`READONLY`
 - `CLUSTER NODES` / `SLOTS` / `INFO` / `SHARDS` 从 Raft FSM 读取真拓扑（无 FSM 时本节点占满 0–16383）
 - `CLUSTER ADDSLOTS` / `DELSLOTS` / `*RANGE` / `FLUSHSLOTS` 写入 Raft FSM（`EventAddSlots`/`EventRemoveSlots`）
@@ -46,7 +47,8 @@
 ### Fixed
 
 - maxmemory 淘汰路径未写 AOF `DEL`：主从复制积压（由 AOF 驱动）收不到删除，淘汰后从库仍残留键；现与过期路径一致并发送键空间 `evicted`
-- `CLUSTER SETSLOT NODE` / `REPLICATE` / `FAILOVER` / `FORGET` / `RESET` / `SAVECONFIG` / `SET-CONFIG-EPOCH` 对未实现写路径返回明确 `ERR … is not supported`（不再假 OK）
+- Hash field TTL 惰性/主动过期未写 AOF `HDEL`（及未接时间轮）：主从不一致；现与键过期路径对齐
+- `CLUSTER SETSLOT REPLICATE` / `FAILOVER` / `FORGET` / `RESET` / `SAVECONFIG` / `SET-CONFIG-EPOCH` 对未实现写路径返回明确 `ERR … is not supported`（不再假 OK）
 - `parse0` panic 时未关闭 channel 导致 `ParseOne` 可能挂起
 - `parseArray` 内层 bulk 未校验长度导致超大 `make` 分配
 - `go vet`：`database/stream.go` 未键控 `StreamID` 字面量；`tcp/server.go` signal channel 缓冲

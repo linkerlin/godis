@@ -56,6 +56,16 @@ func (fsm *FSM) removeSlots(nodeID string, slots []uint32) {
 	}
 }
 
+// assignSlots sets slot ownership to nodeID, removing each slot from its previous owner if any.
+func (fsm *FSM) assignSlots(nodeID string, slots []uint32) {
+	for _, slotId := range slots {
+		if old, ok := fsm.Slot2Node[slotId]; ok && old != nodeID {
+			fsm.removeSlots(old, []uint32{slotId})
+		}
+	}
+	fsm.addSlots(nodeID, slots)
+}
+
 func (fsm *FSM) failover(oldMasterId, newMasterId string) {
 	oldSlaves := fsm.MasterSlaves[oldMasterId].Slaves
 	newSlaves := make([]string, 0, len(oldSlaves))
