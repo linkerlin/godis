@@ -101,7 +101,7 @@
 
 ### R3 — 集群/ACL/持久化（后续轮次）
 
-- [ ] **R3-1 集群槽位统一为 16384**；Sharded Pub/Sub 用 CRC16 并与集群转发集成。
+- [x] **R3-1 集群槽位统一为 16384**：`lib/hashslot` CRC16-XMODEM；`cluster/core` 与 Sharded Pub/Sub 共用；对外 `CLUSTER KEYSLOT` / INFO 一致。
 - [x] **R3-1a 重定向协议面**：`MOVED`/`ASK` 错误线；`ASKING`；`READONLY`/`READWRITE` 连接标志（单键 DefaultFunc；内部 Relay 仍用于 TCC 等）。
 - [x] **R3-2 ACL 细粒度权限**：key/channel/selectors 检查（含 `%R~`/`%W~`/`(...)` 选择器/`&channel` DRYRUN）；集群路径也接入 ACL（`CheckACLPermission`）。
 - [ ] **R3-3 持久化扩展**：AOF marshal 与 RDB 加载覆盖 JSON/Vector/Timeseries/Stream/概率结构；RDB aux 版本号更新。

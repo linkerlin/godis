@@ -599,7 +599,7 @@ Godis 支持 Redis 键空间通知机制，可通过配置启用。
 
 | 命令 / 能力 | 说明 |
 |------|------|
-| CLUSTER CRC16 / 16384 | 槽位算法仍为简化版（与官方客户端拓扑不互通） |
+| CLUSTER MEET / ADDSLOTS（管理面仍有限） | 槽位已为 CRC16/16384；完整 gossip/`redis-cli --cluster` 仍未全通 |
 | FT.SYNADD | 已实现；更推荐 `FT.SYNUPDATE` |
 | MIGRATE / RESTORE-ASKING | 可用 DUMP/RESTORE |
 
