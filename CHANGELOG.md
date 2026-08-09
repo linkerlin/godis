@@ -45,6 +45,7 @@
 
 ### Fixed
 
+- maxmemory 淘汰路径未写 AOF `DEL`：主从复制积压（由 AOF 驱动）收不到删除，淘汰后从库仍残留键；现与过期路径一致并发送键空间 `evicted`
 - `CLUSTER SETSLOT NODE` / `REPLICATE` / `FAILOVER` / `FORGET` / `RESET` / `SAVECONFIG` / `SET-CONFIG-EPOCH` 对未实现写路径返回明确 `ERR … is not supported`（不再假 OK）
 - `parse0` panic 时未关闭 channel 导致 `ParseOne` 可能挂起
 - `parseArray` 内层 bulk 未校验长度导致超大 `make` 分配

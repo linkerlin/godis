@@ -11,6 +11,7 @@ import (
 	"github.com/linkerlin/godis/interface/database"
 	"github.com/linkerlin/godis/interface/redis"
 	"github.com/linkerlin/godis/lib/memory"
+	"github.com/linkerlin/godis/lib/utils"
 	"github.com/linkerlin/godis/redis/protocol"
 )
 
@@ -150,7 +151,9 @@ func (em *EvictionManager) Freq(key string) int64 {
 	return int64(n)
 }
 
-// EvictKeys evicts keys until the target memory is freed
+// EvictKeys evicts keys until the target memory is freed.
+// Propagates DEL via AOF (and thus the replication backlog), matching Redis
+// and the key-expiry path in DB.Expire / IsExpired.
 func (em *EvictionManager) EvictKeys(target int64) int {
 	if em.policy == memory.NoEviction {
 		return 0
@@ -165,8 +168,12 @@ func (em *EvictionManager) EvictKeys(target int64) int {
 			break
 		}
 		freed += estimateStoredKeyBytes(em.db, key)
-		em.db.Remove(key)
-		em.Forget(key)
+		// removeKey(false): skip generic "del" notify; emit "evicted" below.
+		em.db.removeKey(key, false)
+		notifyKeyspaceEvent(em.db, "evicted", key)
+		if em.db.addAof != nil {
+			em.db.addAof(utils.ToCmdLine3("del", []byte(key)))
+		}
 		evicted++
 	}
 

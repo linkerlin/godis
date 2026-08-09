@@ -3,6 +3,7 @@ package database
 import (
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -57,6 +58,41 @@ func TestM2uAllKeysRandomEvict(t *testing.T) {
 	}
 	if _, exists := db.GetEntity("new"); !exists {
 		t.Fatal("new key should exist after eviction write")
+	}
+}
+
+// TestM2uEvictPropagatesToAOF ensures maxmemory eviction writes DEL to AOF
+// (replication backlog is AOF-fed), matching key expiry propagation.
+func TestM2uEvictPropagatesToAOF(t *testing.T) {
+	server := newM2uServer(t)
+	c := connection.NewFakeConn()
+	db := server.dbSet[0].Load().(*DB)
+	var mu sync.Mutex
+	var aofLines []CmdLine
+	db.addAof = func(line CmdLine) {
+		mu.Lock()
+		aofLines = append(aofLines, line)
+		mu.Unlock()
+	}
+	asserts.AssertStatusReply(t, server.Exec(c, utils.ToCmdLine("CONFIG", "SET", "maxmemory-policy", "allkeys-random")), "OK")
+	asserts.AssertStatusReply(t, server.Exec(c, utils.ToCmdLine("CONFIG", "SET", "maxmemory", "384")), "OK")
+	for i := 0; i < 3; i++ {
+		asserts.AssertStatusReply(t, server.Exec(c, utils.ToCmdLine("SET", "e"+strconv.Itoa(i), "1")), "OK")
+	}
+	// Trigger eviction.
+	asserts.AssertStatusReply(t, server.Exec(c, utils.ToCmdLine("SET", "trigger", "1")), "OK")
+
+	mu.Lock()
+	defer mu.Unlock()
+	foundDel := false
+	for _, line := range aofLines {
+		if len(line) >= 2 && string(line[0]) == "del" {
+			foundDel = true
+			break
+		}
+	}
+	if !foundDel {
+		t.Fatalf("eviction should propagate DEL to AOF, got %v", aofLines)
 	}
 }
 

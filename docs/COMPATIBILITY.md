@@ -16,7 +16,7 @@
 | RediSearch (FT.*) | 中–高 | Phase A/B：初始扫描、STOPWORDS、同义词、内联 GEO、AGGREGATE WITHCURSOR/APPLY；见下文 |
 | 集群 (CLUSTER *) | 中–高 | 16384+CRC16；MOVED/ASK；NODES/SLOTS/INFO/SHARDS 读 FSM；MEET→Raft/FSM join（非 gossip）；SETSLOT 本地 MIGRATING/IMPORTING/STABLE |
 | ACL / 安全 | 中–高 | ACL 引擎；CONFIG `aclfile` 可存取（M2bh）；文件见 ACL LOAD/SAVE |
-| 配置 | 中–高 | 布尔解析；CONFIG SET 含 maxmemory/save/tcp-backlog；**eviction 写路径已接**（per-key 估算，大 value 计入；非 jemalloc）；部分 CF-3 为存取桩 |
+| 配置 | 中–高 | 布尔解析；CONFIG SET 含 maxmemory/save/tcp-backlog；**eviction 写路径已接**（per-key 估算，大 value 计入；淘汰写 AOF `DEL` 供复制；非 jemalloc）；部分 CF-3 为存取桩 |
 | 概率数据结构 (BF/CF/CMS…) | 中–高 | 见 `database/probabilistic.go`；CF EXPANSION 已接扩容 |
 
 **M2 里程碑：** 至 **M2cm**（+ 集群管理 seam）。M2cl：Pub/Sub RESP3 Push、Lua HKEYS/HVALS/SSCAN→Array。M2cm：UNWATCH 可在 MULTI 内排队；CLIENT LIST 字段 `watch=`（及 tot-net-in/out、rbs/rbp）；ACL GETUSER 完整 `#`+SHA256；CLUSTER ADDSLOTS/DELSLOTS 写 FSM。后续：`CLUSTER MEET`→Raft/FSM join；`SETSLOT MIGRATING|IMPORTING|STABLE`→本地 slotsManager（ASK/ASKING）；`SETSLOT NODE` 仍 ERR。
@@ -129,6 +129,7 @@
 | FT.SEARCH 内联 GEO | ✅ `@field:[lon lat radius unit]` 语法（此前仅支持顶层 GEOFILTER 选项） |
 | EXPIRE 非正 TTL | ✅ 立即删键；时间轮 tick 向上取整（小数秒 TTL 不再永不过期） |
 | 主从过期传播 | ✅ 过期删除写 AOF → 经复制积压同步到从库 |
+| 主从淘汰传播 | ✅ maxmemory 淘汰写 AOF `DEL` + 键空间 `evicted`（与过期路径一致） |
 | WATCH 版本 | ✅ 仅在写命令成功后 bump（失败不误报） |
 | 集群 ACL | ✅ 集群路径接入完整 ACL 校验（此前仅 requirepass） |
 | ACL 命令类别 | ✅ @string/@list/@search/@json/@vector 等 + 扩展类别前缀回退 |
@@ -186,4 +187,4 @@ UNWATCH、WAIT（简版）、BITOP、BITFIELD、SMOVE、LPOS、XCLAIM、SHUTDOWN
 
 ---
 
-**最后更新：** 2026-08-09（CLUSTER MEET Raft/FSM；SETSLOT 本地迁移态；仍非完整 gossip）
+**最后更新：** 2026-08-09（maxmemory 淘汰传播 AOF DEL；CLUSTER MEET Raft/FSM；SETSLOT 本地迁移态；仍非完整 gossip）
