@@ -130,5 +130,9 @@ func DefaultFunc(cluster *Cluster, c redis.Connection, args [][]byte) redis.Repl
 		return cluster.db.Exec(c, args)
 	}
 
+	// In-process test clusters act as a smart proxy (Relay). Production returns MOVED.
+	if cluster.inmemProxy {
+		return cluster.Relay(peer, c, args)
+	}
 	return protocol.MakeMovedErrReply(slotId, peer)
 }

@@ -2,17 +2,17 @@ package core
 
 import (
 	"errors"
-	"hash/crc32"
 	"net"
-	"strings"
 
 	"github.com/linkerlin/godis/interface/redis"
+	"github.com/linkerlin/godis/lib/hashslot"
 	"github.com/linkerlin/godis/lib/utils"
 	"github.com/linkerlin/godis/redis/connection"
 	"github.com/linkerlin/godis/redis/protocol"
 )
 
-const SlotCount int = 1024
+// SlotCount is Redis Cluster hash-slot count (CRC16-XMODEM % 16384).
+const SlotCount int = hashslot.Count
 
 const getCommittedIndexCommand = "raft.committedindex"
 
@@ -61,22 +61,13 @@ func (cluster *Cluster) SlaveOf(master string) error {
 	return nil
 }
 
-// GetPartitionKey extract hashtag
+// GetPartitionKey extract hashtag (same rules as Redis Cluster / hashslot.Tag).
 func GetPartitionKey(key string) string {
-	beg := strings.Index(key, "{")
-	if beg == -1 {
-		return key
-	}
-	end := strings.Index(key, "}")
-	if end == -1 || end == beg+1 {
-		return key
-	}
-	return key[beg+1 : end]
+	return hashslot.Tag(key)
 }
 
 func defaultGetSlotImpl(cluster *Cluster, key string) uint32 {
-	partitionKey := GetPartitionKey(key)
-	return crc32.ChecksumIEEE([]byte(partitionKey)) % uint32(SlotCount)
+	return hashslot.Slot(key)
 }
 
 func (cluster *Cluster) GetSlot(key string) uint32 {

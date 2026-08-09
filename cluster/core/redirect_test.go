@@ -14,6 +14,9 @@ func TestDefaultFuncMovedAskAndAsking(t *testing.T) {
 	nodes := MakeTestCluster(ids)
 	a := nodes[ids[0]]
 	b := nodes[ids[1]]
+	// Exercise client redirect path (not in-mem proxy Relay).
+	a.inmemProxy = false
+	b.inmemProxy = false
 
 	// Slot of "k" on node b under TestCluster routing: GetSlot then % 2
 	slot := a.GetSlot("k")

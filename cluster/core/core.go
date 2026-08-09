@@ -32,6 +32,10 @@ type Cluster struct {
 	pickNodeImpl func(slotID uint32) string
 	id_          string // for tests only
 
+	// inmemProxy: MakeTestCluster sets true so DefaultFunc Relays (in-process multi-node).
+	// Real clusters leave false and return MOVED/ASK for Redis Cluster clients.
+	inmemProxy bool
+
 	// humanName is CLUSTER SETNAME / GETNAME (Redis 7.2+).
 	humanName string
 

@@ -4,6 +4,7 @@ import (
 	"sync"
 
 	"github.com/linkerlin/godis/interface/redis"
+	"github.com/linkerlin/godis/lib/hashslot"
 	"github.com/linkerlin/godis/redis/protocol"
 )
 
@@ -22,12 +23,7 @@ func NewShardedHub() *ShardedHub {
 }
 
 func (sh *ShardedHub) getSlot(channel string) int {
-	hash := 0
-	for i := 0; i < len(channel); i++ {
-		hash = ((hash << 5) - hash) + int(channel[i])
-		hash = hash & 0x7FFF
-	}
-	return hash % 16384
+	return int(hashslot.Slot(channel))
 }
 
 func (sh *ShardedHub) subCount(conn redis.Connection) int {

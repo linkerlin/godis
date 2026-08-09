@@ -20,6 +20,7 @@ func MakeTestCluster(ids []string) map[string]*Cluster {
 			slotsManager: newSlotsManager(),
 			transactions: newTransactionManager(),
 			id_:          id,
+			inmemProxy:   true,
 		}
 		cluster.rebalanceManager = NewRebalanceManager(cluster)
 		cluster.pickNodeImpl = func(slotID uint32) string {
