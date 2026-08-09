@@ -82,7 +82,8 @@
 - [x] `TS.INFO`→Map（`labels` 嵌套）；`LCS IDX`→Map；`LATENCY HISTOGRAM`→嵌套 Map
 - [x] `FT.SYNDUMP`→Map（term→group ids）；`FT.SPELLCHECK`→RESP3 `results` Map；`FT.PROFILE`→RESP3 `Results`/`Profile` Map
 - [x] `CLUSTER SHARDS`→外层 Array + shard/node Map
-- [ ] 刻意不做：`INFO`/`CLIENT LIST` 文本；`HSCAN`/`ZSCAN` 第二段 Array；`VINFO`/`ROLE`/`XPENDING` 等官方仍标 Array；`CF.INFO` 未实现
+- [x] `CF.INFO`→Map（与其它概率 *INFO 一致）
+- [ ] 刻意不做：`INFO`/`CLIENT LIST` 文本；`HSCAN`/`ZSCAN` 第二段 Array；`VINFO`/`ROLE`/`XPENDING` 等官方仍标 Array
 
 ### R2 — 关键 Redis 8.x 命令补齐
 
@@ -94,10 +95,9 @@
   - RDB 前导模式降级为普通 Hash 并记录 warning。
   - 新增 `database/hash_expire_test.go` 覆盖基本、条件、绝对时间、duality、事务等场景。
 
-- [ ] **R2-2 基础缺失命令**：`BITOP`、`SMOVE`、`XCLAIM/XAUTOCLAIM`、`WAIT`、`UNWATCH`。
-- [ ] **R2-2 基础缺失命令**：`BITOP`、`SMOVE`、`XCLAIM/XAUTOCLAIM`、`WAIT`、`UNWATCH`。
-- [ ] **R2-3 ZSet 新选项**：`ZRANGE BYSCORE/BYLEX/REV/LIMIT`、`ZRANK WITHSCORE`。
-- [ ] **R2-4 String 新选项**：`SET KEEPTTL/GET`、`GETEX EXAT/PXAT`。
+- [x] **R2-2 基础命令**：`BITOP`、`SMOVE`、`XCLAIM`/`XAUTOCLAIM`、`WAIT`/`WAITAOF`、`UNWATCH`（含 MULTI 内排队）已实现。
+- [x] **R2-3 ZSet 选项**：`ZRANGE BYSCORE/BYLEX/REV/LIMIT`、`ZRANK`/`ZREVRANK WITHSCORE` 已实现。
+- [x] **R2-4 String 选项**：`SET KEEPTTL/GET`、`GETEX EX/PX/EXAT/PXAT/PERSIST` 已实现。
 
 ### R3 — 集群/ACL/持久化（后续轮次）
 
