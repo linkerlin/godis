@@ -35,10 +35,10 @@ func execModule(args [][]byte) redis.Reply {
 	}
 }
 
-// execModuleList 列出所有已加载的模块
+// execModuleList lists loaded modules.
+// RESP3 would be an array of Maps {name, ver}; RESP2 flat field arrays per module.
+// Godis has no dynamically loaded modules — returns an empty array.
 func execModuleList() redis.Reply {
-	// Godis 使用内置模块，没有动态加载的外部模块
-	// 返回空数组
 	return protocol.MakeEmptyMultiBulkReply()
 }
 

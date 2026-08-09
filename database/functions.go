@@ -97,7 +97,9 @@ func execFunctionLoad(db *DB, args [][]byte) redis.Reply {
 	return protocol.MakeBulkReply([]byte(fmt.Sprintf("%s:%d", libName, numFuncs)))
 }
 
-// execFunctionList lists functions/libraries
+// execFunctionList lists functions/libraries.
+// RESP2: array of flat field/value arrays (via MapReply.ToBytes per library).
+// RESP3: array of Maps (one Map per library; nested function Maps).
 // FUNCTION LIST [LIBRARYNAME library_name] [WITHCODE]
 func execFunctionList(db *DB, args [][]byte) redis.Reply {
 	if funcEngine == nil {
@@ -122,27 +124,25 @@ func execFunctionList(db *DB, args [][]byte) redis.Reply {
 		}
 	}
 
-	var reply [][]byte
-
+	var replies []redis.Reply
 	if libName != "" {
-		// List specific library
 		lib, exists := funcEngine.GetLibrary(libName)
 		if !exists {
 			return protocol.MakeEmptyMultiBulkReply()
 		}
-
-		reply = append(reply, formatLibraryInfo(lib, withCode)...)
+		replies = append(replies, formatLibraryInfoReply(lib, withCode))
 	} else {
-		// List all libraries
 		for _, name := range funcEngine.ListLibraries() {
 			lib, _ := funcEngine.GetLibrary(name)
 			if lib != nil {
-				reply = append(reply, formatLibraryInfo(lib, withCode)...)
+				replies = append(replies, formatLibraryInfoReply(lib, withCode))
 			}
 		}
 	}
-
-	return protocol.MakeMultiBulkReply(reply)
+	if len(replies) == 0 {
+		return protocol.MakeEmptyMultiBulkReply()
+	}
+	return protocol.MakeMultiRawReply(replies)
 }
 
 // execFunctionDelete deletes a library
@@ -511,42 +511,37 @@ func parseFunctionShebang(code string) (string, redis.Reply) {
 	return "", protocol.MakeErrReply("ERR Library name not specified (use '#!lua name=libname' shebang)")
 }
 
-func formatLibraryInfo(lib *functions.Library, withCode bool) [][]byte {
-	var result [][]byte
-
-	result = append(result, []byte("library_name"))
-	result = append(result, []byte(lib.Name))
-
-	result = append(result, []byte("engine"))
-	result = append(result, []byte(lib.Engine))
-
-	result = append(result, []byte("functions"))
-
-	var funcs [][]byte
-	for _, fn := range lib.Functions {
-		var funcInfo [][]byte
-		funcInfo = append(funcInfo, []byte("name"))
-		funcInfo = append(funcInfo, []byte(fn.Name))
-		funcInfo = append(funcInfo, []byte("description"))
-		funcInfo = append(funcInfo, []byte(fn.Description))
-		funcInfo = append(funcInfo, []byte("flags"))
-
-		var flags [][]byte
-		for _, f := range fn.Flags {
-			flags = append(flags, []byte(f))
-		}
-		funcInfo = append(funcInfo, protocol.MakeMultiBulkReply(flags).ToBytes())
-
-		funcs = append(funcs, protocol.MakeMultiBulkReply(funcInfo).ToBytes())
+func formatLibraryInfoReply(lib *functions.Library, withCode bool) redis.Reply {
+	m := protocol.MakeMapReply()
+	m.Put("library_name", protocol.MakeBulkReply([]byte(lib.Name)))
+	engine := lib.Engine
+	if engine == "" {
+		engine = "LUA"
 	}
-	result = append(result, protocol.MakeMultiBulkReply(funcs).ToBytes())
+	m.Put("engine", protocol.MakeBulkReply([]byte(engine)))
+
+	fnReplies := make([]redis.Reply, 0, len(lib.Functions))
+	for _, fn := range lib.Functions {
+		fm := protocol.MakeMapReply()
+		fm.Put("name", protocol.MakeBulkReply([]byte(fn.Name)))
+		if fn.Description != "" {
+			fm.Put("description", protocol.MakeBulkReply([]byte(fn.Description)))
+		} else {
+			fm.Put("description", protocol.MakeNullBulkReply())
+		}
+		flags := make([][]byte, len(fn.Flags))
+		for i, f := range fn.Flags {
+			flags[i] = []byte(f)
+		}
+		fm.Put("flags", protocol.MakeMultiBulkReply(flags))
+		fnReplies = append(fnReplies, fm)
+	}
+	m.Put("functions", protocol.MakeMultiRawReply(fnReplies))
 
 	if withCode {
-		result = append(result, []byte("library_code"))
-		result = append(result, []byte(lib.Code))
+		m.Put("library_code", protocol.MakeBulkReply([]byte(lib.Code)))
 	}
-
-	return result
+	return m
 }
 
 func parseLibraryDump(payload string) map[string]string {

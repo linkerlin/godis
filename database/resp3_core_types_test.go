@@ -459,3 +459,67 @@ func TestResp3XReadMap(t *testing.T) {
 		t.Fatalf("XREADGROUP RESP3: %q", protocol.ReplyToRESP3(groupRead))
 	}
 }
+
+func TestResp3FunctionListLibraryMaps(t *testing.T) {
+	db := makeTestDB()
+	InitFunctionsEngine(db)
+	_ = db.Exec(nil, utils.ToCmdLine("FUNCTION", "FLUSH"))
+	code := "#!lua name=resp3flib api_version=1.0\n" +
+		"redis.register_function('resp3f', function(keys, args) return 1 end)"
+	if r := db.Exec(nil, utils.ToCmdLine("FUNCTION", "LOAD", code)); protocol.IsErrorReply(r) {
+		t.Fatalf("LOAD: %s", r.ToBytes())
+	}
+	list := db.Exec(nil, utils.ToCmdLine("FUNCTION", "LIST", "WITHCODE"))
+	arr, ok := list.(*protocol.MultiRawReply)
+	if !ok || len(arr.Replies) != 1 {
+		t.Fatalf("FUNCTION LIST type %T %s", list, list.ToBytes())
+	}
+	lib, ok := arr.Replies[0].(*protocol.MapReply)
+	if !ok {
+		t.Fatalf("library entry type %T", arr.Replies[0])
+	}
+	if list.ToBytes()[0] != '*' {
+		t.Fatalf("FUNCTION LIST RESP2: %q", list.ToBytes())
+	}
+	wire3 := protocol.ReplyToRESP3(list)
+	if wire3[0] != '*' || !bytes.Contains(wire3, []byte("%")) {
+		t.Fatalf("FUNCTION LIST RESP3 want array of maps: %q", wire3)
+	}
+	if _, ok := lib.Data["library_code"]; !ok {
+		t.Fatalf("WITHCODE missing library_code: %v", lib.Data)
+	}
+}
+
+func TestResp3ACLLogEntryMaps(t *testing.T) {
+	server := getTestServer()
+	c := connection.NewFakeConn()
+	if r := server.Exec(c, utils.ToCmdLine("ACL", "LOG", "RESET")); protocol.IsErrorReply(r) {
+		t.Fatalf("LOG RESET: %s", r.ToBytes())
+	}
+	if r := server.Exec(c, utils.ToCmdLine("ACL", "SETUSER", "resp3acl", "on", ">pw", "~*", "&*", "+@read")); protocol.IsErrorReply(r) {
+		t.Fatalf("setuser: %s", r.ToBytes())
+	}
+	defer func() { _ = server.Exec(c, utils.ToCmdLine("ACL", "DELUSER", "resp3acl")) }()
+	u := connection.NewFakeConn()
+	if r := server.Exec(u, utils.ToCmdLine("AUTH", "resp3acl", "pw")); protocol.IsErrorReply(r) {
+		t.Fatalf("auth: %s", r.ToBytes())
+	}
+	_ = server.Exec(u, utils.ToCmdLine("SET", "k", "1"))
+
+	log := server.Exec(c, utils.ToCmdLine("ACL", "LOG"))
+	arr, ok := log.(*protocol.MultiRawReply)
+	if !ok || len(arr.Replies) < 1 {
+		t.Fatalf("ACL LOG type %T %s", log, log.ToBytes())
+	}
+	entry, ok := arr.Replies[0].(*protocol.MapReply)
+	if !ok {
+		t.Fatalf("ACL LOG entry type %T", arr.Replies[0])
+	}
+	if _, ok := entry.Data["age-seconds"].(*protocol.DoubleReply); !ok {
+		t.Fatalf("age-seconds should be Double, got %T", entry.Data["age-seconds"])
+	}
+	wire3 := protocol.ReplyToRESP3(log)
+	if wire3[0] != '*' || !bytes.Contains(wire3, []byte("%")) {
+		t.Fatalf("ACL LOG RESP3 want array of maps: %q", wire3)
+	}
+}

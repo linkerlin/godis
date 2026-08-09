@@ -100,7 +100,8 @@ func addACLLogEntry(c redis.Connection, reason, context, object, username string
 	}
 }
 
-// getACLLogEntries 获取ACL日志条目
+// getACLLogEntries 获取ACL日志条目。
+// Outer array; each entry is a Map (RESP3 %) / flat field array (RESP2).
 func getACLLogEntries(count int) redis.Reply {
 	aclLogMu.RLock()
 	defer aclLogMu.RUnlock()
@@ -109,41 +110,33 @@ func getACLLogEntries(count int) redis.Reply {
 	if count > 0 && count < len(entries) {
 		entries = entries[len(entries)-count:]
 	}
-
-	var result [][]byte
-	now := time.Now()
-
-	for _, entry := range entries {
-		age := now.Sub(entry.Timestamp).Seconds()
-
-		var fields [][]byte
-		fields = append(fields, []byte("count"))
-		fields = append(fields, []byte(strconv.FormatInt(entry.Count, 10)))
-		fields = append(fields, []byte("reason"))
-		fields = append(fields, []byte(entry.Reason))
-		fields = append(fields, []byte("context"))
-		fields = append(fields, []byte(entry.Context))
-		fields = append(fields, []byte("object"))
-		fields = append(fields, []byte(entry.Object))
-		fields = append(fields, []byte("username"))
-		fields = append(fields, []byte(entry.Username))
-		fields = append(fields, []byte("age-seconds"))
-		fields = append(fields, []byte(strconv.FormatFloat(age, 'f', 6, 64)))
-		fields = append(fields, []byte("client-info"))
-		fields = append(fields, []byte(entry.ClientInfo))
-		fields = append(fields, []byte("entry-id"))
-		fields = append(fields, []byte(strconv.FormatUint(entry.EntryID, 10)))
-		fields = append(fields, []byte("timestamp-created"))
-		fields = append(fields, []byte(strconv.FormatInt(entry.CreatedAt.Unix(), 10)))
-		fields = append(fields, []byte("timestamp-last-updated"))
-		fields = append(fields, []byte(strconv.FormatInt(entry.Timestamp.Unix(), 10)))
-		fields = append(fields, []byte("timestamp"))
-		fields = append(fields, []byte(strconv.FormatInt(entry.Timestamp.Unix(), 10)))
-
-		result = append(result, protocol.MakeMultiBulkReply(fields).ToBytes())
+	if len(entries) == 0 {
+		return protocol.MakeEmptyMultiBulkReply()
 	}
 
-	return protocol.MakeMultiBulkReply(result)
+	replies := make([]redis.Reply, 0, len(entries))
+	now := time.Now()
+	// Most recent first (Redis order).
+	for i := len(entries) - 1; i >= 0; i-- {
+		entry := entries[i]
+		age := now.Sub(entry.Timestamp).Seconds()
+		m := protocol.MakeMapReply()
+		m.Put("count", protocol.MakeIntReply(entry.Count))
+		m.Put("reason", protocol.MakeBulkReply([]byte(entry.Reason)))
+		m.Put("context", protocol.MakeBulkReply([]byte(entry.Context)))
+		m.Put("object", protocol.MakeBulkReply([]byte(entry.Object)))
+		m.Put("username", protocol.MakeBulkReply([]byte(entry.Username)))
+		m.Put("age-seconds", protocol.MakeDoubleReply(age))
+		m.Put("client-info", protocol.MakeBulkReply([]byte(entry.ClientInfo)))
+		m.Put("entry-id", protocol.MakeIntReply(int64(entry.EntryID)))
+		createdMs := entry.CreatedAt.UnixMilli()
+		updatedMs := entry.Timestamp.UnixMilli()
+		m.Put("timestamp-created", protocol.MakeIntReply(createdMs))
+		m.Put("timestamp-last-updated", protocol.MakeIntReply(updatedMs))
+		m.Put("timestamp", protocol.MakeIntReply(updatedMs/1000))
+		replies = append(replies, m)
+	}
+	return protocol.MakeMultiRawReply(replies)
 }
 
 // resetACLLog 重置ACL日志
