@@ -176,8 +176,9 @@ UNWATCH、WAIT（简版）、BITOP、BITFIELD、SMOVE、LPOS、XCLAIM、SHUTDOWN
 | Functions / ACL / Module | `FUNCTION LIST`（每库 Map）；`ACL LOG`（条目 Map 数组）；`MODULE LIST`（空数组，有模块时为 Map） | 外层 Array + 元素 Map |
 | Probabilistic / Search 配置 | `BF.INFO`/`CMS.INFO`/`TOPK.INFO`/`TDIGEST.INFO`；`FT.CONFIG GET` | Map（数值 Int/Double） |
 | TimeSeries / LCS / Latency | `TS.INFO`（`labels` 嵌套 Map）；`LCS … IDX`；`LATENCY HISTOGRAM`（嵌套 histogram_usec） | Map |
+| Search / Cluster | `FT.SYNDUMP`；`FT.SPELLCHECK`（`results`）；`FT.PROFILE`（`Results`/`Profile`）；`CLUSTER SHARDS` | Map / 外层 Array+Map |
 
-**仍延期 / 非本轮：** 集群 CRC16/MOVED/ASK；`CLUSTER SHARDS` 嵌套 Map；`FT.SYNDUMP`/`SPELLCHECK`/`PROFILE`；HSCAN/ZSCAN 第二段官方仍为 Array；jemalloc 级 `used_memory`；Vector Q8/BIN；完整 BM25/KNN；FUNCTION DUMP 官方互通；`CF.INFO`（未实现）。
+**仍延期 / 非本轮：** 集群 CRC16/MOVED/ASK；HSCAN/ZSCAN 第二段官方仍为 Array；jemalloc 级 `used_memory`；Vector Q8/BIN；完整 BM25/KNN；FUNCTION DUMP 官方互通；`CF.INFO`（未实现）。
 
 ## 测试
 
@@ -185,4 +186,4 @@ UNWATCH、WAIT（简版）、BITOP、BITFIELD、SMOVE、LPOS、XCLAIM、SHUTDOWN
 
 ---
 
-**最后更新：** 2026-08-09（R1b 核心 Map/Set/Double 收口；残留见上「仍延期」）
+**最后更新：** 2026-08-09（R1b 含 Search/CLUSTER SHARDS Map 残留收口）

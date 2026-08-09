@@ -80,7 +80,8 @@
 - [x] `FUNCTION LIST`→库项 Map 数组；`ACL LOG`→条目 Map 数组（`age-seconds` Double）；`MODULE LIST` 空数组结构就绪
 - [x] `BF/CMS/TOPK/TDIGEST.INFO`→Map；`FT.CONFIG GET`→Map
 - [x] `TS.INFO`→Map（`labels` 嵌套）；`LCS IDX`→Map；`LATENCY HISTOGRAM`→嵌套 Map
-- [ ] 次要残留（非核心路径）：`FT.SYNDUMP` / `FT.SPELLCHECK` / `FT.PROFILE`；`CLUSTER SHARDS` 嵌套 Map
+- [x] `FT.SYNDUMP`→Map（term→group ids）；`FT.SPELLCHECK`→RESP3 `results` Map；`FT.PROFILE`→RESP3 `Results`/`Profile` Map
+- [x] `CLUSTER SHARDS`→外层 Array + shard/node Map
 - [ ] 刻意不做：`INFO`/`CLIENT LIST` 文本；`HSCAN`/`ZSCAN` 第二段 Array；`VINFO`/`ROLE`/`XPENDING` 等官方仍标 Array；`CF.INFO` 未实现
 
 ### R2 — 关键 Redis 8.x 命令补齐
