@@ -63,7 +63,7 @@
 
 **验收结果：** `go test ./...` 全绿；`go vet ./...` 无告警。
 
-### R1b — RESP3 命令回复形态对齐（进行中，2026-08）
+### R1b — RESP3 命令回复形态对齐（核心已收口，2026-08）
 
 双形回复：`ToBytes`=RESP2，`ToRESP3`/`ReplyToRESP3`=RESP3。边界见 [`docs/COMPATIBILITY.md`](docs/COMPATIBILITY.md)「RESP3 核心回复形态」。
 
@@ -80,7 +80,8 @@
 - [x] `FUNCTION LIST`→库项 Map 数组；`ACL LOG`→条目 Map 数组（`age-seconds` Double）；`MODULE LIST` 空数组结构就绪
 - [x] `BF/CMS/TOPK/TDIGEST.INFO`→Map；`FT.CONFIG GET`→Map
 - [x] `TS.INFO`→Map（`labels` 嵌套）；`LCS IDX`→Map；`LATENCY HISTOGRAM`→嵌套 Map
-- [ ] 其它 introspection Map（如有官方 RESP3 Map 标注再扫）
+- [ ] 次要残留（非核心路径）：`FT.SYNDUMP` / `FT.SPELLCHECK` / `FT.PROFILE`；`CLUSTER SHARDS` 嵌套 Map
+- [ ] 刻意不做：`INFO`/`CLIENT LIST` 文本；`HSCAN`/`ZSCAN` 第二段 Array；`VINFO`/`ROLE`/`XPENDING` 等官方仍标 Array；`CF.INFO` 未实现
 
 ### R2 — 关键 Redis 8.x 命令补齐
 
