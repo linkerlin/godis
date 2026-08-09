@@ -79,7 +79,7 @@ func execCluster(cluster *Cluster, c redis.Connection, cmdLine CmdLine) redis.Re
 		if err != nil || epoch < 0 {
 			return protocol.MakeErrReply("ERR Invalid config epoch")
 		}
-		return protocol.MakeOkReply()
+		return protocol.MakeErrReply("ERR CLUSTER SET-CONFIG-EPOCH is not supported")
 	case "GETKEYSINSLOT":
 		if len(cmdLine) != 4 {
 			return protocol.MakeErrReply("ERR wrong number of arguments for 'cluster|getkeysinslot' command")
@@ -130,7 +130,7 @@ func execCluster(cluster *Cluster, c redis.Connection, cmdLine CmdLine) redis.Re
 		default:
 			return protocol.MakeErrReply("ERR Invalid CLUSTER SETSLOT action")
 		}
-		return protocol.MakeOkReply()
+		return protocol.MakeErrReply("ERR CLUSTER SETSLOT is not supported (use Godis migration / Raft path)")
 	case "FORGET":
 		if len(cmdLine) != 3 {
 			return protocol.MakeErrReply("ERR wrong number of arguments for 'cluster|forget' command")
@@ -138,7 +138,7 @@ func execCluster(cluster *Cluster, c redis.Connection, cmdLine CmdLine) redis.Re
 		if cluster == nil {
 			return protocol.MakeErrReply("ERR This instance has cluster support disabled")
 		}
-		return protocol.MakeOkReply()
+		return protocol.MakeErrReply("ERR CLUSTER FORGET is not supported")
 	case "SETNAME":
 		if len(cmdLine) != 3 {
 			return protocol.MakeErrReply("ERR wrong number of arguments for 'cluster|setname' command")
@@ -166,7 +166,7 @@ func execCluster(cluster *Cluster, c redis.Connection, cmdLine CmdLine) redis.Re
 		if cluster == nil {
 			return protocol.MakeErrReply("ERR This instance has cluster support disabled")
 		}
-		return protocol.MakeOkReply()
+		return protocol.MakeErrReply("ERR CLUSTER REPLICATE is not supported")
 	case "RESET":
 		if len(cmdLine) > 3 {
 			return protocol.MakeErrReply("ERR wrong number of arguments for 'cluster|reset' command")
@@ -180,7 +180,7 @@ func execCluster(cluster *Cluster, c redis.Connection, cmdLine CmdLine) redis.Re
 				return protocol.MakeErrReply("ERR Invalid RESET mode. Try HARD or SOFT")
 			}
 		}
-		return protocol.MakeOkReply()
+		return protocol.MakeErrReply("ERR CLUSTER RESET is not supported")
 	case "FAILOVER":
 		if len(cmdLine) > 3 {
 			return protocol.MakeErrReply("ERR wrong number of arguments for 'cluster|failover' command")
@@ -194,8 +194,7 @@ func execCluster(cluster *Cluster, c redis.Connection, cmdLine CmdLine) redis.Re
 				return protocol.MakeErrReply("ERR FAILOVER bad option. Use FORCE or TAKEOVER")
 			}
 		}
-		// Full coordinated failover is deferred; acknowledge the command.
-		return protocol.MakeOkReply()
+		return protocol.MakeErrReply("ERR CLUSTER FAILOVER is not supported (use standalone FAILOVER)")
 	case "SAVECONFIG":
 		if len(cmdLine) != 2 {
 			return protocol.MakeErrReply("ERR wrong number of arguments for 'cluster|saveconfig' command")
@@ -203,7 +202,7 @@ func execCluster(cluster *Cluster, c redis.Connection, cmdLine CmdLine) redis.Re
 		if cluster == nil {
 			return protocol.MakeErrReply("ERR This instance has cluster support disabled")
 		}
-		return protocol.MakeOkReply()
+		return protocol.MakeErrReply("ERR CLUSTER SAVECONFIG is not supported")
 	case "DELSLOTSRANGE":
 		return execClusterDelSlotsRange(cluster, c, cmdLine)
 	case "FLUSHSLOTS":
@@ -312,7 +311,7 @@ func execClusterHelp() redis.Reply {
 		"CLUSTER LINKS",
 		"    Return a list of cluster peer links.",
 		"CLUSTER SET-CONFIG-EPOCH epoch",
-		"    Set the config epoch for this node.",
+		"    Not supported.",
 		"CLUSTER GETKEYSINSLOT slot count",
 		"    Return local keys in the specified hash slot.",
 		"CLUSTER ADDSLOTS slot [slot ...]",
@@ -322,17 +321,17 @@ func execClusterHelp() redis.Reply {
 		"CLUSTER DELSLOTS slot [slot ...]",
 		"    Remove hash slots from this node (writes Raft FSM).",
 		"CLUSTER SETSLOT slot MIGRATING|IMPORTING|STABLE|NODE ...",
-		"    Set hash slot state (stub).",
+		"    Not supported (use Godis migration / Raft path).",
 		"CLUSTER FORGET node-id",
-		"    Remove a node from the nodes table.",
+		"    Not supported.",
 		"CLUSTER REPLICATE node-id",
-		"    Configure this node as replica of the specified master.",
+		"    Not supported.",
 		"CLUSTER RESET [HARD|SOFT]",
-		"    Reset a Redis Cluster node.",
+		"    Not supported.",
 		"CLUSTER FAILOVER [FORCE|TAKEOVER]",
-		"    Force a failover (coordination deferred; returns OK).",
+		"    Not supported (use standalone FAILOVER).",
 		"CLUSTER SAVECONFIG",
-		"    Force save the nodes.conf file.",
+		"    Not supported.",
 		"CLUSTER DELSLOTSRANGE start-slot end-slot [start-slot end-slot ...]",
 		"    Remove slots ranges from this node (writes Raft FSM).",
 		"CLUSTER FLUSHSLOTS",

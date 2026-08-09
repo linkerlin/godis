@@ -18,8 +18,8 @@ func TestM2cfClusterLinksSetConfigEpoch(t *testing.T) {
 	}
 
 	r = execCluster(cl, nil, [][]byte{[]byte("CLUSTER"), []byte("SET-CONFIG-EPOCH"), []byte("1")})
-	if _, ok := r.(*protocol.OkReply); !ok {
-		t.Fatalf("SET-CONFIG-EPOCH: %T %s", r, r.ToBytes())
+	if !protocol.IsErrorReply(r) || !strings.Contains(string(r.ToBytes()), "not supported") {
+		t.Fatalf("SET-CONFIG-EPOCH want not supported: %T %s", r, r.ToBytes())
 	}
 
 	bad := execCluster(cl, nil, [][]byte{[]byte("CLUSTER"), []byte("SET-CONFIG-EPOCH"), []byte("-1")})
@@ -28,7 +28,7 @@ func TestM2cfClusterLinksSetConfigEpoch(t *testing.T) {
 	}
 
 	help := string(execClusterHelp().ToBytes())
-	if !strings.Contains(help, "LINKS") || !strings.Contains(help, "SET-CONFIG-EPOCH") {
+	if !strings.Contains(help, "LINKS") || !strings.Contains(help, "SET-CONFIG-EPOCH") || !strings.Contains(help, "Not supported") {
 		t.Fatalf("HELP missing entries: %s", help)
 	}
 }

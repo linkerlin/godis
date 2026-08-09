@@ -27,8 +27,8 @@ func TestM2cgClusterGetKeysInSlotForgetResetSaveConfig(t *testing.T) {
 		{[]byte("CLUSTER"), []byte("SAVECONFIG")},
 	} {
 		rr := execCluster(cl, nil, sub)
-		if _, ok := rr.(*protocol.OkReply); !ok {
-			t.Fatalf("%s: %T %s", string(sub[1]), rr, rr.ToBytes())
+		if !protocol.IsErrorReply(rr) || !strings.Contains(string(rr.ToBytes()), "not supported") {
+			t.Fatalf("%s want not supported: %T %s", string(sub[1]), rr, rr.ToBytes())
 		}
 	}
 
@@ -38,7 +38,7 @@ func TestM2cgClusterGetKeysInSlotForgetResetSaveConfig(t *testing.T) {
 	}
 
 	help := string(execClusterHelp().ToBytes())
-	for _, want := range []string{"GETKEYSINSLOT", "FORGET", "RESET", "SAVECONFIG"} {
+	for _, want := range []string{"GETKEYSINSLOT", "FORGET", "RESET", "SAVECONFIG", "Not supported"} {
 		if !strings.Contains(help, want) {
 			t.Fatalf("HELP missing %s: %s", want, help)
 		}

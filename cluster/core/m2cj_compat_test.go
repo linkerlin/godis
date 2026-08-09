@@ -13,18 +13,18 @@ func TestM2cjClusterReplicateFailover(t *testing.T) {
 	r := execCluster(cl, nil, [][]byte{
 		[]byte("CLUSTER"), []byte("REPLICATE"), []byte("master-id"),
 	})
-	if _, ok := r.(*protocol.OkReply); !ok {
-		t.Fatalf("REPLICATE: %T %s", r, r.ToBytes())
+	if !protocol.IsErrorReply(r) || !strings.Contains(string(r.ToBytes()), "not supported") {
+		t.Fatalf("REPLICATE want not supported: %T %s", r, r.ToBytes())
 	}
 
 	r = execCluster(cl, nil, [][]byte{[]byte("CLUSTER"), []byte("FAILOVER")})
-	if _, ok := r.(*protocol.OkReply); !ok {
-		t.Fatalf("FAILOVER: %T %s", r, r.ToBytes())
+	if !protocol.IsErrorReply(r) || !strings.Contains(string(r.ToBytes()), "not supported") {
+		t.Fatalf("FAILOVER want not supported: %T %s", r, r.ToBytes())
 	}
 
 	r = execCluster(cl, nil, [][]byte{[]byte("CLUSTER"), []byte("FAILOVER"), []byte("FORCE")})
-	if _, ok := r.(*protocol.OkReply); !ok {
-		t.Fatalf("FAILOVER FORCE: %T %s", r, r.ToBytes())
+	if !protocol.IsErrorReply(r) || !strings.Contains(string(r.ToBytes()), "not supported") {
+		t.Fatalf("FAILOVER FORCE want not supported: %T %s", r, r.ToBytes())
 	}
 
 	bad := execCluster(cl, nil, [][]byte{[]byte("CLUSTER"), []byte("FAILOVER"), []byte("WEIRD")})
@@ -33,7 +33,7 @@ func TestM2cjClusterReplicateFailover(t *testing.T) {
 	}
 
 	help := string(execClusterHelp().ToBytes())
-	if !strings.Contains(help, "REPLICATE") || !strings.Contains(help, "FAILOVER") {
+	if !strings.Contains(help, "REPLICATE") || !strings.Contains(help, "FAILOVER") || !strings.Contains(help, "Not supported") {
 		t.Fatalf("HELP missing entries: %s", help)
 	}
 }

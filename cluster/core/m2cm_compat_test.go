@@ -27,15 +27,15 @@ func TestM2cmClusterAddDelSlotsSetSlot(t *testing.T) {
 	r = execCluster(cl, nil, [][]byte{
 		[]byte("CLUSTER"), []byte("SETSLOT"), []byte("10"), []byte("STABLE"),
 	})
-	if _, ok := r.(*protocol.OkReply); !ok {
-		t.Fatalf("SETSLOT STABLE: %T %s", r, r.ToBytes())
+	if !protocol.IsErrorReply(r) || !strings.Contains(string(r.ToBytes()), "not supported") {
+		t.Fatalf("SETSLOT STABLE want not supported: %T %s", r, r.ToBytes())
 	}
 
 	r = execCluster(cl, nil, [][]byte{
 		[]byte("CLUSTER"), []byte("SETSLOT"), []byte("10"), []byte("NODE"), []byte("node-cm"),
 	})
-	if _, ok := r.(*protocol.OkReply); !ok {
-		t.Fatalf("SETSLOT NODE: %T %s", r, r.ToBytes())
+	if !protocol.IsErrorReply(r) || !strings.Contains(string(r.ToBytes()), "not supported") {
+		t.Fatalf("SETSLOT NODE want not supported: %T %s", r, r.ToBytes())
 	}
 
 	bad := execCluster(cl, nil, [][]byte{
@@ -46,7 +46,7 @@ func TestM2cmClusterAddDelSlotsSetSlot(t *testing.T) {
 	}
 
 	help := string(execClusterHelp().ToBytes())
-	for _, want := range []string{"ADDSLOTS", "DELSLOTS", "SETSLOT"} {
+	for _, want := range []string{"ADDSLOTS", "DELSLOTS", "SETSLOT", "Not supported"} {
 		if !strings.Contains(help, want) {
 			t.Fatalf("HELP missing %s: %s", want, help)
 		}
