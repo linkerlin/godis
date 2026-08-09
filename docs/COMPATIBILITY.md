@@ -36,7 +36,7 @@
 | 主题 | 说明 |
 |------|------|
 | 默认端口 | Redis 6379；Godis **6399** |
-| 集群 | ✅ 16384 槽 + CRC16；MOVED/ASK/ASKING/READONLY；NODES/SLOTS/INFO/SHARDS 读 FSM；ADDSLOTS/DELSLOTS* 写 FSM；MEET→`cluster.join`/EventJoin（需 `raft-port`，**非** Redis gossip）；SETSLOT 本地 MIGRATING/IMPORTING/STABLE；`NODE`→FSM `EventAssignSlots`；REPLICATE/FORGET 等仍 ERR |
+| 集群 | ✅ 16384 槽 + CRC16；MOVED/ASK/ASKING/READONLY；NODES/SLOTS/INFO/SHARDS 读 FSM；ADDSLOTS/DELSLOTS* 写 FSM；MEET→`cluster.join`/EventJoin（需 `raft-port`，**非** Redis gossip）；SETSLOT 本地 MIGRATING/IMPORTING/STABLE；`NODE`→FSM `EventAssignSlots`；GETKEYSINSLOT/COUNTKEYSINSLOT 读本地 slotsManager；REPLICAS 读 FSM；BUMPEPOCH 为 no-op（`BUMPED 0`）；`INFO cluster` 与 CLUSTER INFO 同源（有 Cluster 时）；REPLICATE/FORGET 等仍 ERR |
 | HLL | ✅ 算法/编码与 Redis 互通（xxHash64 + dense `HYLL` 编码 + 大范围修正）；稀疏 blob 拒绝 |
 | EXEC | 已按 Redis：出错继续、不整事务回滚 |
 | BLPOP / XREAD BLOCK | 真阻塞（等待队列 + 写路径唤醒） |
@@ -44,7 +44,7 @@
 | CLIENT REPLY / NO-TOUCH | ✅ REPLY 抑制写回；NO-TOUCH 跳过 LRU Touch |
 | timeout | ✅ std Handler 按秒设 ReadDeadline 踢空闲连接 |
 | COPY / FCALL | ✅ COPY/MOVE 经 DUMP 深拷贝；FCALL 用 gopher-lua，`redis.call` 走 execWithLock |
-| Hash field TTL 命令 | ✅ HGETEX/HSETEX/HGETDEL 支持 Redis 8 `FIELDS`（兼旧语法）；字段到期写 AOF `HDEL`（时间轮+惰性） |
+| Hash field TTL 命令 | ✅ HGETEX/HSETEX/HGETDEL + HEXPIRE/HPEXPIRE/HEXPIREAT/HPEXPIREAT；命令本身写 AOF；字段到期写 AOF `HDEL`（时间轮+惰性）；主动过期持 DB 键锁 |
 | CLIENT LIST / INFO | ✅ 真连接表；age/idle 同源格式 |
 | XDELEX / XACKDEL | ✅ 逐 ID 状态数组（-1/1/2） |
 | 协议错误 | ✅ 回写后关闭连接（std；gnet 本已 Close） |
@@ -73,7 +73,7 @@
 | LCS 缺键 | ✅ 视为空串（非空数组） |
 | Protocol error | ✅ 消息用双引号包裹 |
 | SRANDMEMBER 负 count | ✅ SimpleDict 真随机（可重复） |
-| DUMP 扩展类型 | ✅ stream/JSON/vector/TS 经 Godis opaque（非 Redis 互通）；TS 含 DownsampleRules；Vector item 含 Attributes |
+| DUMP 扩展类型 | ✅ stream/JSON/vector/TS 经 Godis opaque（非 Redis 互通）；TS 含 DownsampleRules；Vector item 含 Attributes；Stream 含 consumers/PEL + entriesAdded/maxDeletedID |
 | FT.CREATE ON | ✅ HASH/JSON 校验并记录；仅 HASH 自动索引 HSET |
 | CLIENT LIST TYPE | ✅ normal/master/replica/pubsub 过滤；flags/psub 对齐 |
 | CLIENT PAUSE | ✅ WRITE/ALL 在 Exec 路径真正阻塞（UNPAUSE/CLIENT 豁免） |
@@ -157,7 +157,7 @@ UNWATCH、WAIT（简版）、BITOP、BITFIELD、SMOVE、LPOS、XCLAIM、SHUTDOWN
 
 | 主题 | Redis | Godis |
 |------|-------|-------|
-| Lua 引擎 | 内置 | 默认 **gopher-lua**（`GODIS_LUA_ENGINE`）；**FCALL 同引擎**（M2z）；沙箱仅 base/table/string/math（无 os/io/package/debug） |
+| Lua 引擎 | 内置 | 默认 **gopher-lua**（`GODIS_LUA_ENGINE`）；**FCALL 同引擎**（M2z）；沙箱仅 base/table/string/math（无 os/io/package/debug）；legacy 引擎同等拒绝 `os./io./require/dofile/loadfile` |
 | 优雅关闭 | SIGTERM | std 路径 in-flight 等待；`SHUTDOWN` + hook |
 
 ## RESP3 核心回复形态（双形编码）
@@ -179,7 +179,7 @@ UNWATCH、WAIT（简版）、BITOP、BITFIELD、SMOVE、LPOS、XCLAIM、SHUTDOWN
 | TimeSeries / LCS / Latency | `TS.INFO`（`labels` 嵌套 Map）；`LCS … IDX`；`LATENCY HISTOGRAM`（嵌套 histogram_usec） | Map |
 | Search / Cluster | `FT.SYNDUMP`；`FT.SPELLCHECK`（`results`）；`FT.PROFILE`（`Results`/`Profile`）；`CLUSTER SHARDS` | Map / 外层 Array+Map |
 
-**仍延期 / 非本轮：** HSCAN/ZSCAN 第二段官方仍为 Array；jemalloc 级精确 `used_memory`（当前 maxmemory 为 per-key/大 value 近似）；Vector Q8/BIN；完整 BM25/KNN；FUNCTION DUMP 官方互通；集群 **gossip bus**（MEET 仅为 Raft/FSM 加入缝，非整套 Redis Cluster 协议）；opaque 与 Redis 原生模块 RDB 互通；HEXPIRE 命令本身写入 AOF（字段到期已写 `HDEL`）。
+**仍延期 / 非本轮（远期/非目标）：** HSCAN/ZSCAN 第二段官方仍为 Array；jemalloc 级精确 `used_memory`（当前 maxmemory 为 per-key/大 value 近似）；Vector Q8/BIN 量化；完整 BM25/KNN/DIALECT；FUNCTION DUMP 官方互通；集群 **完整 Redis gossip bus**（MEET 仅为 Raft/FSM 加入缝）；opaque 与 Redis 原生模块 RDB/DUMP 互通；CLUSTER BUMPEPOCH **真** config epoch（FSM 无 epoch，现为 `BUMPED 0` no-op）；REPLICATE/FORGET/RESET/SAVECONFIG/SET-CONFIG-EPOCH/CLUSTER FAILOVER。
 
 ## 测试
 
@@ -187,4 +187,4 @@ UNWATCH、WAIT（简版）、BITOP、BITFIELD、SMOVE、LPOS、XCLAIM、SHUTDOWN
 
 ---
 
-**最后更新：** 2026-08-09（Hash field TTL→AOF HDEL+时间轮；SETSLOT NODE→FSM EventAssignSlots；仍非完整 gossip）
+**最后更新：** 2026-08-09（HEXPIRE 族写 AOF；字段主动过期持键锁；GETKEYSINSLOT/REPLICAS/`INFO cluster` 诚实化；Stream opaque entriesAdded/maxDeletedID；legacy Lua 沙箱拒绝）

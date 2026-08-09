@@ -6,15 +6,18 @@
 
 ### Added
 
+- `CLUSTER GETKEYSINSLOT`：返回本节点 `slotsManager` 登记的槽内键（与 `COUNTKEYSINSLOT` 同源）
+- `CLUSTER REPLICAS`/`SLAVES`：从 Raft FSM `MasterSlaves` 返回副本 NODES 行；未知节点 `ERR Unknown node`
+- `INFO cluster`：有 Cluster 实例时与 `CLUSTER INFO` 同源（`SetClusterInfoSectionProvider`）
+- Stream opaque：保留 `entriesAdded` / `maxDeletedID`（及既有 consumers/PEL）
 - `CLUSTER MEET ip port [raft-port]`：走 Raft `AddToRaft`+`EventJoin`（或 FSM-only）；**非** Redis gossip；Raft 就绪时必须带 `raft-port`
 - `CLUSTER SETSLOT` `MIGRATING`/`IMPORTING`/`STABLE`：更新本地 `slotsManager`，与 ASK/ASKING 一致；`NODE` 写 Raft FSM 归属（`EventAssignSlots`）并清理本地迁移态
-- Hash field TTL：字段到期（时间轮主动 / 访问惰性）写 AOF `HDEL` 并接全局时间轮；键空间 `hexpired`
+- Hash field TTL：`HEXPIRE`/`HPEXPIRE`/`HEXPIREAT`/`HPEXPIREAT` 命令本身写 AOF；字段到期（时间轮主动 / 访问惰性）写 AOF `HDEL`；主动过期持 DB 键写锁；键空间 `hexpired`
 - 集群槽位统一为 **CRC16-XMODEM % 16384**（`lib/hashslot`），Sharded Pub/Sub 共用；单键 `MOVED`/`ASK`/`ASKING`/`READONLY`
 - `CLUSTER NODES` / `SLOTS` / `INFO` / `SHARDS` 从 Raft FSM 读取真拓扑（无 FSM 时本节点占满 0–16383）
 - `CLUSTER ADDSLOTS` / `DELSLOTS` / `*RANGE` / `FLUSHSLOTS` 写入 Raft FSM（`EventAddSlots`/`EventRemoveSlots`）
 - TimeSeries opaque（AOF/RDB）保留 `DuplicatePolicy` 与 `ChunkSize` 与 `DownsampleRules`（TS.CREATERULE）
 - Vector opaque 保留 item `Attributes`（VSETATTR）
-- Stream opaque 保留 consumers 与 PEL（id/consumer/deliveryCount/deliveryTime）
 - maxmemory 估账：`approxKeyMemoryUsage` 按实体估算（大 value 计入；小键仍不低于 128B floor）；写路径 `approxCmdWriteBytes`；仍为近似，非 jemalloc
 - RESP 解析器 Fuzz 测试（`FuzzParseOne` / `FuzzParseBytes` / `FuzzParseV2`）及 fuzz corpus
 - 解析器 bulk/array 长度上限（512 MiB bulk、1M 数组元素），防止恶意帧 OOM/挂起
@@ -36,18 +39,20 @@
 
 ### Changed
 
-- 文档明确非「100% 兼容」：以 `docs/COMPATIBILITY.md` 与 `commands.md` 为准；opaque 扩展类型非 Redis 原生模块 RDB 互通
+- Legacy Lua（`GODIS_LUA_ENGINE=legacy`）：拒绝 `os.`/`io.`/`package.`/`debug.`/`require`/`dofile`/`loadfile`（对齐 gopher-lua SkipOpenLibs 意图）
+- `CLUSTER BUMPEPOCH`：明确为 no-op（`BUMPED 0`；FSM 无 config epoch；远期/非目标：真 epoch / gossip）
+- 文档明确非「100% 兼容」：以 `docs/COMPATIBILITY.md` 与 `commands.md` 为准；opaque 扩展类型非 Redis 原生模块 RDB 互通；远期项见 COMPATIBILITY「仍延期/非本轮」
 
 ### Security
 
-- gopher-lua 引擎默认 `SkipOpenLibs`，仅开放 base/table/string/math；拒绝 `os`/`io`/`require`/`dofile`/`loadfile`（`TestEvalDeniesOsExecute`）
+- gopher-lua 引擎默认 `SkipOpenLibs`，仅开放 base/table/string/math；拒绝 `os`/`io`/`require`/`dofile`/`loadfile`；legacy 引擎同等关键字拒绝（`TestEvalDeniesOsExecute` 双引擎）
 - 修复 ACL 未启动、`execAuth` 在无 ACL 时直接返回 OK 的认证绕过
 - 集群命令路径接入完整 ACL 校验（之前仅 requirepass）
 
 ### Fixed
 
 - maxmemory 淘汰路径未写 AOF `DEL`：主从复制积压（由 AOF 驱动）收不到删除，淘汰后从库仍残留键；现与过期路径一致并发送键空间 `evicted`
-- Hash field TTL 惰性/主动过期未写 AOF `HDEL`（及未接时间轮）：主从不一致；现与键过期路径对齐
+- Hash field TTL 惰性/主动过期未写 AOF `HDEL`（及未接时间轮）：主从不一致；现与键过期路径对齐；`HEXPIRE*` 命令本身此前未写 AOF
 - `CLUSTER SETSLOT REPLICATE` / `FAILOVER` / `FORGET` / `RESET` / `SAVECONFIG` / `SET-CONFIG-EPOCH` 对未实现写路径返回明确 `ERR … is not supported`（不再假 OK）
 - `parse0` panic 时未关闭 channel 导致 `ParseOne` 可能挂起
 - `parseArray` 内层 bulk 未校验长度导致超大 `make` 分配

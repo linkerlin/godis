@@ -151,10 +151,9 @@
 
 ### Hash Field 过期 (Redis 8.x)
 
-Godis 实现为 **HGETEX / HSETEX / HGETDEL** 族（非 Redis 文档中的 HEXPIRE 命名）：
-
 | 命令 | 描述 |
 |------|------|
+| HEXPIRE / HPEXPIRE / HEXPIREAT / HPEXPIREAT | 设置字段 TTL（写 AOF；支持 NX/XX/GT/LT + FIELDS） |
 | HGETEX | 读取字段并可设置过期 |
 | HSETEX | 写入字段并设置过期 |
 | HGETDEL | 读取并删除字段 |
@@ -550,7 +549,7 @@ Godis 实现为 **HGETEX / HSETEX / HGETDEL** 族（非 Redis 文档中的 HEXPI
 ## 集群命令
 
 > 槽位算法：CRC16-XMODEM % 16384（`lib/hashslot`）。`NODES`/`SLOTS`/`INFO`/`SHARDS` 读 Raft FSM；`ADDSLOTS`/`DELSLOTS*` 写 FSM。  
-> `MEET` 为 Raft/FSM 加入缝（非整套 gossip）；`SETSLOT` 本地迁移态已接；其余未实现管理写命令返回明确 ERR，见 [`docs/COMPATIBILITY.md`](docs/COMPATIBILITY.md)。
+> `MEET` 为 Raft/FSM 加入缝（非整套 gossip）；`SETSLOT` 本地迁移态 + `NODE`→FSM；见 [`docs/COMPATIBILITY.md`](docs/COMPATIBILITY.md)。
 
 | 命令 | 描述 |
 |------|------|
@@ -558,15 +557,20 @@ Godis 实现为 **HGETEX / HSETEX / HGETDEL** 族（非 Redis 文档中的 HEXPI
 | CLUSTER SLOTS | 槽位→节点映射（含副本） |
 | CLUSTER SHARDS | Redis 7+ shards 视图（Map） |
 | CLUSTER INFO | 集群状态标量（assigned/known_nodes/size 来自 FSM） |
+| INFO cluster | 与 CLUSTER INFO 同源（有 Cluster 时）+ `cluster_enabled` |
 | CLUSTER KEYSLOT | 键槽位（CRC16） |
 | CLUSTER MYID / MYSHARDID | 本节点 ID |
-| CLUSTER COUNTKEYSINSLOT | 本节点槽内键数 |
+| CLUSTER COUNTKEYSINSLOT | 本节点槽内键数（slotsManager） |
+| CLUSTER GETKEYSINSLOT | 本节点槽内键列表（slotsManager） |
+| CLUSTER REPLICAS / SLAVES | 主节点副本列表（FSM）；未知节点 ERR |
+| CLUSTER BUMPEPOCH | no-op：`BUMPED 0`（无 config epoch；远期） |
 | CLUSTER SETNAME / GETNAME | 可读节点名 |
 | CLUSTER HELP | 帮助信息 |
 | CLUSTER MEET | `ip port [raft-port]`→`cluster.join`/EventJoin（Godis Raft；非 gossip） |
 | CLUSTER ADDSLOTS / DELSLOTS / *RANGE / FLUSHSLOTS | **写 Raft FSM** |
 | CLUSTER SETSLOT MIGRATING\|IMPORTING\|STABLE | **本地** slotsManager（ASK/ASKING） |
-| CLUSTER SETSLOT NODE / REPLICATE / FORGET / RESET / SAVECONFIG / SET-CONFIG-EPOCH / FAILOVER | **未支持**：返回 `ERR … is not supported` |
+| CLUSTER SETSLOT NODE | **写 Raft FSM** 槽归属并清本地迁移态 |
+| CLUSTER REPLICATE / FORGET / RESET / SAVECONFIG / SET-CONFIG-EPOCH / FAILOVER | **未支持**：`ERR … is not supported` |
 | FAILOVER | 主从协调切换（TO/FORCE/ABORT/TIMEOUT，见 `docs/FAILOVER_DESIGN.md`；非 CLUSTER FAILOVER） |
 
 ---
@@ -610,10 +614,11 @@ Godis 支持 Redis 键空间通知机制，可通过配置启用。
 
 | 命令 / 能力 | 说明 |
 |------|------|
-| Redis Cluster gossip bus | `CLUSTER MEET` 仅为 Raft/FSM 加入；无 gossip ping |
-| CLUSTER SETSLOT NODE 写 FSM | `NODE` 未支持；归属请用 ADDSLOTS/DELSLOTS 或 Godis migration |
+| Redis Cluster gossip bus | **远期/非目标**：`CLUSTER MEET` 仅为 Raft/FSM 加入；无 gossip ping |
+| CLUSTER BUMPEPOCH 真 epoch | **远期**：现为 `BUMPED 0` no-op（FSM 无 configEpoch） |
+| CLUSTER REPLICATE / FORGET / RESET / SAVECONFIG / SET-CONFIG-EPOCH / CLUSTER FAILOVER | 明确 `ERR … is not supported` |
+| jemalloc 级 used_memory / 模块原生 RDB 互通 / 完整 BM25·KNN / FUNCTION DUMP 官方互通 | **远期/非目标**（见 COMPATIBILITY） |
 | FT.SYNADD | 已实现；更推荐 `FT.SYNUPDATE` |
-| MIGRATE / RESTORE-ASKING | 可用 DUMP/RESTORE |
 
 ## 其它说明
 

@@ -94,6 +94,7 @@
   - AOF 重写（非 RDB 前导）支持 `ExpireDict`，重写为 `HMSET` + `HPEXPIREAT`。
   - RDB 前导模式降级为普通 Hash 并记录 warning。
   - 新增 `database/hash_expire_test.go` 覆盖基本、条件、绝对时间、duality、事务等场景。
+  - HEXPIRE 族命令本身写 AOF（`mutated` 时）；主动过期时间轮经 DB 键写锁；到期仍写 `HDEL`。
 
 - [x] **R2-2 基础命令**：`BITOP`、`SMOVE`、`XCLAIM`/`XAUTOCLAIM`、`WAIT`/`WAITAOF`、`UNWATCH`（含 MULTI 内排队）已实现。
 - [x] **R2-3 ZSet 选项**：`ZRANGE BYSCORE/BYLEX/REV/LIMIT`、`ZRANK`/`ZREVRANK WITHSCORE` 已实现。
@@ -104,16 +105,17 @@
 - [x] **R3-1 集群槽位统一为 16384**：`lib/hashslot` CRC16-XMODEM；`cluster/core` 与 Sharded Pub/Sub 共用；对外 `CLUSTER KEYSLOT` / INFO 一致。
 - [x] **R3-1a 重定向协议面**：`MOVED`/`ASK` 错误线；`ASKING`；`READONLY`/`READWRITE` 连接标志（单键 DefaultFunc；内部 Relay 仍用于 TCC 等）。
 - [x] **R3-2 ACL 细粒度权限**：key/channel/selectors 检查（含 `%R~`/`%W~`/`(...)` 选择器/`&channel` DRYRUN）；集群路径也接入 ACL（`CheckACLPermission`）。
-- [x] **R3-3 持久化扩展（阶段）**：Godis opaque（`GODIS1`）覆盖 JSON/Vector/TS/Stream/概率结构的 AOF 重写与 RDB 伪-String；TS opaque 保留 `DuplicatePolicy`/`ChunkSize`/`DownsampleRules`；Vector opaque 保留 `Attributes`（VSETATTR）；Stream opaque 保留 consumers + PEL。仍延期：与 Redis 原生 Stream/模块 RDB 互通。
+- [x] **R3-3 持久化扩展（阶段）**：Godis opaque（`GODIS1`）覆盖 JSON/Vector/TS/Stream/概率结构的 AOF 重写与 RDB 伪-String；TS opaque 保留 `DuplicatePolicy`/`ChunkSize`/`DownsampleRules`；Vector opaque 保留 `Attributes`（VSETATTR）；Stream opaque 保留 consumers + PEL + `entriesAdded`/`maxDeletedID`。仍延期（远期/非目标）：与 Redis 原生 Stream/模块 RDB 互通。
 - [x] **R3-1b 集群管理查询面**：`CLUSTER NODES`/`SLOTS`/`INFO`/`SHARDS` 读 Raft FSM 真拓扑（无 FSM 时本节点占满槽）。
 - [x] **R3-1c ADDSLOTS 写 FSM**：`ADDSLOTS`/`DELSLOTS`/`ADDSLOTSRANGE`/`DELSLOTSRANGE`/`FLUSHSLOTS` 经 Raft Propose（或 FSM-only `ApplyLocal`）；busy/unassigned 校验。
-- [x] **R3-1d 集群管理 seam（最小）**：`CLUSTER MEET ip port [raft-port]`→与 `cluster.join` 等价的 AddToRaft/EventJoin（或 FSM-only ApplyLocal）；无 Raft 时明确 ERR。`SETSLOT MIGRATING|IMPORTING|STABLE` 写本地 `slotsManager`（ASK/ASKING）；`SETSLOT NODE` 及 `REPLICATE`/`FORGET`/`RESET`/`SAVECONFIG`/`SET-CONFIG-EPOCH`/`CLUSTER FAILOVER` 仍显式 `ERR … is not supported`。仍延期：完整 Redis gossip bus、`SETSLOT NODE` 写 FSM。
+- [x] **R3-1d 集群管理 seam（最小）**：`CLUSTER MEET ip port [raft-port]`→与 `cluster.join` 等价的 AddToRaft/EventJoin（或 FSM-only ApplyLocal）；无 Raft 时明确 ERR。`SETSLOT MIGRATING|IMPORTING|STABLE` 写本地 `slotsManager`（ASK/ASKING）；`SETSLOT NODE`→FSM `EventAssignSlots`。`REPLICATE`/`FORGET`/`RESET`/`SAVECONFIG`/`SET-CONFIG-EPOCH`/`CLUSTER FAILOVER` 仍显式 `ERR … is not supported`。仍延期（远期）：完整 Redis gossip bus。
+- [x] **R3-1e 读面诚实化**：`GETKEYSINSLOT` 返回本地 slotsManager 键；`REPLICAS`/`SLAVES` 读 FSM；`INFO cluster` 与 CLUSTER INFO 同源；BUMPEPOCH 为 `BUMPED 0` no-op（FSM 无 config epoch，远期）。
 
 ### R4 — 测试与文档
 
-- [ ] **R4-1 Redis 8.x 响应比对套件**：CI 中用 Redis 8 sidecar 做参考，diff 关键命令输出。
-- [ ] **R4-2 覆盖率提升**：`aof`、`pubsub`、`redis/protocol`、`redis/connection`、新数据类型包达到可接受覆盖。
-- [x] **R4-3 文档同步（本轮）**：`CHANGELOG.md` Unreleased；`docs/COMPATIBILITY.md` / `commands.md` / `TODO.md` 与 CRC16、NODES/SLOTS FSM、持久化 opaque 阶段对齐。仍延期：R4-1 旁路比对套件、R4-2 覆盖率专项。
+- [ ] **R4-1 Redis 8.x 响应比对套件**：CI 中用 Redis 8 sidecar 做参考，diff 关键命令输出。（远期）
+- [ ] **R4-2 覆盖率提升**：`aof`、`pubsub`、`redis/protocol`、`redis/connection`、新数据类型包达到可接受覆盖。（远期）
+- [x] **R4-3 文档同步（本轮）**：`CHANGELOG.md` Unreleased；`docs/COMPATIBILITY.md` / `commands.md` / `TODO.md` / `AGENTS.md` 与 HEXPIRE AOF、CLUSTER 读面、Stream opaque、legacy Lua 沙箱对齐。仍延期：R4-1 旁路比对套件、R4-2 覆盖率专项。
 
 ---
 

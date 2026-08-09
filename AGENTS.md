@@ -324,7 +324,7 @@ type DB struct {
 
 ### Lua 脚本和 Functions（scripting/）
 
-- 默认 **gopher-lua** 引擎（`GODIS_LUA_ENGINE`）；可选内置解释器路径
+- 默认 **gopher-lua** 引擎（`GODIS_LUA_ENGINE`）；可选内置解释器路径（legacy 同等拒绝 os/io/require）
 - `EVAL`/`EVALSHA` 执行脚本
 - `FUNCTION LOAD`/`FCALL` 支持持久化函数
 - `redis.call()`/`redis.pcall()` 调用 Redis 命令
@@ -466,4 +466,4 @@ cluster-seed 127.0.0.1:6399
 | 客户端缓存 | ✅ | database/caching.go |
 | Sharded Pub/Sub | ✅ | pubsub/sharded.go, cluster/sharded_pubsub.go |
 | ACL LOG | ✅ | database/acl.go |
-| Hash Field TTL | ✅ | database/hash.go |
+| Hash Field TTL | ✅ | database/hash.go, hash_expire.go（命令写 AOF；到期 HDEL；主动过期持键锁） |
