@@ -113,6 +113,7 @@ func TestOpaqueJSONAndVector(t *testing.T) {
 
 	vs := vector.NewVectorSet()
 	vs.Add("a", vector.NewVectorFromFloat64([]float64{1, 0}), nil)
+	vs.SetAttributes("a", `{"color":"red"}`)
 	p, ok = EncodeOpaque(&database.DataEntity{Data: vs})
 	if !ok {
 		t.Fatal("vector encode")
@@ -121,7 +122,12 @@ func TestOpaqueJSONAndVector(t *testing.T) {
 	if !ok {
 		t.Fatal("vector decode")
 	}
-	if e.Data.(*vector.VectorSet).Len() != 1 {
+	gotVS := e.Data.(*vector.VectorSet)
+	if gotVS.Len() != 1 {
 		t.Fatal("vector len")
+	}
+	attr, ok := gotVS.GetAttributes("a")
+	if !ok || attr != `{"color":"red"}` {
+		t.Fatalf("attributes=%q ok=%v", attr, ok)
 	}
 }

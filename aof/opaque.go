@@ -73,9 +73,10 @@ type vectorDump struct {
 }
 
 type vectorItemDump struct {
-	ID       string            `json:"id"`
-	Data     []float64         `json:"d"`
-	Metadata map[string]string `json:"m,omitempty"`
+	ID         string            `json:"id"`
+	Data       []float64         `json:"d"`
+	Metadata   map[string]string `json:"m,omitempty"`
+	Attributes string            `json:"a,omitempty"` // VSETATTR JSON
 }
 
 type tsDump struct {
@@ -85,11 +86,18 @@ type tsDump struct {
 	Samples   []tsSampleDump    `json:"s"`
 	DupPolicy string            `json:"dp,omitempty"` // BLOCK/FIRST/LAST/MIN/MAX/SUM
 	ChunkSize int               `json:"cs,omitempty"`
+	Rules     []tsRuleDump      `json:"rules,omitempty"` // TS.CREATERULE
 }
 
 type tsSampleDump struct {
 	Timestamp int64   `json:"t"`
 	Value     float64 `json:"v"`
+}
+
+type tsRuleDump struct {
+	Dest     string `json:"dst"`
+	Agg      string `json:"agg"`
+	BucketNs int64  `json:"b"` // time.Duration nanoseconds
 }
 
 // expireDictDump preserves hash field values + absolute expire times (unix ms).
@@ -343,7 +351,12 @@ func dumpVector(vs *vector.VectorSet) vectorDump {
 		for k, v := range item.Metadata {
 			meta[k] = v
 		}
-		d.Items = append(d.Items, vectorItemDump{ID: id, Data: item.Vector.ToFloat64(), Metadata: meta})
+		d.Items = append(d.Items, vectorItemDump{
+			ID:         id,
+			Data:       item.Vector.ToFloat64(),
+			Metadata:   meta,
+			Attributes: item.Attributes,
+		})
 		return true
 	})
 	return d
@@ -357,6 +370,9 @@ func loadVector(raw []byte) (*vector.VectorSet, error) {
 	vs := vector.NewVectorSet()
 	for _, it := range d.Items {
 		vs.Add(it.ID, vector.NewVectorFromFloat64(it.Data), it.Metadata)
+		if it.Attributes != "" {
+			vs.SetAttributes(it.ID, it.Attributes)
+		}
 	}
 	return vs, nil
 }
@@ -371,6 +387,13 @@ func dumpTimeSeries(ts *timeseries.TimeSeries) tsDump {
 	}
 	for _, s := range ts.Range(math.MinInt64, math.MaxInt64) {
 		d.Samples = append(d.Samples, tsSampleDump{Timestamp: s.Timestamp, Value: s.Value})
+	}
+	for _, r := range ts.GetDownsampleRules() {
+		d.Rules = append(d.Rules, tsRuleDump{
+			Dest:     r.Destination,
+			Agg:      timeseries.AggregationTypeToString(r.Aggregation),
+			BucketNs: int64(r.TimeBucket),
+		})
 	}
 	return d
 }
@@ -397,6 +420,17 @@ func loadTimeSeries(raw []byte) (*timeseries.TimeSeries, error) {
 		if _, err := ts.AddWithPolicy(s.Timestamp, s.Value, timeseries.DupLast); err != nil {
 			return nil, err
 		}
+	}
+	for _, r := range d.Rules {
+		agg, err := timeseries.ParseAggregationType(r.Agg)
+		if err != nil {
+			return nil, err
+		}
+		ts.AddDownsampleRule(timeseries.DownsampleRule{
+			Destination: r.Dest,
+			Aggregation: agg,
+			TimeBucket:  time.Duration(r.BucketNs),
+		})
 	}
 	return ts, nil
 }
