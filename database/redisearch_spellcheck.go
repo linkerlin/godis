@@ -116,7 +116,7 @@ func execFTSpellCheck(db *DB, args [][]byte) redis.Reply {
 	// Parse query and check each term
 	terms := parseQueryTerms(query)
 
-	var result [][]byte
+	var entries []spellEntry
 
 	for _, term := range terms {
 		if term == "" {
@@ -133,26 +133,77 @@ func execFTSpellCheck(db *DB, args [][]byte) redis.Reply {
 			continue
 		}
 
-		// Build term result: ENTRY <term> <score> <suggestion> [<score> <suggestion> ...]
-		var termResult [][]byte
-		termResult = append(termResult, []byte(term))
-
+		entry := spellEntry{term: term}
 		for i, suggestion := range suggestions {
-			if i >= 5 { // Limit to 5 suggestions
+			if i >= 5 {
 				break
 			}
-
-			var suggResult [][]byte
-			suggResult = append(suggResult, []byte(strconv.FormatFloat(suggestion.Score, 'f', -1, 64)))
-			suggResult = append(suggResult, []byte(suggestion.Term))
-
-			termResult = append(termResult, protocol.MakeMultiBulkReply(suggResult).ToBytes())
+			entry.sugs = append(entry.sugs, spellSug{score: suggestion.Score, term: suggestion.Term})
 		}
-
-		result = append(result, protocol.MakeMultiBulkReply(termResult).ToBytes())
+		entries = append(entries, entry)
 	}
 
-	return protocol.MakeMultiBulkReply(result)
+	return makeFTSpellCheckReply(entries)
+}
+
+type spellSug struct {
+	score float64
+	term  string
+}
+
+type spellEntry struct {
+	term string
+	sugs []spellSug
+}
+
+// FTSpellCheckReply: RESP2 array of TERM triples; RESP3 Map{results→Map{term→sugs}}.
+type FTSpellCheckReply struct {
+	entries []spellEntry
+}
+
+func makeFTSpellCheckReply(entries []spellEntry) *FTSpellCheckReply {
+	return &FTSpellCheckReply{entries: entries}
+}
+
+func (r *FTSpellCheckReply) ToBytes() []byte {
+	if r == nil || len(r.entries) == 0 {
+		return protocol.MakeEmptyMultiBulkReply().ToBytes()
+	}
+	rows := make([]redis.Reply, 0, len(r.entries))
+	for _, e := range r.entries {
+		sugs := make([]redis.Reply, 0, len(e.sugs))
+		for _, s := range e.sugs {
+			sugs = append(sugs, protocol.MakeMultiRawReply([]redis.Reply{
+				protocol.MakeBulkReply([]byte(strconv.FormatFloat(s.score, 'f', -1, 64))),
+				protocol.MakeBulkReply([]byte(s.term)),
+			}))
+		}
+		rows = append(rows, protocol.MakeMultiRawReply([]redis.Reply{
+			protocol.MakeBulkReply([]byte("TERM")),
+			protocol.MakeBulkReply([]byte(e.term)),
+			protocol.MakeMultiRawReply(sugs),
+		}))
+	}
+	return protocol.MakeMultiRawReply(rows).ToBytes()
+}
+
+func (r *FTSpellCheckReply) ToRESP3() []byte {
+	results := protocol.MakeMapReply()
+	if r != nil {
+		for _, e := range r.entries {
+			sugs := make([]redis.Reply, 0, len(e.sugs))
+			for _, s := range e.sugs {
+				sugs = append(sugs, protocol.MakeMultiRawReply([]redis.Reply{
+					protocol.MakeDoubleReply(s.score),
+					protocol.MakeBulkReply([]byte(s.term)),
+				}))
+			}
+			results.Put(e.term, protocol.MakeMultiRawReply(sugs))
+		}
+	}
+	outer := protocol.MakeMapReply()
+	outer.Put("results", results)
+	return outer.ToRESP3()
 }
 
 // parseQueryTerms extracts terms from a query

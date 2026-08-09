@@ -10,6 +10,26 @@ import (
 	"github.com/linkerlin/godis/redis/protocol"
 )
 
+// FTProfileReply: RESP2 [results, profile]; RESP3 Map{Results, Profile}.
+type FTProfileReply struct {
+	results redis.Reply
+	profile redis.Reply
+}
+
+func (r *FTProfileReply) ToBytes() []byte {
+	if r == nil {
+		return []byte("*0\r\n")
+	}
+	return protocol.MakeMultiRawReply([]redis.Reply{r.results, r.profile}).ToBytes()
+}
+
+func (r *FTProfileReply) ToRESP3() []byte {
+	m := protocol.MakeMapReply()
+	m.Put("Results", r.results)
+	m.Put("Profile", r.profile)
+	return m.ToRESP3()
+}
+
 // execFTProfile FT.PROFILE index SEARCH|AGGREGATE [LIMITED] <query...>
 // Minimal profile: run SEARCH/AGGREGATE and attach wall-clock timing.
 func execFTProfile(db *DB, args [][]byte) redis.Reply {
@@ -46,15 +66,11 @@ func execFTProfile(db *DB, args [][]byte) redis.Reply {
 	resultCount := profileCountResults(result)
 	// ponytail: no per-iterator breakdown; instrument engine.Search/Aggregate
 	// to return timing when detailed iterator profiles are needed.
-	profile := protocol.MakeMultiBulkReply([][]byte{
-		[]byte("Total profile time (ms)"),
-		[]byte(fmt.Sprintf("%.3f", totalMs)),
-		[]byte("Result count"),
-		[]byte(strconv.FormatInt(resultCount, 10)),
-		[]byte("Profile type"),
-		[]byte(kind),
-	})
-	return protocol.MakeMultiRawReply([]redis.Reply{result, profile})
+	profile := protocol.MakeMapReply()
+	profile.Put("Total profile time (ms)", protocol.MakeDoubleReply(totalMs))
+	profile.Put("Result count", protocol.MakeIntReply(resultCount))
+	profile.Put("Profile type", protocol.MakeBulkReply([]byte(kind)))
+	return &FTProfileReply{results: result, profile: profile}
 }
 
 // profileCountResults extracts the result count from a SEARCH/AGGREGATE reply.
@@ -65,6 +81,8 @@ func profileCountResults(r redis.Reply) int64 {
 		return -1
 	}
 	switch rep := r.(type) {
+	case *FTSearchReply:
+		return rep.total
 	case *protocol.MultiRawReply:
 		if len(rep.Replies) > 0 {
 			return profileCountResults(rep.Replies[0])
@@ -83,3 +101,6 @@ func init() {
 	registerCommand("FT.Profile", execFTProfile, readFirstKey, nil, -4, flagReadOnly).
 		attachCommandExtra([]string{redisFlagReadonly}, 1, 1, 1)
 }
+
+// keep fmt for potential future profile string fields
+var _ = fmt.Sprintf

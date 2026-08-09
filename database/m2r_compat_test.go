@@ -77,8 +77,11 @@ func TestM2rFTProfile(t *testing.T) {
 	)), "OK")
 	db.Exec(nil, utils.ToCmdLine("HSET", "m2r:1", "t", "hello"))
 	r := db.Exec(nil, utils.ToCmdLine("FT.PROFILE", "m2ridx", "SEARCH", "hello"))
-	mr, ok := r.(*protocol.MultiRawReply)
-	if !ok || len(mr.Replies) != 2 {
+	pr, ok := r.(*FTProfileReply)
+	if !ok {
 		t.Fatalf("FT.PROFILE: %T %s", r, r.ToBytes())
+	}
+	if pr.results == nil || pr.profile == nil {
+		t.Fatalf("FT.PROFILE missing Results/Profile")
 	}
 }

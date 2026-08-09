@@ -636,3 +636,36 @@ func TestResp3LatencyHistogramMap(t *testing.T) {
 	}
 	_ = server.Exec(c, utils.ToCmdLine("LATENCY", "RESET"))
 }
+
+func TestResp3FTSynDumpSpellProfileMaps(t *testing.T) {
+	db := makeTestDB()
+	_ = db.Exec(nil, utils.ToCmdLine("FT.SYNADD", "idx", "hello", "hi"))
+	dump := db.Exec(nil, utils.ToCmdLine("FT.SYNDUMP", "idx"))
+	if _, ok := dump.(*protocol.MapReply); !ok {
+		t.Fatalf("SYNDUMP type %T", dump)
+	}
+	if protocol.ReplyToRESP3(dump)[0] != '%' {
+		t.Fatalf("SYNDUMP RESP3: %q", protocol.ReplyToRESP3(dump))
+	}
+
+	asserts.AssertStatusReply(t, db.Exec(nil, utils.ToCmdLine(
+		"FT.CREATE", "sp", "SCHEMA", "t", "TEXT",
+	)), "OK")
+	_ = db.Exec(nil, utils.ToCmdLine("FT.ADD", "sp", "d1", "FIELDS", "t", "hello"))
+	sc := db.Exec(nil, utils.ToCmdLine("FT.SPELLCHECK", "sp", "hallo"))
+	if _, ok := sc.(*FTSpellCheckReply); !ok {
+		t.Fatalf("SPELLCHECK type %T", sc)
+	}
+	if protocol.ReplyToRESP3(sc)[0] != '%' {
+		t.Fatalf("SPELLCHECK RESP3: %q", protocol.ReplyToRESP3(sc))
+	}
+
+	pr := db.Exec(nil, utils.ToCmdLine("FT.PROFILE", "sp", "SEARCH", "hello"))
+	if _, ok := pr.(*FTProfileReply); !ok {
+		t.Fatalf("PROFILE type %T", pr)
+	}
+	wire3 := protocol.ReplyToRESP3(pr)
+	if wire3[0] != '%' || !bytes.Contains(wire3, []byte("Results")) || !bytes.Contains(wire3, []byte("Profile")) {
+		t.Fatalf("PROFILE RESP3: %q", wire3)
+	}
+}

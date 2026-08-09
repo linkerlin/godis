@@ -103,7 +103,8 @@ func execFTSynUpdate(db *DB, args [][]byte) redis.Reply {
 	return protocol.MakeOkReply()
 }
 
-// execFTSynDump 转储同义词组
+// execFTSynDump dumps synonym terms → group ids.
+// RESP2: flat field array (term, [groupIds], ...); RESP3: Map term→group-id array.
 // FT.SYNDUMP index
 func execFTSynDump(db *DB, args [][]byte) redis.Reply {
 	if len(args) != 1 {
@@ -111,17 +112,13 @@ func execFTSynDump(db *DB, args [][]byte) redis.Reply {
 	}
 	sdb := getSynDB(string(args[0]))
 	if sdb == nil {
-		return protocol.MakeEmptyMultiBulkReply()
+		return protocol.MakeMapReply()
 	}
-	var result [][]byte
-	for groupID, terms := range sdb.groups {
-		groupData := [][]byte{[]byte(groupID)}
-		for term := range terms {
-			groupData = append(groupData, []byte(term))
-		}
-		result = append(result, protocol.MakeMultiBulkReply(groupData).ToBytes())
+	m := protocol.MakeMapReply()
+	for term, groupID := range sdb.terms {
+		m.Put(term, protocol.MakeMultiBulkReply([][]byte{[]byte(groupID)}))
 	}
-	return protocol.MakeMultiBulkReply(result)
+	return m
 }
 
 // getSynonyms 获取一个词在指定 index 下的同义词

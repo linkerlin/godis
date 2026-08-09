@@ -51,11 +51,11 @@ func TestM2bdFTExplainAndProfile(t *testing.T) {
 
 	_ = db.Exec(nil, utils.ToCmdLine("FT.ADD", "ex", "e:1", "FIELDS", "t", "hello"))
 	r = db.Exec(nil, utils.ToCmdLine("FT.PROFILE", "ex", "SEARCH", "LIMITED", "hello"))
-	mr, ok := r.(*protocol.MultiRawReply)
-	if !ok || len(mr.Replies) < 2 {
+	pr, ok := r.(*FTProfileReply)
+	if !ok {
 		t.Fatalf("PROFILE: %T %s", r, r.ToBytes())
 	}
-	prof := string(mr.Replies[1].ToBytes())
+	prof := string(pr.profile.ToBytes())
 	// FT.PROFILE reports an honest total wall-clock + result count. The old
 	// implementation fabricated a 5/95 parse/iterate split; that was dropped in
 	// favor of measured totals (per-iterator breakdown deferred to the scoring

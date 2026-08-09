@@ -1,6 +1,7 @@
 package core
 
 import (
+	"bytes"
 	"strings"
 	"testing"
 
@@ -28,8 +29,18 @@ func TestM2ccClusterCountKeysInSlotAndShards(t *testing.T) {
 	if !ok || len(mr.Replies) < 1 {
 		t.Fatalf("SHARDS: %T %s", shards, shards.ToBytes())
 	}
+	shard, ok := mr.Replies[0].(*protocol.MapReply)
+	if !ok {
+		t.Fatalf("SHARDS entry should be Map: %T", mr.Replies[0])
+	}
+	if _, ok := shard.Data["nodes"]; !ok {
+		t.Fatalf("SHARDS missing nodes: %v", shard.Data)
+	}
 	if !strings.Contains(string(shards.ToBytes()), "node-x") {
 		t.Fatalf("SHARDS missing node id: %s", shards.ToBytes())
+	}
+	if protocol.ReplyToRESP3(shards)[0] != '*' || !bytes.Contains(protocol.ReplyToRESP3(shards), []byte("%")) {
+		t.Fatalf("SHARDS RESP3 want array of maps: %q", protocol.ReplyToRESP3(shards))
 	}
 
 	help := execClusterHelp()

@@ -364,37 +364,27 @@ func execClusterCountKeysInSlot(cluster *Cluster, slotStr string) redis.Reply {
 }
 
 // execClusterShards returns a shallow Redis-compatible SHARDS view (single shard).
+// Outer array of shard Maps; each node is a Map (RESP3 % / RESP2 flat via Map.ToBytes).
 func execClusterShards(cluster *Cluster) redis.Reply {
 	if cluster == nil {
 		return protocol.MakeErrReply("ERR This instance has cluster support disabled")
 	}
 	selfID := cluster.SelfID()
-	shard := protocol.MakeMultiRawReply([]redis.Reply{
-		protocol.MakeBulkReply([]byte("slots")),
-		protocol.MakeMultiRawReply([]redis.Reply{
-			protocol.MakeIntReply(0),
-			protocol.MakeIntReply(16383),
-		}),
-		protocol.MakeBulkReply([]byte("nodes")),
-		protocol.MakeMultiRawReply([]redis.Reply{
-			protocol.MakeMultiRawReply([]redis.Reply{
-				protocol.MakeBulkReply([]byte("id")),
-				protocol.MakeBulkReply([]byte(selfID)),
-				protocol.MakeBulkReply([]byte("endpoint")),
-				protocol.MakeBulkReply([]byte("127.0.0.1")),
-				protocol.MakeBulkReply([]byte("ip")),
-				protocol.MakeBulkReply([]byte("127.0.0.1")),
-				protocol.MakeBulkReply([]byte("port")),
-				protocol.MakeIntReply(6379),
-				protocol.MakeBulkReply([]byte("role")),
-				protocol.MakeBulkReply([]byte("master")),
-				protocol.MakeBulkReply([]byte("replication-offset")),
-				protocol.MakeIntReply(0),
-				protocol.MakeBulkReply([]byte("health")),
-				protocol.MakeBulkReply([]byte("online")),
-			}),
-		}),
-	})
+	node := protocol.MakeMapReply()
+	node.Put("id", protocol.MakeBulkReply([]byte(selfID)))
+	node.Put("endpoint", protocol.MakeBulkReply([]byte("127.0.0.1")))
+	node.Put("ip", protocol.MakeBulkReply([]byte("127.0.0.1")))
+	node.Put("port", protocol.MakeIntReply(6379))
+	node.Put("role", protocol.MakeBulkReply([]byte("master")))
+	node.Put("replication-offset", protocol.MakeIntReply(0))
+	node.Put("health", protocol.MakeBulkReply([]byte("online")))
+
+	shard := protocol.MakeMapReply()
+	shard.Put("slots", protocol.MakeMultiRawReply([]redis.Reply{
+		protocol.MakeIntReply(0),
+		protocol.MakeIntReply(16383),
+	}))
+	shard.Put("nodes", protocol.MakeMultiRawReply([]redis.Reply{node}))
 	return protocol.MakeMultiRawReply([]redis.Reply{shard})
 }
 

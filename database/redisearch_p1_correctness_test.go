@@ -100,11 +100,11 @@ func TestP1dProfileReportsHonestTotals(t *testing.T) {
 	}
 
 	r := db.Exec(nil, utils.ToCmdLine("FT.PROFILE", "p1d", "SEARCH", "hello"))
-	mr, ok := r.(*protocol.MultiRawReply)
-	if !ok || len(mr.Replies) < 2 {
+	pr, ok := r.(*FTProfileReply)
+	if !ok {
 		t.Fatalf("profile shape: %T %s", r, r.ToBytes())
 	}
-	prof := string(mr.Replies[1].ToBytes())
+	prof := string(pr.profile.ToBytes())
 	if !strings.Contains(prof, "Total profile time") || !strings.Contains(prof, "Result count") {
 		t.Fatalf("profile missing honest fields: %s", prof)
 	}
