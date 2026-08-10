@@ -84,8 +84,56 @@ func TestM2aeReplBacklogRing(t *testing.T) {
 	if bl.isValidOffset(0) || bl.isValidOffset(1) {
 		t.Fatal("old offsets must be invalid")
 	}
+	// begin=2, current=10 after ring drop; tip and mid-range stay valid
+	if !bl.isValidOffset(2) || !bl.isValidOffset(10) {
+		t.Fatal("retained range and tip must be valid for PSYNC CONTINUE")
+	}
 	part, _ := bl.getSnapshotAfter(4)
 	if string(part) != "efghXY" {
 		t.Fatalf("after=%q", part)
+	}
+	tip, _ := bl.getSnapshotAfter(10)
+	if len(tip) != 0 {
+		t.Fatalf("tip snapshot want empty, got %q", tip)
+	}
+}
+
+func TestM2aeReplBacklogTipAndEmptyPartialSync(t *testing.T) {
+	empty := newReplBacklog(8)
+	if !empty.isValidOffset(0) {
+		t.Fatal("empty backlog: offset 0 (tip) must allow CONTINUE")
+	}
+	if empty.isValidOffset(-1) || empty.isValidOffset(1) {
+		t.Fatal("empty backlog: only tip offset 0 is valid")
+	}
+	part, cur := empty.getSnapshotAfter(0)
+	if cur != 0 || len(part) != 0 {
+		t.Fatalf("empty tip snapshot: cur=%d part=%q", cur, part)
+	}
+
+	bl := newReplBacklog(8)
+	bl.appendBytes([]byte("abcd"))
+	if !bl.isValidOffset(4) {
+		t.Fatal("caught-up replica (offset == currentOffset) must partial-sync")
+	}
+	if bl.isValidOffset(5) {
+		t.Fatal("future offset must be invalid")
+	}
+	tip, cur := bl.getSnapshotAfter(4)
+	if cur != 4 || len(tip) != 0 {
+		t.Fatalf("at-tip snapshot: cur=%d tip=%q", cur, tip)
+	}
+
+	// White-box: master accepts tip PSYNC without forcing FULLRESYNC
+	master := mockServer()
+	master.masterStatus.mu.Lock()
+	master.masterStatus.replId = "tipreplid00000000000000000000001"
+	master.masterStatus.backlog = bl
+	master.masterStatus.bgSaveState = bgSaveFinish
+	master.masterStatus.mu.Unlock()
+	slave := &slaveClient{conn: connection.NewFakeConn(), state: slaveStateOnline}
+	err := master.masterTryPartialSyncWithSlave(slave, master.masterStatus.replId, 4)
+	if err != nil {
+		t.Fatalf("tip partial sync: %v", err)
 	}
 }

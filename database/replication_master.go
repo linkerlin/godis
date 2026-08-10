@@ -140,8 +140,11 @@ func (backlog *replBacklog) getSnapshotAfter(beginOffset int64) ([]byte, int64) 
 	return out, backlog.currentOffset
 }
 
+// isValidOffset reports whether a replica can continue from offset (next byte
+// it expects). Tip (offset == currentOffset) is valid: CONTINUE + empty backlog.
+// getSnapshotAfter already accepts the same inclusive upper bound.
 func (backlog *replBacklog) isValidOffset(offset int64) bool {
-	return offset >= backlog.beginOffset && offset < backlog.currentOffset
+	return offset >= backlog.beginOffset && offset <= backlog.currentOffset
 }
 
 type masterStatus struct {

@@ -61,7 +61,7 @@
 | FT 短语 / SLOP | ✅ 引号短语 + positions 邻近；SLOP/INORDER/TIMEOUT 可解析 |
 | save 自动快照 | ✅ `CONFIG save` 点位 + dirty 计数触发 BGSAVE |
 | GEO geohash | ✅ 52-bit（float64 无损，对齐 Redis） |
-| 复制 backlog | ✅ 固定容量环形缓冲 |
+| 复制 backlog | ✅ 固定容量环形缓冲；PSYNC 已追上 tip（含空 backlog）允许 CONTINUE |
 | Hash field TTL 持久化 | ✅ RDB/DUMP 经 Godis opaque（非 Redis 互通） |
 | CONFIG RESETSTAT | ✅ 清零 INFO/cmd/net/rejected 计数 |
 | CONFIG REWRITE | ✅ 写回配置文件（无配置文件时报错） |
@@ -188,4 +188,4 @@ UNWATCH、WAIT（简版）、BITOP、BITFIELD、SMOVE、LPOS、XCLAIM、SHUTDOWN
 
 ---
 
-**最后更新：** 2026-08-10（MEMORY Alloc 峰值/overhead 对齐；CLUSTER 迁移 finish/ASK/Importing 闭环缝；Failover 测加固）
+**最后更新：** 2026-08-10（PSYNC tip/空 backlog CONTINUE；MEMORY Alloc 峰值/overhead 对齐；CLUSTER 迁移 finish/ASK/Importing 闭环缝；Failover 测加固）
