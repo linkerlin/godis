@@ -500,6 +500,19 @@ func (server *Server) Exec(c redis.Connection, cmdLine [][]byte) (result redis.R
 		RecordLatency(cmdName, elapsed)
 		RecordCommandLatency(cmdName, elapsed)
 	}
+	// LATENCY RESET clears histograms inside Exec; post-exec sampling above can
+	// re-pollute them when RESET itself took ≥1ms (common under Windows CI load).
+	if cmdName == "latency" && len(cmdLine) >= 2 && strings.EqualFold(string(cmdLine[1]), "RESET") {
+		if len(cmdLine) == 2 {
+			ResetCommandLatency(nil)
+		} else {
+			names := make([]string, 0, len(cmdLine)-2)
+			for _, a := range cmdLine[2:] {
+				names = append(names, strings.ToLower(string(a)))
+			}
+			ResetCommandLatency(names)
+		}
+	}
 	return exec
 }
 

@@ -3,6 +3,7 @@ package database
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/linkerlin/godis/config"
 	"github.com/linkerlin/godis/lib/utils"
@@ -31,14 +32,14 @@ func TestM2buLatencyHistogram(t *testing.T) {
 	defer server.Close()
 	c := connection.NewFakeConn()
 
-	// Command latency histograms are process-global (shared across test servers).
-	// Clear any samples left by earlier suite tests before asserting emptiness.
-	_ = server.Exec(c, utils.ToCmdLine("LATENCY", "RESET"))
+	// Seed a sample so RESET emptiness is meaningful even on a cold process.
+	RecordCommandLatency("set", 2*time.Millisecond)
+	asserts.AssertStatusReply(t, server.Exec(c, utils.ToCmdLine("LATENCY", "RESET")), "OK")
 
 	r := server.Exec(c, utils.ToCmdLine("LATENCY", "HISTOGRAM"))
 	m, ok := r.(*protocol.MapReply)
 	if !ok || len(m.Data) != 0 {
-		t.Fatalf("HISTOGRAM want empty map: %T %s", r, r.ToBytes())
+		t.Fatalf("HISTOGRAM want empty map after RESET: %T %s", r, r.ToBytes())
 	}
 	help := server.Exec(c, utils.ToCmdLine("LATENCY", "HELP"))
 	if !strings.Contains(string(help.ToBytes()), "HISTOGRAM") {

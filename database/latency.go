@@ -308,11 +308,16 @@ func execLatencyGraph(eventName string) redis.Reply {
 // execLatencyReset 重置指定事件
 func execLatencyReset(eventNames [][]byte) redis.Reply {
 	latencyMonitor.mu.Lock()
-	defer latencyMonitor.mu.Unlock()
-
 	for _, name := range eventNames {
 		delete(latencyMonitor.events, string(name))
 	}
+	latencyMonitor.mu.Unlock()
+
+	names := make([]string, 0, len(eventNames))
+	for _, name := range eventNames {
+		names = append(names, strings.ToLower(string(name)))
+	}
+	ResetCommandLatency(names)
 
 	return protocol.MakeOkReply()
 }

@@ -81,7 +81,7 @@
 | DEBUG RELOAD | stub | 需 RDB 往返(数据风险,有意保留) |
 | DEBUG JMAP / FLUSHALL | stub | JMAP JVM-only;FLUSHALL 是有意的防破坏偏离 |
 | 稀疏 HLL 读取 | ✅ 拒绝(有测试) | godis 恒 dense;稀疏 blob 报错(与 Redis 拒绝损坏 HLL 一致) |
-| 全量测试失败 | 仅剩已知 | `TestM2amClientKillLAddrMaxAge`(共享 client 注册表顺序敏感)、`TestM2boInfoKeyspaceAvgTTLAndSubexpiry`/`TestM2buLatencyHistogram`(计时 flake,干净树同样挂);单跑/组合跑全部通过；Failover 集成测已加固 listener/Unregister/TIMEOUT |
+| 全量测试失败 | ✅ 已收口 | 原 `TestM2am`/`TestM2bo`/`TestM2bu` 计时/注册表 flake 已加固（KILL 按 client id 断言、avg_ttl 对照 PTTL、`LATENCY RESET` 执行后不再回写 histogram）；Failover 集成测已加固 listener/Unregister/TIMEOUT |
 
 ## 5. 已修复的隐藏生产 bug(随 compat 测试排查发现)
 

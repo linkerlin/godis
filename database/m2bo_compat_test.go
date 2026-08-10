@@ -21,18 +21,29 @@ func TestM2boInfoKeyspaceAvgTTLAndSubexpiry(t *testing.T) {
 		Databases:  16,
 		AppendOnly: false,
 	}
-	defer func() { config.Properties = oldProps }()
+	t.Cleanup(func() { config.Properties = oldProps })
+
+	// Avoid active expiry racing with INFO samples under a loaded suite.
+	prevExpire := activeExpireEnabled.Load()
+	activeExpireEnabled.Store(false)
+	t.Cleanup(func() { activeExpireEnabled.Store(prevExpire) })
 
 	server := MustNewStandaloneServer()
-	defer server.Close()
+	t.Cleanup(func() { server.Close() })
 	c := connection.NewFakeConn()
 
 	// Ensure empty DB even if RDB/AOF load path was somehow armed.
 	_ = server.Exec(c, utils.ToCmdLine("FLUSHALL"))
 
-	asserts.AssertStatusReply(t, server.Exec(c, utils.ToCmdLine("SET", "k", "v", "EX", "10")), "OK")
+	asserts.AssertStatusReply(t, server.Exec(c, utils.ToCmdLine("SET", "k", "v", "EX", "60")), "OK")
 	_ = server.Exec(c, utils.ToCmdLine("HSET", "h", "f", "1"))
 	_ = server.Exec(c, utils.ToCmdLine("HEXPIRE", "h", "30", "FIELDS", "1", "f"))
+
+	pttl := server.Exec(c, utils.ToCmdLine("PTTL", "k"))
+	pttlVal, ok := pttl.(*protocol.IntReply)
+	if !ok || pttlVal.Code < 1000 {
+		t.Fatalf("PTTL k before INFO: %T %s", pttl, pttl.ToBytes())
+	}
 
 	r := server.Exec(c, utils.ToCmdLine("INFO", "keyspace"))
 	bulk, ok := r.(*protocol.BulkReply)
@@ -43,16 +54,24 @@ func TestM2boInfoKeyspaceAvgTTLAndSubexpiry(t *testing.T) {
 	if !strings.Contains(s, "subexpiry=") {
 		t.Fatalf("want subexpiry: %s", s)
 	}
-	// Parse avg_ttl — should be milliseconds (~10000 for EX 10), not microseconds (~10_000_000)
+	foundDB0 := false
+	// Parse avg_ttl — should be milliseconds near PTTL, not microseconds.
 	for _, line := range strings.Split(s, "\r\n") {
 		if !strings.HasPrefix(line, "db0:") {
 			continue
 		}
+		foundDB0 = true
 		for _, part := range strings.Split(line, ",") {
 			if strings.HasPrefix(part, "avg_ttl=") {
 				v, _ := strconv.ParseInt(strings.TrimPrefix(part, "avg_ttl="), 10, 64)
-				if v < 1000 || v > 15_000 {
-					t.Fatalf("avg_ttl should be ~ms for EX 10, got %d in %s", v, line)
+				// Allow clock skew vs PTTL; us-scale bugs land near 60_000_000.
+				lo := pttlVal.Code - 5000
+				if lo < 1000 {
+					lo = 1000
+				}
+				hi := pttlVal.Code + 5000
+				if v < lo || v > hi {
+					t.Fatalf("avg_ttl out of range vs PTTL=%d: got %d in %s", pttlVal.Code, v, line)
 				}
 			}
 			if strings.HasPrefix(part, "subexpiry=") {
@@ -62,6 +81,9 @@ func TestM2boInfoKeyspaceAvgTTLAndSubexpiry(t *testing.T) {
 				}
 			}
 		}
+	}
+	if !foundDB0 {
+		t.Fatalf("want db0 line: %s", s)
 	}
 }
 

@@ -223,7 +223,7 @@ FT.SEARCH idx "hello"  # -> %5 total_results / results / attributes / format / w
 - **63 个新测试**,覆盖每个阶段的核心行为:单元测试(WKT/谓词/熔合/表达式)+ 命令级端到端(建索引→写入→查询→断言回复)+ 持久化重启验证。
 - 全部通过 `go test`;`go build ./...` 与 `go vet ./database/... ./datastruct/redisearch/...` 干净。
 - 测试辅助统一:`searchTotalIs/ftSearchMultiRaw/aggTotal` 等解包双形回复,既有测试(phase_a/schema_test 等)同步适配。
-- 注:仓库存在 2 个 pre-existing 全量跑 flake(`TestM2boInfoKeyspaceAvgTTLAndSubexpiry`/`TestM2buLatencyHistogram`,测试隔离问题,与本次改动无关)。
+- 注:原全量跑 flake（`TestM2boInfoKeyspaceAvgTTLAndSubexpiry`/`TestM2buLatencyHistogram`）已按测试隔离 + `LATENCY RESET` 回写修复收口。
 
 ---
 
