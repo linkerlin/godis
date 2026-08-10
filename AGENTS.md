@@ -466,4 +466,4 @@ cluster-seed 127.0.0.1:6399
 | 客户端缓存 | ✅ | database/caching.go |
 | Sharded Pub/Sub | ✅ | pubsub/sharded.go, cluster/sharded_pubsub.go |
 | ACL LOG | ✅ | database/acl.go |
-| Hash Field TTL | ✅ | database/hash.go, hash_expire.go（命令写 AOF；到期 HDEL；主动过期持键锁） |
+| Hash Field TTL | ✅ | database/hash.go, hash_expire.go（命令写 AOF；到期 HDEL；主动过期持键锁）；纯 AOF rewrite 写 `HPEXPIREAT … FIELDS` |

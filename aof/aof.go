@@ -329,6 +329,9 @@ func (persister *Persister) fsyncEverySecond() {
 // writeExpireDictToAof serializes a hash-with-field-TTL as HMSET followed by
 // per-field HPEXPIREAT commands. This preserves field-level TTLs in AOF rewrites
 // when aof-use-rdb-preamble is disabled.
+//
+// HPEXPIREAT must use Redis `FIELDS numfields field…` syntax so LoadAof /
+// command replay accepts the line (bare `HPEXPIREAT key ms field` is a syntax error).
 func writeExpireDictToAof(tmpFile *os.File, key string, ed *dict.ExpireDict) {
 	hashArgs := [][]byte{[]byte("HMSET"), []byte(key)}
 	ed.ForEach(func(field string, val interface{}) bool {
@@ -342,7 +345,7 @@ func writeExpireDictToAof(tmpFile *os.File, key string, ed *dict.ExpireDict) {
 	ed.ForEach(func(field string, val interface{}) bool {
 		if expireAt, ok := ed.GetExpireTime(field); ok {
 			ms := strconv.FormatInt(expireAt.UnixNano()/1e6, 10)
-			cmd := utils.ToCmdLine("HPEXPIREAT", key, ms, field)
+			cmd := utils.ToCmdLine("HPEXPIREAT", key, ms, "FIELDS", "1", field)
 			_, _ = tmpFile.Write(protocol.MakeMultiBulkReply(cmd).ToBytes())
 		}
 		return true

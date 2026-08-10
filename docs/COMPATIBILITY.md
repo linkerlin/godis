@@ -44,7 +44,7 @@
 | CLIENT REPLY / NO-TOUCH | ✅ REPLY 抑制写回；NO-TOUCH 跳过 LRU Touch |
 | timeout | ✅ std Handler 按秒设 ReadDeadline 踢空闲连接 |
 | COPY / FCALL | ✅ COPY/MOVE 经 DUMP 深拷贝；FCALL 用 gopher-lua，`redis.call` 走 execWithLock |
-| Hash field TTL 命令 | ✅ HGETEX/HSETEX/HGETDEL + HEXPIRE/HPEXPIRE/HEXPIREAT/HPEXPIREAT；命令本身写 AOF；字段到期写 AOF `HDEL`（时间轮+惰性）；主动过期持 DB 键锁 |
+| Hash field TTL 命令 | ✅ HGETEX/HSETEX/HGETDEL + HEXPIRE/HPEXPIRE/HEXPIREAT/HPEXPIREAT；命令本身写 AOF；字段到期写 AOF `HDEL`（时间轮+惰性）；主动过期持 DB 键锁；纯 AOF rewrite 写 `HPEXPIREAT … FIELDS n …` |
 | CLIENT LIST / INFO | ✅ 真连接表；age/idle 同源格式 |
 | XDELEX / XACKDEL | ✅ 逐 ID 状态数组（-1/1/2） |
 | 协议错误 | ✅ 回写后关闭连接（std；gnet 本已 Close） |
@@ -97,7 +97,7 @@
 | Pub/Sub RESP3 | ✅ 无参 UNSUBSCRIBE/PUNSUBSCRIBE 用 `_` |
 | MEMORY HELP | ✅ 子命令帮助数组 |
 | CF.RESERVE EXPANSION | ✅ 存因子并在满时扩容 |
-| WAIT | ✅ 循环内对副本发 GETACK |
+| WAIT | ✅ 循环内对副本发 GETACK；以 REPLCONF ACK offset 为准（发送路径不抬 ACK） |
 | TDIGEST.ADD | ✅ VALUES / WEIGHTS |
 | FT.ADD NOSAVE | ✅ 跳过 AOF |
 | ACL %R~/%W~/%RW~ | ✅ 读写分离 key 模式；DRYRUN 按 prepare 读写键校验 |

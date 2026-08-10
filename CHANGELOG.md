@@ -6,6 +6,8 @@
 
 ### Fixed
 
+- 纯 AOF rewrite：`HPEXPIREAT` 补 `FIELDS n field…`，否则 LoadAof 语法错导致 hash 字段 TTL 丢失
+- WAIT / `countSyncedSlaves`：发送路径只推进 `sentOffset`，不再把「已发送」当作 REPLCONF ACK；同步计数以 ACK offset 为准
 - PSYNC 增量：`isValidOffset` 接纳 tip（`offset == currentOffset`）与空 backlog，已追上的副本重连走 `CONTINUE` 而非误 `FULLRESYNC`（与 `getSnapshotAfter` 上界一致）
 - 消除 `TestM2amClientKillLAddrMaxAge` / `TestM2boInfoKeyspaceAvgTTLAndSubexpiry` / `TestM2buLatencyHistogram` 全量跑 flake：`LATENCY RESET` 在 Exec 采样回写后再次清空 histogram；KILL 按预先捕获的 client id 断言并放宽计数；avg_ttl 对照 PTTL 且关闭主动过期干扰
 - `MEMORY STATS` / `INFO memory`：`peak.allocated`/`used_memory_peak` 跟踪 `runtime.MemStats.Alloc` 高水位（不再用 `TotalAlloc` 冒充峰值）；`overhead.total` 与 INFO 一致为 `Alloc−dataset`；Limiter 默认用量改 `Alloc`（仍非 jemalloc）
