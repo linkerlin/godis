@@ -161,6 +161,8 @@ func execVSim(db *DB, args [][]byte) redis.Reply {
 	withAttribs := false
 	exact := false
 	efSearch := 0
+	useEpsilon := false
+	var epsilon float64
 	var filterExpr string
 	var floats []float64
 	var ele string
@@ -220,7 +222,13 @@ func execVSim(db *DB, args [][]byte) redis.Reply {
 			if i+1 >= len(args) {
 				return protocol.MakeSyntaxErrReply()
 			}
-			i += 2 // accept, post-filter not yet applied
+			eps, err := strconv.ParseFloat(string(args[i+1]), 64)
+			if err != nil || eps < 0 || eps > 1 {
+				return protocol.MakeErrReply("ERR EPSILON must be a float between 0 and 1")
+			}
+			useEpsilon = true
+			epsilon = eps
+			i += 2
 		case "EF":
 			if i+1 >= len(args) {
 				return protocol.MakeSyntaxErrReply()
@@ -291,6 +299,17 @@ func execVSim(db *DB, args [][]byte) redis.Reply {
 		if len(results) > count {
 			results = results[:count]
 		}
+	}
+	// Redis VSIM EPSILON: keep only items with distance < delta
+	// (cosine similarity score >= 1-delta for the rescaled [0,1] view).
+	if useEpsilon {
+		filtered := make([]*vector.SearchResult, 0, len(results))
+		for _, r := range results {
+			if float64(r.Distance) < epsilon {
+				filtered = append(filtered, r)
+			}
+		}
+		results = filtered
 	}
 	return formatVSimResults(results, withScores, withAttribs)
 }

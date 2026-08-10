@@ -77,3 +77,36 @@ func TestHNSWVSimEFAndTruth(t *testing.T) {
 		t.Fatalf("empty top hits approx=%s exact=%s", am.Args[0], em.Args[0])
 	}
 }
+
+func TestHNSWVSimEpsilon(t *testing.T) {
+	db := makeTestDB()
+	asserts.AssertIntReply(t, db.Exec(nil, utils.ToCmdLine(
+		"VADD", "ve", "VALUES", "2", "1", "0", "ELE", "near",
+	)), 1)
+	asserts.AssertIntReply(t, db.Exec(nil, utils.ToCmdLine(
+		"VADD", "ve", "VALUES", "2", "0", "1", "ELE", "far",
+	)), 1)
+
+	all := db.Exec(nil, utils.ToCmdLine(
+		"VSIM", "ve", "VALUES", "2", "1", "0", "COUNT", "10", "TRUTH",
+	))
+	am, ok := all.(*protocol.MultiBulkReply)
+	if !ok || len(am.Args) != 2 {
+		t.Fatalf("without EPSILON want 2 hits: %T %s", all, all.ToBytes())
+	}
+
+	tight := db.Exec(nil, utils.ToCmdLine(
+		"VSIM", "ve", "VALUES", "2", "1", "0", "COUNT", "10", "EPSILON", "0.5", "TRUTH",
+	))
+	tm, ok := tight.(*protocol.MultiBulkReply)
+	if !ok || len(tm.Args) != 1 || string(tm.Args[0]) != "near" {
+		t.Fatalf("EPSILON 0.5 should keep only near: %T %s", tight, tight.ToBytes())
+	}
+
+	bad := db.Exec(nil, utils.ToCmdLine(
+		"VSIM", "ve", "VALUES", "2", "1", "0", "EPSILON", "1.5",
+	))
+	if !protocol.IsErrorReply(bad) {
+		t.Fatalf("EPSILON>1 should error: %s", bad.ToBytes())
+	}
+}
