@@ -11,17 +11,17 @@
 | 阶段 | 主题 | 状态 |
 |------|------|------|
 | **P0** | 可长期运行基线 | ✅ 已完成 |
-| **P1** | 运维与可观测 | 🔄 进行中 |
-| **P2** | 稳定性与质量门禁 | 🔄 进行中 |
+| **P1** | 运维与可观测 | 🔄 进行中（非兼容清单） |
+| **P2** | 稳定性与质量门禁 | 🔄 进行中（非兼容清单） |
 | **P3** | 部署与发布 | ⬜ 待开始 |
-| **Redis 8.x 兼容** | 协议/命令/集群深度对齐 | 🔄 RESP3 双形回复进行中 |
+| **Redis 8.x 兼容** | 协议/命令/集群深度对齐 | ✅ **里程碑已关闭**（非 100%；远期见下） |
 
 ---
 
-## 进行中：Redis 8.x 协议与命令兼容性深度落地
+## 已关闭：Redis 8.x 协议与命令兼容性深度落地
 
 > 来源：[`分析报告.md`](分析报告.md)（2026-06-29）。  
-> 目标：把“功能面很广、深度不足”的兼容层，先收敛到 **RESP3 端到端 + 标准命令分发 + 关键 Redis 8.x 命令**，再逐步补齐集群/ACL/持久化。
+> **关闭定义（2026-08-10）：** 可独立完成的正确性/兼容小项已扫清；进行中清单仅剩书面标明的**远期非目标**（jemalloc、完整 gossip、官方模块原生 RDB·DUMP、完整 BM25·KNN·DIALECT、FUNCTION DUMP 官方互通等）。**禁止宣称 100% Redis 兼容。** 边界见 [`docs/COMPATIBILITY.md`](docs/COMPATIBILITY.md)。
 
 ### R0 — 协议与命令分发基线（当前迭代）
 
@@ -83,7 +83,7 @@
 - [x] `FT.SYNDUMP`→Map（term→group ids）；`FT.SPELLCHECK`→RESP3 `results` Map；`FT.PROFILE`→RESP3 `Results`/`Profile` Map
 - [x] `CLUSTER SHARDS`→外层 Array + shard/node Map
 - [x] `CF.INFO`→Map（与其它概率 *INFO 一致）
-- [ ] 刻意不做：`INFO`/`CLIENT LIST` 文本；`HSCAN`/`ZSCAN` 第二段 Array；`VINFO`/`ROLE`/`XPENDING` 等官方仍标 Array
+- [x] 刻意不做（官方仍标文本/Array，非缺口）：`INFO`/`CLIENT LIST` 文本；`HSCAN`/`ZSCAN` 第二段 Array；`VINFO`/`ROLE`/`XPENDING` 等
 
 ### R2 — 关键 Redis 8.x 命令补齐
 
@@ -115,9 +115,20 @@
 
 ### R4 — 测试与文档
 
-- [ ] **R4-1 Redis 8.x 响应比对套件**：CI 中用 Redis 8 sidecar 做参考，diff 关键命令输出。（远期）
-- [ ] **R4-2 覆盖率提升**：`aof`、`pubsub`、`redis/protocol`、`redis/connection`、新数据类型包达到可接受覆盖。（远期）
-- [x] **R4-3 文档同步（本轮）**：`CHANGELOG.md` Unreleased；`docs/COMPATIBILITY.md` / `commands.md` / `TODO.md` 与 MEMORY peak、CLUSTER 迁移缝、Failover 测加固对齐。仍延期：R4-1 旁路比对套件、R4-2 覆盖率专项。
+- [ ] **R4-1 Redis 8.x 响应比对套件**：CI 中用 Redis 8 sidecar 做参考，diff 关键命令输出。（**远期非目标**，非本里程碑）
+- [ ] **R4-2 覆盖率提升**：`aof`、`pubsub`、`redis/protocol`、`redis/connection`、新数据类型包达到可接受覆盖。（**远期非目标**，非本里程碑）
+- [x] **R4-3 文档同步 + 里程碑关闭**：`CHANGELOG` / `docs/COMPATIBILITY.md` / `TODO.md` / `兼容性改进计划.md` 勾选口径清空至仅剩远期篇；标明明确非目标列表。
+
+### 本里程碑明确非目标（勿当缺口重开）
+
+- jemalloc 级 `used_memory` / 真 OS RSS
+- 完整 Redis gossip bus；`CLUSTER REPLICATE`/`FORGET`/`RESET`/`SAVECONFIG`/`SET-CONFIG-EPOCH`/`CLUSTER FAILOVER`；BUMPEPOCH 真 config epoch
+- 官方模块原生 RDB·DUMP 互通（Godis opaque / `GODISFN1` 自洽即可）
+- 完整 BM25 / FT+KNN 与完整 DIALECT；Vector Q8/BIN 量化；FT VECTOR FLOAT16/BFLOAT16/INT8 解码
+- FUNCTION DUMP 官方二进制互通
+- AOF rewrite / RDB 快照写出 FT 索引定义（命令日志路径已有；rewrite/RDB 见 RediSearch 已知限制）
+- HLL sparse blob 读取（dense 互通；sparse 明确拒绝）
+- R4-1 旁路比对套件、R4-2 覆盖率专项
 
 ---
 
@@ -262,5 +273,5 @@ P0-4 aclfile  →  P0-5 CI smoke  →  P1 INFO/ARCHITECTURE  →  P2 校验/覆�
 
 ---
 
-**最后更新：** 2026-06-29  
-**维护：** 每完成一项将 `[ ]` 改为 `[x]` 并注明 PR/commit。
+**最后更新：** 2026-08-10（Redis 8.x 兼容里程碑关闭）  
+**维护：** 每完成一项将 `[ ]` 改为 `[x]` 并注明 PR/commit。兼容清单仅远期篇保留 `[ ]`。

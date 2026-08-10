@@ -23,7 +23,7 @@
 
 **RediSearch Phase A（2026-07-29）：** FT.CREATE 初始扫描回填 + SKIPINITIALSCAN；按 index 的 STOPWORDS（含 `STOPWORDS 0` 关闭过滤）；FT.SEARCH 查询词按 FT.SYNADD 同义词组展开；`@field:[lon lat radius unit]` 内联 GEO 范围查询。
 
-**RediSearch Phase B（2026-07-29）：** FT.AGGREGATE `WITHCURSOR [COUNT n]` + `FT.CURSOR READ/DEL`（内存游标表，按 COUNT 分页，耗尽返回游标 0，空闲 1 分钟惰性回收）；FT.AGGREGATE `APPLY <expr> AS <name>` 最小表达式子集（`@field` 引用、数字字面量、`+ - * /` 标准优先级、括号、一元负号、非数值 `+` 退化为字符串拼接），按出现位置分为 GROUPBY 前（作用于逐文档字段，供后续 REDUCE 引用）与 GROUPBY 后（作用于结果行）；顺带修正：无 GROUPBY 且无 REDUCE 时按文档逐行返回（此前会错误地把所有文档折叠成一个空字段分组）。不含 FT.SEARCH WITHCURSOR（仍延期，见下）。
+**RediSearch Phase B（2026-07-29）：** FT.AGGREGATE `WITHCURSOR [COUNT n]` + `FT.CURSOR READ/DEL`（内存游标表，按 COUNT 分页，耗尽返回游标 0，空闲 1 分钟惰性回收）；FT.AGGREGATE `APPLY <expr> AS <name>` 最小表达式子集（`@field` 引用、数字字面量、`+ - * /` 标准优先级、括号、一元负号、非数值 `+` 退化为字符串拼接），按出现位置分为 GROUPBY 前（作用于逐文档字段，供后续 REDUCE 引用）与 GROUPBY 后（作用于结果行）；顺带修正：无 GROUPBY 且无 REDUCE 时按文档逐行返回（此前会错误地把所有文档折叠成一个空字段分组）。**FT.SEARCH WITHCURSOR** 已续研落地（复用 FT.CURSOR 表）。
 
 仍延期：精确 jemalloc 级 `used_memory`（现已贴近 `MemStats.Alloc` 峰值跟踪，仍非 jemalloc）、FUNCTION DUMP 官方互通、Vector **量化**（Q8/BIN）、真 BM25/FT+KNN/完整 DIALECT 等（见计划文档）。
 
@@ -57,7 +57,7 @@
 | TS DUPLICATE_POLICY | ✅ BLOCK/FIRST/LAST/MIN/MAX/SUM + ON_DUPLICATE |
 | SINTERCARD | ✅ LIMIT 提前终止 |
 | VSIM FILTER | ✅ 最小 `.field==value` / `!=` 属性过滤 |
-| VADD 选项 | ✅ NX/XX/SETATTR；**M/EF 接入真 HNSW**；CAS/NOQUANT/Q8/BIN/REDUCE 等仍 accept-no-op（无量化） |
+| VADD 选项 | ✅ NX/XX/SETATTR；**M/EF 接入真 HNSW**；**VSIM EPSILON** 按 Distance 后过滤；CAS/NOQUANT/Q8/BIN/REDUCE 等仍 accept-no-op（无量化） |
 | FT 短语 / SLOP | ✅ 引号短语 + positions 邻近；SLOP/INORDER/TIMEOUT 可解析 |
 | save 自动快照 | ✅ `CONFIG save` 点位 + dirty 计数触发 BGSAVE |
 | GEO geohash | ✅ 52-bit（float64 无损，对齐 Redis） |
@@ -97,7 +97,7 @@
 | Pub/Sub RESP3 | ✅ 无参 UNSUBSCRIBE/PUNSUBSCRIBE 用 `_` |
 | MEMORY HELP | ✅ 子命令帮助数组 |
 | CF.RESERVE EXPANSION | ✅ 存因子并在满时扩容 |
-| WAIT | ✅ 循环内对副本发 GETACK |
+| WAIT | ✅ 循环内对副本发 GETACK；以 REPLCONF ACK offset 为准（发送路径不抬 ACK） |
 | TDIGEST.ADD | ✅ VALUES / WEIGHTS |
 | FT.ADD NOSAVE | ✅ 跳过 AOF |
 | ACL %R~/%W~/%RW~ | ✅ 读写分离 key 模式；DRYRUN 按 prepare 读写键校验 |
@@ -180,7 +180,24 @@ UNWATCH、WAIT（简版）、BITOP、BITFIELD、SMOVE、LPOS、XCLAIM、SHUTDOWN
 | TimeSeries / LCS / Latency | `TS.INFO`（`labels` 嵌套 Map）；`LCS … IDX`；`LATENCY HISTOGRAM`（嵌套 histogram_usec） | Map |
 | Search / Cluster | `FT.SYNDUMP`；`FT.SPELLCHECK`（`results`）；`FT.PROFILE`（`Results`/`Profile`）；`CLUSTER SHARDS` | Map / 外层 Array+Map |
 
-**仍延期 / 非本轮（远期/非目标）：** HSCAN/ZSCAN 第二段官方仍为 Array；jemalloc 级精确 `used_memory` / 真 OS RSS（当前为 `MemStats.Alloc` 峰值 + per-key dataset 近似）；Vector Q8/BIN 量化；完整 BM25/KNN/DIALECT；FUNCTION DUMP 官方互通；集群 **完整 Redis gossip bus**（MEET 仅为 Raft/FSM 加入缝）；opaque 与 Redis 原生模块 RDB/DUMP 互通；CLUSTER BUMPEPOCH **真** config epoch（FSM 无 epoch，现为 `BUMPED 0` no-op）；REPLICATE/FORGET/RESET/SAVECONFIG/SET-CONFIG-EPOCH/CLUSTER FAILOVER。
+**仍延期 / 非本轮（远期/非目标）：** 见下节「兼容里程碑关闭」。
+
+## 兼容里程碑关闭（2026-08-10）
+
+> **关闭口径：** 可独立完成的正确性/兼容小项已扫尽；**不宣称 100% Redis 兼容**。进行中的兼容清单清空到仅剩下列远期非目标（写明「不是假装已实现」）。
+
+| 远期非目标 | 现状（诚实） |
+|------------|--------------|
+| jemalloc / 真 OS RSS | `MemStats.Alloc` 峰值 + per-key dataset 近似 |
+| 完整 Redis gossip bus | MEET→Raft/FSM join；REPLICATE/FORGET/RESET/SAVECONFIG/SET-CONFIG-EPOCH/`CLUSTER FAILOVER` 显式 ERR；BUMPEPOCH=`BUMPED 0` |
+| 官方模块原生 RDB·DUMP 互通 | Stream/JSON/Vector/TS/概率结构走 Godis opaque；非 Redis 互通 |
+| FUNCTION DUMP 官方互通 | Godis `GODISFN1` 自洽 |
+| 完整 BM25 / FT+KNN / 完整 DIALECT | 子集 + DIALECT 接受忽略；非完整打分/混合 |
+| Vector Q8/BIN 量化；FT VECTOR FLOAT16/BFLOAT16/INT8 解码 | 无量化；非 FLOAT32/64 解码报未实现 |
+| AOF rewrite / RDB 写出 FT 索引定义 | 命令路径写 AOF；rewrite/RDB 不落索引元数据（已知限制） |
+| HLL sparse 读取 | dense 互通；sparse blob 拒绝 |
+| CI Redis sidecar 全量输出 diff（R4-1） | 未做 |
+| 覆盖率专项冲高（R4-2） | 未做 |
 
 ## 测试
 
@@ -188,4 +205,4 @@ UNWATCH、WAIT（简版）、BITOP、BITFIELD、SMOVE、LPOS、XCLAIM、SHUTDOWN
 
 ---
 
-**最后更新：** 2026-08-10（PSYNC tip/空 backlog CONTINUE；MEMORY Alloc 峰值/overhead 对齐；CLUSTER 迁移 finish/ASK/Importing 闭环缝；Failover 测加固）
+**最后更新：** 2026-08-10（**兼容里程碑关闭**；VSIM EPSILON；PSYNC tip；MEMORY Alloc 峰值；CLUSTER 迁移缝；WAIT ACK；AOF HPEXPIREAT FIELDS）

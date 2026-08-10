@@ -6,7 +6,9 @@
 
 ### Fixed
 
+- `VSIM EPSILON`：解析后按 `Distance < delta` 后过滤（此前仅吞选项不生效）
 - 纯 AOF rewrite：`HPEXPIREAT` 补 `FIELDS n field…`，否则 LoadAof 语法错导致 hash 字段 TTL 丢失
+- WAIT / `countSyncedSlaves`：发送路径只推进 `sentOffset`，不再把「已发送」当作 REPLCONF ACK；同步计数以 ACK offset 为准
 - PSYNC 增量：`isValidOffset` 接纳 tip（`offset == currentOffset`）与空 backlog，已追上的副本重连走 `CONTINUE` 而非误 `FULLRESYNC`（与 `getSnapshotAfter` 上界一致）
 - 消除 `TestM2amClientKillLAddrMaxAge` / `TestM2boInfoKeyspaceAvgTTLAndSubexpiry` / `TestM2buLatencyHistogram` 全量跑 flake：`LATENCY RESET` 在 Exec 采样回写后再次清空 histogram；KILL 按预先捕获的 client id 断言并放宽计数；avg_ttl 对照 PTTL 且关闭主动过期干扰
 - `MEMORY STATS` / `INFO memory`：`peak.allocated`/`used_memory_peak` 跟踪 `runtime.MemStats.Alloc` 高水位（不再用 `TotalAlloc` 冒充峰值）；`overhead.total` 与 INFO 一致为 `Alloc−dataset`；Limiter 默认用量改 `Alloc`（仍非 jemalloc）
@@ -51,6 +53,7 @@
 
 ### Changed
 
+- **兼容里程碑关闭（2026-08-10）**：可独立正确性/兼容小项已清至书面远期非目标；**不宣称 100% Redis 兼容**。远期非目标见 `docs/COMPATIBILITY.md`「兼容里程碑关闭」
 - Legacy Lua（`GODIS_LUA_ENGINE=legacy`）：拒绝 `os.`/`io.`/`package.`/`debug.`/`require`/`dofile`/`loadfile`（对齐 gopher-lua SkipOpenLibs 意图）
 - `CLUSTER BUMPEPOCH`：明确为 no-op（`BUMPED 0`；FSM 无 config epoch；远期/非目标：真 epoch / gossip）
 - 文档明确非「100% 兼容」：以 `docs/COMPATIBILITY.md` 与 `commands.md` 为准；opaque 扩展类型非 Redis 原生模块 RDB 互通；远期项见 COMPATIBILITY「仍延期/非本轮」

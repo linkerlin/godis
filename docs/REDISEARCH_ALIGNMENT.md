@@ -101,7 +101,7 @@ Redis 8.0 将 Redis Stack 的 RediSearch 模块并入核心(命令面 24 个 FT.
 
 - **AOF 缺口**:`FT.CONFIG SET`(DEFAULT_DIALECT/MINPREFIX/TIMEOUT 等配置重启丢失)、`FT.DICTADD/DICTDEL`(拼写字典用 `PutEntity` 直接写 map 不走命令,永不落盘)补 `addAof`(仅变更时)。
 - **端到端验证**:`TestP8FTPersistence` —— 建索引 + HSET + CONFIG SET + DICTADD → 关服务器刷 AOF → 重启回放 → 索引/数据/配置/字典全部恢复。
-- **已知限制**:RDB-only 重启时索引定义不持久(AOF 路径已完整覆盖;RDB 需改格式或 reserved-key,成本高于价值)。
+- **已知限制**:RDB-only / AOF rewrite 重启时索引定义不持久(命令 AOF 路径已覆盖;rewrite/RDB 写索引元数据为里程碑外远期项)。
 
 ### P9 — FT.HYBRID(8.4,6 测试)
 
@@ -236,7 +236,7 @@ FT.SEARCH idx "hello"  # -> %5 total_results / results / attributes / format / w
 | FT.PROFILE 迭代器细分 | 🔶 | 只报诚实总耗时;细分需 instrument 引擎迭代器 |
 | FT.HYBRID RANGE/FILTER/POLICY | 🔶 | 接受但按暴力路径执行 |
 | APPLY 日期/geo 函数 | 🔶 | timefmt/day/hour/geodistance 等未实现(小众) |
-| RDB-only 索引定义持久化 | ❌ | AOF 路径完整;RDB 需改格式或 reserved-key |
+| RDB / AOF rewrite 索引定义持久化 | ❌ | 命令 AOF 路径完整;rewrite/RDB 为里程碑外远期 |
 | ACL @search 类别 | ❌ | godis 简化 flag 系统,需重构 ACL 子系统 |
 | LVQ/LeanVec 压缩 | ❌ | Intel 专有,OSS Redis 也没有 |
 | GEOSHAPE SPHERICAL 数学 | 🔶 | 按 2D 平面处理(Redis 用测地线;影响跨经纬度边界场景) |
