@@ -37,6 +37,7 @@
 | SLOWLOG GET | 慢查询日志 |
 | SLOWLOG LEN | 慢查询条数 |
 | SLOWLOG RESET | 清空慢查询 |
+| MEMORY USAGE/STATS/DOCTOR/HELP/PURGE/MALLOC-STATS | 内存诊断（Go MemStats / 进程 RSS；非 jemalloc） |
 
 ---
 
@@ -60,6 +61,8 @@
 | RENAMENX | 安全重命名 |
 | DUMP | 序列化键值 |
 | RESTORE | 反序列化键值 |
+| RESTORE-ASKING | 集群迁移用 RESTORE（强制 REPLACE） |
+| MIGRATE | 迁移键到远端实例（DUMP→RESTORE→DEL） |
 | MOVE | 移动键到另一数据库 |
 | RANDOMKEY | 随机返回键 |
 | TOUCH | 更新键访问时间 |
@@ -279,6 +282,10 @@
 | JSON.OBJLEN | 对象字段数 |
 | JSON.DEBUG | 调试信息 |
 | JSON.FORGET | 删除键 |
+| JSON.CLEAR | 清空容器 |
+| JSON.TOGGLE | 布尔翻转 |
+| JSON.MERGE | JSON Merge Patch（RFC7396） |
+| JSON.MSET | 批量设置 |
 | JSON.RESP | 返回 RESP 格式 |
 
 ---
@@ -622,10 +629,10 @@ Godis 支持 Redis 键空间通知机制，可通过配置启用。
 
 ## 其它说明
 
-- **模块相关**: `MODULE LIST` 返回空数组；动态 `LOAD/UNLOAD` 未实现（内置 JSON/RediSearch 等）
-- **内存管理**: `MEMORY DOCTOR/MEMORY HELP` 未实现（保留 INFO/MEMORY STATS）
+- **模块相关**: `MODULE LIST` 返回空数组；动态 `LOAD/UNLOAD` 未实现（内置 JSON/RediSearch 等）；扩展类型 DUMP/RDB 走 Godis opaque（`GODIS1`），非 Redis 模块原生互通
+- **内存管理**: `MEMORY DOCTOR`/`HELP`/`STATS`/`USAGE` 已实现；`used_memory`≈`MemStats.Alloc`，`used_memory_rss`≈进程 RSS（可得时）；**非** jemalloc 级会计（远期）
 - **副本相关**: `REPLICAOF`/`SLAVEOF` 可用（主从复制、`FAILOVER` 协调切换，见 `docs/FAILOVER_DESIGN.md`）
-- **迁移命令**: `MIGRATE`/`RESTORE-ASKING` 未实现（可用 DUMP/RESTORE）
+- **迁移命令**: `MIGRATE`、`RESTORE-ASKING` 已实现（见键管理表）
 
 ---
 

@@ -6,6 +6,7 @@
 
 ### Fixed
 
+- 文档漂移：`MEMORY DOCTOR/HELP`、`MIGRATE`、`RESTORE-ASKING`、JSON.MERGE/MSET、ACL `@search` 等与代码对齐（见 `commands.md` / `COMPATIBILITY` / `REDISEARCH_ALIGNMENT`）
 - `VSIM EPSILON`：解析后按 `Distance < delta` 后过滤（此前仅吞选项不生效）
 - 纯 AOF rewrite：`HPEXPIREAT` 补 `FIELDS n field…`，否则 LoadAof 语法错导致 hash 字段 TTL 丢失
 - WAIT / `countSyncedSlaves`：发送路径只推进 `sentOffset`，不再把「已发送」当作 REPLCONF ACK；同步计数以 ACK offset 为准
@@ -20,6 +21,10 @@
 
 ### Added
 
+- `INFO memory`：`used_memory_rss` 优先真进程 RSS（Windows WorkingSet / Linux VmRSS）；`MEMORY STATS` 增加 `process.rss`（仍非 jemalloc）
+- `CLUSTER INFO`：补齐 ping/pong/fail 等 gossip 消息计数键（恒 0，诚实无 bus）
+- `RESTORE-ASKING`：注册为可调用命令（强制 REPLACE）
+- FT VECTOR **FLOAT16** blob→float32 解码；HLL sparse 明确 `ERR sparse HyperLogLog…`（未实现 sparse 读取）
 - `CLUSTER GETKEYSINSLOT`：返回本节点 `slotsManager` 登记的槽内键（与 `COUNTKEYSINSLOT` 同源）
 - `CLUSTER REPLICAS`/`SLAVES`：从 Raft FSM `MasterSlaves` 返回副本 NODES 行；未知节点 `ERR Unknown node`
 - `INFO cluster`：有 Cluster 实例时与 `CLUSTER INFO` 同源（`SetClusterInfoSectionProvider`）

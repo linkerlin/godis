@@ -111,7 +111,7 @@
 - [x] **R3-1d 集群管理 seam（最小）**：`CLUSTER MEET ip port [raft-port]`→与 `cluster.join` 等价的 AddToRaft/EventJoin（或 FSM-only ApplyLocal）；无 Raft 时明确 ERR。`SETSLOT MIGRATING|IMPORTING|STABLE` 写本地 `slotsManager`（ASK/ASKING）；`SETSLOT NODE`→FSM `EventAssignSlots`。`REPLICATE`/`FORGET`/`RESET`/`SAVECONFIG`/`SET-CONFIG-EPOCH`/`CLUSTER FAILOVER` 仍显式 `ERR … is not supported`。仍延期（远期）：完整 Redis gossip bus。
 - [x] **R3-1e 读面诚实化**：`GETKEYSINSLOT` 返回本地 slotsManager 键；`REPLICAS`/`SLAVES` 读 FSM；`INFO cluster` 与 CLUSTER INFO 同源；BUMPEPOCH 为 `BUMPED 0` no-op（FSM 无 config epoch，远期）。
 - [x] **R3-1f 迁移闭环缝（最小）**：`execFinishExport` 成功才 dropSlot+清 importingTask；`doImports` 标 IMPORTING；`startExporting` 幂等 SETSLOT；ASK 读 FSM Migratings；`SETSLOT NODE` 本节点清迁移态。仍延期：完整 redis-cli reshard/gossip、与官方迁移编排 100% 一致。
-- [x] **R3-mem 一小步**：`used_memory_peak`/`peak.allocated` 跟踪 `Alloc` 高水位；INFO/MEMORY STATS overhead 口径对齐；Limiter 默认 `Alloc`。仍延期：jemalloc / OS RSS。
+- [x] **R3-mem 一小步**：`used_memory_peak`/`peak.allocated` 跟踪 `Alloc` 高水位；INFO/MEMORY STATS overhead 口径对齐；Limiter 默认 `Alloc`；**进程 RSS→`used_memory_rss`**（Win/Linux）。仍延期：jemalloc 级会计。
 
 ### R4 — 测试与文档
 
@@ -121,13 +121,15 @@
 
 ### 本里程碑明确非目标（勿当缺口重开）
 
-- jemalloc 级 `used_memory` / 真 OS RSS
-- 完整 Redis gossip bus；`CLUSTER REPLICATE`/`FORGET`/`RESET`/`SAVECONFIG`/`SET-CONFIG-EPOCH`/`CLUSTER FAILOVER`；BUMPEPOCH 真 config epoch
+> 可独立项已归零；下列为**书面远期**。2026-08-11 对各条做过「有意义一小步或仅文档」评估，**禁止把小步当成远期完成**。
+
+- jemalloc 级 `used_memory` / 完整 OS 级内存会计（已有：进程 RSS→`used_memory_rss`；`used_memory` 仍为 `Alloc`）
+- 完整 Redis gossip bus；`CLUSTER REPLICATE`/`FORGET`/`RESET`/`SAVECONFIG`/`SET-CONFIG-EPOCH`/`CLUSTER FAILOVER`；BUMPEPOCH 真 config epoch（已有：INFO 消息计数键恒 0）
 - 官方模块原生 RDB·DUMP 互通（Godis opaque / `GODISFN1` 自洽即可）
-- 完整 BM25 / FT+KNN 与完整 DIALECT；Vector Q8/BIN 量化；FT VECTOR FLOAT16/BFLOAT16/INT8 解码
+- 完整 BM25 / FT+KNN 与完整 DIALECT；Vector **真** Q8/BIN 量化；FT VECTOR BFLOAT16/INT8/UINT8 解码（FLOAT16 解码已作一小步）
 - FUNCTION DUMP 官方二进制互通
 - AOF rewrite / RDB 快照写出 FT 索引定义（命令日志路径已有；rewrite/RDB 见 RediSearch 已知限制）
-- HLL sparse blob 读取（dense 互通；sparse 明确拒绝）
+- HLL sparse blob **读取**（dense 互通；sparse 明确 ERR，未实现解码）
 - R4-1 旁路比对套件、R4-2 覆盖率专项
 
 ---

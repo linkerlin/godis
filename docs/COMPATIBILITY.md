@@ -186,18 +186,25 @@ UNWATCH、WAIT（简版）、BITOP、BITFIELD、SMOVE、LPOS、XCLAIM、SHUTDOWN
 
 > **关闭口径：** 可独立完成的正确性/兼容小项已扫尽；**不宣称 100% Redis 兼容**。进行中的兼容清单清空到仅剩下列远期非目标（写明「不是假装已实现」）。
 
-| 远期非目标 | 现状（诚实） |
-|------------|--------------|
-| jemalloc / 真 OS RSS | `MemStats.Alloc` 峰值 + per-key dataset 近似 |
-| 完整 Redis gossip bus | MEET→Raft/FSM join；REPLICATE/FORGET/RESET/SAVECONFIG/SET-CONFIG-EPOCH/`CLUSTER FAILOVER` 显式 ERR；BUMPEPOCH=`BUMPED 0` |
-| 官方模块原生 RDB·DUMP 互通 | Stream/JSON/Vector/TS/概率结构走 Godis opaque；非 Redis 互通 |
-| FUNCTION DUMP 官方互通 | Godis `GODISFN1` 自洽 |
-| 完整 BM25 / FT+KNN / 完整 DIALECT | 子集 + DIALECT 接受忽略；非完整打分/混合 |
-| Vector Q8/BIN 量化；FT VECTOR FLOAT16/BFLOAT16/INT8 解码 | 无量化；非 FLOAT32/64 解码报未实现 |
-| AOF rewrite / RDB 写出 FT 索引定义 | 命令路径写 AOF；rewrite/RDB 不落索引元数据（已知限制） |
-| HLL sparse 读取 | dense 互通；sparse blob 拒绝 |
-| CI Redis sidecar 全量输出 diff（R4-1） | 未做 |
-| 覆盖率专项冲高（R4-2） | 未做 |
+| 远期非目标 | 现状（诚实） | 本轮小步（非宣称完成） |
+|------------|--------------|------------------------|
+| jemalloc / 真 OS RSS | `used_memory`≈`MemStats.Alloc` 峰值 + per-key dataset | **`used_memory_rss` 优先真进程 RSS**（Windows WorkingSet / Linux VmRSS；否则回退 `MemStats.Sys`）；仍非 jemalloc |
+| 完整 Redis gossip bus | MEET→Raft/FSM join；写管理命令显式 ERR；BUMPEPOCH=`BUMPED 0` | **CLUSTER INFO** 补齐 ping/pong/fail 等消息计数键（恒 0，诚实无 bus） |
+| 官方模块原生 RDB·DUMP 互通 | Stream/JSON/Vector/TS/概率结构走 Godis opaque `GODIS1` | 文档边界：magic + 类型表见下节；**不**与 Redis 模块 RDB 互通 |
+| FUNCTION DUMP 官方互通 | Godis `GODISFN1` 自洽 | 保持自洽；**不**伪造 Redis functions payload |
+| 完整 BM25 / FT+KNN / 完整 DIALECT | BM25STD 子集 + KNN/HYBRID 路径；DIALECT 接受忽略 | 无完整打分/混合升级；见 REDISEARCH_ALIGNMENT |
+| Vector Q8/BIN 量化；FT VECTOR 窄类型解码 | VADD 的 Q8/BIN 为接受的 no-op；存 f32 | **FLOAT16**  blob→float32 解码已做；BFLOAT16/INT8/UINT8 仍报未实现；Q8/BIN 仍无真量化 |
+| AOF rewrite / RDB 写出 FT 索引定义 | 命令路径写 AOF；rewrite/RDB 不落索引元数据 | 边界仍成立；未假装持久化索引定义 |
+| HLL sparse 读取 | dense 互通；sparse 拒绝 | sparse 拒绝时返回明确 `ERR sparse HyperLogLog encoding is not supported`（非伪装 WRONGTYPE） |
+| CI Redis sidecar 全量输出 diff（R4-1） | 未做 | 仍书面远期；无旁路套件可独立验收 |
+| 覆盖率专项冲高（R4-2） | 未做 | 仍书面远期；非单点可独立「完成」 |
+
+### Godis opaque / FUNCTION 信封边界（非 Redis 互通）
+
+| Magic | 用途 | 互通 |
+|-------|------|------|
+| `GODIS1\0` + JSON `{t,d}` | DUMP/RDB/AOF 扩展类型（stream/json/vector/ts/hexpire/bloom/cuckoo/cms/topk/tdigest） | 仅 Godis↔Godis |
+| `GODISFN1` + 长度前缀库列表 | FUNCTION DUMP/RESTORE | 仅 Godis↔Godis（兼旧文本 RESTORE） |
 
 ## 测试
 
@@ -205,4 +212,4 @@ UNWATCH、WAIT（简版）、BITOP、BITFIELD、SMOVE、LPOS、XCLAIM、SHUTDOWN
 
 ---
 
-**最后更新：** 2026-08-10（**兼容里程碑关闭**；VSIM EPSILON；PSYNC tip；MEMORY Alloc 峰值；CLUSTER 迁移缝；WAIT ACK；AOF HPEXPIREAT FIELDS）
+**最后更新：** 2026-08-11（文档漂移勘误；进程 RSS；CLUSTER INFO gossip 计数键；FLOAT16 解码；HLL sparse 明确 ERR；远期清单仍书面存在）
