@@ -128,6 +128,8 @@ func execFailover(server *Server, args [][]byte) redis.Reply {
 	// Wait for the target to drop off the slave map (its master connection is
 	// closed on promotion). Promotion is asynchronous; keep pushing so a closed
 	// replica connection triggers removeSlave via the write-failure path.
+	// TIMEOUT only bounds the sync wait above; promote confirmation uses a
+	// fixed cap so FORCE with a large backlog is not starved by a short TIMEOUT.
 	if !waitSlaveGone(server, target, 10*time.Second) {
 		return protocol.MakeErrReply("ERR FAILOVER target did not promote")
 	}

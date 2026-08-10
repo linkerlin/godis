@@ -114,14 +114,25 @@ func startTestReplicaPair(t *testing.T) (*Server, *Server, func()) {
 
 // startTCPListener binds a real listener and serves commands for server
 // (mirroring the std handler's parse/exec loop, enough for replication).
-// The returned close func stops Accept; t.Cleanup also closes it.
+// closeFn stops Accept and closes all accepted conns so replica receiveAOF
+// loops unblock; t.Cleanup also invokes it.
 func startTCPListener(t *testing.T, server *Server) (addr string, closeFn func()) {
 	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("listen: %v", err)
 	}
-	closeFn = sync.OnceFunc(func() { _ = ln.Close() })
+	var mu sync.Mutex
+	conns := make(map[net.Conn]struct{})
+	closeFn = sync.OnceFunc(func() {
+		_ = ln.Close()
+		mu.Lock()
+		for c := range conns {
+			_ = c.Close()
+		}
+		conns = nil
+		mu.Unlock()
+	})
 	t.Cleanup(closeFn)
 	go func() {
 		for {
@@ -129,7 +140,22 @@ func startTCPListener(t *testing.T, server *Server) (addr string, closeFn func()
 			if err != nil {
 				return
 			}
-			go serveConn(server, conn)
+			mu.Lock()
+			if conns == nil {
+				mu.Unlock()
+				_ = conn.Close()
+				return
+			}
+			conns[conn] = struct{}{}
+			mu.Unlock()
+			go func(c net.Conn) {
+				defer func() {
+					mu.Lock()
+					delete(conns, c)
+					mu.Unlock()
+				}()
+				serveConn(server, c)
+			}(conn)
 		}
 	}()
 	return ln.Addr().String(), closeFn
@@ -343,4 +369,44 @@ func TestFailoverForceSwitchesLaggedReplica(t *testing.T) {
 	}
 	t.Fatalf("FORCE failover should swap roles: master=%d replica=%d",
 		atomic.LoadInt32(&master.role), atomic.LoadInt32(&replica.role))
+}
+
+// TestSlaveCloseAfterReplicationDoesNotHang guards the stopSlaveWithMutex
+// deadlock: receiveAOF needs slaveStatus.mutex after reading a payload, while
+// Close used to Wait on receiveAOF while holding that same mutex.
+func TestSlaveCloseAfterReplicationDoesNotHang(t *testing.T) {
+	master, replica, cleanup := startTestReplicaPair(t)
+	defer cleanup()
+
+	mc := connection.NewFakeConn()
+	for i := 0; i < 20; i++ {
+		if r := master.Exec(mc, utils.ToCmdLine("SET", fmt.Sprintf("h%d", i), "x")); protocol.IsErrorReply(r) {
+			t.Fatalf("set: %s", r.ToBytes())
+		}
+	}
+	// Keep the replication stream busy so Close races with a mid-payload Lock.
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for i := 0; i < 200; i++ {
+			master.masterCron()
+			_ = master.Exec(mc, utils.ToCmdLine("SET", "busy", strconv.Itoa(i)))
+			time.Sleep(2 * time.Millisecond)
+		}
+	}()
+
+	deadline := time.After(3 * time.Second)
+	closed := make(chan struct{})
+	go func() {
+		time.Sleep(20 * time.Millisecond)
+		replica.Close()
+		close(closed)
+	}()
+	select {
+	case <-closed:
+	case <-deadline:
+		t.Fatal("replica.Close() hung — likely stopSlaveWithMutex Wait holding mutex")
+	}
+	<-done
+	// master.Close runs in cleanup; give it a bounded wait too via later join.
 }

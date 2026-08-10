@@ -79,38 +79,48 @@ func (server *Server) execSlaveOf(c redis.Connection, args [][]byte) redis.Reply
 
 func (server *Server) slaveOfNone() {
 	server.slaveStatus.mutex.Lock()
-	defer server.slaveStatus.mutex.Unlock()
 	server.slaveStatus.masterHost = ""
 	server.slaveStatus.masterPort = 0
 	server.slaveStatus.replId = ""
 	server.slaveStatus.replOffset = -1
-	server.slaveStatus.stopSlaveWithMutex()
+	// Publish master role before waiting so concurrent ROLE readers see the
+	// intended state even while receiveAOF is draining.
 	server.role = masterRole
+	server.slaveStatus.stopSlaveWithMutex()
+	server.slaveStatus.mutex.Unlock()
 }
 
-// stopSlaveWithMutex stops in-progress connectWithMaster/fullSync/receiveAOF
-// invoker should have slaveStatus mutex
+// stopSlaveWithMutex stops in-progress connectWithMaster/fullSync/receiveAOF.
+// Invoker must hold slaveStatus.mutex. Temporarily unlocks while waiting for
+// receiveAOF to exit: receiveAOF may need the mutex after reading a payload, and
+// waiting with the lock held deadlocks Close / REPLICAOF NO ONE (Windows failover
+// integration tests hit this after demotion leaves an active receiveAOF).
 func (repl *slaveStatus) stopSlaveWithMutex() {
-	// update configVersion to stop connectWithMaster and fullSync
 	atomic.AddInt32(&repl.configVersion, 1)
-	// send cancel to receiveAOF
-	if repl.cancel != nil {
-		repl.cancel()
-		repl.running.Wait()
-	}
+	cancel := repl.cancel
+	conn := repl.masterConn
 	repl.ctx = context.Background()
 	repl.cancel = nil
-	if repl.masterConn != nil {
-		_ = repl.masterConn.Close() // parser.ParseStream will close masterChan
-	}
 	repl.masterConn = nil
 	repl.masterChan = nil
+	if cancel == nil && conn == nil {
+		return
+	}
+	repl.mutex.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+	if conn != nil {
+		_ = conn.Close() // unblocks ParseStream / masterChan
+	}
+	repl.running.Wait()
+	repl.mutex.Lock()
 }
 
 func (repl *slaveStatus) close() error {
 	repl.mutex.Lock()
-	defer repl.mutex.Unlock()
 	repl.stopSlaveWithMutex()
+	repl.mutex.Unlock()
 	return nil
 }
 

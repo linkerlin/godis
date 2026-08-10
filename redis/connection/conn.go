@@ -177,11 +177,15 @@ func (c *Connection) IdleSeconds() int64 {
 	return int64(time.Since(c.lastActive).Seconds())
 }
 
-// Write sends response to client over tcp connection
+// Write sends response to client over tcp connection.
+// Concurrent Write on net.Conn deadlocks on Windows (fdMutex); serialise via mu
+// which was documented for "server sending response".
 func (c *Connection) Write(b []byte) (int, error) {
 	if len(b) == 0 {
 		return 0, nil
 	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	c.sendingData.Add(1)
 	defer func() {
 		c.sendingData.Done()

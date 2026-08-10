@@ -67,6 +67,10 @@ type Server struct {
 	dirty         atomic.Int64 // changes since last successful SAVE/BGSAVE (PE-4)
 	bgsaveMu      sync.Mutex
 	bgsaveRunning bool
+
+	// stopCron signals startReplCron to exit (closed once in Close).
+	stopCron     chan struct{}
+	stopCronOnce sync.Once
 }
 
 func fileExists(filename string) bool {
@@ -134,6 +138,7 @@ func newServerWithSize(dictSize int) (*Server, error) {
 	server.slaveStatus = initReplSlaveStatus()
 	server.initMasterStatus()
 	server.lastSaveUnix.Store(time.Now().Unix())
+	server.stopCron = make(chan struct{})
 	server.startReplCron()
 	server.role = masterRole // The initialization process does not require atomicity
 
@@ -529,6 +534,11 @@ func (server *Server) AfterClientClose(c redis.Connection) {
 
 // Close graceful shutdown database
 func (server *Server) Close() {
+	server.stopCronOnce.Do(func() {
+		if server.stopCron != nil {
+			close(server.stopCron)
+		}
+	})
 	// stop slaveStatus first
 	if server.slaveStatus != nil {
 		server.slaveStatus.close()
@@ -852,6 +862,8 @@ func (server *Server) startReplCron() {
 		defer saveTicker.Stop()
 		for {
 			select {
+			case <-mdb.stopCron:
+				return
 			case <-replTicker.C:
 				mdb.slaveCron()
 				mdb.masterCron()
