@@ -73,6 +73,9 @@ func TestClusterTopologyFromFSM(t *testing.T) {
 	if !strings.Contains(info, "cluster_known_nodes:3\n") {
 		t.Fatalf("INFO known: %s", info)
 	}
+	if !strings.Contains(info, "cluster_stats_messages_ping_sent:0\n") {
+		t.Fatalf("INFO missing gossip ping_sent zero: %s", info)
+	}
 
 	slots := execClusterSlots(cl)
 	multi, ok := slots.(*protocol.MultiRawReply)

@@ -225,8 +225,43 @@ func DecodeVectorByType(blob []byte, vtype string, dim int) ([]float32, error) {
 			out[i] = float32(math.Float64frombits(bits))
 		}
 		return out, nil
+	case VectorTypeFloat16:
+		if len(blob) != dim*2 {
+			return nil, fmt.Errorf("expected %d bytes for %d-dim FLOAT16 vector, got %d", dim*2, dim, len(blob))
+		}
+		out := make([]float32, dim)
+		for i := 0; i < dim; i++ {
+			out[i] = float16BitsToFloat32(binary.LittleEndian.Uint16(blob[i*2:]))
+		}
+		return out, nil
 	default:
 		return nil, fmt.Errorf("VECTOR TYPE '%s' decoding not yet implemented", vtype)
+	}
+}
+
+// float16BitsToFloat32 converts IEEE 754 binary16 bits to float32.
+func float16BitsToFloat32(u uint16) float32 {
+	sign := uint32(u>>15) & 1
+	exp := uint32(u>>10) & 0x1f
+	frac := uint32(u & 0x3ff)
+	switch exp {
+	case 0:
+		if frac == 0 {
+			return math.Float32frombits(sign << 31)
+		}
+		// subnormal → ± 2^-14 * (frac/1024)
+		v := float32(frac) / 1024.0 / 16384.0 // 2^14
+		if sign == 1 {
+			return -v
+		}
+		return v
+	case 0x1f:
+		if frac == 0 {
+			return math.Float32frombits((sign << 31) | 0x7f800000)
+		}
+		return math.Float32frombits((sign << 31) | 0x7fc00000)
+	default:
+		return math.Float32frombits((sign << 31) | ((exp + 112) << 23) | (frac << 13))
 	}
 }
 

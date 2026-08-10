@@ -22,7 +22,8 @@ import (
 //	VSIM key ELE element [COUNT n] [WITHSCORES]
 //	VREM / VCARD / VDIM / VEMB / VINFO / VISMEMBER / VLINKS
 //
-// Accepted no-ops (no quantization yet): CAS, NOQUANT, Q8, BIN, NOTHREAD, REDUCE.
+// Accepted no-ops (no true quantization yet — still stores f32; VINFO quant-type=f32):
+// CAS, NOQUANT, Q8, BIN, NOTHREAD, REDUCE.
 // HNSW graph is live: M/EF on VADD and EF/TRUTH on VSIM take effect.
 
 func execVAdd(db *DB, args [][]byte) redis.Reply {

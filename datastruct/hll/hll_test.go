@@ -12,11 +12,13 @@ func TestDecodeRejectsSparse(t *testing.T) {
 	sparse := make([]byte, TotalSize)
 	copy(sparse[:4], "HYLL")
 	sparse[4] = 1 // HLL_SPARSE
-	for i := range sparse {
-		sparse[i] = 0
-	}
 	if _, err := Decode(sparse); err == nil {
 		t.Fatal("sparse HLL blob should be rejected")
+	} else if err != ErrSparseEncoding {
+		t.Fatalf("want ErrSparseEncoding, got %v", err)
+	}
+	if !IsSparseHLLString(sparse) {
+		t.Fatal("IsSparseHLLString should detect sparse header")
 	}
 	// Short / bad-header blobs are also rejected.
 	if _, err := Decode([]byte("HYLL")); err == nil {

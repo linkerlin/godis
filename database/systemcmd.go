@@ -391,6 +391,12 @@ func GenGodisInfoString(section string, db *Server) []byte {
 			}
 		}
 		totalSys := getTotalSystemMemoryBytes()
+		// Prefer true process RSS when available; fall back to MemStats.Sys
+		// (not jemalloc allocator_resident — still Go runtime accounting).
+		rss := getProcessRSSBytes()
+		if rss == 0 {
+			rss = m.Sys
+		}
 		s := fmt.Sprintf("# Memory\r\n"+
 			"used_memory:%d\r\n"+
 			"used_memory_human:%s\r\n"+
@@ -423,8 +429,8 @@ func GenGodisInfoString(section string, db *Server) []byte {
 			"mem_allocator:%s\r\n",
 			m.Alloc,
 			humanReadableSize(m.Alloc),
-			m.Sys,
-			humanReadableSize(m.Sys),
+			rss,
+			humanReadableSize(rss),
 			peak,
 			humanReadableSize(peak),
 			peakPerc,
@@ -443,7 +449,7 @@ func GenGodisInfoString(section string, db *Server) []byte {
 			m.Sys,
 			float64(m.HeapSys)/float64(max(m.HeapAlloc, 1)),
 			0, // mem_not_counted_for_evict
-			float64(m.Sys)/float64(max(m.Alloc, 1)),
+			float64(rss)/float64(max(m.Alloc, 1)),
 			fragBytes,
 			0, // mem_clients_slaves
 			0, // mem_clients_normal

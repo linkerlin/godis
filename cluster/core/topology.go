@@ -228,7 +228,28 @@ func (v clusterView) infoBulk() []byte {
 			"cluster_current_epoch:0\n"+
 			"cluster_my_epoch:0\n"+
 			"cluster_stats_messages_sent:0\n"+
-			"cluster_stats_messages_received:0\n",
+			"cluster_stats_messages_received:0\n"+
+			// No Redis gossip bus: typed counters stay honest zeros.
+			"cluster_stats_messages_ping_sent:0\n"+
+			"cluster_stats_messages_ping_received:0\n"+
+			"cluster_stats_messages_pong_sent:0\n"+
+			"cluster_stats_messages_pong_received:0\n"+
+			"cluster_stats_messages_meet_sent:0\n"+
+			"cluster_stats_messages_meet_received:0\n"+
+			"cluster_stats_messages_fail_sent:0\n"+
+			"cluster_stats_messages_fail_received:0\n"+
+			"cluster_stats_messages_publish_sent:0\n"+
+			"cluster_stats_messages_publish_received:0\n"+
+			"cluster_stats_messages_auth-req_sent:0\n"+
+			"cluster_stats_messages_auth-req_received:0\n"+
+			"cluster_stats_messages_auth-ack_sent:0\n"+
+			"cluster_stats_messages_auth-ack_received:0\n"+
+			"cluster_stats_messages_update_sent:0\n"+
+			"cluster_stats_messages_update_received:0\n"+
+			"cluster_stats_messages_mfstart_sent:0\n"+
+			"cluster_stats_messages_mfstart_received:0\n"+
+			"cluster_stats_messages_module_sent:0\n"+
+			"cluster_stats_messages_module_received:0\n",
 		state, assigned, assigned, known, size,
 	)
 	return []byte(info)

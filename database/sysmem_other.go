@@ -5,3 +5,7 @@ package database
 func getTotalSystemMemoryBytes() uint64 {
 	return 0
 }
+
+func getProcessRSSBytes() uint64 {
+	return 0
+}

@@ -24,6 +24,10 @@ const (
 
 var header = [4]byte{'H', 'Y', 'L', 'L'}
 
+// ErrSparseEncoding is returned when Decode sees a Redis sparse (or non-dense)
+// HLL blob. Godis only produces/reads dense encoding.
+var ErrSparseEncoding = errors.New("sparse HLL encoding not supported")
+
 // HLL is the in-memory register array (0 = dense encoding, matching Redis).
 type HLL struct {
 	registers [Registers]uint8
@@ -115,7 +119,7 @@ func Decode(data []byte) (*HLL, error) {
 		return nil, errors.New("invalid HLL string: bad header")
 	}
 	if data[4] != 0 {
-		return nil, errors.New("sparse HLL encoding not supported")
+		return nil, ErrSparseEncoding
 	}
 	h := &HLL{}
 	for i := 0; i < Registers; i++ {
@@ -129,6 +133,13 @@ func IsHLLString(data []byte) bool {
 	return len(data) >= TotalSize &&
 		data[0] == 'H' && data[1] == 'Y' && data[2] == 'L' && data[3] == 'L' &&
 		data[4] == 0
+}
+
+// IsSparseHLLString reports a Redis-style HLL header with non-dense encoding.
+func IsSparseHLLString(data []byte) bool {
+	return len(data) >= HeaderSize &&
+		data[0] == 'H' && data[1] == 'Y' && data[2] == 'L' && data[3] == 'L' &&
+		data[4] != 0
 }
 
 // getRegister reads the 6-bit register at index from the packed buffer.

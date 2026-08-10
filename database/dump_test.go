@@ -29,17 +29,14 @@ func TestRestoreAskingAndReplace(t *testing.T) {
 	asserts.AssertStatusReply(t, db.Exec(nil, utils.ToCmdLine("SET", "ask-k", "old")), "OK")
 	dump := db.Exec(nil, utils.ToCmdLine("DUMP", "ask-k")).(*protocol.BulkReply)
 
-	reply := execRestoreAsking(db, [][]byte{
-		[]byte("ask-k"),
-		[]byte("0"),
-		dump.Arg,
-	})
-	asserts.AssertStatusReply(t, reply, "OK")
+	asserts.AssertStatusReply(t, db.Exec(nil, utils.ToCmdLine(
+		"RESTORE-ASKING", "ask-k", "0", string(dump.Arg),
+	)), "OK")
 	asserts.AssertBulkReply(t, db.Exec(nil, utils.ToCmdLine("GET", "ask-k")), "old")
 
 	asserts.AssertStatusReply(t, db.Exec(nil, utils.ToCmdLine("SET", "rep-k", "x")), "OK")
 	newDump := db.Exec(nil, utils.ToCmdLine("DUMP", "rep-k")).(*protocol.BulkReply)
-	reply = db.Exec(nil, utils.ToCmdLine("RESTORE", "rep-k", "0", string(newDump.Arg)))
+	reply := db.Exec(nil, utils.ToCmdLine("RESTORE", "rep-k", "0", string(newDump.Arg)))
 	if !protocol.IsErrorReply(reply) {
 		t.Fatalf("expected BUSYKEY, got %s", reply.ToBytes())
 	}

@@ -324,6 +324,11 @@ func execMemoryStats(server *Server) redis.Reply {
 	stats.Put("allocator.allocated", protocol.MakeIntReply(int64(m.HeapAlloc)))
 	stats.Put("allocator.active", protocol.MakeIntReply(int64(m.HeapSys)))
 	stats.Put("allocator.resident", protocol.MakeIntReply(int64(m.Sys)))
+	rss := getProcessRSSBytes()
+	if rss == 0 {
+		rss = m.Sys
+	}
+	stats.Put("process.rss", protocol.MakeIntReply(int64(rss)))
 	stats.Put("fragmentation", protocol.MakeDoubleReply(frag))
 	stats.Put("fragmentation.bytes", protocol.MakeIntReply(fragBytes))
 	// Go-specific extras retained for debugging

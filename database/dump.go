@@ -145,10 +145,11 @@ func execRestore(db *DB, args [][]byte) redis.Reply {
 }
 
 func execRestoreAsking(db *DB, args [][]byte) redis.Reply {
-	if len(args) != 3 {
+	if len(args) < 3 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'restore-asking' command")
 	}
-	newArgs := append(args, []byte("REPLACE"))
+	// Cluster migrate path: always REPLACE (Redis RESTORE-ASKING semantics).
+	newArgs := append(append([][]byte{}, args...), []byte("REPLACE"))
 	return execRestore(db, newArgs)
 }
 
@@ -380,5 +381,7 @@ func init() {
 	registerCommand("Dump", execDump, readFirstKey, nil, 2, flagReadOnly).
 		attachCommandExtra([]string{redisFlagReadonly, redisFlagRandom}, 1, 1, 1)
 	registerCommand("Restore", execRestore, writeFirstKey, rollbackFirstKey, -4, flagWrite).
+		attachCommandExtra([]string{redisFlagWrite}, 1, 1, 1)
+	registerCommand("Restore-Asking", execRestoreAsking, writeFirstKey, rollbackFirstKey, -4, flagWrite).
 		attachCommandExtra([]string{redisFlagWrite}, 1, 1, 1)
 }

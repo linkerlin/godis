@@ -16,7 +16,9 @@ import (
 )
 
 // Godis opaque RDB/AOF encoding (not Redis-interoperable).
-// Format: magic || JSON{type, data}
+// Format: magic "GODIS1\0" || JSON{"t":type,"d":payload}
+// Types: stream|json|vector|ts|hexpire|bloom|cuckoo|cms|topk|tdigest.
+// Official Redis module RDB / DUMP interchange remains a non-goal.
 var opaqueMagic = []byte("GODIS1\x00")
 
 const (

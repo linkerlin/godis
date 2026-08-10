@@ -30,3 +30,33 @@ func getTotalSystemMemoryBytes() uint64 {
 	}
 	return ms.TotalPhys
 }
+
+// processMemoryCounters is a subset of Windows PROCESS_MEMORY_COUNTERS.
+type processMemoryCounters struct {
+	cb                         uint32
+	pageFaultCount             uint32
+	peakWorkingSetSize         uintptr
+	workingSetSize             uintptr
+	quotaPeakPagedPoolUsage    uintptr
+	quotaPagedPoolUsage        uintptr
+	quotaPeakNonPagedPoolUsage uintptr
+	quotaNonPagedPoolUsage     uintptr
+	pagefileUsage              uintptr
+	peakPagefileUsage          uintptr
+}
+
+// getProcessRSSBytes returns the process working set (OS RSS), or 0 on failure.
+func getProcessRSSBytes() uint64 {
+	kernel32 := syscall.NewLazyDLL("kernel32.dll")
+	psapi := syscall.NewLazyDLL("psapi.dll")
+	getCurrentProcess := kernel32.NewProc("GetCurrentProcess")
+	getProcessMemoryInfo := psapi.NewProc("GetProcessMemoryInfo")
+	handle, _, _ := getCurrentProcess.Call()
+	var pmc processMemoryCounters
+	pmc.cb = uint32(unsafe.Sizeof(pmc))
+	r, _, _ := getProcessMemoryInfo.Call(handle, uintptr(unsafe.Pointer(&pmc)), uintptr(pmc.cb))
+	if r == 0 {
+		return 0
+	}
+	return uint64(pmc.workingSetSize)
+}
