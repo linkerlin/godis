@@ -56,7 +56,8 @@ const (
 type slaveClient struct {
 	conn         redis.Connection
 	state        uint8
-	offset       int64
+	offset       int64 // ACK'd offset from REPLCONF ACK (WAIT / ROLE / FAILOVER)
+	sentOffset   int64 // last offset successfully written on the send path
 	lastAckTime  time.Time
 	announceIp   string
 	announcePort int
@@ -390,10 +391,10 @@ func (server *Server) masterSendUpdatesToSlave() error {
 	}
 	server.masterStatus.mu.RUnlock()
 	for slave := range onlineSlaves {
-		slaveBeginOffset := slave.offset - beginOffset
+		slaveBeginOffset := slave.sentOffset - beginOffset
 		// Guard against negative/overflowing offsets (e.g. a replica that just
 		// disconnected during FAILOVER, or a backlog that rolled past the
-		// replica's last ack). A write to a closed connection below removes it.
+		// replica's last send watermark). A write to a closed connection below removes it.
 		if slaveBeginOffset < 0 {
 			slaveBeginOffset = 0
 		}
@@ -406,7 +407,8 @@ func (server *Server) masterSendUpdatesToSlave() error {
 			server.removeSlave(slave)
 			continue
 		}
-		slave.offset = currentOffset
+		// Advance send watermark only — WAIT / countSyncedSlaves use REPLCONF ACK (offset).
+		slave.sentOffset = currentOffset
 	}
 	return nil
 }
@@ -541,7 +543,11 @@ func (server *Server) setSlaveOnline(slave *slaveClient, currentOffset int64) {
 	server.masterStatus.mu.Lock()
 	defer server.masterStatus.mu.Unlock()
 	slave.state = slaveStateOnline
+	// Full/partial sync wrote up to currentOffset; treat that as the initial
+	// ACK baseline. Subsequent streaming writes only advance sentOffset until
+	// the replica sends REPLCONF ACK.
 	slave.offset = currentOffset
+	slave.sentOffset = currentOffset
 	server.masterStatus.onlineSlaves[slave] = struct{}{}
 }
 
@@ -629,7 +635,7 @@ func (server *Server) stopMaster() {
 }
 
 // execWait WAIT numreplicas timeout — block until enough replicas ACK or timeout (ms).
-// Simplified: counts online slaves whose offset has reached master's backlog offset.
+// Counts online slaves whose REPLCONF ACK offset has reached the master's backlog tip.
 func (server *Server) execWait(args [][]byte) redis.Reply {
 	if len(args) != 2 {
 		return protocol.MakeArgNumErrReply("wait")

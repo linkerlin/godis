@@ -97,7 +97,7 @@
 | Pub/Sub RESP3 | ✅ 无参 UNSUBSCRIBE/PUNSUBSCRIBE 用 `_` |
 | MEMORY HELP | ✅ 子命令帮助数组 |
 | CF.RESERVE EXPANSION | ✅ 存因子并在满时扩容 |
-| WAIT | ✅ 循环内对副本发 GETACK；以 REPLCONF ACK offset 为准（发送路径不抬 ACK） |
+| WAIT | ✅ 循环内对副本发 GETACK |
 | TDIGEST.ADD | ✅ VALUES / WEIGHTS |
 | FT.ADD NOSAVE | ✅ 跳过 AOF |
 | ACL %R~/%W~/%RW~ | ✅ 读写分离 key 模式；DRYRUN 按 prepare 读写键校验 |

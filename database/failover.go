@@ -179,6 +179,10 @@ func waitSlaveInSync(server *Server, target *slaveClient, timeout time.Duration)
 		if atomic.LoadInt32(&failoverState) != failoverWaitingSync {
 			return false // aborted
 		}
+		// Push pending backlog and poke GETACK so REPLCONF ACK can advance
+		// target.offset (send watermark alone is not sync).
+		_ = server.masterSendUpdatesToSlave()
+		server.nudgeSlavesForWait()
 		server.masterStatus.mu.RLock()
 		current := server.masterStatus.backlog.currentOffset
 		offset := target.offset

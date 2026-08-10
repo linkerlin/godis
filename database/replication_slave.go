@@ -433,7 +433,17 @@ func (server *Server) receiveAOF(ctx context.Context, configVersion int32) error
 			// re-acquires it (a self-deadlock would otherwise freeze replication
 			// the first time the master sends GETACK).
 			server.slaveStatus.mutex.Unlock()
-			server.Exec(conn, cmdLine.Args)
+			isGetAck := len(cmdLine.Args) >= 2 &&
+				strings.EqualFold(string(cmdLine.Args[0]), "replconf") &&
+				strings.EqualFold(string(cmdLine.Args[1]), "getack")
+			reply := server.Exec(conn, cmdLine.Args)
+			// Only GETACK must talk back on the replication link; ordinary command
+			// replies would pollute the master's parser.
+			if isGetAck && reply != nil {
+				if _, isNo := reply.(*protocol.NoReply); !isNo {
+					_, _ = server.slaveStatus.masterConn.Write(reply.ToBytes())
+				}
+			}
 			n := len(cmdLine.ToBytes()) // todo: directly get size from socket
 			server.slaveStatus.mutex.Lock()
 			server.slaveStatus.replOffset += int64(n)
