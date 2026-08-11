@@ -8,7 +8,7 @@
 #   以及 datastruct 新类型（json/vector/timeseries/hll 等）。
 # - 「可接受覆盖」无数值门禁；专项冲高 ≠ 本 workflow 会红灯。
 # R4-1 note: Redis 8 sidecar 在下方 redis-action 已起服务；**allowlist**
-# 脚手架（PING/ECHO/SET/GET/STRLEN/APPEND/DEL/EXISTS/INCR/DECR/TYPE）在 smoke
+# 脚手架（String+Hash+List allowlist，见 scripts/redis-sidecar-diff.*）在 smoke
 # 步真实可跑；完整输出 diff 套件未接入、亦不宣称。本地：
 # bash scripts/redis-sidecar-diff.sh 或 pwsh scripts/redis-sidecar-diff.ps1；
 # 无双端时 --selfcheck / -SelfCheck。

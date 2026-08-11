@@ -1,7 +1,10 @@
 # R4-1 scaffold (PowerShell): tiny allowlist diff vs a Redis 8 sidecar.
 # NOT a full compatibility suite. Does not claim Redis parity.
-# Allowlist: PING / ECHO / SET / GET / STRLEN / APPEND / DEL / EXISTS / INCR / DECR / TYPE
-# Out of scope: modules, DUMP/RESTORE, gossip, ACL, cluster, FT.*, FUNCTIONS.
+# Allowlist:
+#   String: PING / ECHO / SET / GET / STRLEN / APPEND / DEL / EXISTS / INCR / DECR / TYPE
+#   Hash:   HSET / HGET / HLEN / HEXISTS / HDEL
+#   List:   LPUSH / LLEN / LINDEX / LPOP
+# Out of scope: modules, DUMP/RESTORE, gossip, ACL, cluster, FT.*, FUNCTIONS, HGETALL/LRANGE.
 param(
     [switch]$SelfCheck
 )
@@ -12,10 +15,11 @@ $RedisPort = if ($env:REDIS_PORT) { $env:REDIS_PORT } else { "6379" }
 $GodisHost = if ($env:GODIS_HOST) { $env:GODIS_HOST } else { "127.0.0.1" }
 $GodisPort = if ($env:GODIS_PORT) { $env:GODIS_PORT } else { "6399" }
 $Cli = if ($env:REDISCLI) { $env:REDISCLI } else { "redis-cli" }
+$Allowlist = "PING,ECHO,SET,GET,STRLEN,APPEND,DEL,EXISTS,INCR,DECR,TYPE,HSET,HGET,HLEN,HEXISTS,HDEL,LPUSH,LLEN,LINDEX,LPOP"
 
 function Invoke-RedisCli {
     param([string]$HostName, [string]$Port, [Parameter(ValueFromRemainingArguments = $true)][string[]]$Args)
-    & $Cli -h $HostName -p $Port @Args
+    & $Cli --raw -h $HostName -p $Port @Args
 }
 
 if ($SelfCheck) {
@@ -24,11 +28,11 @@ if ($SelfCheck) {
         Write-Host "R4-1 selfcheck: $Cli not on PATH (install later; allowlist still documented)"
         exit 0
     }
-    Write-Host "R4-1 selfcheck ok: allowlist=PING,ECHO,SET,GET,STRLEN,APPEND,DEL,EXISTS,INCR,DECR,TYPE; full suite out of scope"
+    Write-Host "R4-1 selfcheck ok: allowlist=$Allowlist; full suite out of scope"
     exit 0
 }
 
-Write-Host "R4-1 scaffold: allowlist-only (PING/ECHO/SET/GET/STRLEN/APPEND/DEL/EXISTS/INCR/DECR/TYPE). Full module/DUMP/gossip diffs are out of scope."
+Write-Host "R4-1 scaffold: allowlist-only ($Allowlist). Full module/DUMP/gossip diffs are out of scope."
 
 function Assert-Both {
     param([string]$Label, [string]$Want, [string[]]$Cmd)
@@ -67,6 +71,29 @@ Assert-Both "INCR" "1" @("INCR", $nkey)
 Assert-Both "INCR2" "2" @("INCR", $nkey)
 Assert-Both "DECR" "1" @("DECR", $nkey)
 Assert-Both "GET-n" "1" @("GET", $nkey)
+
+$hkey = "sidecar:allowlist:h:$PID"
+Invoke-RedisCli $RedisHost $RedisPort DEL $hkey | Out-Null
+Invoke-RedisCli $GodisHost $GodisPort DEL $hkey | Out-Null
+Assert-Both "HSET" "1" @("HSET", $hkey, "f", "v")
+Assert-Both "HGET" "v" @("HGET", $hkey, "f")
+Assert-Both "HLEN" "1" @("HLEN", $hkey)
+Assert-Both "HEXISTS" "1" @("HEXISTS", $hkey, "f")
+Assert-Both "TYPE-hash" "hash" @("TYPE", $hkey)
+Assert-Both "HDEL" "1" @("HDEL", $hkey, "f")
+Assert-Both "HEXISTS-after" "0" @("HEXISTS", $hkey, "f")
+Assert-Both "DEL-h" "1" @("DEL", $hkey)
+
+$lkey = "sidecar:allowlist:l:$PID"
+Invoke-RedisCli $RedisHost $RedisPort DEL $lkey | Out-Null
+Invoke-RedisCli $GodisHost $GodisPort DEL $lkey | Out-Null
+Assert-Both "LPUSH" "2" @("LPUSH", $lkey, "a", "b")
+Assert-Both "LLEN" "2" @("LLEN", $lkey)
+Assert-Both "LINDEX" "b" @("LINDEX", $lkey, "0")
+Assert-Both "TYPE-list" "list" @("TYPE", $lkey)
+Assert-Both "LPOP" "b" @("LPOP", $lkey)
+Assert-Both "LLEN-after" "1" @("LLEN", $lkey)
+Assert-Both "DEL-l" "1" @("DEL", $lkey)
 
 Assert-Both "DEL" "1" @("DEL", $key)
 Assert-Both "EXISTS-after-del" "0" @("EXISTS", $key)
