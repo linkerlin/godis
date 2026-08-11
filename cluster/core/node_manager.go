@@ -142,7 +142,11 @@ func execClusterMeet(cluster *Cluster, c redis.Connection, cmdLine CmdLine) redi
 		if raftAddr == "" {
 			return protocol.MakeErrReply("ERR CLUSTER MEET requires raft-port (Godis uses Raft advertise, not gossip). Usage: CLUSTER MEET ip port raft-port")
 		}
-		return execJoin(cluster, c, utils.ToCmdLine(joinClusterCommand, redisAddr, raftAddr))
+		reply := execJoin(cluster, c, utils.ToCmdLine(joinClusterCommand, redisAddr, raftAddr))
+		if !protocol.IsErrorReply(reply) {
+			cluster.bus.incrMeetSent()
+		}
+		return reply
 	}
 
 	// FSM-only (no Hashicorp Raft): topology join without AddToRaft.
@@ -155,6 +159,7 @@ func execClusterMeet(cluster *Cluster, c redis.Connection, cmdLine CmdLine) redi
 			NodeId: redisAddr,
 		},
 	})
+	cluster.bus.incrMeetSent()
 	return protocol.MakeOkReply()
 }
 

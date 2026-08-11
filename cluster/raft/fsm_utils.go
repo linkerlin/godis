@@ -104,22 +104,100 @@ func (fsm *FSM) addNode(id, masterId string) error {
 		fsm.MasterSlaves[id] = &MasterSlave{
 			MasterId: id,
 		}
-	} else {
-		master := fsm.MasterSlaves[masterId]
-		if master == nil {
-			return errors.New("master not found")
+		return nil
+	}
+	return fsm.setReplica(id, masterId)
+}
+
+// setReplica attaches id as a replica of masterId (CLUSTER REPLICATE / EventJoin with Master).
+// Caller must hold fsm.mu (or be inside Apply). Rejects when id owns slots or has replicas.
+func (fsm *FSM) setReplica(id, masterId string) error {
+	if id == "" || masterId == "" {
+		return errors.New("id and master required")
+	}
+	if id == masterId {
+		return errors.New("can't replicate myself")
+	}
+	master := fsm.MasterSlaves[masterId]
+	if master == nil {
+		return errors.New("master not found")
+	}
+	if fsm.SlaveMasters[id] == masterId {
+		return nil // idempotent
+	}
+	if len(fsm.Node2Slot[id]) > 0 {
+		return errors.New("node has assigned slots")
+	}
+	if ms, ok := fsm.MasterSlaves[id]; ok {
+		if len(ms.Slaves) > 0 {
+			return errors.New("node has replicas")
 		}
-		exists := false
-		for _, slave := range master.Slaves {
-			if slave == id {
-				exists = true
-				break
-			}
+		delete(fsm.MasterSlaves, id)
+	}
+	if old, ok := fsm.SlaveMasters[id]; ok && old != masterId {
+		if oms := fsm.MasterSlaves[old]; oms != nil {
+			oms.Slaves = filterNodeIDs(oms.Slaves, id)
 		}
-		if !exists {
-			master.Slaves = append(master.Slaves, id)
+	}
+	exists := false
+	for _, slave := range master.Slaves {
+		if slave == id {
+			exists = true
+			break
 		}
-		fsm.SlaveMasters[id] = masterId
+	}
+	if !exists {
+		master.Slaves = append(master.Slaves, id)
+	}
+	fsm.SlaveMasters[id] = masterId
+	return nil
+}
+
+// forgetNode drops id from topology. Safe path: unknown→err; has slots→err; master with replicas→err.
+func (fsm *FSM) forgetNode(id string) error {
+	if id == "" {
+		return errors.New("empty node id")
+	}
+	if len(fsm.Node2Slot[id]) > 0 {
+		return errors.New("Can't forget a node with assigned slots")
+	}
+	if ms, ok := fsm.MasterSlaves[id]; ok && len(ms.Slaves) > 0 {
+		return errors.New("Can't forget a master with replicas")
+	}
+	known := false
+	if _, ok := fsm.MasterSlaves[id]; ok {
+		known = true
+		delete(fsm.MasterSlaves, id)
+	}
+	if masterId, ok := fsm.SlaveMasters[id]; ok {
+		known = true
+		if ms := fsm.MasterSlaves[masterId]; ms != nil {
+			ms.Slaves = filterNodeIDs(ms.Slaves, id)
+		}
+		delete(fsm.SlaveMasters, id)
+	}
+	for _, ms := range fsm.MasterSlaves {
+		if ms == nil {
+			continue
+		}
+		ms.Slaves = filterNodeIDs(ms.Slaves, id)
+	}
+	delete(fsm.Node2Slot, id)
+	if !known {
+		return errors.New("Unknown node id")
 	}
 	return nil
+}
+
+func filterNodeIDs(ids []string, drop string) []string {
+	if len(ids) == 0 {
+		return ids
+	}
+	out := make([]string, 0, len(ids))
+	for _, id := range ids {
+		if id != drop {
+			out = append(out, id)
+		}
+	}
+	return out
 }

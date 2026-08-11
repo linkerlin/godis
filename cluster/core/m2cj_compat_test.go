@@ -13,8 +13,8 @@ func TestM2cjClusterReplicateFailover(t *testing.T) {
 	r := execCluster(cl, nil, [][]byte{
 		[]byte("CLUSTER"), []byte("REPLICATE"), []byte("master-id"),
 	})
-	if !protocol.IsErrorReply(r) || !strings.Contains(string(r.ToBytes()), "not supported") {
-		t.Fatalf("REPLICATE want not supported: %T %s", r, r.ToBytes())
+	if !protocol.IsErrorReply(r) || !strings.Contains(string(r.ToBytes()), "requires Raft FSM") {
+		t.Fatalf("REPLICATE want requires Raft FSM: %T %s", r, r.ToBytes())
 	}
 
 	r = execCluster(cl, nil, [][]byte{[]byte("CLUSTER"), []byte("FAILOVER")})
@@ -35,5 +35,8 @@ func TestM2cjClusterReplicateFailover(t *testing.T) {
 	help := string(execClusterHelp().ToBytes())
 	if !strings.Contains(help, "REPLICATE") || !strings.Contains(help, "FAILOVER") || !strings.Contains(help, "Not supported") {
 		t.Fatalf("HELP missing entries: %s", help)
+	}
+	if !strings.Contains(help, "FSM EventJoin") && !strings.Contains(help, "MasterSlaves") {
+		t.Fatalf("HELP REPLICATE should mention FSM path: %s", help)
 	}
 }

@@ -39,6 +39,9 @@ type Cluster struct {
 	// humanName is CLUSTER SETNAME / GETNAME (Redis 7.2+).
 	humanName string
 
+	// bus mirrors peer RPCs into CLUSTER INFO gossip-shaped counters (not a real bus).
+	bus busStats
+
 	// slow log record
 	slogLogger *dbimpl.SlowLogger
 }
@@ -99,7 +102,7 @@ func NewCluster(cfg *Config) (*Cluster, error) {
 	cluster.registerOnFailover()
 
 	dbimpl.SetClusterInfoSectionProvider(func() string {
-		return string(cluster.snapshotClusterView().infoBulk())
+		return string(cluster.snapshotClusterView().infoBulk(cluster.busSnapshot()))
 	})
 
 	// setup

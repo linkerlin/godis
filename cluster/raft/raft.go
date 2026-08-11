@@ -203,6 +203,8 @@ func (node *Node) Propose(event *LogEntry) (uint64, error) {
 }
 
 // setupWatch will be called after any changes of FSM within lock.
+// Wires FSM.changed so topology events update SlaveMasters and invoke onFailover
+// (CLUSTER REPLICATE / failover → local SLAVEOF).
 func (node *Node) setupWatch() {
 	node.watcher.watch = func(f *FSM) {
 		newMaster := f.SlaveMasters[node.Self()]
@@ -212,6 +214,9 @@ func (node *Node) setupWatch() {
 				node.watcher.onFailover(newMaster)
 			}
 		}
+	}
+	if node.FSM != nil {
+		node.FSM.changed = node.watcher.watch
 	}
 }
 

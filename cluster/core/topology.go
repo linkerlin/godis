@@ -202,7 +202,7 @@ func (v clusterView) slotsReply() redis.Reply {
 	return protocol.MakeMultiRawReply(entries)
 }
 
-func (v clusterView) infoBulk() []byte {
+func (v clusterView) infoBulk(stats busStatsSnap) []byte {
 	assigned := v.assignedSlotCount()
 	known := len(v.allNodeIDs)
 	if known == 0 {
@@ -217,6 +217,10 @@ func (v clusterView) infoBulk() []byte {
 			state = "fail"
 		}
 	}
+	// cluster_bus_port stays 0: no Redis gossip listen port.
+	// ping/pong/meet counters come from Godis peer RPC (heartbeat/MEET), not CLUSTERMSG frames.
+	sent := stats.pingSent + stats.pongSent + stats.meetSent
+	recv := stats.pingReceived + stats.pongReceived
 	info := fmt.Sprintf(
 		"cluster_state:%s\n"+
 			"cluster_slots_assigned:%d\n"+
@@ -227,15 +231,14 @@ func (v clusterView) infoBulk() []byte {
 			"cluster_size:%d\n"+
 			"cluster_current_epoch:0\n"+
 			"cluster_my_epoch:0\n"+
-			// No Redis cluster bus: port 0 + message counters stay honest zeros.
 			"cluster_bus_port:0\n"+
-			"cluster_stats_messages_sent:0\n"+
-			"cluster_stats_messages_received:0\n"+
-			"cluster_stats_messages_ping_sent:0\n"+
-			"cluster_stats_messages_ping_received:0\n"+
-			"cluster_stats_messages_pong_sent:0\n"+
-			"cluster_stats_messages_pong_received:0\n"+
-			"cluster_stats_messages_meet_sent:0\n"+
+			"cluster_stats_messages_sent:%d\n"+
+			"cluster_stats_messages_received:%d\n"+
+			"cluster_stats_messages_ping_sent:%d\n"+
+			"cluster_stats_messages_ping_received:%d\n"+
+			"cluster_stats_messages_pong_sent:%d\n"+
+			"cluster_stats_messages_pong_received:%d\n"+
+			"cluster_stats_messages_meet_sent:%d\n"+
 			"cluster_stats_messages_meet_received:0\n"+
 			"cluster_stats_messages_fail_sent:0\n"+
 			"cluster_stats_messages_fail_received:0\n"+
@@ -252,6 +255,10 @@ func (v clusterView) infoBulk() []byte {
 			"cluster_stats_messages_module_sent:0\n"+
 			"cluster_stats_messages_module_received:0\n",
 		state, assigned, assigned, known, size,
+		sent, recv,
+		stats.pingSent, stats.pingReceived,
+		stats.pongSent, stats.pongReceived,
+		stats.meetSent,
 	)
 	return []byte(info)
 }

@@ -71,6 +71,12 @@ type SlotsTask struct {
 	Slots  []uint32
 }
 
+// ForgetTask removes a node from FSM topology (CLUSTER FORGET).
+// Not Redis gossip FORGET (no bus / no 60s ban); Raft/FSM table cleanup only.
+type ForgetTask struct {
+	NodeId string
+}
+
 // implements FSM.Apply after you created a new raft event
 const (
 	EventStartMigrate = iota + 1
@@ -81,6 +87,7 @@ const (
 	EventAddSlots
 	EventRemoveSlots
 	EventAssignSlots // SETSLOT NODE: set ownership (transfer if needed)
+	EventForget      // CLUSTER FORGET: drop from MasterSlaves / SlaveMasters
 )
 
 // LogEntry is an entry in raft log, stores a change of cluster
@@ -90,7 +97,8 @@ type LogEntry struct {
 	InitTask      *InitTask
 	FailoverTask  *FailoverTask
 	JoinTask      *JoinTask
-	SlotsTask     *SlotsTask `json:"SlotsTask,omitempty"`
+	SlotsTask     *SlotsTask  `json:"SlotsTask,omitempty"`
+	ForgetTask    *ForgetTask `json:"ForgetTask,omitempty"`
 }
 
 // Apply is called once a log entry is committed by a majority of the cluster.
@@ -155,7 +163,20 @@ func (fsm *FSM) Apply(log *raft.Log) interface{} {
 			logger.Error("raft FSM Apply: EventJoin with nil JoinTask")
 			return nil
 		}
-		fsm.addNode(task.NodeId, task.Master)
+		if err := fsm.addNode(task.NodeId, task.Master); err != nil {
+			logger.Errorf("raft FSM Apply: EventJoin %s master=%q: %v", task.NodeId, task.Master, err)
+			return nil
+		}
+	} else if entry.Event == EventForget {
+		task := entry.ForgetTask
+		if task == nil {
+			logger.Error("raft FSM Apply: EventForget with nil ForgetTask")
+			return nil
+		}
+		if err := fsm.forgetNode(task.NodeId); err != nil {
+			logger.Errorf("raft FSM Apply: EventForget %s: %v", task.NodeId, err)
+			return nil
+		}
 	} else if entry.Event == EventAddSlots {
 		task := entry.SlotsTask
 		if task == nil {
@@ -164,7 +185,7 @@ func (fsm *FSM) Apply(log *raft.Log) interface{} {
 		}
 		fsm.addSlots(task.NodeId, task.Slots)
 		if _, ok := fsm.MasterSlaves[task.NodeId]; !ok {
-			fsm.addNode(task.NodeId, "")
+			_ = fsm.addNode(task.NodeId, "")
 		}
 	} else if entry.Event == EventRemoveSlots {
 		task := entry.SlotsTask
@@ -181,7 +202,7 @@ func (fsm *FSM) Apply(log *raft.Log) interface{} {
 		}
 		fsm.assignSlots(task.NodeId, task.Slots)
 		if _, ok := fsm.MasterSlaves[task.NodeId]; !ok {
-			fsm.addNode(task.NodeId, "")
+			_ = fsm.addNode(task.NodeId, "")
 		}
 	}
 	if fsm.changed != nil {

@@ -28,8 +28,11 @@ func TestM2cgClusterGetKeysInSlotForgetResetSaveConfig(t *testing.T) {
 		t.Fatalf("GETKEYSINSLOT want local key: %T %s", r, r.ToBytes())
 	}
 
+	forget := execCluster(cl, nil, [][]byte{[]byte("CLUSTER"), []byte("FORGET"), []byte("deadnode")})
+	if !protocol.IsErrorReply(forget) || !strings.Contains(string(forget.ToBytes()), "requires Raft FSM") {
+		t.Fatalf("FORGET want requires Raft FSM: %T %s", forget, forget.ToBytes())
+	}
 	for _, sub := range [][][]byte{
-		{[]byte("CLUSTER"), []byte("FORGET"), []byte("deadnode")},
 		{[]byte("CLUSTER"), []byte("RESET")},
 		{[]byte("CLUSTER"), []byte("RESET"), []byte("SOFT")},
 		{[]byte("CLUSTER"), []byte("RESET"), []byte("HARD")},
@@ -47,7 +50,7 @@ func TestM2cgClusterGetKeysInSlotForgetResetSaveConfig(t *testing.T) {
 	}
 
 	help := string(execClusterHelp().ToBytes())
-	for _, want := range []string{"GETKEYSINSLOT", "FORGET", "RESET", "SAVECONFIG", "Not supported"} {
+	for _, want := range []string{"GETKEYSINSLOT", "FORGET", "RESET", "SAVECONFIG", "Not supported", "Raft/FSM"} {
 		if !strings.Contains(help, want) {
 			t.Fatalf("HELP missing %s: %s", want, help)
 		}
