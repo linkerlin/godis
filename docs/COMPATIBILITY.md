@@ -196,8 +196,20 @@ UNWATCH、WAIT（简版）、BITOP、BITFIELD、SMOVE、LPOS、XCLAIM、SHUTDOWN
 | ~~Vector 图内真 int8 距离~~ | **VADD Q8/BIN 真存储**；**BIN→图内 Hamming**；**Q8→图内 int8 距离**（无搜索态 f32 缓冲）；FT VECTOR 窄类型解码已有 | ✅ 2026-08-11 deep6；VEMB 仍可显示反量化近似 |
 | ~~AOF rewrite / RDB 写出 FT 索引定义~~ | 命令 AOF + **纯 AOF rewrite→FT.CREATE** + **RDB Godis opaque `ft`**（Load 后回填） | ✅ 2026-08-11；**非**官方 RediSearch 模块 RDB |
 | ~~HLL sparse 读取~~ | dense 互通；**sparse 安全解码→内存 dense**（写回仍 dense） | ✅ 2026-08-11：corrupt/非 dense·sparse 编码→`INVALIDOBJ`；已移出远期清单 |
-| CI Redis sidecar 全量输出 diff（R4-1） | 未做全量 | **扩大 allowlist**（用例表 `scripts/r4-1-cases.txt`）：既有 String/Hash/List + **Set**（SADD/SCARD/SISMEMBER/SREM）+ **ZSet**（ZADD/ZSCORE/ZCARD/ZREM）+ **键 TTL**（TTL/PTTL/PEXPIRE/EXPIRE/PERSIST，稳定码/`>=N`）；`redis-cli --raw`；失败多行可读；CI smoke 实跑；**仍非** FT/模块/DUMP/集群/无序回复（SMEMBERS/HGETALL）全量套件 |
+| CI Redis sidecar 全量输出 diff（R4-1） | 未做全量 | **扩大 allowlist**（`scripts/r4-1-cases.txt`）：String/Hash/List/Set/ZSet/TTL + **Stream lite**（显式 ID XADD/XLEN）+ **Geo lite**（GEOADD/ZCARD/TYPE）+ **Bitops**（SETBIT/GETBIT/BITCOUNT/BITOP）+ **HLL lite**（PFADD/PFCOUNT 小基数）；`@skip`/`@todo` 诚实标注已知洞；**仍非** FT/模块/DUMP/集群/无序回复全量套件 |
 | 覆盖率专项冲高（R4-2） | 未做 | 书面远期；**观察式门槛**见 `.github/workflows/coverall.yml` 注释（Coveralls 趋势、无私有 % 门禁、不因覆盖率 fail） |
+
+### R4-1 套件边界
+
+> Sidecar allowlist（`scripts/r4-1-cases.txt` + `redis-sidecar-diff.{sh,ps1}`）是**对照样例**，不是「已跑通官方 Redis Test」或全命令面兼容声明。
+
+| 边界 | 说明 |
+|------|------|
+| 范围 | Standalone 稳定命令：String/Hash/List/Set/ZSet/TTL + Stream/Geo/Bitops/HLL **lite** 子集 |
+| 排除 | **FT.\*** / 模块 / DUMP·RESTORE / ACL / cluster·gossip / FUNCTIONS ——除非用例表显式列入（当前未列） |
+| Honesty | `@skip` / `@todo` 记录已知洞；**禁止**把未对齐行为改成假 PASS |
+| 已知 skip/todo | `TYPE` on stream（Godis `getType` 未识别 `*stream.Stream`→`ERR unknown error`）；`GEODIST`/`GEOPOS` 浮点与嵌套 `--raw`；`XRANGE` 嵌套布局；大基数 `PFCOUNT` 近似漂移；`BITOP DIFF*` 非经典 allowlist；XGROUP/XREAD BLOCK |
+| 跑法 | 两侧 `redis-cli --raw` 等值（或 `>=N`/`<=N` 整数）；CI smoke 非全量 diff |
 
 ### BM25 / KNN / DIALECT 推进笔记（2026-08-11，`compat/bm25-knn-dialect`）
 
@@ -267,4 +279,4 @@ UNWATCH、WAIT（简版）、BITOP、BITFIELD、SMOVE、LPOS、XCLAIM、SHUTDOWN
 
 ---
 
-**最后更新：** 2026-08-11（并入 module-rdb / function-dump / jemalloc-info 边界：官方模块 RDB·DUMP、FUNCTION DUMP、内存核算诚实化；远期仍 **7** + 可独立 **0**）
+**最后更新：** 2026-08-11（并入四路边界：官方模块 RDB/DUMP、FUNCTION DUMP、jemalloc/INFO memory、R4-1 套件 Stream/Geo/Bitops/HLL lite；远期仍 **7** + 可独立 **0**）

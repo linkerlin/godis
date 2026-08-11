@@ -1,8 +1,9 @@
 # R4-1 scaffold (PowerShell): allowlist diff vs a Redis 8 sidecar (r4-1-cases.txt).
 # NOT a full compatibility suite. Does not claim Redis parity.
-# Covers stable String/Hash/List/Set/ZSet + TTL/PEXPIRE/PERSIST codes.
+# Covers stable String/Hash/List/Set/ZSet + TTL + Stream/Geo/Bitops/HLL lite.
 # Out of scope: modules, DUMP/RESTORE, gossip, ACL, cluster, FT.*, FUNCTIONS,
 # unordered replies (SMEMBERS/HGETALL), SCAN, exact remaining TTL seconds.
+# Markers: @skip / @todo document gaps (not executed; do not fake pass).
 param(
     [switch]$SelfCheck,
     [string]$CasesPath = ""
@@ -90,6 +91,10 @@ foreach ($rawLine in Get-Content -LiteralPath $CasesPath) {
     $line = Expand-CaseTokens $rawLine.TrimEnd("`r")
     if ([string]::IsNullOrWhiteSpace($line) -or $line.TrimStart().StartsWith("#")) { continue }
     if ($line -match '^@allowlist') { continue }
+
+    if ($line -match '^@(skip|todo)(\s|$)') {
+        continue
+    }
 
     if ($line.StartsWith("@")) {
         $parts = $line.Substring(1).Trim() -split '\s+'
