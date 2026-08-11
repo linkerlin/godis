@@ -9,11 +9,12 @@
 #   timeseries/hll 等）。本地可单独：go test -cover ./aof ./pubsub ./redis/protocol
 #   ./redis/connection ./lib/hashslot（勿把 -coverpkg 门槛接到 CI fail）。
 # - 「可接受覆盖」无数值门禁；专项冲高 ≠ 本 workflow 会红灯。
-# R4-1 note: Redis 8 sidecar 在下方 redis-action 已起服务；**allowlist**
-# 脚手架（String+Hash+List allowlist，见 scripts/redis-sidecar-diff.*）在 smoke
-# 步真实可跑；完整输出 diff 套件未接入、亦不宣称。本地：
-# bash scripts/redis-sidecar-diff.sh 或 pwsh scripts/redis-sidecar-diff.ps1；
-# 无双端时 --selfcheck / -SelfCheck。
+# R4-1 note: Redis 8 sidecar 在下方 redis-action 已起服务；**扩大 allowlist**
+# （String/Hash/List/Set/ZSet + TTL/PEXPIRE 等稳定输出；用例表
+# scripts/r4-1-cases.txt）在 smoke 步真实可跑。失败日志为多行 FAIL
+# （cmd/redis/godis/want）。仍非全量：无 FT/模块/DUMP/集群比对。
+# 本地：bash scripts/redis-sidecar-diff.sh 或 pwsh … -SelfCheck；
+# R41_CASES=path 可覆写用例表。
 
 name: Go
 
@@ -56,13 +57,16 @@ jobs:
         echo $! > godis.pid
         sleep 2
         bash scripts/smoke-test.sh
-        # R4-1: allowlist-only vs Redis sidecar (not a full compat suite).
+        # R4-1: expanded allowlist via r4-1-cases.txt (not FT/modules/DUMP/cluster).
         REDIS_HOST=127.0.0.1 REDIS_PORT=6379 GODIS_HOST=127.0.0.1 GODIS_PORT=6399 \
           bash scripts/redis-sidecar-diff.sh
         kill "$(cat godis.pid)"
 
     - name: R4-1 sidecar selfcheck
       run: bash scripts/redis-sidecar-diff.sh --selfcheck
+
+    - name: R4-1 cases file present
+      run: test -f scripts/r4-1-cases.txt && grep -q '@allowlist' scripts/r4-1-cases.txt
 
     - run: go test -v -coverprofile=profile.cov ./...
     - run: go test -race ./lib/validate/... ./redis/parser/... ./acl/... ./aof/...

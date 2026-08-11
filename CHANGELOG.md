@@ -6,6 +6,7 @@
 
 ### Added
 
+- R4-1：**用例表** `scripts/r4-1-cases.txt` 驱动 sidecar 比对；扩 **Set/ZSet/TTL**（SADD/SCARD/SISMEMBER/SREM、ZADD/ZSCORE/ZCARD/ZREM、TTL/PTTL/PEXPIRE/EXPIRE/PERSIST）；失败多行 FAIL；诚实标注非 FT/模块/DUMP/集群全量
 - R4-1 allowlist 扩 **Hash/List** 安全命令：HSET/HGET/HLEN/HEXISTS/HDEL、LPUSH/LLEN/LINDEX/LPOP；两侧统一 `redis-cli --raw`；自检列出完整 allowlist
 - FT **DIALECT/KNN 边界错误路径**可测：非法 DIALECT；缺 PARAMS；非 VECTOR 字段；dim 不符；残缺 KNN 子句；`SplitKNNClause` 单元（`No such parameter` 文案对齐）
 - R4-1 allowlist 再扩安全样例：ECHO/STRLEN/APPEND/DECR；`.sh`/`.ps1` + `--selfcheck`/自检文案同步

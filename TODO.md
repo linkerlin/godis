@@ -115,7 +115,7 @@
 
 ### R4 — 测试与文档
 
-- [ ] **R4-1 Redis 8.x 响应比对套件**：CI 中用 Redis 8 sidecar 做参考，diff 关键命令输出。（**远期非目标**；脚手架 allowlist：String+Hash+List 安全命令 — `scripts/redis-sidecar-diff.sh`/`.ps1`，`--raw`；CI smoke 实跑；非全量）
+- [ ] **R4-1 Redis 8.x 响应比对套件**：CI 中用 Redis 8 sidecar 做参考，diff 关键命令输出。（**远期非目标**；扩大 allowlist：`scripts/r4-1-cases.txt` 驱动 String/Hash/List/Set/ZSet + TTL 稳定项 — `redis-sidecar-diff.sh`/`.ps1`，`--raw`；CI smoke 实跑；**仍非** FT/模块/DUMP/集群全量）
 - [ ] **R4-2 覆盖率提升**：`aof`、`pubsub`、`redis/protocol`、`redis/connection`、新数据类型包达到可接受覆盖。（**远期非目标**；**观察式门槛**见 coverall.yml 注释：Coveralls 趋势、无私有 % fail gate）
 - [x] **R4-3 文档同步 + 里程碑关闭**：`CHANGELOG` / `docs/COMPATIBILITY.md` / `TODO.md` / `兼容性改进计划.md` 勾选口径清空至仅剩远期篇；标明明确非目标列表。
 
@@ -128,7 +128,7 @@
 - 官方模块原生 RDB·DUMP 互通（Godis opaque / `GODISFN1` 自洽即可；RESTORE 拒绝矩阵；含 FT 官方模块 RDB）
 - 完整 BM25 / 完整 KNN 方言 / 完整 DIALECT（已有：BM25STD + TEXT WEIGHT；**BM25STD.NORM 真 min-max**；**FT+KNN 最小路径**；DIALECT 1/2/3 子集）
 - FUNCTION DUMP 官方二进制互通（`GODISFN1` 自洽 + 截断/异己二进制明确 ERR；**不**伪造 Redis payload）
-- R4-1 全量旁路比对（仅有 allowlist 脚手架）、R4-2 覆盖率专项
+- R4-1 扩大 allowlist（用例表驱动；仍非 FT/模块/DUMP/集群全量）、R4-2 覆盖率专项
 
 ~~HLL sparse 读取~~ ✅（sparse→dense 解码提升；写出仍 dense）  
 ~~RDB / RDB-preamble 写出 FT 索引定义~~ ✅（Godis opaque `ft` + Load 后回填；纯 AOF rewrite→FT.CREATE）
