@@ -645,8 +645,11 @@ func (server *Server) execWait(args [][]byte) redis.Reply {
 		return protocol.MakeErrReply("ERR value is not an integer or out of range")
 	}
 	timeoutMs, err := strconv.ParseInt(string(args[1]), 10, 64)
-	if err != nil || timeoutMs < 0 {
+	if err != nil {
 		return protocol.MakeErrReply("ERR timeout is not an integer or out of range")
+	}
+	if timeoutMs < 0 {
+		return protocol.MakeErrReply("ERR timeout is negative")
 	}
 	if numReplicas <= 0 {
 		return protocol.MakeIntReply(server.countSyncedSlaves())
@@ -677,13 +680,22 @@ func (server *Server) execWaitAOF(args [][]byte) redis.Reply {
 	if err != nil {
 		return protocol.MakeErrReply("ERR value is not an integer or out of range")
 	}
+	if numLocal < 0 || numLocal > 1 {
+		return protocol.MakeErrReply("ERR value is out of range, value must between 0 and 1")
+	}
 	numReplicas, err := strconv.ParseInt(string(args[1]), 10, 64)
 	if err != nil {
 		return protocol.MakeErrReply("ERR value is not an integer or out of range")
 	}
+	if numReplicas < 0 {
+		return protocol.MakeErrReply("ERR value is out of range, must be positive")
+	}
 	timeoutMs, err := strconv.ParseInt(string(args[2]), 10, 64)
-	if err != nil || timeoutMs < 0 {
+	if err != nil {
 		return protocol.MakeErrReply("ERR timeout is not an integer or out of range")
+	}
+	if timeoutMs < 0 {
+		return protocol.MakeErrReply("ERR timeout is negative")
 	}
 
 	deadline := time.Now().Add(time.Duration(timeoutMs) * time.Millisecond)

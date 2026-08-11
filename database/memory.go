@@ -89,7 +89,8 @@ func execMemoryUsage(server *Server, c redis.Connection, args [][]byte) redis.Re
 			return protocol.MakeErrReply("ERR syntax error")
 		}
 		if n < 0 {
-			return protocol.MakeErrReply("ERR value is not an integer or out of range")
+			// Redis 8.x: negative SAMPLES is a syntax error (not out-of-range).
+			return protocol.MakeErrReply("ERR syntax error")
 		}
 		samples = n
 	}

@@ -59,8 +59,11 @@ func execFailover(server *Server, args [][]byte) redis.Reply {
 				return protocol.MakeSyntaxErrReply()
 			}
 			ms, err := strconv.ParseInt(string(args[i+1]), 10, 64)
-			if err != nil || ms < 0 {
-				return protocol.MakeErrReply("ERR TIMEOUT must be a non-negative integer")
+			if err != nil {
+				return protocol.MakeErrReply("ERR value is not an integer or out of range")
+			}
+			if ms <= 0 {
+				return protocol.MakeErrReply("ERR FAILOVER timeout must be greater than 0")
 			}
 			timeout = time.Duration(ms) * time.Millisecond
 			i += 2

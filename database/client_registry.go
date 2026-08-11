@@ -367,6 +367,9 @@ func execClientKillConn(c redis.Connection, args [][]byte) redis.Reply {
 				if err != nil {
 					return protocol.MakeErrReply("ERR Invalid client ID")
 				}
+				if id <= 0 {
+					return protocol.MakeErrReply("ERR client-id should be greater than 0")
+				}
 				filterID = id
 				i += 2
 			case "ADDR":

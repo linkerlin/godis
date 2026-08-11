@@ -613,8 +613,15 @@ func execScan(db *DB, args [][]byte) redis.Reply {
 		for i := 1; i < len(args); i++ {
 			arg := strings.ToLower(string(args[i]))
 			if arg == "count" {
+				if i+1 >= len(args) {
+					return &protocol.SyntaxErrReply{}
+				}
 				count0, err := strconv.Atoi(string(args[i+1]))
 				if err != nil {
+					return &protocol.SyntaxErrReply{}
+				}
+				// Redis keyspace SCAN: COUNT must be > 0 (HSCAN/SSCAN/ZSCAN allow 0).
+				if count0 <= 0 {
 					return &protocol.SyntaxErrReply{}
 				}
 				count = count0

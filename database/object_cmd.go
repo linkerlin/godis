@@ -184,13 +184,7 @@ func execObjectIdleTime(db *DB, key string) redis.Reply {
 
 // execObjectFreq returns the access frequency of the key (LFU)
 func execObjectFreq(db *DB, key string) redis.Reply {
-	pol := ""
-	if config.Properties != nil {
-		pol = strings.ToLower(config.Properties.MaxmemoryPolicy)
-	}
-	if pol != "allkeys-lfu" && pol != "volatile-lfu" {
-		return protocol.MakeErrReply("ERR An LFU maxmemory policy is not selected, access frequency not tracked. Please note that when switching between policies at runtime LRU and LFU data will take some time to adjust.")
-	}
+	// Missing key → null even when LFU is not selected (Redis 8.x).
 	raw, ok := db.data.GetWithLock(key)
 	if !ok {
 		return protocol.MakeNullBulkReply()
@@ -198,6 +192,13 @@ func execObjectFreq(db *DB, key string) redis.Reply {
 	_ = raw
 	if db.IsExpired(key) {
 		return protocol.MakeNullBulkReply()
+	}
+	pol := ""
+	if config.Properties != nil {
+		pol = strings.ToLower(config.Properties.MaxmemoryPolicy)
+	}
+	if pol != "allkeys-lfu" && pol != "volatile-lfu" {
+		return protocol.MakeErrReply("ERR An LFU maxmemory policy is not selected, access frequency not tracked. Please note that when switching between policies at runtime LRU and LFU data will take some time to adjust.")
 	}
 	freq := int64(0)
 	if db.evictionManager != nil {

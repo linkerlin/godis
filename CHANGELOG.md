@@ -6,6 +6,7 @@
 
 ### Fixed
 
+- `FAILOVER TIMEOUT`：`≤0` → `ERR FAILOVER timeout must be greater than 0`；非整数 → `ERR value is not an integer or out of range`；`WAIT` 负超时 → `timeout is negative`；`WAITAOF` numlocal/numreplicas/timeout 范围校验；keyspace `SCAN COUNT ≤0` → syntax error；`CLIENT KILL ID ≤0` → `client-id should be greater than 0`；`MEMORY USAGE SAMPLES <0` → syntax error；`OBJECT FREQ` 缺键先返回 null（对照 Redis 8.10）
 - `GEOADD` 非法经纬度 ERR 对齐 Redis：`%.6f,%.6f`；`SINTERCARD`/`ZINTERCARD` arity `-3`；`numkeys≤0` 文案（SINTERCARD→`numkeys should be greater than 0`，ZINTERCARD→`at least 1 input key…`）；`ZMPOP`/`LMPOP`/`BZMPOP`/`BLMPOP` 的 `numkeys≤0` → `ERR numkeys should be greater than 0`（对照 Redis 8.10）
 - Stream **不完整 ID**（仅毫秒，如 `0`/`5`）按 Redis 解析为 `ms-0`：覆盖 `XADD`/`XGROUP CREATE`/`XRANGE`/`XREAD` 等；`XGROUP CREATE … MKSTREAM` 非法 ID 先校验、不残留空流；`XGROUP CREATECONSUMER` 缺键 ERR 文案对齐 Redis 8.10
 - `XREAD`/`XREADGROUP`：`COUNT ≤ 0` 视为不限制条数（对齐 Redis 8.10；此前误报 out of range）；`BLOCK` 负超时 → `ERR timeout is negative`，非法整数 → `ERR timeout is not an integer or out of range`
