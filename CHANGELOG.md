@@ -7,7 +7,7 @@
 ### Added
 
 - 官方模块 RDB/DUMP **边界诚实化**：`RESTORE` 拒绝 `typeModule`/`typeModule2` 标记（明确 ERR）；`LoadRDB` 遇 `ModuleTypeObject` **中止并 ERR**（不再静默丢键）；合成负向测 + `docs/COMPATIBILITY.md`「官方模块 RDB/DUMP 边界」（**不**宣称互通）
-- `CLUSTER REPLICATE`/`FORGET`：**接 FSM**（MasterSlaves / EventForget 安全清理；**非** Redis gossip bus）
+- `FUNCTION RESTORE`：**官方 FUNCTION DUMP 边界**——显式拒绝 Redis `0xF5`/`0xF6` 与 `REDIS####` 头（拒绝先于 FLUSH；负向测+`docs/COMPATIBILITY.md`）；**禁止假互通**- `CLUSTER REPLICATE`/`FORGET`：**接 FSM**（MasterSlaves / EventForget 安全清理；**非** Redis gossip bus）
 - `CLUSTER INFO`：ping/pong/meet 等消息计数映射内部 **heartbeat/MEET RPC**（`cluster_bus_port:0`；不宣称完整 gossip）
 - R4-1：**用例表** `scripts/r4-1-cases.txt` 驱动 sidecar 比对；扩 **Set/ZSet/TTL**（SADD/SCARD/SISMEMBER/SREM、ZADD/ZSCORE/ZCARD/ZREM、TTL/PTTL/PEXPIRE/EXPIRE/PERSIST）；失败多行 FAIL；诚实标注非 FT/模块/DUMP/集群全量
 - BM25：**IDF 稀有词优先**与**多 TEXT 字段加权求和**可验；**`BM25STD_TANH_FACTOR Y`**（非法 factor→ERR）

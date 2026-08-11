@@ -52,8 +52,8 @@ func TestGodisFN1TruncatedPayloadERR(t *testing.T) {
 func TestGodisFN1RejectNonGodisBinary(t *testing.T) {
 	db := makeTestDB()
 	InitFunctionsEngine(db)
-	// Fake Redis-ish / opaque binary (NUL + high bytes) — must not silently OK.
-	fake := []byte{0x52, 0x45, 0x44, 0x49, 0x53, 0x00, 0xff, 0xfe, 0x01, 0x02}
+	// Opaque binary (NUL + high bytes) — must not silently OK.
+	fake := []byte{0x00, 0xff, 0xfe, 0x01, 0x02, 0xde, 0xad}
 	r := db.Exec(nil, utils.ToCmdLine("FUNCTION", "RESTORE", string(fake), "FLUSH"))
 	if !protocol.IsErrorReply(r) {
 		t.Fatalf("want reject non-GODISFN1 binary, got %s", r.ToBytes())
@@ -61,6 +61,45 @@ func TestGodisFN1RejectNonGodisBinary(t *testing.T) {
 	msg := string(r.ToBytes())
 	if !strings.Contains(msg, "GODISFN1") || !strings.Contains(msg, "not Redis official") {
 		t.Fatalf("want clear non-interop ERR, got %s", msg)
+	}
+}
+
+// Synthetic official-like Redis FUNCTION DUMP headers (rdb.h opcodes / RDB magic).
+// Prefix-only; no real Redis binary blob downloaded.
+func TestRejectOfficialRedisFunctionDumpHeaders(t *testing.T) {
+	db := makeTestDB()
+	InitFunctionsEngine(db)
+	code := "#!lua name=keeplib\nredis.register_function('kf', function(keys, args) return 1 end)"
+	if protocol.IsErrorReply(db.Exec(nil, utils.ToCmdLine("FUNCTION", "LOAD", code))) {
+		t.Fatal("LOAD")
+	}
+
+	// Doc example shape: 0xF5 + mostly-printable body — old heuristic could miss this.
+	mostlyPrintableF5 := append([]byte{0xF5}, []byte("#!lua name=mylib\nredis.register_function('f', function() end)")...)
+	cases := []struct {
+		name string
+		p    []byte
+	}{
+		{"opcode_FUNCTION2", []byte{0xF5, 0xC3, 0x40, 0x58}},
+		{"opcode_FUNCTION_PRE_GA", []byte{0xF6, 0x01, 0x02, 0x03}},
+		{"opcode_F5_printable_body", mostlyPrintableF5},
+		{"rdb_magic_REDIS0011", []byte("REDIS0011\xff\x00fake")},
+		{"rdb_magic_REDIS0009", []byte("REDIS0009\x00\x00")},
+	}
+	for _, tc := range cases {
+		r := db.Exec(nil, utils.ToCmdLine("FUNCTION", "RESTORE", string(tc.p), "FLUSH"))
+		if !protocol.IsErrorReply(r) {
+			t.Fatalf("%s: want ERR, got %s", tc.name, r.ToBytes())
+		}
+		msg := string(r.ToBytes())
+		if !strings.Contains(msg, "0xF5") && !strings.Contains(msg, "rejects Redis official") {
+			t.Fatalf("%s: want official-reject ERR, got %s", tc.name, msg)
+		}
+		// FLUSH must not run on reject — preexisting lib still present.
+		list := db.Exec(nil, utils.ToCmdLine("FUNCTION", "LIST"))
+		if !strings.Contains(string(list.ToBytes()), "keeplib") {
+			t.Fatalf("%s: rejected official dump must not FLUSH existing libs: %s", tc.name, list.ToBytes())
+		}
 	}
 }
 

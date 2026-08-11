@@ -65,7 +65,7 @@
 | Hash field TTL 持久化 | ✅ RDB/DUMP 经 Godis opaque（非 Redis 互通） |
 | CONFIG RESETSTAT | ✅ 清零 INFO/cmd/net/rejected 计数 |
 | CONFIG REWRITE | ✅ 写回配置文件（无配置文件时报错） |
-| FUNCTION DUMP | ✅ Godis `GODISFN1` 二进制（非 Redis 互通；截断/异己二进制明确 ERR） |
+| FUNCTION DUMP | ✅ Godis `GODISFN1`（非 Redis 互通；官方 `0xF5`/`0xF6`/`REDIS####` 与异己二进制明确 ERR） |
 | CLIENT TRACKING | ✅ RESP3 本地 Push；RESP2 需 REDIRECT；GETREDIR 正确 |
 | RESTORE IDLETIME/FREQ | ✅ 写入 eviction 元数据 |
 | PING message | ✅ Bulk 回复（对齐 Redis） |
@@ -190,8 +190,8 @@ UNWATCH、WAIT（简版）、BITOP、BITFIELD、SMOVE、LPOS、XCLAIM、SHUTDOWN
 |------------|--------------|------------------------|
 | jemalloc / 真 OS RSS | `used_memory`≈`MemStats.Alloc` 峰值 + per-key dataset；`mem_allocator:go`；`allocator_*`=`HeapAlloc`/`HeapSys`/`Sys`（**非** jemalloc arenas）；`MEMORY STATS` `allocator=go` + `process.rss` | RSS 优先真进程；**绝不**写 jemalloc |
 | 完整 Redis gossip bus | MEET→Raft/FSM join；**REPLICATE/FORGET 接 FSM**（非 gossip）；BUMPEPOCH=`BUMPED 0`；无 CLUSTERMSG 二进制 bus | **`cluster_bus_port:0`**；ping/pong/meet 计数映射内部 heartbeat/MEET RPC（非宣称已有 gossip bus）；RESET/SAVECONFIG/CLUSTER FAILOVER/真 epoch/`fail` 传播仍延期 |
-| 官方模块原生 RDB·DUMP 互通 | Stream/JSON/Vector/TS/概率结构/FT 走 Godis opaque `GODIS1`；见「官方模块 RDB/DUMP 边界」 | RESTORE / LoadRDB **明确 ERR**（模块 type 标记 / ModuleTypeObject）；**不**与 Redis 模块 RDB 互通；远期仍开放 |
-| FUNCTION DUMP 官方互通 | Godis `GODISFN1` 自洽；截断/异己二进制明确 ERR；兼旧文本 | 保持自洽；**不**伪造 Redis functions payload |
+| 官方模块原生 RDB·DUMP 互通 | Stream/JSON/Vector/TS/概率结构/FT 走 Godis opaque `GODIS1`；见「官方模块 RDB/DUMP 边界」 | RESTORE / LoadRDB **明确 ERR**（模块 type 标记 / ModuleTypeObject；兼拒绝矩阵）；**不**与 Redis 模块 RDB 互通；远期仍开放 |
+| FUNCTION DUMP 官方互通 | Godis `GODISFN1` 自洽；**显式拒绝**官方 `0xF5`/`0xF6`/`REDIS####`；截断/异己二进制明确 ERR；兼旧文本 | 见「官方 FUNCTION DUMP 边界」；**禁止假互通** |
 | 完整 BM25 / 完整 KNN 方言 / 完整 DIALECT | BM25STD：WEIGHT + 文档长度 + **可测 IDF** + **多字段加权求和**；NORM min-max；**TANH + BM25STD_TANH_FACTOR**；KNN：`AS`/`$YIELD_DISTANCE_AS`、**HYBRID_POLICY** 校验、空预过滤；DIALECT 1/2/3 子集（GEOSHAPE≥3；**tag 空格/多字段 `@f1\|f2` 强制 ≥2**） | **非**论文级完整 BM25（无 slop 罚分进打分、无全局 NORM over collection 等）；非完整 KNN/DIALECT 4；见 REDISEARCH_ALIGNMENT |
 | ~~Vector 图内真 int8 距离~~ | **VADD Q8/BIN 真存储**；**BIN→图内 Hamming**；**Q8→图内 int8 距离**（无搜索态 f32 缓冲）；FT VECTOR 窄类型解码已有 | ✅ 2026-08-11 deep6；VEMB 仍可显示反量化近似 |
 | ~~AOF rewrite / RDB 写出 FT 索引定义~~ | 命令 AOF + **纯 AOF rewrite→FT.CREATE** + **RDB Godis opaque `ft`**（Load 后回填） | ✅ 2026-08-11；**非**官方 RediSearch 模块 RDB |
@@ -229,10 +229,23 @@ UNWATCH、WAIT（简版）、BITOP、BITFIELD、SMOVE、LPOS、XCLAIM、SHUTDOWN
 
 负向测：`database/dump_test.go`（`TestRestoreRejectsOfficialModuleTypeMarkers` / `TestRestoreRejectsSyntheticModuleDUMP`）、`database/module_rdb_boundary_test.go`（`TestLoadRDBRejectsOfficialModuleType`）。合成字节夹具，不依赖下载 Redis。
 
+### 官方 FUNCTION DUMP 边界
+
+> **禁止假互通。** Godis **不**解析、**不**接受官方 Redis `FUNCTION DUMP` 二进制；也不把 `GODISFN1` 伪装成 Redis wire。
+
+| 载荷形态 | Godis 行为 |
+|----------|------------|
+| Godis `GODISFN1` 信封 | DUMP 写出 / RESTORE 严格解析；截断、坏长度、尾随垃圾→明确 ERR |
+| 官方 Redis DUMP（首字节 `0xF5`=`RDB_OPCODE_FUNCTION2` 或 `0xF6`=`FUNCTION_PRE_GA`；或误投完整 `REDIS####` RDB 头） | **立即 ERR**（文案含 official / `0xF5`/`0xF6`）；**不**静默 OK；拒绝发生在 FLUSH **之前** |
+| 其它异己二进制（NUL / 非法 UTF-8 / 高比例控制字节） | ERR（要求 GODISFN1；标明非 Redis official） |
+| 旧版纯文本库 dump（`#!lua name=…`） | 仍接受（Godis 兼容路径，非 Redis 二进制） |
+
+远期「FUNCTION DUMP 官方互通」仍为**非目标**；本边界仅诚实拒绝，不宣称完成互通。
+
 ## 测试
 
 - `go test ./...`；兼容批次测试见 `database/m2*_compat_test.go`、`m1_block_tx_bitmap_test.go` 等；RESP3 线格式见 `database/resp3_core_types_test.go`。
 
 ---
 
-**最后更新：** 2026-08-11（`compat/module-rdb-boundary`：官方模块 RDB/DUMP 边界诚实化 — LoadRDB/RESTORE 明确 ERR；远期仍 **7** + 可独立 **0**）
+**最后更新：** 2026-08-11（并入 `compat/module-rdb-boundary` + `compat/function-dump-boundary`：官方模块 RDB/DUMP 与 FUNCTION DUMP 边界诚实化；远期仍 **7** + 可独立 **0**）
