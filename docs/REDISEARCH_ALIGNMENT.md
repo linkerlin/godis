@@ -231,7 +231,7 @@ FT.SEARCH idx "hello"  # -> %5 total_results / results / attributes / format / w
 
 | 项 | 状态 | 说明 |
 |---|---|---|
-| VECTOR 类型解码 | ✅ | FLOAT16/BFLOAT16/INT8/UINT8 均解码为 float32；**VADD Q8/BIN** 真量化存储（搜索反量化）；图内 Hamming/int8 距离仍远期 |
+| VECTOR 类型解码 | ✅ | FLOAT16/BFLOAT16/INT8/UINT8 均解码为 float32；**VADD Q8** 存储（搜索反量化）；**VADD BIN** 存储 + **图内 Hamming**；图内真 int8 距离仍远期 |
 | BM25STD.NORM | 🔶 | min-max 归一化近似为 `x/(1+x)`(真归一化需二次遍历)；**TEXT WEIGHT** 已计入 BM25STD；完整 BM25/DIALECT 仍远期 |
 | FT.PROFILE 迭代器细分 | 🔶 | 只报诚实总耗时;细分需 instrument 引擎迭代器 |
 | FT.HYBRID RANGE/FILTER/POLICY | 🔶 | 接受但按暴力路径执行 |

@@ -17,7 +17,8 @@ type VectorItem struct {
 	Attributes string
 	// Q8 / Q8Range hold true int8 quantization when the set uses QuantQ8.
 	// Bin holds packed sign bits when the set uses QuantBIN.
-	// Vector.Data is the dequantized approximation used for HNSW / VSIM.
+	// Vector.Data is a dequantized approximation (VEMB / display); BIN search
+	// distances use Bin via HammingDistanceBits.
 	Q8      []int8
 	Q8Range float32
 	Bin     []byte
@@ -37,7 +38,8 @@ const hnswQueryKey = "\x00__hnsw_query__"
 
 // VectorSet is a collection of vectors supporting similarity search
 // via an in-memory HNSW graph. Default storage is float32; Q8 stores int8
-// codes and BIN stores 1-bit codes (search uses dequantized f32).
+// codes (search still uses dequantized f32); BIN stores 1-bit codes and
+// HNSW/VSIM use Hamming on packed bits.
 type VectorSet struct {
 	vectors   map[string]*VectorItem
 	dimension int
@@ -236,7 +238,8 @@ func (vs *VectorSet) AddQ8(id string, codes []int8, qrange float32, metadata map
 	return !exists
 }
 
-// AddBIN inserts a pre-quantized binary vector (opaque restore). Search uses ±1 f32.
+// AddBIN inserts a pre-quantized binary vector (opaque restore).
+// Graph distance uses Hamming on packed bits.
 func (vs *VectorSet) AddBIN(id string, bits []byte, dim int, metadata map[string]string) bool {
 	vs.mu.Lock()
 	defer vs.mu.Unlock()
@@ -393,12 +396,16 @@ func (vs *VectorSet) SearchWithMetricEF(query *Vector, k int, metric SearchMetri
 
 	ids := vs.hnsw.Search(hnswQueryKey, k, ef, vs.queryDistFnLocked(query, metric))
 	results := make([]*SearchResult, 0, len(ids))
+	var qbin []byte
+	if vs.quant == QuantBIN {
+		qbin = QuantizeBIN(query.Data)
+	}
 	for _, id := range ids {
 		item, ok := vs.vectors[id]
 		if !ok {
 			continue
 		}
-		score, distance := scoreDistance(item.Vector, query, metric)
+		score, distance := vs.scoreItemLocked(item, query, qbin, metric)
 		results = append(results, &SearchResult{
 			ID:         id,
 			Vector:     item.Vector,
@@ -426,12 +433,47 @@ func scoreDistance(item, query *Vector, metric SearchMetric) (score, distance fl
 	return
 }
 
+// scoreDistanceBIN scores using Hamming on packed bits. CosineSimilarity
+// reports ±1 cosine and 1-cos distance (VSIM-compatible); HNSW insert/search
+// use HammingDistanceBits directly via distFnLocked.
+func scoreDistanceBIN(itemBin, queryBin []byte, dim int, metric SearchMetric) (score, distance float32) {
+	h := HammingDistanceBits(itemBin, queryBin, dim)
+	cos := BINCosineFromHamming(h, dim)
+	switch metric {
+	case CosineSimilarity:
+		score = cos
+		distance = 1 - cos
+	case EuclideanDistance:
+		// ±1 L2 distance: sqrt(4*h) when dims align.
+		distance = float32(math.Sqrt(float64(4 * h)))
+		score = -distance
+	case DotProduct:
+		score = float32(dim - 2*h)
+		distance = -score
+	}
+	return
+}
+
+func (vs *VectorSet) scoreItemLocked(item *VectorItem, query *Vector, qbin []byte, metric SearchMetric) (score, distance float32) {
+	if vs.quant == QuantBIN && len(item.Bin) > 0 {
+		if qbin == nil {
+			qbin = QuantizeBIN(query.Data)
+		}
+		return scoreDistanceBIN(item.Bin, qbin, vs.dimension, metric)
+	}
+	return scoreDistance(item.Vector, query, metric)
+}
+
 func (vs *VectorSet) bruteSearchLocked(query *Vector, k int, metric SearchMetric) []*SearchResult {
 	h := &searchResultHeap{}
 	heap.Init(h)
 
+	var qbin []byte
+	if vs.quant == QuantBIN {
+		qbin = QuantizeBIN(query.Data)
+	}
 	for id, item := range vs.vectors {
-		score, distance := scoreDistance(item.Vector, query, metric)
+		score, distance := vs.scoreItemLocked(item, query, qbin, metric)
 		result := &SearchResult{
 			ID:         id,
 			Vector:     item.Vector,
@@ -463,6 +505,9 @@ func (vs *VectorSet) distFnLocked(metric SearchMetric) func(a, b string) float32
 		if !oa || !ob {
 			return float32(math.MaxFloat32)
 		}
+		if vs.quant == QuantBIN && len(ia.Bin) > 0 && len(ib.Bin) > 0 {
+			return float32(HammingDistanceBits(ia.Bin, ib.Bin, vs.dimension))
+		}
 		_, distance := scoreDistance(ia.Vector, ib.Vector, metric)
 		return distance
 	}
@@ -470,7 +515,27 @@ func (vs *VectorSet) distFnLocked(metric SearchMetric) func(a, b string) float32
 
 // queryDistFnLocked distances a synthetic query key against element ids.
 func (vs *VectorSet) queryDistFnLocked(query *Vector, metric SearchMetric) func(a, b string) float32 {
+	var qbin []byte
+	if vs.quant == QuantBIN {
+		qbin = QuantizeBIN(query.Data)
+	}
 	return func(a, b string) float32 {
+		if vs.quant == QuantBIN {
+			resolveBin := func(id string) []byte {
+				if id == hnswQueryKey {
+					return qbin
+				}
+				if item, ok := vs.vectors[id]; ok {
+					return item.Bin
+				}
+				return nil
+			}
+			ba, bb := resolveBin(a), resolveBin(b)
+			if ba == nil || bb == nil {
+				return float32(math.MaxFloat32)
+			}
+			return float32(HammingDistanceBits(ba, bb, vs.dimension))
+		}
 		resolve := func(id string) *Vector {
 			if id == hnswQueryKey {
 				return query

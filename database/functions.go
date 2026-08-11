@@ -1,9 +1,11 @@
 package database
 
 import (
+	"bytes"
 	"encoding/binary"
 	"fmt"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/linkerlin/godis/functions"
 	"github.com/linkerlin/godis/interface/redis"
@@ -253,6 +255,8 @@ func execFunctionStats(db *DB, args [][]byte) redis.Reply {
 // Format: magic "GODISFN1" || u32be count || repeated (u32be nameLen||name||u32be engLen||eng||u32be codeLen||code)
 // Official Redis FUNCTION DUMP/RESTORE binary interchange is a non-goal; keep GODISFN1 only.
 // RESTORE also accepts the legacy plain-text library dump for older Godis payloads.
+// Corrupt GODISFN1 (truncated / bad lengths) returns ERR — never silent fallthrough.
+// Non-GODISFN1 binary blobs return a clear non-interop ERR (not forged into Redis format).
 var functionDumpMagic = []byte("GODISFN1")
 
 // execFunctionDump dumps all functions
@@ -308,14 +312,22 @@ func readLengthPrefixed(src []byte, off int) (val []byte, next int, ok bool) {
 	return src[off : off+n], off + n, true
 }
 
-func parseFunctionDumpBinary(payload []byte) (map[string]string, bool) {
-	if len(payload) < len(functionDumpMagic)+4 || string(payload[:len(functionDumpMagic)]) != string(functionDumpMagic) {
+// parseFunctionDumpBinaryStrict parses a GODISFN1 envelope.
+// ok=false means truncated/corrupt GODISFN1 (caller must ERR, not fall through).
+func parseFunctionDumpBinaryStrict(payload []byte) (libs map[string]string, ok bool) {
+	if !bytes.HasPrefix(payload, functionDumpMagic) {
+		return nil, false
+	}
+	if len(payload) < len(functionDumpMagic)+4 {
 		return nil, false
 	}
 	off := len(functionDumpMagic)
 	count := int(binary.BigEndian.Uint32(payload[off : off+4]))
 	off += 4
-	libs := make(map[string]string, count)
+	if count < 0 {
+		return nil, false
+	}
+	libs = make(map[string]string, count)
 	for i := 0; i < count; i++ {
 		nameB, n1, ok := readLengthPrefixed(payload, off)
 		if !ok {
@@ -334,7 +346,36 @@ func parseFunctionDumpBinary(payload []byte) (map[string]string, bool) {
 		off = n3
 		libs[string(nameB)] = string(codeB)
 	}
+	// Trailing garbage after a valid record list is treated as corrupt.
+	if off != len(payload) {
+		return nil, false
+	}
 	return libs, true
+}
+
+// looksLikeNonGodisBinary rejects opaque binary that is neither GODISFN1 nor
+// legacy text library dump — including Redis official FUNCTION DUMP bytes.
+func looksLikeNonGodisBinary(payload []byte) bool {
+	if len(payload) == 0 {
+		return false
+	}
+	if bytes.HasPrefix(payload, functionDumpMagic) {
+		return false
+	}
+	// NUL or invalid UTF-8 ⇒ not legacy shebang text.
+	if bytes.IndexByte(payload, 0) >= 0 || !utf8.Valid(payload) {
+		return true
+	}
+	// High ratio of non-printable (excluding tab/LF/CR) ⇒ binary.
+	nonPrint := 0
+	for _, b := range payload {
+		if b < 0x20 && b != '\t' && b != '\n' && b != '\r' {
+			nonPrint++
+		} else if b > 0x7e {
+			nonPrint++
+		}
+	}
+	return nonPrint*4 > len(payload) // >25% control/hi bytes
 }
 
 // execFunctionRestore restores functions from dump
@@ -352,6 +393,11 @@ func execFunctionRestore(db *DB, args [][]byte) redis.Reply {
 	policy := "APPEND"
 	if len(args) > 1 {
 		policy = strings.ToUpper(string(args[1]))
+		switch policy {
+		case "FLUSH", "APPEND", "REPLACE":
+		default:
+			return protocol.MakeErrReply("ERR FUNCTION RESTORE policy must be FLUSH, APPEND or REPLACE")
+		}
 	}
 
 	payload := args[0]
@@ -363,8 +409,17 @@ func execFunctionRestore(db *DB, args [][]byte) redis.Reply {
 		funcEngine.FlushAll()
 	}
 
-	libs, ok := parseFunctionDumpBinary(payload)
-	if !ok {
+	var libs map[string]string
+	switch {
+	case bytes.HasPrefix(payload, functionDumpMagic):
+		parsed, ok := parseFunctionDumpBinaryStrict(payload)
+		if !ok {
+			return protocol.MakeErrReply("ERR FUNCTION RESTORE payload is truncated or corrupt (GODISFN1; Godis-internal format, not Redis official)")
+		}
+		libs = parsed
+	case looksLikeNonGodisBinary(payload):
+		return protocol.MakeErrReply("ERR FUNCTION RESTORE expects Godis GODISFN1 dump (not Redis official FUNCTION DUMP binary)")
+	default:
 		libs = parseLibraryDump(string(payload))
 	}
 

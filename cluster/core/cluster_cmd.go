@@ -100,7 +100,7 @@ func execCluster(cluster *Cluster, c redis.Connection, cmdLine CmdLine) redis.Re
 		if cluster == nil {
 			return protocol.MakeErrReply("ERR This instance has cluster support disabled")
 		}
-		return protocol.MakeErrReply("ERR CLUSTER FORGET is not supported")
+		return protocol.MakeErrReply("ERR CLUSTER FORGET is not supported (no Redis gossip bus)")
 	case "SETNAME":
 		if len(cmdLine) != 3 {
 			return protocol.MakeErrReply("ERR wrong number of arguments for 'cluster|setname' command")
@@ -128,7 +128,7 @@ func execCluster(cluster *Cluster, c redis.Connection, cmdLine CmdLine) redis.Re
 		if cluster == nil {
 			return protocol.MakeErrReply("ERR This instance has cluster support disabled")
 		}
-		return protocol.MakeErrReply("ERR CLUSTER REPLICATE is not supported")
+		return protocol.MakeErrReply("ERR CLUSTER REPLICATE is not supported (Godis has no Redis gossip bus; use Raft/FSM topology)")
 	case "RESET":
 		if len(cmdLine) > 3 {
 			return protocol.MakeErrReply("ERR wrong number of arguments for 'cluster|reset' command")
@@ -156,7 +156,7 @@ func execCluster(cluster *Cluster, c redis.Connection, cmdLine CmdLine) redis.Re
 				return protocol.MakeErrReply("ERR FAILOVER bad option. Use FORCE or TAKEOVER")
 			}
 		}
-		return protocol.MakeErrReply("ERR CLUSTER FAILOVER is not supported (use standalone FAILOVER)")
+		return protocol.MakeErrReply("ERR CLUSTER FAILOVER is not supported (no gossip failover; use standalone FAILOVER)")
 	case "SAVECONFIG":
 		if len(cmdLine) != 2 {
 			return protocol.MakeErrReply("ERR wrong number of arguments for 'cluster|saveconfig' command")

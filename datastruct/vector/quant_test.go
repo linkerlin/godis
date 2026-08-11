@@ -55,6 +55,57 @@ func TestQuantizeBINSignBits(t *testing.T) {
 	}
 }
 
+func TestHammingDistanceBits(t *testing.T) {
+	// a: ++--  (bits 1,1,0,0)  b: +-+- (bits 1,0,1,0) → differ dim1+dim2 → h=2
+	a := QuantizeBIN([]float32{1, 1, -1, -1})
+	b := QuantizeBIN([]float32{1, -1, 1, -1})
+	h := HammingDistanceBits(a, b, 4)
+	if h != 2 {
+		t.Fatalf("hamming=%d want 2", h)
+	}
+	cos := BINCosineFromHamming(h, 4)
+	if math.Abs(float64(cos-0)) > 1e-6 {
+		t.Fatalf("cos=%v want 0", cos)
+	}
+	// Partial dim: only first 3 bits (a vs b: dims 0 same, 1+2 differ → h=2)
+	if got := HammingDistanceBits(a, b, 3); got != 2 {
+		t.Fatalf("dim3 hamming=%d want 2", got)
+	}
+	if HammingDistanceBits(a, a, 4) != 0 {
+		t.Fatal("identical bits")
+	}
+}
+
+func TestVectorSetBINHammingSearch(t *testing.T) {
+	vs := NewVectorSet()
+	if !vs.SetQuantMode(QuantBIN) {
+		t.Fatal("SetQuantMode BIN")
+	}
+	// Force graph path (len > 64 skipped); keep tiny and use TRUTH-equivalent brute
+	// plus an explicit distFn check via Search ranking.
+	_ = vs.Add("near", NewVector([]float32{1, 1, 1, 1}), nil)
+	_ = vs.Add("far", NewVector([]float32{-1, -1, -1, -1}), nil)
+	_ = vs.Add("mid", NewVector([]float32{1, 1, -1, -1}), nil)
+
+	q := NewVector([]float32{0.9, 0.8, 0.7, 0.6}) // all positive → same BIN as near
+	res := vs.SearchWithMetricEF(q, 2, CosineSimilarity, 0, true)
+	if len(res) < 2 {
+		t.Fatalf("want 2 hits, got %d", len(res))
+	}
+	if res[0].ID != "near" {
+		t.Fatalf("nearest=%s want near (scores=%v %v)", res[0].ID, res[0].Score, res[1].Score)
+	}
+	// Hamming path: near h=0 → cos=1; mid h=2 → cos=0
+	if math.Abs(float64(res[0].Score-1)) > 1e-5 {
+		t.Fatalf("near score=%v want 1", res[0].Score)
+	}
+	// Graph insert uses Hamming: Search without exact should agree on top-1.
+	approx := vs.SearchWithMetricEF(q, 1, CosineSimilarity, 50, false)
+	if len(approx) != 1 || approx[0].ID != "near" {
+		t.Fatalf("graph Hamming top=%v", approx)
+	}
+}
+
 func TestVectorSetBINStorage(t *testing.T) {
 	vs := NewVectorSet()
 	if !vs.SetQuantMode(QuantBIN) {

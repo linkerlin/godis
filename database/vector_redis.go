@@ -22,9 +22,10 @@ import (
 //	VSIM key ELE element [COUNT n] [WITHSCORES]
 //	VREM / VCARD / VDIM / VEMB / VINFO / VISMEMBER / VLINKS
 //
-// Quantization: Q8 stores true int8+range (VSIM/HNSW use dequantized f32);
-// BIN stores true 1-bit/dim packed codes (search uses ±1 f32; not Hamming graph);
-// NOQUANT locks f32. Default without flags remains f32 (Godis historical; Redis default is Q8).
+// Quantization: Q8 stores true int8+range (VSIM/HNSW still use dequantized f32);
+// BIN stores true 1-bit/dim packed codes (HNSW/VSIM use Hamming on bits;
+// reported cosine = (dim-2*h)/dim); NOQUANT locks f32. Default without flags
+// remains f32 (Godis historical; Redis default is Q8).
 // HNSW graph is live: M/EF on VADD and EF/TRUTH on VSIM take effect.
 
 func execVAdd(db *DB, args [][]byte) redis.Reply {

@@ -391,8 +391,9 @@ func GenGodisInfoString(section string, db *Server) []byte {
 			}
 		}
 		totalSys := getTotalSystemMemoryBytes()
-		// Prefer true process RSS when available; fall back to MemStats.Sys
-		// (not jemalloc allocator_resident — still Go runtime accounting).
+		// Prefer true process RSS when available; fall back to MemStats.Sys.
+		// mem_allocator is always "go" — never jemalloc (jemalloc accounting
+		// is an explicit non-goal; used_memory remains MemStats.Alloc).
 		rss := getProcessRSSBytes()
 		if rss == 0 {
 			rss = m.Sys

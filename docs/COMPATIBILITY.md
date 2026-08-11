@@ -25,11 +25,11 @@
 
 **RediSearch Phase B（2026-07-29）：** FT.AGGREGATE `WITHCURSOR [COUNT n]` + `FT.CURSOR READ/DEL`（内存游标表，按 COUNT 分页，耗尽返回游标 0，空闲 1 分钟惰性回收）；FT.AGGREGATE `APPLY <expr> AS <name>` 最小表达式子集（`@field` 引用、数字字面量、`+ - * /` 标准优先级、括号、一元负号、非数值 `+` 退化为字符串拼接），按出现位置分为 GROUPBY 前（作用于逐文档字段，供后续 REDUCE 引用）与 GROUPBY 后（作用于结果行）；顺带修正：无 GROUPBY 且无 REDUCE 时按文档逐行返回（此前会错误地把所有文档折叠成一个空字段分组）。**FT.SEARCH WITHCURSOR** 已续研落地（复用 FT.CURSOR 表）。
 
-仍延期：精确 jemalloc 级 `used_memory`（现已贴近 `MemStats.Alloc` 峰值跟踪 + 进程 RSS→`used_memory_rss`，仍非 jemalloc）、FUNCTION DUMP 官方互通、Vector **图内真 int8/BIN Hamming 距离**（Q8/BIN 存储已落地）、完整 BM25/FT+KNN/完整 DIALECT 等（见计划文档）。
+仍延期：精确 jemalloc 级 `used_memory`（现已贴近 `MemStats.Alloc` 峰值跟踪 + 进程 RSS→`used_memory_rss`，仍非 jemalloc）、FUNCTION DUMP 官方互通、Vector **图内真 int8 距离**（BIN→Hamming 已落地；Q8 仍反量化 f32）、完整 BM25/完整 DIALECT/完整 KNN 方言等（见计划文档；**FT+KNN 最小路径**已接通）。
 
 **兼容续研批次（2026-07-29）：** WAITAOF 真等待（本地 AOF fsync + 副本 ACK 循环）；LATENCY 命令路径采样 + HISTOGRAM；`notify-keyspace-events` 最小 K/E/g/$/x/e/A 发射；MIGRATE（DUMP→RESTORE→DEL，COPY/REPLACE/AUTH/KEYS）；LFU 对数计数逼近 Redis；FT.SEARCH WITHCURSOR（复用 FT.CURSOR 表）。
 
-**Vector HNSW（2026-07-29 / Q8+BIN 2026-08-11）：** 内存 HNSW 图已接入 VADD/VSIM/VREM/VINFO/VLINKS；`M`/`EF` 与 VSIM `EF`/`TRUTH` 生效。**VADD Q8** 存 int8+range；**VADD BIN** 存 1-bit/dim（搜索均用反量化 f32）；默认/NOQUANT 仍为 f32。DUMP opaque 可保留 Q8/BIN codes。
+**Vector HNSW（2026-07-29 / Q8+BIN / BIN Hamming 2026-08-11）：** 内存 HNSW 图已接入 VADD/VSIM/VREM/VINFO/VLINKS；`M`/`EF` 与 VSIM `EF`/`TRUTH` 生效。**VADD Q8** 存 int8+range（搜索反量化 f32）；**VADD BIN** 存 1-bit/dim，**HNSW/VSIM 用 Hamming**（报告 cosine=`(dim-2h)/dim`）；默认/NOQUANT 仍为 f32。DUMP opaque 可保留 Q8/BIN codes。
 
 ## 已知差异（抽样，以代码为准）
 
@@ -57,7 +57,7 @@
 | TS DUPLICATE_POLICY | ✅ BLOCK/FIRST/LAST/MIN/MAX/SUM + ON_DUPLICATE |
 | SINTERCARD | ✅ LIMIT 提前终止 |
 | VSIM FILTER | ✅ 最小 `.field==value` / `!=` 属性过滤 |
-| VADD 选项 | ✅ NX/XX/SETATTR；**M/EF 接入真 HNSW**；**VSIM EPSILON**；**Q8/BIN 真量化存储**；CAS/NOTHREAD/REDUCE 仍 accept-no-op |
+| VADD 选项 | ✅ NX/XX/SETATTR；**M/EF 接入真 HNSW**；**VSIM EPSILON**；**Q8/BIN 真量化存储**；**BIN 图内 Hamming**；CAS/NOTHREAD/REDUCE 仍 accept-no-op |
 | FT 短语 / SLOP | ✅ 引号短语 + positions 邻近；SLOP/INORDER/TIMEOUT 可解析 |
 | save 自动快照 | ✅ `CONFIG save` 点位 + dirty 计数触发 BGSAVE |
 | GEO geohash | ✅ 52-bit（float64 无损，对齐 Redis） |
@@ -65,7 +65,7 @@
 | Hash field TTL 持久化 | ✅ RDB/DUMP 经 Godis opaque（非 Redis 互通） |
 | CONFIG RESETSTAT | ✅ 清零 INFO/cmd/net/rejected 计数 |
 | CONFIG REWRITE | ✅ 写回配置文件（无配置文件时报错） |
-| FUNCTION DUMP | ✅ Godis `GODISFN1` 二进制（非 Redis 互通） |
+| FUNCTION DUMP | ✅ Godis `GODISFN1` 二进制（非 Redis 互通；截断/异己二进制明确 ERR） |
 | CLIENT TRACKING | ✅ RESP3 本地 Push；RESP2 需 REDIRECT；GETREDIR 正确 |
 | RESTORE IDLETIME/FREQ | ✅ 写入 eviction 元数据 |
 | PING message | ✅ Bulk 回复（对齐 Redis） |
@@ -189,11 +189,11 @@ UNWATCH、WAIT（简版）、BITOP、BITFIELD、SMOVE、LPOS、XCLAIM、SHUTDOWN
 | 远期非目标 | 现状（诚实） | 本轮小步（非宣称完成） |
 |------------|--------------|------------------------|
 | jemalloc / 真 OS RSS | `used_memory`≈`MemStats.Alloc` 峰值 + per-key dataset；`mem_allocator:go`；`used_memory_scripts`≈lua | **`used_memory_rss` 优先真进程 RSS**；`used_memory_scripts` 字段对齐；**绝不**写 jemalloc |
-| 完整 Redis gossip bus | MEET→Raft/FSM join；写管理命令显式 ERR；BUMPEPOCH=`BUMPED 0` | **CLUSTER INFO** 消息计数键恒 0 + **`cluster_bus_port:0`**（诚实无 bus） |
-| 官方模块原生 RDB·DUMP 互通 | Stream/JSON/Vector/TS/概率结构/FT 走 Godis opaque `GODIS1` | 文档 + RESTORE 对非 Godis/损坏载荷标准拒绝；**不**与 Redis 模块 RDB 互通 |
-| FUNCTION DUMP 官方互通 | Godis `GODISFN1` 自洽 | 保持自洽；**不**伪造 Redis functions payload |
-| 完整 BM25 / FT+KNN / 完整 DIALECT | BM25STD + **TEXT WEIGHT**；KNN/HYBRID；DIALECT 1/2/3 子集 | 非论文级完整 BM25/方言；见 REDISEARCH_ALIGNMENT |
-| Vector 图内量化距离 | **VADD Q8/BIN 真存储**（搜索反量化 f32）；FT VECTOR 窄类型解码已有 | **图内真 int8 / BIN Hamming 距离**仍远期 |
+| 完整 Redis gossip bus | MEET→Raft/FSM join；写管理命令显式 ERR（含「no gossip」文案）；BUMPEPOCH=`BUMPED 0` | **CLUSTER INFO** 消息计数键恒 0 + **`cluster_bus_port:0`**（诚实无 bus） |
+| 官方模块原生 RDB·DUMP 互通 | Stream/JSON/Vector/TS/概率结构/FT 走 Godis opaque `GODIS1` | RESTORE 对坏载荷 ERR（文案标明非模块 RDB）；**不**与 Redis 模块 RDB 互通 |
+| FUNCTION DUMP 官方互通 | Godis `GODISFN1` 自洽；截断/异己二进制明确 ERR；兼旧文本 | 保持自洽；**不**伪造 Redis functions payload |
+| 完整 BM25 / 完整 KNN 方言 / 完整 DIALECT | BM25STD + **TEXT WEIGHT**；**FT+KNN 最小路径**（`*=>[KNN…]`/预过滤/DIALECT≥2）；DIALECT 1/2/3 子集 | 非论文级完整 BM25/完整方言；见 REDISEARCH_ALIGNMENT |
+| Vector 图内真 int8 距离 | **VADD Q8/BIN 真存储**；**BIN→图内 Hamming**；Q8 搜索仍反量化 f32；FT VECTOR 窄类型解码已有 | **图内真 int8 距离**仍远期 |
 | ~~AOF rewrite / RDB 写出 FT 索引定义~~ | 命令 AOF + **纯 AOF rewrite→FT.CREATE** + **RDB Godis opaque `ft`**（Load 后回填） | ✅ 2026-08-11；**非**官方 RediSearch 模块 RDB |
 | ~~HLL sparse 读取~~ | dense 互通；**sparse 安全解码→内存 dense**（写回仍 dense） | ✅ 2026-08-11：corrupt/非 dense·sparse 编码→`INVALIDOBJ`；已移出远期清单 |
 | CI Redis sidecar 全量输出 diff（R4-1） | 未做全量 | **脚手架** `scripts/redis-sidecar-diff.sh`（allowlist PING/SET/GET only）；非完整套件 |
@@ -204,7 +204,7 @@ UNWATCH、WAIT（简版）、BITOP、BITFIELD、SMOVE、LPOS、XCLAIM、SHUTDOWN
 | Magic | 用途 | 互通 |
 |-------|------|------|
 | `GODIS1\0` + JSON `{t,d}` | DUMP/RDB/AOF 扩展类型（stream/json/vector/ts/hexpire/bloom/cuckoo/cms/topk/tdigest/**ft**） | 仅 Godis↔Godis |
-| `GODISFN1` + 长度前缀库列表 | FUNCTION DUMP/RESTORE | 仅 Godis↔Godis（兼旧文本 RESTORE） |
+| `GODISFN1` + 长度前缀库列表 | FUNCTION DUMP/RESTORE | 仅 Godis↔Godis（兼旧文本 RESTORE；截断 GODISFN1 / 异己二进制→ERR） |
 
 ## 测试
 
@@ -212,4 +212,4 @@ UNWATCH、WAIT（简版）、BITOP、BITFIELD、SMOVE、LPOS、XCLAIM、SHUTDOWN
 
 ---
 
-**最后更新：** 2026-08-11（deep4：FT 索引进 RDB opaque；VADD BIN 真量化；BM25 TEXT WEIGHT；远期 **8** + 可独立 **0**）
+**最后更新：** 2026-08-11（deep5：BIN 图内 Hamming；FT+KNN 最小验收测；GODISFN1 边界 ERR；远期仍 **8** + 可独立 **0**）

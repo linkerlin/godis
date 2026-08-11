@@ -6,8 +6,11 @@
 
 ### Added
 
+- Vector **BIN 图内 Hamming**：HNSW/VSIM 对 packed bits 真 Hamming（报告 cosine=`(dim-2h)/dim`）；Q8 仍反量化 f32
+- FT+KNN **最小路径验收测**：`*=>[KNN…]` + 预过滤（`database/redisearch_knn_min_test.go`）
+- `FUNCTION RESTORE`：**GODISFN1** 截断/尾随垃圾/异己二进制明确 ERR（不伪造 Redis 官方 Functions dump）
 - RDB / RDB-preamble：**FT 索引定义**经 Godis opaque `ft`（`CreateArgs`）；LoadRDB 延迟 `FT.CREATE` 回填文档（非官方模块 RDB）
-- VADD **BIN 真二值量化**：1-bit/dim 打包；`VINFO quant-type=bin`；VSIM/HNSW 用 ±1 f32；opaque 可保留 BIN codes
+- VADD **BIN 真二值量化**：1-bit/dim 打包；`VINFO quant-type=bin`；opaque 可保留 BIN codes
 - BM25STD：**TEXT WEIGHT** 计入字段贡献（可验排序）；DIALECT 1/2/3 子集诚实文档
 - HLL **sparse 真读**：Redis sparse RLE→dense 提升；`PFCOUNT`/`PFADD` 可读迁移 blob；写出仍 dense；损坏编码→`INVALIDOBJ`
 - 纯 AOF rewrite：**FT.CREATE** 自引擎 `CreateArgs` 回放（剥 `SKIPINITIALSCAN`）
@@ -53,8 +56,11 @@
 
 ### Changed
 
+- **兼容里程碑（2026-08-11 deep5）**：远期清单仍 **8** 项 + 可独立 **0**（BIN Hamming；FT+KNN 最小验收；GODISFN1 边界；小步非远期完成）
 - **兼容里程碑（2026-08-11 deep4）**：远期清单 **8** 项 + 可独立 **0**（FT RDB opaque；VADD BIN；BM25 WEIGHT；小步非远期完成）
 - **兼容里程碑（2026-08-11 deep3）**：远期清单曾为 **9** 项（HLL sparse；FT 纯 AOF rewrite / VADD Q8）
+- `CLUSTER REPLICATE`/`FORGET`/`FAILOVER`：ERR 文案标明无 Redis gossip bus
+- `RESTORE` 坏载荷 ERR：注明非 Redis module RDB
 - **兼容里程碑关闭（2026-08-10）**：可独立正确性/兼容小项已清至书面远期非目标；**不宣称 100% Redis 兼容**。远期非目标见 `docs/COMPATIBILITY.md`「兼容里程碑关闭」
 - Legacy Lua（`GODIS_LUA_ENGINE=legacy`）：拒绝 `os.`/`io.`/`package.`/`debug.`/`require`/`dofile`/`loadfile`（对齐 gopher-lua SkipOpenLibs 意图）
 - `CLUSTER BUMPEPOCH`：明确为 no-op（`BUMPED 0`；FSM 无 config epoch；远期/非目标：真 epoch / gossip）

@@ -1,6 +1,9 @@
 package vector
 
-import "math"
+import (
+	"math"
+	"math/bits"
+)
 
 // QuantMode is the per-set quantization format (locked after first insert).
 type QuantMode int
@@ -10,7 +13,8 @@ const (
 	QuantF32 QuantMode = iota
 	// QuantQ8 stores signed int8 per dim with a per-vector range scale.
 	QuantQ8
-	// QuantBIN stores 1 bit per dim (sign): packed LSB-first; search uses ±1 f32.
+	// QuantBIN stores 1 bit per dim (sign): packed LSB-first.
+	// HNSW / VSIM use Hamming on packed bits (rank-equivalent to ±1 cosine).
 	QuantBIN
 )
 
@@ -85,14 +89,52 @@ func QuantizeBIN(data []float32) []byte {
 }
 
 // DequantizeBIN expands packed BIN bits to ±1.0 float32 (length = dim).
-func DequantizeBIN(bits []byte, dim int) []float32 {
+// Kept for VEMB / opaque display; graph search uses HammingDistanceBits.
+func DequantizeBIN(packed []byte, dim int) []float32 {
 	out := make([]float32, dim)
 	for i := 0; i < dim; i++ {
-		if i/8 < len(bits) && bits[i/8]&(1<<(uint(i)%8)) != 0 {
+		if i/8 < len(packed) && packed[i/8]&(1<<(uint(i)%8)) != 0 {
 			out[i] = 1
 		} else {
 			out[i] = -1
 		}
 	}
 	return out
+}
+
+// HammingDistanceBits counts differing sign bits among the first dim dimensions
+// of two packed BIN codes (LSB-first within each byte). Unused bits in the last
+// byte are masked out.
+func HammingDistanceBits(a, b []byte, dim int) int {
+	if dim <= 0 {
+		return 0
+	}
+	nbytes := (dim + 7) / 8
+	dist := 0
+	for i := 0; i < nbytes; i++ {
+		var ba, bb byte
+		if i < len(a) {
+			ba = a[i]
+		}
+		if i < len(b) {
+			bb = b[i]
+		}
+		x := ba ^ bb
+		if i == nbytes-1 {
+			if rem := dim % 8; rem != 0 {
+				x &= byte((1 << uint(rem)) - 1)
+			}
+		}
+		dist += bits.OnesCount8(x)
+	}
+	return dist
+}
+
+// BINCosineFromHamming maps Hamming count to cosine of ±1 vectors:
+// cos = (dim - 2*h) / dim. Rank-equivalent to using Hamming as distance.
+func BINCosineFromHamming(h, dim int) float32 {
+	if dim <= 0 {
+		return 0
+	}
+	return float32(dim-2*h) / float32(dim)
 }

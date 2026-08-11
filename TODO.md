@@ -121,18 +121,19 @@
 
 ### 本里程碑明确非目标（勿当缺口重开）
 
-> 可独立项已归零；下列为**书面远期**（2026-08-11 deep4 后为 **8** 项）。小步≠远期完成。
+> 可独立项已归零；下列为**书面远期**（2026-08-11 deep5 后仍为 **8** 项）。小步≠远期完成。
 
 - jemalloc 级 `used_memory` / 完整 OS 级内存会计（已有：进程 RSS→`used_memory_rss`；`mem_allocator:go`；`used_memory_scripts`；`used_memory` 仍为 `Alloc`）
-- 完整 Redis gossip bus；`CLUSTER REPLICATE`/`FORGET`/`RESET`/`SAVECONFIG`/`SET-CONFIG-EPOCH`/`CLUSTER FAILOVER`；BUMPEPOCH 真 config epoch（已有：INFO 消息计数键恒 0 + `cluster_bus_port:0`）
+- 完整 Redis gossip bus；`CLUSTER REPLICATE`/`FORGET`/`RESET`/`SAVECONFIG`/`SET-CONFIG-EPOCH`/`CLUSTER FAILOVER`；BUMPEPOCH 真 config epoch（已有：INFO 消息计数键恒 0 + `cluster_bus_port:0`；ERR 文案标明无 gossip）
 - 官方模块原生 RDB·DUMP 互通（Godis opaque / `GODISFN1` 自洽即可；RESTORE 标准拒绝异己载荷；含 FT 官方模块 RDB）
-- 完整 BM25 / FT+KNN 与完整 DIALECT（已有：BM25STD + TEXT WEIGHT；DIALECT 1/2/3 子集）
-- Vector **图内真 int8 / BIN Hamming 距离**（VADD Q8/BIN 存储已落地；FT VECTOR 窄类型解码已有）
-- FUNCTION DUMP 官方二进制互通
+- 完整 BM25 / 完整 KNN 方言 / 完整 DIALECT（已有：BM25STD + TEXT WEIGHT；**FT+KNN 最小路径**；DIALECT 1/2/3 子集）
+- Vector **图内真 int8 距离**（VADD Q8/BIN 存储已落地；**BIN→Hamming 图内已用**；Q8 仍反量化 f32）
+- FUNCTION DUMP 官方二进制互通（`GODISFN1` 自洽 + 截断/异己二进制明确 ERR；**不**伪造 Redis payload）
 - R4-1 全量旁路比对（仅有 allowlist 脚手架）、R4-2 覆盖率专项
 
 ~~HLL sparse 读取~~ ✅（sparse→dense 解码提升；写出仍 dense）  
 ~~RDB / RDB-preamble 写出 FT 索引定义~~ ✅（Godis opaque `ft` + Load 后回填；纯 AOF rewrite→FT.CREATE）
+~~BIN 仅反量化 f32 搜索~~ ✅（deep5：图内 Hamming）
 
 ---
 
