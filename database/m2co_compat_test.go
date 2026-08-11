@@ -44,19 +44,23 @@ func TestM2coInfoMemoryProcessRSS(t *testing.T) {
 	}
 }
 
-func TestM2coSparseHLLClearError(t *testing.T) {
+func TestM2coSparseHLLReadPromote(t *testing.T) {
 	db := makeTestDB()
-	sparse := make([]byte, hll.TotalSize)
-	copy(sparse[:4], "HYLL")
-	sparse[4] = 1
+	// Valid Redis empty sparse HLL (XZERO:16384).
+	sparse := hll.EncodeSparseEmpty()
 	asserts.AssertStatusReply(t, db.Exec(nil, utils.ToCmdLine("SET", "sh", string(sparse))), "OK")
-	r := db.Exec(nil, utils.ToCmdLine("PFCOUNT", "sh"))
-	if !protocol.IsErrorReply(r) {
-		t.Fatalf("want ERR, got %s", r.ToBytes())
+	asserts.AssertIntReply(t, db.Exec(nil, utils.ToCmdLine("PFCOUNT", "sh")), 0)
+	// PFADD promotes to dense on write.
+	asserts.AssertIntReply(t, db.Exec(nil, utils.ToCmdLine("PFADD", "sh", "x")), 1)
+	entity, ok := db.GetEntity("sh")
+	if !ok {
+		t.Fatal("missing key after PFADD")
 	}
-	if !strings.Contains(string(r.ToBytes()), "sparse HyperLogLog encoding is not supported") {
-		t.Fatalf("want sparse ERR, got %s", r.ToBytes())
+	raw := entity.Data.([]byte)
+	if hll.IsSparseHLLString(raw) || !hll.IsHLLString(raw) {
+		t.Fatalf("want dense HLL after PFADD, enc=%d len=%d", raw[4], len(raw))
 	}
+	asserts.AssertIntReply(t, db.Exec(nil, utils.ToCmdLine("PFCOUNT", "sh")), 1)
 }
 
 func TestM2coFloat16Decode(t *testing.T) {

@@ -35,12 +35,12 @@ func execPFAdd(db *DB, args [][]byte) redis.Reply {
 		if !ok {
 			return &protocol.WrongTypeErrReply{}
 		}
-		if hll.IsSparseHLLString(raw) {
-			return protocol.MakeErrReply("ERR sparse HyperLogLog encoding is not supported")
-		}
 		var err error
 		h, err = hll.Decode(raw)
 		if err != nil {
+			if err == hll.ErrSparseEncoding || err == hll.ErrCorruptHLL {
+				return protocol.MakeErrReply("ERR INVALIDOBJ Corrupted HLL object detected")
+			}
 			return &protocol.WrongTypeErrReply{}
 		}
 	}
@@ -126,7 +126,8 @@ func execPFMerge(db *DB, args [][]byte) redis.Reply {
 }
 
 // getAsHLL decodes the HLL stored under key (a string). Missing key returns
-// (nil, nil); a non-HLL string is a WRONGTYPE; sparse HLL is a clear ERR.
+// (nil, nil); a non-HLL string is a WRONGTYPE. Sparse Redis HLLs are promoted
+// to dense in memory (read path does not rewrite the key).
 func (db *DB) getAsHLL(key string) (*hll.HLL, protocol.ErrorReply) {
 	entity, exists := db.GetEntity(key)
 	if !exists {
@@ -136,14 +137,14 @@ func (db *DB) getAsHLL(key string) (*hll.HLL, protocol.ErrorReply) {
 	if !ok {
 		return nil, &protocol.WrongTypeErrReply{}
 	}
-	if hll.IsSparseHLLString(raw) {
-		return nil, protocol.MakeErrReply("ERR sparse HyperLogLog encoding is not supported")
-	}
 	if !hll.IsHLLString(raw) {
 		return nil, &protocol.WrongTypeErrReply{}
 	}
 	h, err := hll.Decode(raw)
 	if err != nil {
+		if err == hll.ErrSparseEncoding || err == hll.ErrCorruptHLL {
+			return nil, protocol.MakeErrReply("ERR INVALIDOBJ Corrupted HLL object detected")
+		}
 		return nil, &protocol.WrongTypeErrReply{}
 	}
 	return h, nil
