@@ -235,10 +235,12 @@ func (s *Stream) lowerBound(id StreamID) int {
 // AddOptions XADD选项
 type AddOptions struct {
 	NoMkStream   bool     // 如果stream不存在，不创建
+	HasMaxLen    bool     // 是否指定了 MAXLEN（含 0）
 	MaxLen       int64    // 最大长度
 	MaxLenApprox bool     // 近似最大长度 (~)
 	MinID        StreamID // 最小ID，小于此ID的条目会被删除
-	Limit        int64    // 删除限制
+	MinIDApprox  bool     // MINID 是否带 ~
+	Limit        int64    // 删除限制（仅 ~ 近似裁剪可用）
 }
 
 // Add 添加条目到Stream
@@ -269,8 +271,8 @@ func (s *Stream) Add(idStr string, fields map[string]string, opts *AddOptions) (
 	s.lastID = id
 	s.entriesAdded++
 
-	// 处理maxlen限制
-	if opts != nil && opts.MaxLen > 0 {
+	// 处理maxlen限制（含 MAXLEN 0 → 清空）
+	if opts != nil && opts.HasMaxLen {
 		s.trimToMaxLen(opts.MaxLen, opts.MaxLenApprox)
 	}
 
@@ -291,7 +293,7 @@ func (s *Stream) Trim(opts *AddOptions) int64 {
 	defer s.mu.Unlock()
 
 	before := int64(s.entries.Len())
-	if opts.MaxLen > 0 {
+	if opts.HasMaxLen {
 		s.trimToMaxLen(opts.MaxLen, opts.MaxLenApprox)
 	}
 	if !opts.MinID.IsZero() {

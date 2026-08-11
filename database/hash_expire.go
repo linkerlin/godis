@@ -616,8 +616,12 @@ func execHExpireFamily(db *DB, args [][]byte, cmd string, at bool, unit time.Dur
 
 	key := string(args[0])
 	rawTTL, err := strconv.ParseInt(string(args[1]), 10, 64)
-	if err != nil || rawTTL <= 0 {
+	if err != nil {
 		return protocol.MakeErrReply("ERR value is not an integer or out of range")
+	}
+	// Redis 8: TTL/timestamp must be >= 0; 0 means expire-now (delete field).
+	if rawTTL < 0 {
+		return protocol.MakeErrReply("ERR invalid expire time, must be >= 0")
 	}
 
 	flags, fields, errReply := parseHExpireFlags(args[2:])
@@ -719,7 +723,12 @@ func execHExpireFamily(db *DB, args [][]byte, cmd string, at bool, unit time.Dur
 		if db.addAof != nil {
 			db.addAof(utils.ToCmdLine3(cmd, args...))
 		}
-		reindexHash(db, key)
+		if ed.Len() == 0 {
+			db.Remove(key)
+			removeHashFromIndex(db, key)
+		} else {
+			reindexHash(db, key)
+		}
 	}
 
 	return protocol.MakeMultiRawReply(results)

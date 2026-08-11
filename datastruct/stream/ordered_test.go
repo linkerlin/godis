@@ -61,7 +61,7 @@ func TestOrderedTrim(t *testing.T) {
 		}
 	}
 	// MAXLEN 10: keep the 10 newest (2040..2049).
-	s.Trim(&AddOptions{MaxLen: 10, MaxLenApprox: false})
+	s.Trim(&AddOptions{HasMaxLen: true, MaxLen: 10, MaxLenApprox: false})
 	if s.Len() != 10 {
 		t.Fatalf("after MAXLEN trim want 10, got %d", s.Len())
 	}
@@ -127,7 +127,7 @@ func TestOrderedLargeTrimPerformance(t *testing.T) {
 		}
 	}
 	start := time.Now()
-	s.Trim(&AddOptions{MaxLen: 1000, MaxLenApprox: false})
+	s.Trim(&AddOptions{HasMaxLen: true, MaxLen: 1000, MaxLenApprox: false})
 	elapsed := time.Since(start)
 	if s.Len() != 1000 {
 		t.Fatalf("trim want 1000, got %d", s.Len())
