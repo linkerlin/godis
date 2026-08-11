@@ -27,7 +27,7 @@ func TestR41SidecarAllowlistScaffold(t *testing.T) {
 		if !strings.Contains(s, "NOT a full compatibility suite") {
 			t.Fatalf("%s must disclaim full suite", p)
 		}
-		for _, cmd := range []string{"PING", "SET", "GET", "DEL", "EXISTS", "INCR", "TYPE"} {
+		for _, cmd := range []string{"PING", "ECHO", "SET", "GET", "STRLEN", "APPEND", "DEL", "EXISTS", "INCR", "DECR", "TYPE"} {
 			if !strings.Contains(s, cmd) {
 				t.Fatalf("%s missing allowlist cmd %s", p, cmd)
 			}

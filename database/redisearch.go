@@ -1126,9 +1126,11 @@ func execFTSearch(db *DB, args [][]byte) redis.Reply {
 		if dialect < 2 {
 			return protocol.MakeErrReply("ERR Vector KNN queries require DIALECT 2 or higher")
 		}
-		blob, ok := params[strings.TrimPrefix(knnClause.Param, "$")]
+		pname := strings.TrimPrefix(knnClause.Param, "$")
+		blob, ok := params[pname]
 		if !ok {
-			return protocol.MakeErrReply(fmt.Sprintf("ERR Parameter '%s' was not found in PARAMS", knnClause.Param))
+			// Match RediSearch wording; name without leading $.
+			return protocol.MakeErrReply(fmt.Sprintf("ERR No such parameter '%s'", pname))
 		}
 		vi := engine.VectorIndex(knnClause.Field)
 		if vi == nil {

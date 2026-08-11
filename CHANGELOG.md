@@ -6,6 +6,9 @@
 
 ### Added
 
+- FT **DIALECT/KNN 边界错误路径**可测：非法 DIALECT；缺 PARAMS；非 VECTOR 字段；dim 不符；残缺 KNN 子句；`SplitKNNClause` 单元（`No such parameter` 文案对齐）
+- R4-1 allowlist 再扩安全样例：ECHO/STRLEN/APPEND/DECR；`.sh`/`.ps1` + `--selfcheck`/自检文案同步
+- R4-2：**观察式门槛**书面说明（Coveralls 趋势、无私有 % fail gate；见 `coverall.yml` 注释）
 - BM25STD.**TANH** 可验收：`tanh(raw/4)` 分数 ∈(0,1) 且低于未绑定 BM25STD
 - DIALECT 子集：`RequiresDialect3` — **GEOSHAPE** 谓词在 DIALECT&lt;3 明确 ERR（堵 DIALECT 2+PARAMS 静默洞）
 - `MEMORY STATS`：`allocator=go`；INFO `allocator_*` 注释锁定为 Go MemStats 镜像（非 jemalloc）
@@ -64,6 +67,7 @@
 
 ### Changed
 
+- **兼容里程碑（2026-08-11 deep8）**：远期清单仍 **7** 项 + 可独立 **0**（FT DIALECT/KNN 错误路径；R4-1 allowlist 扩样；R4-2 观察式门槛注释；小步非远期完成）
 - **兼容里程碑（2026-08-11 deep7）**：远期清单仍 **7** 项 + 可独立 **0**（BM25STD.TANH；GEOSHAPE DIALECT≥3；jemalloc 字段边界；R4-1 allowlist CI 实跑；小步非远期完成）
 - **兼容里程碑（2026-08-11 deep6）**：远期清单 **7** 项 + 可独立 **0**（Q8 图内 int8；BM25STD.NORM 真 min-max；RESTORE 拒绝矩阵；FAILOVER 测预同步；小步非远期完成）
 - **兼容里程碑（2026-08-11 deep5）**：远期清单曾为 **8** 项 + 可独立 **0**（BIN Hamming；FT+KNN 最小验收；GODISFN1 边界；小步非远期完成）

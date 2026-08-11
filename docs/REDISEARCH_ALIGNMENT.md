@@ -234,6 +234,7 @@ FT.SEARCH idx "hello"  # -> %5 total_results / results / attributes / format / w
 | VECTOR 类型解码 | ✅ | FLOAT16/BFLOAT16/INT8/UINT8 均解码为 float32；**VADD Q8** 存储 + **图内 int8 距离**；**VADD BIN** 存储 + **图内 Hamming** |
 | BM25STD.NORM | ✅ | 结果集真 min-max 归一化到 [0,1]（等分→1）；**TEXT WEIGHT** + **文档长度归一化**已计入 BM25STD；**BM25STD.TANH**→tanh(raw/4)∈(0,1)；完整 BM25/DIALECT 仍远期 |
 | GEOSHAPE DIALECT | ✅ | `@geom:[WITHIN $p]` 等强制 **DIALECT ≥ 3**（DIALECT 2+PARAMS 不再静默成功） |
+| KNN/DIALECT 错误路径 | ✅ | 非法 DIALECT 0/5；缺 PARAMS / 非 VECTOR 字段 / dim 不符 / 残缺 `=>[KNN`；`SplitKNNClause` 单元（非完整 KNN 方言） |
 | FT.PROFILE 迭代器细分 | 🔶 | 只报诚实总耗时;细分需 instrument 引擎迭代器 |
 | FT.HYBRID RANGE/FILTER/POLICY | 🔶 | 接受但按暴力路径执行 |
 | APPLY 日期/geo 函数 | 🔶 | timefmt/day/hour/geodistance 等未实现(小众) |

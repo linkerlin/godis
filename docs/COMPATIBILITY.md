@@ -192,12 +192,12 @@ UNWATCH、WAIT（简版）、BITOP、BITFIELD、SMOVE、LPOS、XCLAIM、SHUTDOWN
 | 完整 Redis gossip bus | MEET→Raft/FSM join；写管理命令显式 ERR（含「no gossip」文案）；BUMPEPOCH=`BUMPED 0` | **CLUSTER INFO** 消息计数键恒 0 + **`cluster_bus_port:0`**（诚实无 bus） |
 | 官方模块原生 RDB·DUMP 互通 | Stream/JSON/Vector/TS/概率结构/FT 走 Godis opaque `GODIS1` | RESTORE **拒绝矩阵**（截断/坏版本/坏 CRC/模块样/短载荷→ERR；文案标明非模块 RDB）；**不**与 Redis 模块 RDB 互通 |
 | FUNCTION DUMP 官方互通 | Godis `GODISFN1` 自洽；截断/异己二进制明确 ERR；兼旧文本 | 保持自洽；**不**伪造 Redis functions payload |
-| 完整 BM25 / 完整 KNN 方言 / 完整 DIALECT | BM25STD + WEIGHT + 文档长度；**NORM 真 min-max**；**TANH=tanh(raw/4)∈(0,1)**；**FT+KNN 最小路径**；DIALECT 1/2/3 子集（**GEOSHAPE 强制 ≥3**） | 非论文级完整 BM25/完整方言；见 REDISEARCH_ALIGNMENT |
+| 完整 BM25 / 完整 KNN 方言 / 完整 DIALECT | BM25STD + WEIGHT + 文档长度；**NORM 真 min-max**；**TANH=tanh(raw/4)∈(0,1)**；**FT+KNN 最小路径**；DIALECT 1/2/3 子集（**GEOSHAPE 强制 ≥3**）；**KNN/DIALECT 错误路径可测** | 非论文级完整 BM25/完整方言；见 REDISEARCH_ALIGNMENT |
 | ~~Vector 图内真 int8 距离~~ | **VADD Q8/BIN 真存储**；**BIN→图内 Hamming**；**Q8→图内 int8 距离**（无搜索态 f32 缓冲）；FT VECTOR 窄类型解码已有 | ✅ 2026-08-11 deep6；VEMB 仍可显示反量化近似 |
 | ~~AOF rewrite / RDB 写出 FT 索引定义~~ | 命令 AOF + **纯 AOF rewrite→FT.CREATE** + **RDB Godis opaque `ft`**（Load 后回填） | ✅ 2026-08-11；**非**官方 RediSearch 模块 RDB |
 | ~~HLL sparse 读取~~ | dense 互通；**sparse 安全解码→内存 dense**（写回仍 dense） | ✅ 2026-08-11：corrupt/非 dense·sparse 编码→`INVALIDOBJ`；已移出远期清单 |
-| CI Redis sidecar 全量输出 diff（R4-1） | 未做全量 | **脚手架可跑 allowlist**：PING/SET/GET/DEL/EXISTS/INCR/TYPE（`redis-sidecar-diff.sh`/`.ps1`；CI smoke 步对 Redis 8 sidecar 实跑；`--selfcheck`）；非完整套件 |
-| 覆盖率专项冲高（R4-2） | 未做 | 书面远期；CI 提示见 `.github/workflows/coverall.yml` 注释 |
+| CI Redis sidecar 全量输出 diff（R4-1） | 未做全量 | **脚手架可跑 allowlist**：PING/ECHO/SET/GET/STRLEN/APPEND/DEL/EXISTS/INCR/DECR/TYPE（`redis-sidecar-diff.sh`/`.ps1`；CI smoke 步对 Redis 8 sidecar 实跑；`--selfcheck`）；非完整套件 |
+| 覆盖率专项冲高（R4-2） | 未做 | 书面远期；**观察式门槛**见 `.github/workflows/coverall.yml` 注释（Coveralls 趋势、无私有 % 门禁、不因覆盖率 fail） |
 
 ### Godis opaque / FUNCTION 信封边界（非 Redis 互通）
 
@@ -212,4 +212,4 @@ UNWATCH、WAIT（简版）、BITOP、BITFIELD、SMOVE、LPOS、XCLAIM、SHUTDOWN
 
 ---
 
-**最后更新：** 2026-08-11（deep7：BM25STD.TANH 可验；GEOSHAPE DIALECT≥3 拒绝；INFO/MEMORY jemalloc 边界更清；R4-1 allowlist CI 实跑；远期仍 **7** + 可独立 **0**）
+**最后更新：** 2026-08-11（deep8：FT DIALECT/KNN 错误路径可测；R4-1 allowlist +ECHO/STRLEN/APPEND/DECR；R4-2 观察式门槛注释；远期仍 **7** + 可独立 **0**）

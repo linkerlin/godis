@@ -115,13 +115,13 @@
 
 ### R4 — 测试与文档
 
-- [ ] **R4-1 Redis 8.x 响应比对套件**：CI 中用 Redis 8 sidecar 做参考，diff 关键命令输出。（**远期非目标**；脚手架可跑 allowlist：`scripts/redis-sidecar-diff.sh`/`.ps1`；CI smoke 实跑；非全量）
-- [ ] **R4-2 覆盖率提升**：`aof`、`pubsub`、`redis/protocol`、`redis/connection`、新数据类型包达到可接受覆盖。（**远期非目标**；CI 提示见 coverall.yml）
+- [ ] **R4-1 Redis 8.x 响应比对套件**：CI 中用 Redis 8 sidecar 做参考，diff 关键命令输出。（**远期非目标**；脚手架可跑 allowlist：PING/ECHO/SET/GET/STRLEN/APPEND/DEL/EXISTS/INCR/DECR/TYPE — `scripts/redis-sidecar-diff.sh`/`.ps1`；CI smoke 实跑；非全量）
+- [ ] **R4-2 覆盖率提升**：`aof`、`pubsub`、`redis/protocol`、`redis/connection`、新数据类型包达到可接受覆盖。（**远期非目标**；**观察式门槛**见 coverall.yml 注释：Coveralls 趋势、无私有 % fail gate）
 - [x] **R4-3 文档同步 + 里程碑关闭**：`CHANGELOG` / `docs/COMPATIBILITY.md` / `TODO.md` / `兼容性改进计划.md` 勾选口径清空至仅剩远期篇；标明明确非目标列表。
 
 ### 本里程碑明确非目标（勿当缺口重开）
 
-> 可独立项已归零；下列为**书面远期**（2026-08-11 deep6 后仍为 **7** 项）。小步≠远期完成。
+> 可独立项已归零；下列为**书面远期**（2026-08-11 deep8 后仍为 **7** 项）。小步≠远期完成。
 
 - jemalloc 级 `used_memory` / 完整 OS 级内存会计（已有：进程 RSS→`used_memory_rss`；`mem_allocator:go`；`used_memory_scripts`；`used_memory` 仍为 `Alloc`）
 - 完整 Redis gossip bus；`CLUSTER REPLICATE`/`FORGET`/`RESET`/`SAVECONFIG`/`SET-CONFIG-EPOCH`/`CLUSTER FAILOVER`；BUMPEPOCH 真 config epoch（已有：INFO 消息计数键恒 0 + `cluster_bus_port:0`；ERR 文案标明无 gossip）

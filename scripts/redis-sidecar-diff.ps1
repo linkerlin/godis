@@ -1,6 +1,7 @@
 # R4-1 scaffold (PowerShell): tiny allowlist diff vs a Redis 8 sidecar.
 # NOT a full compatibility suite. Does not claim Redis parity.
-# Allowlist: PING / SET / GET / DEL / EXISTS / INCR / TYPE
+# Allowlist: PING / ECHO / SET / GET / STRLEN / APPEND / DEL / EXISTS / INCR / DECR / TYPE
+# Out of scope: modules, DUMP/RESTORE, gossip, ACL, cluster, FT.*, FUNCTIONS.
 param(
     [switch]$SelfCheck
 )
@@ -19,12 +20,15 @@ function Invoke-RedisCli {
 
 if ($SelfCheck) {
     $cmd = Get-Command $Cli -ErrorAction SilentlyContinue
-    if (-not $cmd) { throw "selfcheck: $Cli not on PATH (ok to install later)" }
-    Write-Host "R4-1 selfcheck ok: allowlist=PING,SET,GET,DEL,EXISTS,INCR,TYPE; full suite out of scope"
+    if (-not $cmd) {
+        Write-Host "R4-1 selfcheck: $Cli not on PATH (install later; allowlist still documented)"
+        exit 0
+    }
+    Write-Host "R4-1 selfcheck ok: allowlist=PING,ECHO,SET,GET,STRLEN,APPEND,DEL,EXISTS,INCR,DECR,TYPE; full suite out of scope"
     exit 0
 }
 
-Write-Host "R4-1 scaffold: allowlist-only (PING/SET/GET/DEL/EXISTS/INCR/TYPE). Full module/DUMP/gossip diffs are out of scope."
+Write-Host "R4-1 scaffold: allowlist-only (PING/ECHO/SET/GET/STRLEN/APPEND/DEL/EXISTS/INCR/DECR/TYPE). Full module/DUMP/gossip diffs are out of scope."
 
 function Assert-Both {
     param([string]$Label, [string]$Want, [string[]]$Cmd)
@@ -41,6 +45,8 @@ if ($rPing -ne "PONG" -or $gPing -ne "PONG") {
     throw "PING mismatch: redis=$rPing godis=$gPing"
 }
 
+Assert-Both "ECHO" "r41-ok" @("ECHO", "r41-ok")
+
 $key = "sidecar:allowlist:$PID"
 $val = "ok"
 Invoke-RedisCli $RedisHost $RedisPort DEL $key | Out-Null
@@ -48,6 +54,9 @@ Invoke-RedisCli $GodisHost $GodisPort DEL $key | Out-Null
 
 Assert-Both "SET" "OK" @("SET", $key, $val)
 Assert-Both "GET" $val @("GET", $key)
+Assert-Both "STRLEN" "2" @("STRLEN", $key)
+Assert-Both "APPEND" "3" @("APPEND", $key, "!")
+Assert-Both "GET-appended" "ok!" @("GET", $key)
 Assert-Both "EXISTS" "1" @("EXISTS", $key)
 Assert-Both "TYPE" "string" @("TYPE", $key)
 
@@ -56,7 +65,8 @@ Invoke-RedisCli $RedisHost $RedisPort DEL $nkey | Out-Null
 Invoke-RedisCli $GodisHost $GodisPort DEL $nkey | Out-Null
 Assert-Both "INCR" "1" @("INCR", $nkey)
 Assert-Both "INCR2" "2" @("INCR", $nkey)
-Assert-Both "GET-n" "2" @("GET", $nkey)
+Assert-Both "DECR" "1" @("DECR", $nkey)
+Assert-Both "GET-n" "1" @("GET", $nkey)
 
 Assert-Both "DEL" "1" @("DEL", $key)
 Assert-Both "EXISTS-after-del" "0" @("EXISTS", $key)

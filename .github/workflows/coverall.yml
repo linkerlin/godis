@@ -1,12 +1,17 @@
 # This workflow will build a golang project
 # For more information see: https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-go
 #
-# R4-2 note (远期非目标): coveralls 上传 profile.cov 仅供趋势观察，
-# 不设覆盖率门槛、不阻塞合并。专项冲高覆盖率不在本里程碑内。
+# R4-2 note (远期非目标 / 观察式门槛说明，非 CI fail gate)：
+# - coveralls 上传 profile.cov 仅供趋势观察；不设百分比硬门槛、不因覆盖率
+#   下降 fail job、不阻塞合并。勿在本文件引入 coverage-threshold / fail_ci_if_error。
+# - 书面关注包（冲高仍属远期）：aof、pubsub、redis/protocol、redis/connection、
+#   以及 datastruct 新类型（json/vector/timeseries/hll 等）。
+# - 「可接受覆盖」无数值门禁；专项冲高 ≠ 本 workflow 会红灯。
 # R4-1 note: Redis 8 sidecar 在下方 redis-action 已起服务；**allowlist**
-# 脚手架（PING/SET/GET/DEL/EXISTS/INCR/TYPE）在 smoke 步真实可跑；
-# 完整输出 diff 套件未接入、亦不宣称。本地：bash scripts/redis-sidecar-diff.sh
-# 或 pwsh scripts/redis-sidecar-diff.ps1；无双端时 --selfcheck / -SelfCheck。
+# 脚手架（PING/ECHO/SET/GET/STRLEN/APPEND/DEL/EXISTS/INCR/DECR/TYPE）在 smoke
+# 步真实可跑；完整输出 diff 套件未接入、亦不宣称。本地：
+# bash scripts/redis-sidecar-diff.sh 或 pwsh scripts/redis-sidecar-diff.ps1；
+# 无双端时 --selfcheck / -SelfCheck。
 
 name: Go
 
