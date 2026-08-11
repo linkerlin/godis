@@ -36,7 +36,7 @@
 | 主题 | 说明 |
 |------|------|
 | 默认端口 | Redis 6379；Godis **6399** |
-| 集群 | ✅ 16384 槽 + CRC16；MOVED/ASK/ASKING/READONLY；NODES/SLOTS/INFO/SHARDS 读 FSM；ADDSLOTS/DELSLOTS* 写 FSM；MEET→`cluster.join`/EventJoin（需 `raft-port`，**非** Redis gossip）；SETSLOT 本地 MIGRATING/IMPORTING/STABLE；`NODE`→FSM `EventAssignSlots`（本节点清迁移态）；真实 `doMigrateSlot` 设 Importing/migratePeer、成功 finish 才 dropSlot；ASK 读 FSM Migratings；GETKEYSINSLOT/COUNTKEYSINSLOT 读本地 slotsManager；REPLICAS 读 FSM；BUMPEPOCH 为 no-op（`BUMPED 0`）；`INFO cluster` 与 CLUSTER INFO 同源（有 Cluster 时）；REPLICATE/FORGET 等仍 ERR |
+| 集群 | ✅ 16384 槽 + CRC16；MOVED/ASK/ASKING/READONLY；NODES/SLOTS/INFO/SHARDS 读 FSM；ADDSLOTS/DELSLOTS* 写 FSM；MEET→`cluster.join`/EventJoin（需 `raft-port`，**非** Redis gossip）；SETSLOT 本地 MIGRATING/IMPORTING/STABLE；`NODE`→FSM `EventAssignSlots`（本节点清迁移态）；真实 `doMigrateSlot` 设 Importing/migratePeer、成功 finish 才 dropSlot；ASK 读 FSM Migratings；GETKEYSINSLOT/COUNTKEYSINSLOT 读本地 slotsManager；REPLICAS 读 FSM；**REPLICATE→FSM MasterSlaves**；**FORGET→EventForget 安全清理**；BUMPEPOCH 为 no-op（`BUMPED 0`）；`INFO cluster` 与 CLUSTER INFO 同源；消息计数映射 `cluster.heartbeat`/MEET（**`cluster_bus_port:0`**，无真 gossip bus）；RESET/SAVECONFIG/CLUSTER FAILOVER 等仍 ERR |
 | HLL | ✅ 算法/编码与 Redis 互通（xxHash64 + dense `HYLL` 编码 + 大范围修正）；sparse **读取→dense 提升**（写出仍 dense） |
 | EXEC | 已按 Redis：出错继续、不整事务回滚 |
 | BLPOP / XREAD BLOCK | 真阻塞（等待队列 + 写路径唤醒） |
@@ -189,7 +189,7 @@ UNWATCH、WAIT（简版）、BITOP、BITFIELD、SMOVE、LPOS、XCLAIM、SHUTDOWN
 | 远期非目标 | 现状（诚实） | 本轮小步（非宣称完成） |
 |------------|--------------|------------------------|
 | jemalloc / 真 OS RSS | `used_memory`≈`MemStats.Alloc` 峰值 + per-key dataset；`mem_allocator:go`；`allocator_*`=`HeapAlloc`/`HeapSys`/`Sys`（**非** jemalloc arenas）；`MEMORY STATS` `allocator=go` + `process.rss` | RSS 优先真进程；**绝不**写 jemalloc |
-| 完整 Redis gossip bus | MEET→Raft/FSM join；写管理命令显式 ERR（含「no gossip」文案）；BUMPEPOCH=`BUMPED 0` | **CLUSTER INFO** 消息计数键恒 0 + **`cluster_bus_port:0`**（诚实无 bus） |
+| 完整 Redis gossip bus | MEET→Raft/FSM join；**REPLICATE/FORGET 接 FSM**（非 gossip）；BUMPEPOCH=`BUMPED 0`；无 CLUSTERMSG 二进制 bus | **`cluster_bus_port:0`**；ping/pong/meet 计数映射内部 heartbeat/MEET RPC（非宣称已有 gossip bus）；RESET/SAVECONFIG/CLUSTER FAILOVER/真 epoch/`fail` 传播仍延期 |
 | 官方模块原生 RDB·DUMP 互通 | Stream/JSON/Vector/TS/概率结构/FT 走 Godis opaque `GODIS1` | RESTORE **拒绝矩阵**（截断/坏版本/坏 CRC/模块样/短载荷→ERR；文案标明非模块 RDB）；**不**与 Redis 模块 RDB 互通 |
 | FUNCTION DUMP 官方互通 | Godis `GODISFN1` 自洽；截断/异己二进制明确 ERR；兼旧文本 | 保持自洽；**不**伪造 Redis functions payload |
 | 完整 BM25 / 完整 KNN 方言 / 完整 DIALECT | BM25STD + WEIGHT + 文档长度；**NORM 真 min-max**；**TANH=tanh(raw/4)∈(0,1)**；**FT+KNN 最小路径**；DIALECT 1/2/3 子集（**GEOSHAPE 强制 ≥3**）；**KNN/DIALECT 错误路径可测** | 非论文级完整 BM25/完整方言；见 REDISEARCH_ALIGNMENT |

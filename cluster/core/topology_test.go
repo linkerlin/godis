@@ -73,8 +73,8 @@ func TestClusterTopologyFromFSM(t *testing.T) {
 	if !strings.Contains(info, "cluster_known_nodes:3\n") {
 		t.Fatalf("INFO known: %s", info)
 	}
-	if !strings.Contains(info, "cluster_stats_messages_ping_sent:0\n") {
-		t.Fatalf("INFO missing gossip ping_sent zero: %s", info)
+	if !strings.Contains(info, "cluster_stats_messages_ping_sent:") {
+		t.Fatalf("INFO missing gossip ping_sent key: %s", info)
 	}
 	if !strings.Contains(info, "cluster_bus_port:0\n") {
 		t.Fatalf("INFO missing cluster_bus_port:0 (no gossip bus): %s", info)

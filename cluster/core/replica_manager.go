@@ -50,9 +50,15 @@ func execHeartbeat(cluster *Cluster, c redis.Connection, cmdLine CmdLine) redis.
 		return protocol.MakeArgNumErrReply(heartbeatCommand)
 	}
 	id := string(cmdLine[1])
+	if cluster.replicaManager == nil {
+		cluster.replicaManager = newReplicaManager()
+	}
 	cluster.replicaManager.mu.Lock()
 	cluster.replicaManager.masterHeartbeats[id] = time.Now()
 	cluster.replicaManager.mu.Unlock()
+	// Map internal heartbeat RPC onto CLUSTER INFO ping/pong counters (not gossip bus).
+	cluster.bus.incrPingReceived()
+	cluster.bus.incrPongSent()
 
 	return protocol.MakeOkReply()
 }
@@ -64,10 +70,13 @@ func (cluster *Cluster) sendHearbeat() {
 		return
 	}
 	defer cluster.connections.ReturnPeerClient(leaderConn)
+	cluster.bus.incrPingSent()
 	reply := leaderConn.Send(utils.ToCmdLine(heartbeatCommand, cluster.SelfID()))
 	if err := protocol.Try2ErrorReply(reply); err != nil {
 		logger.Error(err)
+		return
 	}
+	cluster.bus.incrPongReceived()
 }
 
 const followerTimeout = 10 * time.Second
@@ -150,3 +159,4 @@ func (cluster *Cluster) registerOnFailover() {
 		}
 	})
 }
+
