@@ -414,16 +414,19 @@ func (e *RediSearchEngine) SearchKNN(baseQuery string, opts *SearchOptions, knn 
 		}
 		node, err := parser.Parse()
 		if err != nil {
+			if isDialectGateError(err) {
+				return nil, err
+			}
 			node, err = NewQueryParser().Parse(baseQuery)
 			if err != nil {
 				return nil, err
 			}
 		}
 		if opts != nil && opts.Dialect > 0 && opts.Dialect < 2 && RequiresDialect2(node) {
-			return nil, fmt.Errorf("DIALECT 2+ required for this query")
+			return nil, fmt.Errorf("%s", Dialect2Reason(node))
 		}
 		if opts != nil && opts.Dialect > 0 && opts.Dialect < 3 && RequiresDialect3(node) {
-			return nil, fmt.Errorf("DIALECT 3+ required for this query")
+			return nil, fmt.Errorf("GEOSHAPE queries require DIALECT 3 or higher")
 		}
 		candidates = node.Evaluate(e.index)
 		candidates = e.filterByGeoNodes(candidates, node)
@@ -489,6 +492,9 @@ func (e *RediSearchEngine) Search(query string, opts *SearchOptions) (*SearchRes
 	}
 	node, err := parser.Parse()
 	if err != nil {
+		if isDialectGateError(err) {
+			return nil, err
+		}
 		// Fallback to simple parser
 		simpleParser := NewQueryParser()
 		node, err = simpleParser.Parse(query)
@@ -515,11 +521,11 @@ func (e *RediSearchEngine) Search(query string, opts *SearchOptions) (*SearchRes
 	}
 	// DIALECT 2-only constructs (comparison ops, ismissing) require Dialect >= 2.
 	if opts != nil && opts.Dialect > 0 && opts.Dialect < 2 && RequiresDialect2(node) {
-		return nil, fmt.Errorf("DIALECT 2+ required for this query")
+		return nil, fmt.Errorf("%s", Dialect2Reason(node))
 	}
 	// DIALECT 3-only constructs (GEOSHAPE predicates) require Dialect >= 3.
 	if opts != nil && opts.Dialect > 0 && opts.Dialect < 3 && RequiresDialect3(node) {
-		return nil, fmt.Errorf("DIALECT 3+ required for this query")
+		return nil, fmt.Errorf("GEOSHAPE queries require DIALECT 3 or higher")
 	}
 
 	// Execute query (* = all documents, same as AGGREGATE)

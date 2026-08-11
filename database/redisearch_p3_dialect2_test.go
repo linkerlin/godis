@@ -143,3 +143,69 @@ func TestP3dOrPrecedenceD1vsD2(t *testing.T) {
 		t.Fatalf("D2 precedence: want 2 (ab,ag), got %s", r2.ToBytes())
 	}
 }
+
+// TestP3eTagSpacesRequireDialect2 verifies tag values with internal spaces are
+// accepted under DIALECT 2 and rejected under DIALECT 1.
+func TestP3eTagSpacesRequireDialect2(t *testing.T) {
+	db := makeTestDB()
+	asserts.AssertStatusReply(t, db.Exec(nil, utils.ToCmdLine(
+		"FT.CREATE", "p3e", "SCHEMA", "cat", "TAG",
+	)), "OK")
+	if r := db.Exec(nil, utils.ToCmdLine("FT.ADD", "p3e", "d1", "FIELDS", "cat", "hello world")); protocol.IsErrorReply(r) {
+		t.Fatalf("add: %s", r.ToBytes())
+	}
+	ok := db.Exec(nil, utils.ToCmdLine(
+		"FT.SEARCH", "p3e", "@cat:{hello world}", "NOCONTENT", "DIALECT", "2",
+	))
+	if protocol.IsErrorReply(ok) || !searchTotalIs(t, ok, 1) {
+		t.Fatalf("D2 spaced tag want 1 hit, got %s", ok.ToBytes())
+	}
+	bad := db.Exec(nil, utils.ToCmdLine(
+		"FT.SEARCH", "p3e", "@cat:{hello world}", "NOCONTENT", "DIALECT", "1",
+	))
+	if !protocol.IsErrorReply(bad) || !strings.Contains(string(bad.ToBytes()), "DIALECT 2") {
+		t.Fatalf("D1 spaced tag want DIALECT 2 ERR, got %s", bad.ToBytes())
+	}
+}
+
+// TestP3fMultiFieldRequiresDialect2 rejects @f1|f2:term under DIALECT 1.
+func TestP3fMultiFieldRequiresDialect2(t *testing.T) {
+	db := makeTestDB()
+	asserts.AssertStatusReply(t, db.Exec(nil, utils.ToCmdLine(
+		"FT.CREATE", "p3f", "SCHEMA", "title", "TEXT", "body", "TEXT",
+	)), "OK")
+	if r := db.Exec(nil, utils.ToCmdLine("FT.ADD", "p3f", "d1", "FIELDS", "title", "golang")); protocol.IsErrorReply(r) {
+		t.Fatalf("add: %s", r.ToBytes())
+	}
+	bad := db.Exec(nil, utils.ToCmdLine(
+		"FT.SEARCH", "p3f", "@title|body:golang", "NOCONTENT", "DIALECT", "1",
+	))
+	if !protocol.IsErrorReply(bad) || !strings.Contains(string(bad.ToBytes()), "DIALECT 2") {
+		t.Fatalf("multi-field under D1 want ERR, got %s", bad.ToBytes())
+	}
+	// Still works under D2 (existing TestP3c); smoke here.
+	ok := db.Exec(nil, utils.ToCmdLine(
+		"FT.SEARCH", "p3f", "@title|body:golang", "NOCONTENT", "DIALECT", "2",
+	))
+	if protocol.IsErrorReply(ok) || !searchTotalIs(t, ok, 1) {
+		t.Fatalf("multi-field under D2 want 1, got %s", ok.ToBytes())
+	}
+}
+
+// TestP3gDialectErrorMessages check specific DIALECT 2 comparison / ismissing wording.
+func TestP3gDialectErrorMessages(t *testing.T) {
+	db := makeTestDB()
+	asserts.AssertStatusReply(t, db.Exec(nil, utils.ToCmdLine(
+		"FT.CREATE", "p3g", "SCHEMA", "n", "NUMERIC", "opt", "TEXT", "INDEXMISSING",
+	)), "OK")
+	_ = db.Exec(nil, utils.ToCmdLine("FT.ADD", "p3g", "d1", "FIELDS", "n", "5"))
+
+	cmp := db.Exec(nil, utils.ToCmdLine("FT.SEARCH", "p3g", "@n == 5", "NOCONTENT", "DIALECT", "1"))
+	if !protocol.IsErrorReply(cmp) || !strings.Contains(string(cmp.ToBytes()), "comparison") {
+		t.Fatalf("compare D1 want comparison ERR, got %s", cmp.ToBytes())
+	}
+	miss := db.Exec(nil, utils.ToCmdLine("FT.SEARCH", "p3g", "ismissing(@opt)", "NOCONTENT", "DIALECT", "1"))
+	if !protocol.IsErrorReply(miss) || !strings.Contains(string(miss.ToBytes()), "ismissing") {
+		t.Fatalf("ismissing D1 want ismissing ERR, got %s", miss.ToBytes())
+	}
+}
