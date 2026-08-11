@@ -80,10 +80,14 @@ func execXAdd(db *DB, args [][]byte) redis.Reply {
 				return protocol.MakeErrReply("ERR value is not an integer or out of range")
 			}
 			opts.MaxLen = maxlen
+			opts.HasMaxLen = true
 			i++
 
-			// 解析可选的LIMIT
+			// 解析可选的LIMIT（仅 ~ 近似允许）
 			if i < len(args) && strings.ToUpper(string(args[i])) == "LIMIT" {
+				if !opts.MaxLenApprox {
+					return protocol.MakeErrReply("ERR syntax error, LIMIT cannot be used without the special ~ option")
+				}
 				if i+1 >= len(args) {
 					return protocol.MakeSyntaxErrReply()
 				}
@@ -102,7 +106,10 @@ func execXAdd(db *DB, args [][]byte) redis.Reply {
 			// 跳过可选的 = 或 ~ 标记
 			if i < len(args) {
 				upper := strings.ToUpper(string(args[i]))
-				if upper == "~" || upper == "=" {
+				if upper == "~" {
+					opts.MinIDApprox = true
+					i++
+				} else if upper == "=" {
 					i++
 				}
 			}
@@ -116,8 +123,11 @@ func execXAdd(db *DB, args [][]byte) redis.Reply {
 			opts.MinID = minID
 			i++
 
-			// 解析可选的LIMIT
+			// 解析可选的LIMIT（仅 ~ 近似允许）
 			if i < len(args) && strings.ToUpper(string(args[i])) == "LIMIT" {
+				if !opts.MinIDApprox {
+					return protocol.MakeErrReply("ERR syntax error, LIMIT cannot be used without the special ~ option")
+				}
 				if i+1 >= len(args) {
 					return protocol.MakeSyntaxErrReply()
 				}
@@ -779,10 +789,14 @@ func execXTrim(db *DB, args [][]byte) redis.Reply {
 			return protocol.MakeErrReply("ERR value is not an integer or out of range")
 		}
 		opts.MaxLen = maxlen
+		opts.HasMaxLen = true
 		idx++
 
-		// 解析可选的LIMIT
+		// 解析可选的LIMIT（仅 ~ 近似允许）
 		if idx < len(args) && strings.ToUpper(string(args[idx])) == "LIMIT" {
+			if !opts.MaxLenApprox {
+				return protocol.MakeErrReply("ERR syntax error, LIMIT cannot be used without the special ~ option")
+			}
 			if idx+1 >= len(args) {
 				return protocol.MakeSyntaxErrReply()
 			}
@@ -795,6 +809,7 @@ func execXTrim(db *DB, args [][]byte) redis.Reply {
 	case "MINID":
 		idx := 2
 		if strings.ToUpper(string(args[2])) == "~" {
+			opts.MinIDApprox = true
 			idx++
 		} else if strings.ToUpper(string(args[2])) == "=" {
 			idx++
@@ -809,8 +824,11 @@ func execXTrim(db *DB, args [][]byte) redis.Reply {
 		opts.MinID = minID
 		idx++
 
-		// 解析可选的LIMIT
+		// 解析可选的LIMIT（仅 ~ 近似允许）
 		if idx < len(args) && strings.ToUpper(string(args[idx])) == "LIMIT" {
+			if !opts.MinIDApprox {
+				return protocol.MakeErrReply("ERR syntax error, LIMIT cannot be used without the special ~ option")
+			}
 			if idx+1 >= len(args) {
 				return protocol.MakeSyntaxErrReply()
 			}

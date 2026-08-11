@@ -6,6 +6,9 @@
 
 ### Fixed
 
+- `HEXPIRE`/`HPEXPIRE`：TTL `0` 立即删字段（返回 `2`）；`<0` → `ERR invalid expire time, must be >= 0`；删空 hash 删键（对齐 Redis 8.10；此前误拒非正 TTL）
+- `XADD`/`XTRIM`：精确 `MAXLEN`/`MINID`（`=` 或无 `~`）带 `LIMIT` → `ERR syntax error, LIMIT cannot be used without the special ~ option`；`MAXLEN 0` 裁到空流（对齐 Redis）
+- 单机模式 `CLUSTER *`：→ `ERR This instance has cluster support disabled`（对齐 Redis；此前 `unknown command`）
 - `BLMPOP`：无 `COUNT` 时最少 4 参（`timeout numkeys key LEFT|RIGHT`）不再误报 arity（对齐 Redis；此前 `len<5` 拒掉合法调用）
 - 阻塞超时：`BLPOP`/`BRPOP`/`BLMOVE`/`BLMPOP`/`BZPOP*`/`BZMPOP`/`BRPOPLPUSH` 负超时 → `ERR timeout is negative`；`inf`/溢出 → `ERR timeout is out of range`；非法/`nan` → `ERR timeout is not a float or out of range`
 - `ZADD`：`NX`+`GT`/`LT`、`GT`+`LT` → `ERR GT, LT, and/or NX options…`；`XX`+`NX` → `ERR XX and NX options…`（对齐 Redis；此前误接受或仅 `syntax error`）
