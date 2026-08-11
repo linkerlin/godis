@@ -101,7 +101,7 @@ Redis 8.0 将 Redis Stack 的 RediSearch 模块并入核心(命令面 24 个 FT.
 
 - **AOF 缺口**:`FT.CONFIG SET`(DEFAULT_DIALECT/MINPREFIX/TIMEOUT 等配置重启丢失)、`FT.DICTADD/DICTDEL`(拼写字典用 `PutEntity` 直接写 map 不走命令,永不落盘)补 `addAof`(仅变更时)。
 - **端到端验证**:`TestP8FTPersistence` —— 建索引 + HSET + CONFIG SET + DICTADD → 关服务器刷 AOF → 重启回放 → 索引/数据/配置/字典全部恢复。
-- **已知限制**:RDB-only / AOF-use-rdb-preamble 重启时索引定义不持久；**纯 AOF rewrite** 已写出 `FT.CREATE`（`TestP8FTAofRewritePersistsIndexDef`）。
+- **已知限制**:官方 RediSearch 模块 RDB 仍不互通；**纯 AOF rewrite** + **Godis opaque `ft`（RDB/RDB-preamble）** 已写出定义并在 Load 后回填（`TestP8FTAofRewritePersistsIndexDef` / `TestP8FTRDBPersistsIndexDef`）。
 
 ### P9 — FT.HYBRID(8.4,6 测试)
 
@@ -231,12 +231,12 @@ FT.SEARCH idx "hello"  # -> %5 total_results / results / attributes / format / w
 
 | 项 | 状态 | 说明 |
 |---|---|---|
-| VECTOR 类型解码 | ✅ | FLOAT16/BFLOAT16/INT8/UINT8 均解码为 float32；**VADD Q8** 真 int8 存储（搜索反量化）；BIN 仍 no-op |
-| BM25STD.NORM | 🔶 | min-max 归一化近似为 `x/(1+x)`(真归一化需二次遍历)；完整 BM25/DIALECT 仍远期 |
+| VECTOR 类型解码 | ✅ | FLOAT16/BFLOAT16/INT8/UINT8 均解码为 float32；**VADD Q8/BIN** 真量化存储（搜索反量化）；图内 Hamming/int8 距离仍远期 |
+| BM25STD.NORM | 🔶 | min-max 归一化近似为 `x/(1+x)`(真归一化需二次遍历)；**TEXT WEIGHT** 已计入 BM25STD；完整 BM25/DIALECT 仍远期 |
 | FT.PROFILE 迭代器细分 | 🔶 | 只报诚实总耗时;细分需 instrument 引擎迭代器 |
 | FT.HYBRID RANGE/FILTER/POLICY | 🔶 | 接受但按暴力路径执行 |
 | APPLY 日期/geo 函数 | 🔶 | timefmt/day/hour/geodistance 等未实现(小众) |
-| RDB / AOF rewrite 索引定义持久化 | 🔶 | 命令 AOF + **纯 AOF rewrite→FT.CREATE**；**RDB/RDB-preamble 仍不写** |
+| RDB / AOF rewrite 索引定义持久化 | ✅ | 命令 AOF + 纯 AOF rewrite→FT.CREATE + RDB opaque `ft`（非官方模块格式） |
 | ACL @search 类别 | ✅ | `+@search` / ACL CAT `@search` 已生效；非「需重构 ACL」 |
 | LVQ/LeanVec 压缩 | ❌ | Intel 专有,OSS Redis 也没有 |
 | GEOSHAPE SPHERICAL 数学 | 🔶 | 按 2D 平面处理(Redis 用测地线;影响跨经纬度边界场景) |

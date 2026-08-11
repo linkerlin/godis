@@ -10,6 +10,8 @@ const (
 	QuantF32 QuantMode = iota
 	// QuantQ8 stores signed int8 per dim with a per-vector range scale.
 	QuantQ8
+	// QuantBIN stores 1 bit per dim (sign): packed LSB-first; search uses ±1 f32.
+	QuantBIN
 )
 
 // QuantTypeName returns the VINFO quant-type string.
@@ -17,6 +19,8 @@ func (m QuantMode) QuantTypeName() string {
 	switch m {
 	case QuantQ8:
 		return "int8"
+	case QuantBIN:
+		return "bin"
 	default:
 		return "f32"
 	}
@@ -61,6 +65,34 @@ func DequantizeQ8(codes []int8, qrange float32) []float32 {
 	scale := qrange / float32(127)
 	for i, q := range codes {
 		out[i] = float32(q) * scale
+	}
+	return out
+}
+
+// QuantizeBIN packs one sign bit per dimension (1 if v>=0, else 0), LSB-first
+// within each byte. Matches Redis Vector Set BIN convention for dense float input.
+func QuantizeBIN(data []float32) []byte {
+	if len(data) == 0 {
+		return nil
+	}
+	out := make([]byte, (len(data)+7)/8)
+	for i, v := range data {
+		if v >= 0 {
+			out[i/8] |= 1 << (uint(i) % 8)
+		}
+	}
+	return out
+}
+
+// DequantizeBIN expands packed BIN bits to ±1.0 float32 (length = dim).
+func DequantizeBIN(bits []byte, dim int) []float32 {
+	out := make([]float32, dim)
+	for i := 0; i < dim; i++ {
+		if i/8 < len(bits) && bits[i/8]&(1<<(uint(i)%8)) != 0 {
+			out[i] = 1
+		} else {
+			out[i] = -1
+		}
 	}
 	return out
 }

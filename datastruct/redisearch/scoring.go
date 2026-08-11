@@ -72,9 +72,10 @@ func (e *RediSearchEngine) computeScore(doc *Document, sc *scoreContext, scorerN
 }
 
 // scorerBM25STD computes BM25 with the given saturation/normalization params.
-// score = Σ_t [ idf(t) · tf(t)·(k1+1) / (tf(t) + k1·(1 - b + b·dl/avgdl)) ]
-// where idf(t) = ln((N - df + 0.5)/(df + 0.5) + 1). Optional terms contribute
-// their positive BM25 gain (boost) the same way required terms do.
+// score = Σ_t Σ_f [ w(f) · idf(t) · tf_f(t)·(k1+1) / (tf_f(t) + k1·(1 - b + b·dl/avgdl)) ]
+// where idf(t) = ln((N - df + 0.5)/(df + 0.5) + 1) uses the global term df.
+// TEXT field WEIGHT multiplies each field's contribution (default 1.0). When
+// NOFIELDS suppressed field postings, falls back to the unscoped term list.
 func scorerBM25STD(doc *Document, sc *scoreContext, k1, b float64) float64 {
 	if sc.docCount == 0 || len(sc.queryTerms) == 0 {
 		return 0
@@ -82,14 +83,40 @@ func scorerBM25STD(doc *Document, sc *scoreContext, k1, b float64) float64 {
 	dl := float64(sc.idx.docLengths[doc.ID])
 	var score float64
 	for _, term := range sc.queryTerms {
+		idfDenom := float64(len(sc.idx.terms[term]))
+		if idfDenom == 0 {
+			continue
+		}
+		idf := math.Log((sc.docCount-idfDenom+0.5)/(idfDenom+0.5) + 1)
+		denomBase := k1 * (1 - b + b*dl/sc.avgdl)
+		fieldContrib := 0.0
+		usedField := false
+		if !sc.idx.noFields {
+			for _, field := range sc.idx.fields {
+				if field == nil || field.Type != FieldTypeText || field.NoIndex {
+					continue
+				}
+				tf := float64(len(sc.idx.terms[field.Name+":"+term][doc.ID]))
+				if tf == 0 {
+					continue
+				}
+				w := field.Weight
+				if w <= 0 {
+					w = 1
+				}
+				fieldContrib += w * idf * (tf * (k1 + 1)) / (tf + denomBase)
+				usedField = true
+			}
+		}
+		if usedField {
+			score += fieldContrib
+			continue
+		}
 		tf := float64(len(sc.idx.terms[term][doc.ID]))
 		if tf == 0 {
 			continue
 		}
-		df := float64(len(sc.idx.terms[term]))
-		idf := math.Log((sc.docCount-df+0.5)/(df+0.5) + 1)
-		denom := tf + k1*(1-b+b*dl/sc.avgdl)
-		score += idf * (tf*(k1+1))/denom
+		score += idf * (tf * (k1 + 1)) / (tf + denomBase)
 	}
 	return score
 }

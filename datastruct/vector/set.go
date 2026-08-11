@@ -16,9 +16,11 @@ type VectorItem struct {
 	// Attributes is Redis Vector Set JSON attributes (VSETATTR/VGETATTR).
 	Attributes string
 	// Q8 / Q8Range hold true int8 quantization when the set uses QuantQ8.
+	// Bin holds packed sign bits when the set uses QuantBIN.
 	// Vector.Data is the dequantized approximation used for HNSW / VSIM.
 	Q8      []int8
 	Q8Range float32
+	Bin     []byte
 }
 
 // SearchResult represents a search result with similarity score
@@ -35,7 +37,7 @@ const hnswQueryKey = "\x00__hnsw_query__"
 
 // VectorSet is a collection of vectors supporting similarity search
 // via an in-memory HNSW graph. Default storage is float32; Q8 stores int8
-// codes (search uses dequantized f32).
+// codes and BIN stores 1-bit codes (search uses dequantized f32).
 type VectorSet struct {
 	vectors   map[string]*VectorItem
 	dimension int
@@ -162,9 +164,14 @@ func (vs *VectorSet) Add(id string, vec *Vector, metadata map[string]string) boo
 	store := vec
 	var q8 []int8
 	var qrange float32
-	if vs.quant == QuantQ8 {
+	var bin []byte
+	switch vs.quant {
+	case QuantQ8:
 		q8, qrange = QuantizeQ8(vec.Data)
 		store = NewVector(DequantizeQ8(q8, qrange))
+	case QuantBIN:
+		bin = QuantizeBIN(vec.Data)
+		store = NewVector(DequantizeBIN(bin, len(vec.Data)))
 	}
 	item := &VectorItem{
 		ID:       id,
@@ -172,6 +179,7 @@ func (vs *VectorSet) Add(id string, vec *Vector, metadata map[string]string) boo
 		Metadata: metadata,
 		Q8:       q8,
 		Q8Range:  qrange,
+		Bin:      bin,
 	}
 	if exists {
 		if old := vs.vectors[id]; old != nil {
@@ -217,6 +225,51 @@ func (vs *VectorSet) AddQ8(id string, codes []int8, qrange float32, metadata map
 		Metadata: metadata,
 		Q8:       append([]int8(nil), codes...),
 		Q8Range:  qrange,
+	}
+	if exists {
+		if old := vs.vectors[id]; old != nil {
+			item.Attributes = old.Attributes
+		}
+	}
+	vs.vectors[id] = item
+	vs.hnsw.Insert(id, vs.distFnLocked(CosineSimilarity))
+	return !exists
+}
+
+// AddBIN inserts a pre-quantized binary vector (opaque restore). Search uses ±1 f32.
+func (vs *VectorSet) AddBIN(id string, bits []byte, dim int, metadata map[string]string) bool {
+	vs.mu.Lock()
+	defer vs.mu.Unlock()
+	if !vs.quantSet {
+		vs.quant = QuantBIN
+		vs.quantSet = true
+	} else if vs.quant != QuantBIN {
+		return false
+	}
+	if dim <= 0 {
+		dim = len(bits) * 8
+	}
+	if vs.dimension == 0 {
+		vs.dimension = dim
+	} else if vs.dimension != dim {
+		return false
+	}
+	if vs.hnsw == nil {
+		m, ef := vs.pendingM, vs.pendingEf
+		if m <= 0 {
+			m = defaultHNSWM
+		}
+		if ef <= 0 {
+			ef = defaultHNSWEfConstruction
+		}
+		vs.hnsw = NewHNSW(m, ef)
+	}
+	_, exists := vs.vectors[id]
+	item := &VectorItem{
+		ID:       id,
+		Vector:   NewVector(DequantizeBIN(bits, dim)),
+		Metadata: metadata,
+		Bin:      append([]byte(nil), bits...),
 	}
 	if exists {
 		if old := vs.vectors[id]; old != nil {

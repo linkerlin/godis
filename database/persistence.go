@@ -15,6 +15,7 @@ import (
 	SortedSet "github.com/linkerlin/godis/datastruct/sortedset"
 	"github.com/linkerlin/godis/interface/database"
 	"github.com/linkerlin/godis/lib/logger"
+	"github.com/linkerlin/godis/redis/protocol"
 )
 
 // loadRdbFile loads rdb file from disk
@@ -40,7 +41,13 @@ func (server *Server) loadRdbFile() error {
 
 // LoadRDB real implementation of loading rdb file
 func (server *Server) LoadRDB(dec *core.Decoder) error {
-	return dec.Parse(func(o rdb.RedisObject) bool {
+	type pendingFT struct {
+		dbIndex int
+		args    [][]byte
+	}
+	var pendingFTCreates []pendingFT
+
+	err := dec.Parse(func(o rdb.RedisObject) bool {
 		db, err := server.selectDBSafe(o.GetDBIndex())
 		if err != nil {
 			logger.Warn(fmt.Sprintf("rdb: skip object key=%q db=%d: %v", o.GetKey(), o.GetDBIndex(), err))
@@ -51,6 +58,15 @@ func (server *Server) LoadRDB(dec *core.Decoder) error {
 		case rdb.StringType:
 			str := o.(*rdb.StringObject)
 			if restored, ok := aof.DecodeOpaque(str.Value); ok {
+				if blob, ok := aof.AsFTIndexBlob(restored); ok {
+					// Defer FT.CREATE until all keys are loaded so initial scan
+					// can backfill HASH/JSON documents already in the RDB.
+					pendingFTCreates = append(pendingFTCreates, pendingFT{
+						dbIndex: o.GetDBIndex(),
+						args:    blob.Args,
+					})
+					return true
+				}
 				entity = restored
 			} else {
 				entity = &database.DataEntity{
@@ -105,6 +121,34 @@ func (server *Server) LoadRDB(dec *core.Decoder) error {
 		}
 		return true
 	})
+	if err != nil {
+		return err
+	}
+
+	for _, p := range pendingFTCreates {
+		db, err := server.selectDBSafe(p.dbIndex)
+		if err != nil {
+			logger.Warn(fmt.Sprintf("rdb: skip FT index restore db=%d: %v", p.dbIndex, err))
+			continue
+		}
+		restoreFTIndexFromRDB(db, p.args)
+	}
+	return nil
+}
+
+// restoreFTIndexFromRDB rebuilds an FT index from CreateArgs after RDB load.
+// AOF is muted: definition is already in the RDB opaque; appends would duplicate.
+func restoreFTIndexFromRDB(db *DB, args [][]byte) {
+	if len(args) == 0 {
+		return
+	}
+	old := db.addAof
+	db.addAof = func(CmdLine) {}
+	defer func() { db.addAof = old }()
+	r := execFTCreate(db, args)
+	if protocol.IsErrorReply(r) {
+		logger.Warn("rdb: FT.CREATE restore failed: " + string(r.ToBytes()))
+	}
 }
 
 func NewPersister(db database.DBEngine, filename string, load bool, fsync string) (*aof.Persister, error) {

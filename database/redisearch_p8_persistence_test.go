@@ -136,3 +136,52 @@ func TestP8FTAofRewritePersistsIndexDef(t *testing.T) {
 	}
 }
 
+// TestP8FTRDBPersistsIndexDef verifies RDB (and thus RDB-preamble) opaque
+// encodes FT.CREATE args and LoadRDB rebuilds the index with document backfill.
+func TestP8FTRDBPersistsIndexDef(t *testing.T) {
+	skipHeavyTests(t)
+	tmpDir, err := os.MkdirTemp("", "godis-ft-rdb")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rdbFilename := filepath.Join(tmpDir, "dump.rdb")
+	oldProps := config.Properties
+	t.Cleanup(func() {
+		config.Properties = oldProps
+		_ = os.RemoveAll(tmpDir)
+	})
+	config.Properties = &config.ServerProperties{
+		Databases:   16,
+		AppendOnly:  false,
+		RDBFilename: rdbFilename,
+	}
+
+	writeSrv := MustNewStandaloneServer()
+	conn := connection.NewFakeConn()
+	asserts.AssertStatusReply(t, writeSrv.Exec(conn, utils.ToCmdLine(
+		"FT.CREATE", "rdbidx", "ON", "HASH", "PREFIX", "1", "rdb:", "SKIPINITIALSCAN", "SCHEMA", "t", "TEXT",
+	)), "OK")
+	// HSET auto-indexes after create; SKIPINITIALSCAN is stripped on RDB encode
+	// so cold load backfills even if POST-create docs were only in the HASH.
+	asserts.AssertIntReply(t, writeSrv.Exec(conn, utils.ToCmdLine("HSET", "rdb:1", "t", "rdbhit")), 1)
+
+	if err := aof.WriteRDBFromDB(rdbFilename, writeSrv); err != nil {
+		t.Fatalf("WriteRDBFromDB: %v", err)
+	}
+	writeSrv.Close()
+
+	searchEnginesMu.Lock()
+	searchEngines = make(map[string]*redisearch.RediSearchEngine)
+	searchEnginesMu.Unlock()
+	searchIndexMetaMu.Lock()
+	searchIndexMeta = make(map[string]*indexMeta)
+	searchIndexMetaMu.Unlock()
+
+	readSrv := MustNewStandaloneServer()
+	defer readSrv.Close()
+	r := readSrv.Exec(conn, utils.ToCmdLine("FT.SEARCH", "rdbidx", "rdbhit", "NOCONTENT"))
+	if !searchTotalIs(t, r, 1) {
+		t.Fatalf("after RDB load: expected 1 hit, got %s", r.ToBytes())
+	}
+}
+

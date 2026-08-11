@@ -23,8 +23,8 @@ import (
 //	VREM / VCARD / VDIM / VEMB / VINFO / VISMEMBER / VLINKS
 //
 // Quantization: Q8 stores true int8+range (VSIM/HNSW use dequantized f32);
-// NOQUANT locks f32; BIN is still an accepted no-op (stays f32). Default without
-// flags remains f32 (Godis historical; Redis default is Q8).
+// BIN stores true 1-bit/dim packed codes (search uses ±1 f32; not Hamming graph);
+// NOQUANT locks f32. Default without flags remains f32 (Godis historical; Redis default is Q8).
 // HNSW graph is live: M/EF on VADD and EF/TRUTH on VSIM take effect.
 
 func execVAdd(db *DB, args [][]byte) redis.Reply {
@@ -37,7 +37,7 @@ func execVAdd(db *DB, args [][]byte) redis.Reply {
 	nx, xx := false, false
 	var setattr string
 	hnswM, hnswEF := 0, 0
-	// quantReq: "" = unspecified (keep set default); "q8"/"f32"; "bin" accepted no-op → f32 for now.
+	// quantReq: "" = unspecified (keep set default); "q8"/"f32"/"bin".
 	quantReq := ""
 	i := 1
 	for i < len(args) {
@@ -86,8 +86,7 @@ func execVAdd(db *DB, args [][]byte) redis.Reply {
 			quantReq = "q8"
 			i++
 		case "BIN":
-			// BIN (binary quant) still accepted as no-op; set stays f32.
-			quantReq = "f32"
+			quantReq = "bin"
 			i++
 		case "SETATTR":
 			if i+1 >= len(args) {
@@ -157,6 +156,10 @@ func execVAdd(db *DB, args [][]byte) redis.Reply {
 		if quantReq == "q8" {
 			if !vs.SetQuantMode(vector.QuantQ8) {
 				return protocol.MakeErrReply("ERR Vector set quant-type mismatch: expected int8")
+			}
+		} else if quantReq == "bin" {
+			if !vs.SetQuantMode(vector.QuantBIN) {
+				return protocol.MakeErrReply("ERR Vector set quant-type mismatch: expected bin")
 			}
 		} else if quantReq == "f32" {
 			if !vs.SetQuantMode(vector.QuantF32) {

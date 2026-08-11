@@ -3,11 +3,13 @@ package aof
 import (
 	"encoding/json"
 	"math"
+	"strings"
 	"time"
 
 	"github.com/linkerlin/godis/datastruct/dict"
 	godisjson "github.com/linkerlin/godis/datastruct/json"
 	"github.com/linkerlin/godis/datastruct/probabilistic"
+	"github.com/linkerlin/godis/datastruct/redisearch"
 	"github.com/linkerlin/godis/datastruct/stream"
 	"github.com/linkerlin/godis/datastruct/timeseries"
 	"github.com/linkerlin/godis/datastruct/vector"
@@ -17,13 +19,15 @@ import (
 
 // Godis opaque RDB/AOF encoding (not Redis-interoperable).
 // Format: magic "GODIS1\0" || JSON{"t":type,"d":payload}
-// Types: stream|json|vector|ts|hexpire|bloom|cuckoo|cms|topk|tdigest.
+// Types: stream|json|vector|ts|hexpire|bloom|cuckoo|cms|topk|tdigest|ft.
 //
 // Boundary (非目标 / 勿伪装互通):
 //   - Official Redis module RDB / DUMP bytes are NOT loadable here.
 //   - RESTORE of foreign module payloads fails with the standard
 //     "DUMP payload version or checksum are wrong" (see database/dump.go).
 //   - Only Godis↔Godis GODIS1 envelopes round-trip for extension types.
+//   - FT index opaque stores FT.CREATE args only (definition); documents are
+//     re-indexed from HASH/JSON keys on load (not RediSearch module RDB).
 var opaqueMagic = []byte("GODIS1\x00")
 
 const (
@@ -37,7 +41,27 @@ const (
 	opaqueCMS        = "cms"
 	opaqueTopK       = "topk"
 	opaqueTDigest    = "tdigest"
+	opaqueFTIndex    = "ft"
 )
+
+// FTIndexBlob is a decoded FT index definition (FT.CREATE args) pending engine
+// rebuild on RDB load. Not a runtime searchable engine.
+type FTIndexBlob struct {
+	Args [][]byte
+}
+
+// AsFTIndexBlob returns the blob when entity holds a pending FT index restore.
+func AsFTIndexBlob(entity *database.DataEntity) (*FTIndexBlob, bool) {
+	if entity == nil {
+		return nil, false
+	}
+	b, ok := entity.Data.(*FTIndexBlob)
+	return b, ok
+}
+
+type ftIndexDump struct {
+	Args []string `json:"a"`
+}
 
 type opaqueEnvelope struct {
 	Type string          `json:"t"`
@@ -78,7 +102,7 @@ type streamPendingDump struct {
 
 type vectorDump struct {
 	Dim   int              `json:"dim"`
-	Quant string           `json:"q,omitempty"` // "int8" when QuantQ8
+	Quant string           `json:"q,omitempty"` // "int8" | "bin"
 	Items []vectorItemDump `json:"items"`
 }
 
@@ -87,6 +111,7 @@ type vectorItemDump struct {
 	Data       []float64         `json:"d,omitempty"` // dequant / f32
 	Q8         []int8            `json:"q8,omitempty"`
 	Q8Range    float32           `json:"qr,omitempty"`
+	Bin        []byte            `json:"bin,omitempty"`
 	Metadata   map[string]string `json:"m,omitempty"`
 	Attributes string            `json:"a,omitempty"` // VSETATTR JSON
 }
@@ -158,6 +183,13 @@ func EncodeOpaque(entity *database.DataEntity) (payload []byte, ok bool) {
 	case *probabilistic.TDigest:
 		typ = opaqueTDigest
 		raw, err = v.EncodeJSON()
+	case *redisearch.RediSearchEngine:
+		typ = opaqueFTIndex
+		d := dumpFTIndex(v)
+		if d == nil {
+			return nil, false
+		}
+		raw, err = json.Marshal(d)
 	default:
 		return nil, false
 	}
@@ -252,9 +284,48 @@ func DecodeOpaque(payload []byte) (entity *database.DataEntity, ok bool) {
 			return nil, false
 		}
 		return &database.DataEntity{Data: td}, true
+	case opaqueFTIndex:
+		blob, err := loadFTIndex(env.Data)
+		if err != nil || blob == nil {
+			return nil, false
+		}
+		return &database.DataEntity{Data: blob}, true
 	default:
 		return nil, false
 	}
+}
+
+func dumpFTIndex(engine *redisearch.RediSearchEngine) *ftIndexDump {
+	args := engine.CreateArgs()
+	if len(args) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(args))
+	for _, a := range args {
+		if strings.EqualFold(string(a), "SKIPINITIALSCAN") {
+			continue
+		}
+		out = append(out, string(a))
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return &ftIndexDump{Args: out}
+}
+
+func loadFTIndex(raw []byte) (*FTIndexBlob, error) {
+	var d ftIndexDump
+	if err := json.Unmarshal(raw, &d); err != nil {
+		return nil, err
+	}
+	if len(d.Args) == 0 {
+		return nil, nil
+	}
+	args := make([][]byte, len(d.Args))
+	for i, s := range d.Args {
+		args[i] = []byte(s)
+	}
+	return &FTIndexBlob{Args: args}, nil
 }
 
 // IsOpaquePayload reports whether data looks like a Godis opaque blob.
@@ -374,8 +445,11 @@ func loadStream(raw []byte) (*stream.Stream, error) {
 
 func dumpVector(vs *vector.VectorSet) vectorDump {
 	d := vectorDump{Dim: vs.Dimension()}
-	if vs.QuantMode() == vector.QuantQ8 {
+	switch vs.QuantMode() {
+	case vector.QuantQ8:
 		d.Quant = "int8"
+	case vector.QuantBIN:
+		d.Quant = "bin"
 	}
 	vs.ForEach(func(id string, item *vector.VectorItem) bool {
 		meta := make(map[string]string, len(item.Metadata))
@@ -391,6 +465,9 @@ func dumpVector(vs *vector.VectorSet) vectorDump {
 			it.Q8 = append([]int8(nil), item.Q8...)
 			it.Q8Range = item.Q8Range
 			it.Data = item.Vector.ToFloat64() // dequant approx for older readers
+		} else if len(item.Bin) > 0 {
+			it.Bin = append([]byte(nil), item.Bin...)
+			it.Data = item.Vector.ToFloat64()
 		} else {
 			it.Data = item.Vector.ToFloat64()
 		}
@@ -406,12 +483,21 @@ func loadVector(raw []byte) (*vector.VectorSet, error) {
 		return nil, err
 	}
 	vs := vector.NewVectorSet()
-	if d.Quant == "int8" {
+	switch d.Quant {
+	case "int8":
 		_ = vs.SetQuantMode(vector.QuantQ8)
+	case "bin":
+		_ = vs.SetQuantMode(vector.QuantBIN)
 	}
 	for _, it := range d.Items {
 		if len(it.Q8) > 0 {
 			vs.AddQ8(it.ID, it.Q8, it.Q8Range, it.Metadata)
+		} else if len(it.Bin) > 0 {
+			dim := d.Dim
+			if dim <= 0 {
+				dim = len(it.Data)
+			}
+			vs.AddBIN(it.ID, it.Bin, dim, it.Metadata)
 		} else {
 			vs.Add(it.ID, vector.NewVectorFromFloat64(it.Data), it.Metadata)
 		}

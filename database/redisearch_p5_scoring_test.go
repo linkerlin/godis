@@ -68,6 +68,58 @@ func TestP5BM25vsDISMAX(t *testing.T) {
 	}
 }
 
+// TestP5BM25FieldWeight verifies TEXT WEIGHT multiplies into BM25STD so a hit
+// in a heavier field outranks the same term in a lighter field.
+func TestP5BM25FieldWeight(t *testing.T) {
+	db := makeTestDB()
+	asserts.AssertStatusReply(t, db.Exec(nil, utils.ToCmdLine(
+		"FT.CREATE", "p5w", "SCHEMA",
+		"title", "TEXT", "WEIGHT", "5.0",
+		"body", "TEXT", "WEIGHT", "1.0",
+	)), "OK")
+	// d1: term only in title (weight 5); d2: term only in body (weight 1).
+	if r := db.Exec(nil, utils.ToCmdLine("FT.ADD", "p5w", "p5w:title", "SCORE", "1.0", "FIELDS", "title", "golang", "body", "other")); protocol.IsErrorReply(r) {
+		t.Fatalf("add title: %s", r.ToBytes())
+	}
+	if r := db.Exec(nil, utils.ToCmdLine("FT.ADD", "p5w", "p5w:body", "SCORE", "1.0", "FIELDS", "title", "other", "body", "golang")); protocol.IsErrorReply(r) {
+		t.Fatalf("add body: %s", r.ToBytes())
+	}
+	r := db.Exec(nil, utils.ToCmdLine("FT.SEARCH", "p5w", "golang", "WITHSCORES", "SCORER", "BM25STD", "NOCONTENT"))
+	ids := ftSearchIDs(t, r)
+	if len(ids) < 2 {
+		t.Fatalf("want 2 hits, got %v (%s)", ids, r.ToBytes())
+	}
+	if ids[0] != "p5w:title" {
+		t.Fatalf("WEIGHT 5 title should rank first, got %v scores=%v reply=%s", ids, ftSearchScores(t, r), r.ToBytes())
+	}
+}
+
+// ftSearchIDs extracts document ids from a NOCONTENT WITHSCORES (or plain) reply.
+func ftSearchIDs(t *testing.T, r redis.Reply) []string {
+	t.Helper()
+	mr := ftSearchMultiRaw(r)
+	if mr == nil {
+		return nil
+	}
+	var out []string
+	// [total, id1, score1?, id2, ...] — WITHSCORES→step 2 after total; without→step 1
+	// Detect: if reply[2] parses as float and len odd-ish, WITHSCORES.
+	step := 1
+	if len(mr.Replies) >= 3 {
+		if b, ok := mr.Replies[2].(*protocol.BulkReply); ok {
+			if _, err := strParseFloat(strings.TrimSpace(string(b.Arg))); err == nil {
+				step = 2
+			}
+		}
+	}
+	for i := 1; i < len(mr.Replies); i += step {
+		if b, ok := mr.Replies[i].(*protocol.BulkReply); ok {
+			out = append(out, string(b.Arg))
+		}
+	}
+	return out
+}
+
 // TestP5OptionalBoost verifies an optional ~term boosts docs containing it in
 // the score without affecting which docs match. The base query matches all docs;
 // the one with the optional term should score higher.
