@@ -6,7 +6,11 @@
 
 ### Added
 
-- Vector **BIN 图内 Hamming**：HNSW/VSIM 对 packed bits 真 Hamming（报告 cosine=`(dim-2h)/dim`）；Q8 仍反量化 f32
+- Vector **Q8 图内 int8 距离**：HNSW/VSIM 对 int8 codes 直接算 cosine/L2/dot（不物化搜索态 f32）；与反量化路径数值对齐验收测
+- BM25STD：**文档长度归一化可验**（短文档优先）+ `avgdl<=0` 守卫；**BM25STD.NORM 真 min-max**；TEXT WEIGHT 保持
+- `RESTORE`：**拒绝矩阵**（空/过短/坏版本/坏 CRC/截断 GODIS1/异己模块样载荷→ERR；不伪装模块 RDB 互通）
+- FAILOVER 集成测：ACK 预同步 + TIMEOUT 放宽，收敛 Windows flake
+- Vector **BIN 图内 Hamming**：HNSW/VSIM 对 packed bits 真 Hamming（报告 cosine=`(dim-2h)/dim`）
 - FT+KNN **最小路径验收测**：`*=>[KNN…]` + 预过滤（`database/redisearch_knn_min_test.go`）
 - `FUNCTION RESTORE`：**GODISFN1** 截断/尾随垃圾/异己二进制明确 ERR（不伪造 Redis 官方 Functions dump）
 - RDB / RDB-preamble：**FT 索引定义**经 Godis opaque `ft`（`CreateArgs`）；LoadRDB 延迟 `FT.CREATE` 回填文档（非官方模块 RDB）
@@ -14,7 +18,7 @@
 - BM25STD：**TEXT WEIGHT** 计入字段贡献（可验排序）；DIALECT 1/2/3 子集诚实文档
 - HLL **sparse 真读**：Redis sparse RLE→dense 提升；`PFCOUNT`/`PFADD` 可读迁移 blob；写出仍 dense；损坏编码→`INVALIDOBJ`
 - 纯 AOF rewrite：**FT.CREATE** 自引擎 `CreateArgs` 回放（剥 `SKIPINITIALSCAN`）
-- VADD **Q8 真量化存储**：int8+range；`VINFO quant-type=int8`；VSIM/HNSW 用反量化 f32；opaque 可保留 Q8 codes
+- VADD **Q8 真量化存储**：int8+range；`VINFO quant-type=int8`；opaque 可保留 Q8 codes
 - `INFO memory`：`used_memory_scripts`（≈ lua）；`mem_allocator:go` 测试锁定（绝不写 jemalloc）
 - FT VECTOR **BFLOAT16/INT8/UINT8** blob→float32 解码（与 FLOAT16 同路径 widen）
 - `CLUSTER INFO`：`cluster_bus_port:0`（诚实无 Redis gossip bus）

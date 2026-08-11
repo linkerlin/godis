@@ -94,6 +94,62 @@ func TestP5BM25FieldWeight(t *testing.T) {
 	}
 }
 
+// TestP5BM25DocLength prefers the shorter document when the matched term and
+// field WEIGHT are equal (b>0 length normalization). Guards avgdl and docLengths.
+func TestP5BM25DocLength(t *testing.T) {
+	db := makeTestDB()
+	asserts.AssertStatusReply(t, db.Exec(nil, utils.ToCmdLine(
+		"FT.CREATE", "p5dl", "SCHEMA", "t", "TEXT",
+	)), "OK")
+	if r := db.Exec(nil, utils.ToCmdLine("FT.ADD", "p5dl", "p5dl:short", "SCORE", "1.0", "FIELDS", "t", "golang")); protocol.IsErrorReply(r) {
+		t.Fatalf("add short: %s", r.ToBytes())
+	}
+	if r := db.Exec(nil, utils.ToCmdLine("FT.ADD", "p5dl", "p5dl:long", "SCORE", "1.0", "FIELDS", "t",
+		"golang alpha bravo charlie delta echo foxtrot golf hotel india")); protocol.IsErrorReply(r) {
+		t.Fatalf("add long: %s", r.ToBytes())
+	}
+	r := db.Exec(nil, utils.ToCmdLine("FT.SEARCH", "p5dl", "golang", "WITHSCORES", "SCORER", "BM25STD", "NOCONTENT"))
+	ids := ftSearchIDs(t, r)
+	if len(ids) < 2 {
+		t.Fatalf("want 2 hits, got %v (%s)", ids, r.ToBytes())
+	}
+	if ids[0] != "p5dl:short" {
+		t.Fatalf("shorter doc should rank first, got %v scores=%v", ids, ftSearchScores(t, r))
+	}
+}
+
+// TestP5BM25STDNormMinMax verifies BM25STD.NORM rescales the full hit set to
+// [0,1] via min-max (not the old x/(1+x) approximation).
+func TestP5BM25STDNormMinMax(t *testing.T) {
+	db := makeTestDB()
+	asserts.AssertStatusReply(t, db.Exec(nil, utils.ToCmdLine(
+		"FT.CREATE", "p5n", "SCHEMA", "t", "TEXT",
+	)), "OK")
+	if r := db.Exec(nil, utils.ToCmdLine("FT.ADD", "p5n", "p5n:short", "SCORE", "1.0", "FIELDS", "t", "golang")); protocol.IsErrorReply(r) {
+		t.Fatalf("add short: %s", r.ToBytes())
+	}
+	if r := db.Exec(nil, utils.ToCmdLine("FT.ADD", "p5n", "p5n:long", "SCORE", "1.0", "FIELDS", "t",
+		"golang alpha bravo charlie delta echo foxtrot golf hotel india")); protocol.IsErrorReply(r) {
+		t.Fatalf("add long: %s", r.ToBytes())
+	}
+	r := db.Exec(nil, utils.ToCmdLine("FT.SEARCH", "p5n", "golang", "WITHSCORES", "SCORER", "BM25STD.NORM", "NOCONTENT"))
+	scores := ftSearchScores(t, r)
+	if len(scores) != 2 {
+		t.Fatalf("want 2 scores, got %v (%s)", scores, r.ToBytes())
+	}
+	// Highest BM25 (short) → 1.0; lowest → 0.0 after min-max.
+	if scores[0] < 0.999 {
+		t.Fatalf("top NORM score want ~1, got %v", scores)
+	}
+	if scores[1] > 0.001 {
+		t.Fatalf("bottom NORM score want ~0, got %v", scores)
+	}
+	ids := ftSearchIDs(t, r)
+	if ids[0] != "p5n:short" {
+		t.Fatalf("ranking should preserve BM25 order, got %v", ids)
+	}
+}
+
 // ftSearchIDs extracts document ids from a NOCONTENT WITHSCORES (or plain) reply.
 func ftSearchIDs(t *testing.T, r redis.Reply) []string {
 	t.Helper()

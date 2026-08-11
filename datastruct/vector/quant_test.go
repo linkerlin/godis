@@ -76,6 +76,82 @@ func TestHammingDistanceBits(t *testing.T) {
 	}
 }
 
+func TestQ8CosineFromCodesMatchesDequant(t *testing.T) {
+	a := []float32{0.5, -0.2, 1.0, 0.1}
+	b := []float32{0.4, -0.3, 0.9, 0.0}
+	ca, ra := QuantizeQ8(a)
+	cb, rb := QuantizeQ8(b)
+	got := Q8CosineFromCodes(ca, cb)
+	fa, fb := DequantizeQ8(ca, ra), DequantizeQ8(cb, rb)
+	want := NewVector(fa).CosineSimilarity(NewVector(fb))
+	if math.Abs(float64(got-want)) > 1e-5 {
+		t.Fatalf("q8 cos=%v dequant cos=%v", got, want)
+	}
+	// L2 / dot also track dequant within tight tol.
+	l2 := Q8L2FromCodes(ca, ra, cb, rb)
+	wantL2 := NewVector(fa).EuclideanDistance(NewVector(fb))
+	if math.Abs(float64(l2-wantL2)) > 1e-5 {
+		t.Fatalf("q8 L2=%v dequant L2=%v", l2, wantL2)
+	}
+	dot := Q8DotFromCodes(ca, ra, cb, rb)
+	wantDot := NewVector(fa).DotProduct(NewVector(fb))
+	if math.Abs(float64(dot-wantDot)) > 1e-4 {
+		t.Fatalf("q8 dot=%v dequant dot=%v", dot, wantDot)
+	}
+}
+
+func TestVectorSetQ8Int8Search(t *testing.T) {
+	vs := NewVectorSet()
+	if !vs.SetQuantMode(QuantQ8) {
+		t.Fatal("SetQuantMode Q8")
+	}
+	_ = vs.Add("near", NewVector([]float32{1, 0.9, 0.8, 0.7}), nil)
+	_ = vs.Add("far", NewVector([]float32{-1, -0.9, -0.8, -0.7}), nil)
+	_ = vs.Add("mid", NewVector([]float32{1, -1, 1, -1}), nil)
+
+	q := NewVector([]float32{0.95, 0.85, 0.75, 0.65})
+	res := vs.SearchWithMetricEF(q, 2, CosineSimilarity, 0, true)
+	if len(res) < 2 || res[0].ID != "near" {
+		t.Fatalf("brute Q8 top=%v", idsOf(res))
+	}
+	// Wipe dequantized f32 so any search using Vector.Data would mis-rank.
+	vs.mu.Lock()
+	for _, it := range vs.vectors {
+		it.Vector = NewVector([]float32{0, 0, 0, 0})
+	}
+	vs.mu.Unlock()
+	res2 := vs.SearchWithMetricEF(q, 2, CosineSimilarity, 0, true)
+	if len(res2) < 2 || res2[0].ID != "near" {
+		t.Fatalf("Q8 after f32 wipe top=%v", idsOf(res2))
+	}
+	// Graph insert/search distance must be on int8 codes (not f32 Vector.Data).
+	vs.mu.RLock()
+	df := vs.distFnLocked(CosineSimilarity)
+	dSelf := df("near", "near")
+	dNF := df("near", "far")
+	qd := vs.queryDistFnLocked(q, CosineSimilarity)
+	dQN := qd(hnswQueryKey, "near")
+	dQF := qd(hnswQueryKey, "far")
+	vs.mu.RUnlock()
+	if dSelf > 1e-5 {
+		t.Fatalf("Q8 self-distance=%v want ~0", dSelf)
+	}
+	if !(dNF > dSelf) {
+		t.Fatalf("near-far dist %v should exceed self %v", dNF, dSelf)
+	}
+	if !(dQN < dQF) {
+		t.Fatalf("query should be closer to near (%v) than far (%v)", dQN, dQF)
+	}
+}
+
+func idsOf(res []*SearchResult) []string {
+	out := make([]string, len(res))
+	for i, r := range res {
+		out[i] = r.ID
+	}
+	return out
+}
+
 func TestVectorSetBINHammingSearch(t *testing.T) {
 	vs := NewVectorSet()
 	if !vs.SetQuantMode(QuantBIN) {

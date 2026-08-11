@@ -17,8 +17,9 @@ type VectorItem struct {
 	Attributes string
 	// Q8 / Q8Range hold true int8 quantization when the set uses QuantQ8.
 	// Bin holds packed sign bits when the set uses QuantBIN.
-	// Vector.Data is a dequantized approximation (VEMB / display); BIN search
-	// distances use Bin via HammingDistanceBits.
+	// Vector.Data is a dequantized approximation for VEMB / display only.
+	// Search: Q8 uses int8 codes (Q8CosineFromCodes / Q8L2FromCodes);
+	// BIN uses HammingDistanceBits.
 	Q8      []int8
 	Q8Range float32
 	Bin     []byte
@@ -38,8 +39,8 @@ const hnswQueryKey = "\x00__hnsw_query__"
 
 // VectorSet is a collection of vectors supporting similarity search
 // via an in-memory HNSW graph. Default storage is float32; Q8 stores int8
-// codes (search still uses dequantized f32); BIN stores 1-bit codes and
-// HNSW/VSIM use Hamming on packed bits.
+// codes and HNSW/VSIM distance on those codes (no search-time f32 buffers);
+// BIN stores 1-bit codes and HNSW/VSIM use Hamming on packed bits.
 type VectorSet struct {
 	vectors   map[string]*VectorItem
 	dimension int
@@ -397,15 +398,19 @@ func (vs *VectorSet) SearchWithMetricEF(query *Vector, k int, metric SearchMetri
 	ids := vs.hnsw.Search(hnswQueryKey, k, ef, vs.queryDistFnLocked(query, metric))
 	results := make([]*SearchResult, 0, len(ids))
 	var qbin []byte
+	var qq *q8QueryCodes
 	if vs.quant == QuantBIN {
 		qbin = QuantizeBIN(query.Data)
+	} else if vs.quant == QuantQ8 {
+		c, r := QuantizeQ8(query.Data)
+		qq = &q8QueryCodes{codes: c, qrange: r}
 	}
 	for _, id := range ids {
 		item, ok := vs.vectors[id]
 		if !ok {
 			continue
 		}
-		score, distance := vs.scoreItemLocked(item, query, qbin, metric)
+		score, distance := vs.scoreItemLocked(item, query, qbin, qq, metric)
 		results = append(results, &SearchResult{
 			ID:         id,
 			Vector:     item.Vector,
@@ -454,12 +459,40 @@ func scoreDistanceBIN(itemBin, queryBin []byte, dim int, metric SearchMetric) (s
 	return
 }
 
-func (vs *VectorSet) scoreItemLocked(item *VectorItem, query *Vector, qbin []byte, metric SearchMetric) (score, distance float32) {
+// scoreDistanceQ8 scores from int8 codes + per-vector ranges (no f32 buffers).
+func scoreDistanceQ8(a []int8, ra float32, b []int8, rb float32, metric SearchMetric) (score, distance float32) {
+	switch metric {
+	case CosineSimilarity:
+		score = Q8CosineFromCodes(a, b)
+		distance = 1 - score
+	case EuclideanDistance:
+		distance = Q8L2FromCodes(a, ra, b, rb)
+		score = -distance
+	case DotProduct:
+		score = Q8DotFromCodes(a, ra, b, rb)
+		distance = -score
+	}
+	return
+}
+
+type q8QueryCodes struct {
+	codes []int8
+	qrange float32
+}
+
+func (vs *VectorSet) scoreItemLocked(item *VectorItem, query *Vector, qbin []byte, qq *q8QueryCodes, metric SearchMetric) (score, distance float32) {
 	if vs.quant == QuantBIN && len(item.Bin) > 0 {
 		if qbin == nil {
 			qbin = QuantizeBIN(query.Data)
 		}
 		return scoreDistanceBIN(item.Bin, qbin, vs.dimension, metric)
+	}
+	if vs.quant == QuantQ8 && len(item.Q8) > 0 {
+		if qq == nil {
+			c, r := QuantizeQ8(query.Data)
+			qq = &q8QueryCodes{codes: c, qrange: r}
+		}
+		return scoreDistanceQ8(item.Q8, item.Q8Range, qq.codes, qq.qrange, metric)
 	}
 	return scoreDistance(item.Vector, query, metric)
 }
@@ -469,11 +502,15 @@ func (vs *VectorSet) bruteSearchLocked(query *Vector, k int, metric SearchMetric
 	heap.Init(h)
 
 	var qbin []byte
+	var qq *q8QueryCodes
 	if vs.quant == QuantBIN {
 		qbin = QuantizeBIN(query.Data)
+	} else if vs.quant == QuantQ8 {
+		c, r := QuantizeQ8(query.Data)
+		qq = &q8QueryCodes{codes: c, qrange: r}
 	}
 	for id, item := range vs.vectors {
-		score, distance := vs.scoreItemLocked(item, query, qbin, metric)
+		score, distance := vs.scoreItemLocked(item, query, qbin, qq, metric)
 		result := &SearchResult{
 			ID:         id,
 			Vector:     item.Vector,
@@ -508,6 +545,10 @@ func (vs *VectorSet) distFnLocked(metric SearchMetric) func(a, b string) float32
 		if vs.quant == QuantBIN && len(ia.Bin) > 0 && len(ib.Bin) > 0 {
 			return float32(HammingDistanceBits(ia.Bin, ib.Bin, vs.dimension))
 		}
+		if vs.quant == QuantQ8 && len(ia.Q8) > 0 && len(ib.Q8) > 0 {
+			_, distance := scoreDistanceQ8(ia.Q8, ia.Q8Range, ib.Q8, ib.Q8Range, metric)
+			return distance
+		}
 		_, distance := scoreDistance(ia.Vector, ib.Vector, metric)
 		return distance
 	}
@@ -516,8 +557,12 @@ func (vs *VectorSet) distFnLocked(metric SearchMetric) func(a, b string) float32
 // queryDistFnLocked distances a synthetic query key against element ids.
 func (vs *VectorSet) queryDistFnLocked(query *Vector, metric SearchMetric) func(a, b string) float32 {
 	var qbin []byte
+	var qq *q8QueryCodes
 	if vs.quant == QuantBIN {
 		qbin = QuantizeBIN(query.Data)
+	} else if vs.quant == QuantQ8 {
+		c, r := QuantizeQ8(query.Data)
+		qq = &q8QueryCodes{codes: c, qrange: r}
 	}
 	return func(a, b string) float32 {
 		if vs.quant == QuantBIN {
@@ -535,6 +580,24 @@ func (vs *VectorSet) queryDistFnLocked(query *Vector, metric SearchMetric) func(
 				return float32(math.MaxFloat32)
 			}
 			return float32(HammingDistanceBits(ba, bb, vs.dimension))
+		}
+		if vs.quant == QuantQ8 && qq != nil {
+			resolveQ8 := func(id string) ([]int8, float32, bool) {
+				if id == hnswQueryKey {
+					return qq.codes, qq.qrange, true
+				}
+				if item, ok := vs.vectors[id]; ok && len(item.Q8) > 0 {
+					return item.Q8, item.Q8Range, true
+				}
+				return nil, 0, false
+			}
+			ca, ra, oka := resolveQ8(a)
+			cb, rb, okb := resolveQ8(b)
+			if !oka || !okb {
+				return float32(math.MaxFloat32)
+			}
+			_, distance := scoreDistanceQ8(ca, ra, cb, rb, metric)
+			return distance
 		}
 		resolve := func(id string) *Vector {
 			if id == hnswQueryKey {

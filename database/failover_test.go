@@ -229,8 +229,27 @@ func TestFailoverPromotesReplica(t *testing.T) {
 		t.Fatalf("replica should have applied replicated data before failover: %s", replica.Exec(rc, utils.ToCmdLine("GET", "k5")).ToBytes())
 	}
 
-	// Run FAILOVER on the master (short TIMEOUT avoids Windows hang if ACK lags).
-	r := master.Exec(mc, utils.ToCmdLine("FAILOVER", "TIMEOUT", "3000"))
+	// Pre-sync ACK so TIMEOUT is not racing backlog lag (Windows flake).
+	deadline = time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		_ = master.masterSendUpdatesToSlave()
+		master.nudgeSlavesForWait()
+		master.masterStatus.mu.RLock()
+		cur := master.masterStatus.backlog.currentOffset
+		var off int64
+		for sl := range master.masterStatus.onlineSlaves {
+			off = sl.offset
+			break
+		}
+		master.masterStatus.mu.RUnlock()
+		if off >= cur {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	// TIMEOUT bounds sync wait; 10s gives headroom after pre-sync on slow CI.
+	r := master.Exec(mc, utils.ToCmdLine("FAILOVER", "TIMEOUT", "10000"))
 	if protocol.IsErrorReply(r) {
 		t.Fatalf("failover: %s", r.ToBytes())
 	}

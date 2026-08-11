@@ -570,6 +570,11 @@ func (e *RediSearchEngine) Search(query string, opts *SearchOptions) (*SearchRes
 		results = append(results, result)
 	}
 
+	// BM25STD.NORM: min-max over the full hit set before sort/LIMIT (Redis).
+	if strings.EqualFold(scorerName, ScorerBM25STDNorm) {
+		normalizeBM25STDNorm(results)
+	}
+
 	// Sort results. SORTBY uses numeric compare when both values parse as
 	// numbers; otherwise lexicographic (TEXT/SORTABLE). Tiebreak by doc ID.
 	var cmp func(a, b *SearchResult) int

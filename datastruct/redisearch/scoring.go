@@ -49,11 +49,9 @@ func (e *RediSearchEngine) computeScore(doc *Document, sc *scoreContext, scorerN
 		raw := scorerBM25STD(doc, sc, bm25K1, bm25B)
 		return math.Tanh(raw/4.0) * doc.Score
 	case ScorerBM25STDNorm:
-		// Min-max normalization needs the full result set; approximate by
-		// dividing by (1+raw) so the value lands in (0,1]. ponytail: true
-		// min-max normalization requires a second pass over all results.
-		raw := scorerBM25STD(doc, sc, bm25K1, bm25B)
-		return raw / (1.0 + raw) * doc.Score
+		// Raw BM25; Search applies true min-max over the full hit set
+		// (see normalizeBM25STDNorm).
+		return scorerBM25STD(doc, sc, bm25K1, bm25B) * doc.Score
 	case ScorerTFIDF:
 		return scorerTFIDF(doc, sc, false) * doc.Score
 	case ScorerTFIDFDocNorm:
@@ -71,6 +69,33 @@ func (e *RediSearchEngine) computeScore(doc *Document, sc *scoreContext, scorerN
 	}
 }
 
+// normalizeBM25STDNorm rescales BM25STD.NORM scores to [0,1] via min-max over
+// the current result set. Equal scores map to 1 (all equally relevant).
+func normalizeBM25STDNorm(results []*SearchResult) {
+	if len(results) == 0 {
+		return
+	}
+	min, max := results[0].Score, results[0].Score
+	for _, r := range results[1:] {
+		if r.Score < min {
+			min = r.Score
+		}
+		if r.Score > max {
+			max = r.Score
+		}
+	}
+	if max == min {
+		for _, r := range results {
+			r.Score = 1
+		}
+		return
+	}
+	span := max - min
+	for _, r := range results {
+		r.Score = (r.Score - min) / span
+	}
+}
+
 // scorerBM25STD computes BM25 with the given saturation/normalization params.
 // score = Σ_t Σ_f [ w(f) · idf(t) · tf_f(t)·(k1+1) / (tf_f(t) + k1·(1 - b + b·dl/avgdl)) ]
 // where idf(t) = ln((N - df + 0.5)/(df + 0.5) + 1) uses the global term df.
@@ -82,13 +107,18 @@ func scorerBM25STD(doc *Document, sc *scoreContext, k1, b float64) float64 {
 	}
 	dl := float64(sc.idx.docLengths[doc.ID])
 	var score float64
+	avgdl := sc.avgdl
+	if avgdl <= 0 {
+		// Empty corpus length (NOFREQS/empty TEXT): avoid Inf; length term → 1-b.
+		avgdl = 1
+	}
 	for _, term := range sc.queryTerms {
 		idfDenom := float64(len(sc.idx.terms[term]))
 		if idfDenom == 0 {
 			continue
 		}
 		idf := math.Log((sc.docCount-idfDenom+0.5)/(idfDenom+0.5) + 1)
-		denomBase := k1 * (1 - b + b*dl/sc.avgdl)
+		denomBase := k1 * (1 - b + b*dl/avgdl)
 		fieldContrib := 0.0
 		usedField := false
 		if !sc.idx.noFields {
