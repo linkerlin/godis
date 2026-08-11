@@ -546,7 +546,7 @@ type hExpireFlags struct {
 	lt bool
 }
 
-func parseHExpireFlags(args [][]byte) (flags hExpireFlags, fields [][]byte, errReply redis.Reply) {
+func parseHExpireFlags(args [][]byte, cmd string) (flags hExpireFlags, fields [][]byte, errReply redis.Reply) {
 	i := 0
 	for i < len(args) {
 		arg := strings.ToUpper(string(args[i]))
@@ -575,15 +575,20 @@ fields:
 	}
 	i++
 	if i >= len(args) {
-		return flags, nil, protocol.MakeErrReply("ERR wrong number of arguments")
+		return flags, nil, protocol.MakeErrReply("ERR wrong number of arguments for '" + strings.ToLower(cmd) + "' command")
 	}
 	n, err := strconv.Atoi(string(args[i]))
 	if err != nil || n < 1 {
-		return flags, nil, protocol.MakeErrReply("ERR Number of fields can't be negative or zero")
+		// Redis: FIELDS 0 / FIELDS -1 with no field tokens → wrong arity;
+		// with at least one trailing token → Parameter `numFields`…
+		if i+1 >= len(args) {
+			return flags, nil, protocol.MakeErrReply("ERR wrong number of arguments for '" + strings.ToLower(cmd) + "' command")
+		}
+		return flags, nil, protocol.MakeErrReply("ERR Parameter `numFields` should be greater than 0")
 	}
 	i++
 	if len(args) != i+n {
-		return flags, nil, protocol.MakeErrReply("ERR wrong number of arguments")
+		return flags, nil, protocol.MakeErrReply("ERR wrong number of arguments for '" + strings.ToLower(cmd) + "' command")
 	}
 	fields = args[i:]
 	return
@@ -624,7 +629,7 @@ func execHExpireFamily(db *DB, args [][]byte, cmd string, at bool, unit time.Dur
 		return protocol.MakeErrReply("ERR invalid expire time, must be >= 0")
 	}
 
-	flags, fields, errReply := parseHExpireFlags(args[2:])
+	flags, fields, errReply := parseHExpireFlags(args[2:], cmd)
 	if errReply != nil {
 		return errReply
 	}
@@ -766,7 +771,7 @@ func undoHExpire(db *DB, args [][]byte) []CmdLine {
 
 	var undoCmdLines []CmdLine
 	// args[1] is the TTL; args[2:] may contain flags before fields
-	_, fields, _ := parseHExpireFlags(args[2:])
+	_, fields, _ := parseHExpireFlags(args[2:], "hexpire")
 	for _, fieldBytes := range fields {
 		field := string(fieldBytes)
 		val, remaining, exists := ed.GetWithExpire(field)

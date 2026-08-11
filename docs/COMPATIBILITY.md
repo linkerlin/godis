@@ -285,4 +285,4 @@ UNWATCH、WAIT（简版）、BITOP、BITFIELD、SMOVE、LPOS、XCLAIM、SHUTDOWN
 
 ---
 
-**最后更新：** 2026-08-11（第九批可关闭：FAILOVER TIMEOUT、WAIT/WAITAOF 校验、SCAN COUNT、CLIENT KILL ID、MEMORY SAMPLES、OBJECT FREQ 缺键；对照 Redis **8.10.0**；远期仍 **7** + 可独立 **0**）
+**最后更新：** 2026-08-11（第十批可关闭：缺键 LPOP/RPOP/SPOP 负 count、XADD/XTRIM MAXLEN≥0、HEXPIRE numFields 文案；对照 Redis **8.10.0**；远期仍 **7** + 可独立 **0**）

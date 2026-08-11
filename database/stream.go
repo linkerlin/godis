@@ -76,8 +76,11 @@ func execXAdd(db *DB, args [][]byte) redis.Reply {
 				return protocol.MakeSyntaxErrReply()
 			}
 			maxlen, err := strconv.ParseInt(string(args[i]), 10, 64)
-			if err != nil || maxlen < 0 {
+			if err != nil {
 				return protocol.MakeErrReply("ERR value is not an integer or out of range")
+			}
+			if maxlen < 0 {
+				return protocol.MakeErrReply("ERR The MAXLEN argument must be >= 0.")
 			}
 			opts.MaxLen = maxlen
 			opts.HasMaxLen = true
@@ -793,8 +796,11 @@ func execXTrim(db *DB, args [][]byte) redis.Reply {
 			return protocol.MakeSyntaxErrReply()
 		}
 		maxlen, err := strconv.ParseInt(string(args[idx]), 10, 64)
-		if err != nil || maxlen < 0 {
+		if err != nil {
 			return protocol.MakeErrReply("ERR value is not an integer or out of range")
+		}
+		if maxlen < 0 {
+			return protocol.MakeErrReply("ERR The MAXLEN argument must be >= 0.")
 		}
 		opts.MaxLen = maxlen
 		opts.HasMaxLen = true

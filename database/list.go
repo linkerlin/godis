@@ -94,26 +94,34 @@ func execLPop(db *DB, args [][]byte) redis.Reply {
 	// parse args
 	key := string(args[0])
 
-	// get data
-	list, errReply := db.getAsList(key)
-	if errReply != nil {
-		return errReply
-	}
-	if list == nil {
-		if len(args) == 2 {
-			return &protocol.EmptyMultiBulkReply{}
-		}
-		return &protocol.NullBulkReply{}
-	}
-
+	// Validate count before the missing-key shortcut (Redis rejects LPOP k -1 even if absent).
+	var withCount bool
+	var count64 int64
 	if len(args) == 2 {
-		count64, err := strconv.ParseInt(string(args[1]), 10, 64)
+		withCount = true
+		var err error
+		count64, err = strconv.ParseInt(string(args[1]), 10, 64)
 		if err != nil {
 			return protocol.MakeErrReply("ERR value is not an integer or out of range")
 		}
 		if count64 < 0 {
 			return protocol.MakeErrReply("ERR value is out of range, must be positive")
 		}
+	}
+
+	// get data
+	list, errReply := db.getAsList(key)
+	if errReply != nil {
+		return errReply
+	}
+	if list == nil {
+		if withCount {
+			return &protocol.EmptyMultiBulkReply{}
+		}
+		return &protocol.NullBulkReply{}
+	}
+
+	if withCount {
 		// Redis: count 0 → empty array (null array), no mutation.
 		if count64 == 0 {
 			return &protocol.EmptyMultiBulkReply{}
@@ -424,26 +432,33 @@ func execRPop(db *DB, args [][]byte) redis.Reply {
 	// parse args
 	key := string(args[0])
 
-	// get data
-	list, errReply := db.getAsList(key)
-	if errReply != nil {
-		return errReply
-	}
-	if list == nil {
-		if len(args) == 2 {
-			return &protocol.EmptyMultiBulkReply{}
-		}
-		return &protocol.NullBulkReply{}
-	}
-
+	var withCount bool
+	var count64 int64
 	if len(args) == 2 {
-		count64, err := strconv.ParseInt(string(args[1]), 10, 64)
+		withCount = true
+		var err error
+		count64, err = strconv.ParseInt(string(args[1]), 10, 64)
 		if err != nil {
 			return protocol.MakeErrReply("ERR value is not an integer or out of range")
 		}
 		if count64 < 0 {
 			return protocol.MakeErrReply("ERR value is out of range, must be positive")
 		}
+	}
+
+	// get data
+	list, errReply := db.getAsList(key)
+	if errReply != nil {
+		return errReply
+	}
+	if list == nil {
+		if withCount {
+			return &protocol.EmptyMultiBulkReply{}
+		}
+		return &protocol.NullBulkReply{}
+	}
+
+	if withCount {
 		// Redis: count 0 → empty array (null array), no mutation.
 		if count64 == 0 {
 			return &protocol.EmptyMultiBulkReply{}

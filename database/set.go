@@ -123,6 +123,21 @@ func execSPop(db *DB, args [][]byte) redis.Reply {
 	}
 	key := string(args[0])
 
+	count := 1
+	if len(args) == 2 {
+		count64, err := strconv.ParseInt(string(args[1]), 10, 64)
+		if err != nil || count64 < 0 {
+			return protocol.MakeErrReply("ERR value is out of range, must be positive")
+		}
+		// Redis: count 0 → empty array/set (no mutation); negative rejected above.
+		if count64 == 0 {
+			// Validate even when key is missing — empty reply after key lookup.
+			count = 0
+		} else {
+			count = int(count64)
+		}
+	}
+
 	set, errReply := db.getAsSet(key)
 	if errReply != nil {
 		return errReply
@@ -134,18 +149,8 @@ func execSPop(db *DB, args [][]byte) redis.Reply {
 		}
 		return &protocol.NullBulkReply{}
 	}
-
-	count := 1
-	if len(args) == 2 {
-		count64, err := strconv.ParseInt(string(args[1]), 10, 64)
-		if err != nil || count64 < 0 {
-			return protocol.MakeErrReply("ERR value is out of range, must be positive")
-		}
-		// Redis: count 0 → empty array/set (no mutation); negative rejected above.
-		if count64 == 0 {
-			return protocol.MakeSetReply(nil)
-		}
-		count = int(count64)
+	if count == 0 {
+		return protocol.MakeSetReply(nil)
 	}
 	if count > set.Len() {
 		count = set.Len()
