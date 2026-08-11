@@ -486,20 +486,22 @@ func parseInt(s string) (int, error) {
 	return n, err
 }
 
-// KNNClause captures a parsed "=>[KNN K @field $param [AS score] [EF_RUNTIME n]]"
-// suffix from a FT.SEARCH/FT.AGGREGATE query. A zero-value (Field=="") means
-// the query has no KNN clause.
+// KNNClause captures a parsed "=>[KNN K @field $param [AS score] [EF_RUNTIME n]
+// [HYBRID_POLICY policy]]" suffix from a FT.SEARCH/FT.AGGREGATE query, optionally
+// followed by "=>{$YIELD_DISTANCE_AS: alias}". A nil return from SplitKNNClause
+// means the query has no KNN clause.
 type KNNClause struct {
-	K         int
-	Field     string // vector field name (without leading @)
-	Param     string // $-parameter name carrying the query blob
-	ScoreAs   string // AS alias for the distance/score field ("" = no alias)
-	EFRuntime int    // 0 = use index default
+	K             int
+	Field         string // vector field name (without leading @)
+	Param         string // $-parameter name carrying the query blob
+	ScoreAs       string // AS / $YIELD_DISTANCE_AS alias ("" = no alias)
+	EFRuntime     int    // 0 = use index default
+	HybridPolicy  string // ADHOC_BF or BATCHES (both resolve to filtered brute-force)
 }
 
 // SplitKNNClause separates a query of the form "<base>=>[KNN ...]" into the
 // base query and the KNN clause. Returns knn==nil when no =>[KNN is present.
-// The parser is deliberately permissive about inner whitespace.
+// Supports trailing attribute blocks: =>{$YIELD_DISTANCE_AS: dist}.
 func SplitKNNClause(query string) (base string, knn *KNNClause, err error) {
 	idx := indexOfKNNMarker(query)
 	if idx < 0 {
@@ -508,10 +510,15 @@ func SplitKNNClause(query string) (base string, knn *KNNClause, err error) {
 	base = strings.TrimSpace(query[:idx])
 	inner := query[idx:]
 	open := strings.Index(inner, "[")
-	closeBracket := strings.LastIndex(inner, "]")
-	if open < 0 || closeBracket < 0 || closeBracket <= open {
+	if open < 0 {
 		return query, nil, fmt.Errorf("Invalid KNN clause syntax")
 	}
+	// Match the KNN body's closing ]; attribute blocks use {} so Index is fine.
+	relClose := strings.Index(inner[open+1:], "]")
+	if relClose < 0 {
+		return query, nil, fmt.Errorf("Invalid KNN clause syntax")
+	}
+	closeBracket := open + 1 + relClose
 	body := strings.TrimSpace(inner[open+1 : closeBracket])
 	tokens := strings.Fields(body)
 	if len(tokens) < 1 || !strings.EqualFold(tokens[0], "KNN") {
@@ -541,8 +548,12 @@ func SplitKNNClause(query string) (base string, knn *KNNClause, err error) {
 			if ti+1 >= len(tokens) {
 				return query, nil, fmt.Errorf("KNN HYBRID_POLICY requires a value")
 			}
-			// ponytail: HYBRID_POLICY (ADHOC_BF|BATCHES) accepted, both currently
-			// resolve to brute-force over the filtered set.
+			policy := strings.ToUpper(tokens[ti+1])
+			if policy != "ADHOC_BF" && policy != "BATCHES" {
+				return query, nil, fmt.Errorf("Invalid KNN HYBRID_POLICY '%s'", tokens[ti+1])
+			}
+			// Both policies currently resolve to brute-force over the filtered set.
+			clause.HybridPolicy = policy
 			ti += 2
 		default:
 			// Positional args: K, @field, $param — in order.
@@ -571,7 +582,75 @@ func SplitKNNClause(query string) (base string, knn *KNNClause, err error) {
 	if clause.K == 0 || clause.Field == "" || clause.Param == "" {
 		return query, nil, fmt.Errorf("KNN clause requires K, @field, and $param")
 	}
+
+	// Optional trailing attribute block: =>{$YIELD_DISTANCE_AS: alias; ...}
+	rest := strings.TrimSpace(inner[closeBracket+1:])
+	if rest != "" {
+		if err := applyKNNAttrBlock(clause, rest); err != nil {
+			return query, nil, err
+		}
+	}
 	return base, clause, nil
+}
+
+// applyKNNAttrBlock parses "=>{$YIELD_DISTANCE_AS: dist; $SHARD_K_RATIO: 0.5}"
+// after a KNN clause. Unknown $-keys are ignored; malformed blocks error.
+func applyKNNAttrBlock(clause *KNNClause, rest string) error {
+	rest = strings.TrimSpace(rest)
+	if !strings.HasPrefix(rest, "=>") {
+		return fmt.Errorf("Unexpected token after KNN clause")
+	}
+	rest = strings.TrimSpace(rest[2:])
+	if !strings.HasPrefix(rest, "{") {
+		return fmt.Errorf("Invalid KNN attribute block")
+	}
+	end := strings.LastIndex(rest, "}")
+	if end < 0 {
+		return fmt.Errorf("Invalid KNN attribute block")
+	}
+	inner := strings.TrimSpace(rest[1:end])
+	if trailing := strings.TrimSpace(rest[end+1:]); trailing != "" {
+		return fmt.Errorf("Unexpected token after KNN attribute block")
+	}
+	if inner == "" {
+		return nil
+	}
+	// Split on ';' then parse "$KEY: value" pairs (whitespace around ':' ok).
+	parts := strings.Split(inner, ";")
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		colon := strings.Index(part, ":")
+		if colon < 0 {
+			return fmt.Errorf("Invalid KNN attribute '%s'", part)
+		}
+		key := strings.TrimSpace(part[:colon])
+		val := strings.TrimSpace(part[colon+1:])
+		key = strings.TrimPrefix(key, "$")
+		switch strings.ToUpper(key) {
+		case "YIELD_DISTANCE_AS":
+			if val == "" {
+				return fmt.Errorf("YIELD_DISTANCE_AS requires a field name")
+			}
+			// Attribute alias wins when AS was not set; AS already set keeps AS
+			// (Redis treats them equivalently — last writer in practice).
+			if clause.ScoreAs == "" {
+				clause.ScoreAs = val
+			} else {
+				clause.ScoreAs = val
+			}
+		case "SHARD_K_RATIO":
+			// Cluster-only hint; accept and ignore in standalone.
+			if val == "" {
+				return fmt.Errorf("SHARD_K_RATIO requires a value")
+			}
+		default:
+			// Accept unknown keys for forward-compat (ponytail).
+		}
+	}
+	return nil
 }
 
 // indexOfKNNMarker finds the start of "=>[KNN" in the query, or -1. It avoids

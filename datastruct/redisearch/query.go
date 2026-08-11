@@ -328,6 +328,7 @@ func termTokens(n QueryNode) []string {
 // RequiresDialect2 reports whether the AST contains any DIALECT-2-only construct
 // (comparison operators or ismissing). The engine uses this to reject such
 // queries when the declared dialect is < 2, matching Redis behavior.
+// Multi-field modifiers and spaced tags are rejected earlier at parse time.
 func RequiresDialect2(node QueryNode) bool {
 	if node == nil {
 		return false
@@ -343,6 +344,49 @@ func RequiresDialect2(node QueryNode) bool {
 		return RequiresDialect2(n.Child)
 	case *OptionalNode:
 		return RequiresDialect2(n.Child)
+	}
+	return false
+}
+
+// Dialect2Reason returns a specific error fragment when RequiresDialect2 is true.
+func Dialect2Reason(node QueryNode) string {
+	if hasMissingNode(node) {
+		return "ismissing() requires DIALECT 2 or higher"
+	}
+	if hasCompareNode(node) {
+		return "comparison operators require DIALECT 2 or higher"
+	}
+	return "DIALECT 2+ required for this query"
+}
+
+func hasMissingNode(node QueryNode) bool {
+	switch n := node.(type) {
+	case *MissingNode:
+		return true
+	case *AndNode:
+		return hasMissingNode(n.Left) || hasMissingNode(n.Right)
+	case *OrNode:
+		return hasMissingNode(n.Left) || hasMissingNode(n.Right)
+	case *NotNode:
+		return hasMissingNode(n.Child)
+	case *OptionalNode:
+		return hasMissingNode(n.Child)
+	}
+	return false
+}
+
+func hasCompareNode(node QueryNode) bool {
+	switch n := node.(type) {
+	case *NumericCompareNode:
+		return true
+	case *AndNode:
+		return hasCompareNode(n.Left) || hasCompareNode(n.Right)
+	case *OrNode:
+		return hasCompareNode(n.Left) || hasCompareNode(n.Right)
+	case *NotNode:
+		return hasCompareNode(n.Child)
+	case *OptionalNode:
+		return hasCompareNode(n.Child)
 	}
 	return false
 }
@@ -565,6 +609,18 @@ func parseTagList(field, raw string) QueryNode {
 		root = &OrNode{Left: root, Right: n}
 	}
 	return root
+}
+
+// tagListHasInternalSpace reports whether any tag value inside "{...}" contains
+// an internal space (after trim). Redis allows this only under DIALECT 2+.
+func tagListHasInternalSpace(raw string) bool {
+	for _, part := range strings.Split(raw, "|") {
+		t := strings.TrimSpace(unescapeQuery(part))
+		if strings.ContainsAny(t, " \t") {
+			return true
+		}
+	}
+	return false
 }
 
 // NumericRangeNode represents @field:[min max] numeric range search.
@@ -1039,6 +1095,24 @@ func NewExpressionParser(input string) *ExpressionParser {
 // tighter than whitespace-separated terms (Redis DIALECT 2 behavior).
 func (p *ExpressionParser) SetDialect(d int) { p.dialect = d }
 
+// effectiveDialect returns the dialect used for feature gates. Unset (0) maps
+// to DIALECT 1 (Redis default).
+func (p *ExpressionParser) effectiveDialect() int {
+	if p.dialect <= 0 {
+		return 1
+	}
+	return p.dialect
+}
+
+// isDialectGateError reports parse errors that must not be swallowed by the
+// legacy QueryParser fallback (multi-field / spaced tags / similar gates).
+func isDialectGateError(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(err.Error(), "DIALECT")
+}
+
 // Parse parses a boolean expression
 // Supports: term, "phrase", @field:term, @field:{tag}, (expr), expr AND expr, expr OR expr, NOT expr
 func (p *ExpressionParser) Parse() (QueryNode, error) {
@@ -1184,6 +1258,9 @@ func (p *ExpressionParser) parsePrimary() (QueryNode, error) {
 			return nil, fmt.Errorf("expected field name after '@'")
 		}
 		fields = strings.Split(spec, "|")
+		if len(fields) > 1 && p.effectiveDialect() < 2 {
+			return nil, fmt.Errorf("multi-field modifiers require DIALECT 2 or higher")
+		}
 
 		// DIALECT 2 comparison operators: @n == 5, @n != 5, @n > 5, ...
 		// These appear WITHOUT a colon and only over a single numeric field.
@@ -1259,6 +1336,9 @@ func (p *ExpressionParser) parseAtom(field string) (QueryNode, error) {
 		}
 		raw := p.input[tagStart:p.pos]
 		p.match("}")
+		if p.effectiveDialect() < 2 && tagListHasInternalSpace(raw) {
+			return nil, fmt.Errorf("tag values with spaces require DIALECT 2 or higher")
+		}
 		return parseTagList(field, raw), nil
 	}
 

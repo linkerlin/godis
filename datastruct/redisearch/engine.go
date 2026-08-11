@@ -409,14 +409,33 @@ func (e *RediSearchEngine) SearchKNN(baseQuery string, opts *SearchOptions, knn 
 		}
 	} else {
 		parser := NewExpressionParser(baseQuery)
+		if opts != nil && opts.Dialect > 0 {
+			parser.SetDialect(opts.Dialect)
+		}
 		node, err := parser.Parse()
 		if err != nil {
+			if isDialectGateError(err) {
+				return nil, err
+			}
 			node, err = NewQueryParser().Parse(baseQuery)
 			if err != nil {
 				return nil, err
 			}
 		}
+		if opts != nil && opts.Dialect > 0 && opts.Dialect < 2 && RequiresDialect2(node) {
+			return nil, fmt.Errorf("%s", Dialect2Reason(node))
+		}
+		if opts != nil && opts.Dialect > 0 && opts.Dialect < 3 && RequiresDialect3(node) {
+			return nil, fmt.Errorf("GEOSHAPE queries require DIALECT 3 or higher")
+		}
 		candidates = node.Evaluate(e.index)
+		candidates = e.filterByGeoNodes(candidates, node)
+		if opts != nil && len(opts.Params) > 0 {
+			candidates = e.filterByGeoshapeNodes(candidates, node, opts.Params)
+		}
+		if opts != nil && len(opts.Filters) > 0 {
+			candidates = e.applyFieldFilters(candidates, opts.Filters)
+		}
 	}
 
 	// Run KNN restricted to the candidate set.
@@ -473,6 +492,9 @@ func (e *RediSearchEngine) Search(query string, opts *SearchOptions) (*SearchRes
 	}
 	node, err := parser.Parse()
 	if err != nil {
+		if isDialectGateError(err) {
+			return nil, err
+		}
 		// Fallback to simple parser
 		simpleParser := NewQueryParser()
 		node, err = simpleParser.Parse(query)
@@ -499,11 +521,11 @@ func (e *RediSearchEngine) Search(query string, opts *SearchOptions) (*SearchRes
 	}
 	// DIALECT 2-only constructs (comparison ops, ismissing) require Dialect >= 2.
 	if opts != nil && opts.Dialect > 0 && opts.Dialect < 2 && RequiresDialect2(node) {
-		return nil, fmt.Errorf("DIALECT 2+ required for this query")
+		return nil, fmt.Errorf("%s", Dialect2Reason(node))
 	}
 	// DIALECT 3-only constructs (GEOSHAPE predicates) require Dialect >= 3.
 	if opts != nil && opts.Dialect > 0 && opts.Dialect < 3 && RequiresDialect3(node) {
-		return nil, fmt.Errorf("DIALECT 3+ required for this query")
+		return nil, fmt.Errorf("GEOSHAPE queries require DIALECT 3 or higher")
 	}
 
 	// Execute query (* = all documents, same as AGGREGATE)
@@ -547,6 +569,9 @@ func (e *RediSearchEngine) Search(query string, opts *SearchOptions) (*SearchRes
 		noStop = opts.NoStopWords
 	}
 	sc := e.buildScoreContext(query, CollectOptionalTerms(node), queryPayload, verbatim, noStop)
+	if opts != nil && opts.BM25STDTanhFactor > 0 {
+		sc.tanhFactor = opts.BM25STDTanhFactor
+	}
 
 	results := make([]*SearchResult, 0, len(docIDs))
 	for _, docID := range docIDs {
@@ -748,6 +773,9 @@ type SearchOptions struct {
 	// Also: TFIDF, TFIDF.DOCNORM, DISMAX, DOCSCORE, HAMMING, BM25 (deprecated
 	// alias of BM25STD), BM25STD.NORM, BM25STD.TANH.
 	Scorer string
+	// BM25STDTanhFactor is the divisor for BM25STD.TANH (tanh(raw/factor)).
+	// Zero means the Redis default of 4. Set via FT.SEARCH BM25STD_TANH_FACTOR.
+	BM25STDTanhFactor float64
 	// Payload carries the FT.SEARCH PAYLOAD value used by the HAMMING scorer.
 	Payload []byte
 	// Params carries FT.SEARCH PARAMS name→value bindings, used by GEOSHAPE

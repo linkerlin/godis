@@ -34,7 +34,8 @@ type scoreContext struct {
 	optional   map[string]bool
 	docCount   float64
 	avgdl      float64
-	payload    []byte // FT.SEARCH PAYLOAD value (HAMMING scorer)
+	payload    []byte  // FT.SEARCH PAYLOAD value (HAMMING scorer)
+	tanhFactor float64 // BM25STD.TANH divisor; 0 → default 4
 }
 
 // computeScore dispatches to the scorer named by opts.Scorer (default BM25STD).
@@ -45,9 +46,14 @@ func (e *RediSearchEngine) computeScore(doc *Document, sc *scoreContext, scorerN
 	case ScorerBM25, ScorerBM25STD:
 		return scorerBM25STD(doc, sc, bm25K1, bm25B) * doc.Score
 	case ScorerBM25STDTanh:
-		// BM25STD normalized via tanh(x/factor); default factor 4.
+		// BM25STD normalized via tanh(x/factor); default factor 4
+		// (overridable via FT.SEARCH BM25STD_TANH_FACTOR).
 		raw := scorerBM25STD(doc, sc, bm25K1, bm25B)
-		return math.Tanh(raw/4.0) * doc.Score
+		factor := sc.tanhFactor
+		if factor <= 0 {
+			factor = 4
+		}
+		return math.Tanh(raw/factor) * doc.Score
 	case ScorerBM25STDNorm:
 		// Raw BM25; Search applies true min-max over the full hit set
 		// (see normalizeBM25STDNorm).

@@ -109,7 +109,7 @@
 | Lua bit | ✅ tobit/band/bor/bxor/bnot/lshift/rshift/arshift/tohex/rol/ror/bswap |
 | FT SCHEMA AS | ✅ `$.path AS name`（CREATE/ALTER 共用解析） |
 | FT ON JSON 自动索引 | ✅ JSON.SET/DEL 喂/撤索引 |
-| FT.SEARCH DIALECT/WITHSORTKEYS | ✅ DIALECT 1/2/3 子集生效（非完整方言；GEOSHAPE 强制 ≥3）；WITHSORTKEYS 插入 sortkey |
+| FT.SEARCH DIALECT/WITHSORTKEYS | ✅ DIALECT 1/2/3 子集生效（非完整方言；GEOSHAPE 强制 ≥3；tag 空格/多字段强制 ≥2）；WITHSORTKEYS 插入 sortkey |
 | JSON.GET `$` 封装 | ✅ 显式 `$…` 路径包数组；无路径返回裸文档 |
 | CONFIG/INFO hz | ✅ 可配置 hz（默认 10） |
 | CLIENT 无连接 | ✅ SETNAME/GETNAME/ID/REPLY 要求连接 |
@@ -192,12 +192,23 @@ UNWATCH、WAIT（简版）、BITOP、BITFIELD、SMOVE、LPOS、XCLAIM、SHUTDOWN
 | 完整 Redis gossip bus | MEET→Raft/FSM join；写管理命令显式 ERR（含「no gossip」文案）；BUMPEPOCH=`BUMPED 0` | **CLUSTER INFO** 消息计数键恒 0 + **`cluster_bus_port:0`**（诚实无 bus） |
 | 官方模块原生 RDB·DUMP 互通 | Stream/JSON/Vector/TS/概率结构/FT 走 Godis opaque `GODIS1` | RESTORE **拒绝矩阵**（截断/坏版本/坏 CRC/模块样/短载荷→ERR；文案标明非模块 RDB）；**不**与 Redis 模块 RDB 互通 |
 | FUNCTION DUMP 官方互通 | Godis `GODISFN1` 自洽；截断/异己二进制明确 ERR；兼旧文本 | 保持自洽；**不**伪造 Redis functions payload |
-| 完整 BM25 / 完整 KNN 方言 / 完整 DIALECT | BM25STD + WEIGHT + 文档长度；**NORM 真 min-max**；**TANH=tanh(raw/4)∈(0,1)**；**FT+KNN 最小路径**；DIALECT 1/2/3 子集（**GEOSHAPE 强制 ≥3**）；**KNN/DIALECT 错误路径可测** | 非论文级完整 BM25/完整方言；见 REDISEARCH_ALIGNMENT |
+| 完整 BM25 / 完整 KNN 方言 / 完整 DIALECT | BM25STD：WEIGHT + 文档长度 + **可测 IDF** + **多字段加权求和**；NORM min-max；**TANH + BM25STD_TANH_FACTOR**；KNN：`AS`/`$YIELD_DISTANCE_AS`、**HYBRID_POLICY** 校验、空预过滤；DIALECT 1/2/3 子集（GEOSHAPE≥3；**tag 空格/多字段 `@f1\|f2` 强制 ≥2**） | **非**论文级完整 BM25（无 slop 罚分进打分、无全局 NORM over collection 等）；非完整 KNN/DIALECT 4；见 REDISEARCH_ALIGNMENT |
 | ~~Vector 图内真 int8 距离~~ | **VADD Q8/BIN 真存储**；**BIN→图内 Hamming**；**Q8→图内 int8 距离**（无搜索态 f32 缓冲）；FT VECTOR 窄类型解码已有 | ✅ 2026-08-11 deep6；VEMB 仍可显示反量化近似 |
 | ~~AOF rewrite / RDB 写出 FT 索引定义~~ | 命令 AOF + **纯 AOF rewrite→FT.CREATE** + **RDB Godis opaque `ft`**（Load 后回填） | ✅ 2026-08-11；**非**官方 RediSearch 模块 RDB |
 | ~~HLL sparse 读取~~ | dense 互通；**sparse 安全解码→内存 dense**（写回仍 dense） | ✅ 2026-08-11：corrupt/非 dense·sparse 编码→`INVALIDOBJ`；已移出远期清单 |
 | CI Redis sidecar 全量输出 diff（R4-1） | 未做全量 | **扩大 allowlist**（用例表 `scripts/r4-1-cases.txt`）：既有 String/Hash/List + **Set**（SADD/SCARD/SISMEMBER/SREM）+ **ZSet**（ZADD/ZSCORE/ZCARD/ZREM）+ **键 TTL**（TTL/PTTL/PEXPIRE/EXPIRE/PERSIST，稳定码/`>=N`）；`redis-cli --raw`；失败多行可读；CI smoke 实跑；**仍非** FT/模块/DUMP/集群/无序回复（SMEMBERS/HGETALL）全量套件 |
 | 覆盖率专项冲高（R4-2） | 未做 | 书面远期；**观察式门槛**见 `.github/workflows/coverall.yml` 注释（Coveralls 趋势、无私有 % 门禁、不因覆盖率 fail） |
+
+### BM25 / KNN / DIALECT 推进笔记（2026-08-11，`compat/bm25-knn-dialect`）
+
+> **不宣称 100% 论文级 BM25 / 完整 RediSearch 方言。** 下列为对本仓可验证子集的诚实盘点。
+
+| 能力 | 已落地（可测） | 仍缺 / 故意简化 |
+|------|----------------|-----------------|
+| BM25STD 核心 | IDF `ln((N−df+0.5)/(df+0.5)+1)`；`b` 文档长度归一；按 TEXT 字段 WEIGHT 求和；k1=1.2 / b=0.09 | BM25 slop 罚分进分数；与 Redis 二进制级分数对齐；全局 collection 统计变体细枝 |
+| BM25STD.NORM / .TANH | 结果集真 min-max；`tanh(raw/factor)`，默认 factor 4；**`BM25STD_TANH_FACTOR Y`** | —.NORM 依赖全 hit 集非全集强制扫描 |
+| KNN | `*=>[KNN …]` / 预过滤；`AS` 与 **`=>{$YIELD_DISTANCE_AS}`**；`EF_RUNTIME`；`HYBRID_POLICY`∈{ADHOC_BF,BATCHES}（均暴力）；空候选→0 | 真 BATCHES 迭代；`$SHARD_K_RATIO` 集群语义；HNSW 近似保证≠暴力 |
+| DIALECT | 1/2 优先级；2：PARAMS/KNN/比较/`ismissing`/tag 空格/`@f1\|f2`；3：GEOSHAPE；非法值与具体 ERR | DIALECT 3 多值 JSON 全量返回；DIALECT 4/WITHOUTCOUNT 排序优化 |
 
 ### Godis opaque / FUNCTION 信封边界（非 Redis 互通）
 
@@ -212,4 +223,4 @@ UNWATCH、WAIT（简版）、BITOP、BITFIELD、SMOVE、LPOS、XCLAIM、SHUTDOWN
 
 ---
 
-**最后更新：** 2026-08-11（R4-1 用例表驱动扩 Set/ZSet/TTL；仍明确非 FT/模块/DUMP/集群全量；远期仍 **7** + 可独立 **0**）
+**最后更新：** 2026-08-11（R4-1 用例表扩 Set/ZSet/TTL + BM25/KNN/DIALECT 子集推进；仍明确非 FT/模块/DUMP/集群全量；远期仍 **7** + 可独立 **0**；完整 BM25/KNN/DIALECT **非**100% 论文级）
