@@ -97,10 +97,7 @@ func execCluster(cluster *Cluster, c redis.Connection, cmdLine CmdLine) redis.Re
 		if len(cmdLine) != 3 {
 			return protocol.MakeErrReply("ERR wrong number of arguments for 'cluster|forget' command")
 		}
-		if cluster == nil {
-			return protocol.MakeErrReply("ERR This instance has cluster support disabled")
-		}
-		return protocol.MakeErrReply("ERR CLUSTER FORGET is not supported (no Redis gossip bus)")
+		return execClusterForget(cluster, c, cmdLine)
 	case "SETNAME":
 		if len(cmdLine) != 3 {
 			return protocol.MakeErrReply("ERR wrong number of arguments for 'cluster|setname' command")
@@ -125,10 +122,7 @@ func execCluster(cluster *Cluster, c redis.Connection, cmdLine CmdLine) redis.Re
 		if len(cmdLine) != 3 {
 			return protocol.MakeErrReply("ERR wrong number of arguments for 'cluster|replicate' command")
 		}
-		if cluster == nil {
-			return protocol.MakeErrReply("ERR This instance has cluster support disabled")
-		}
-		return protocol.MakeErrReply("ERR CLUSTER REPLICATE is not supported (Godis has no Redis gossip bus; use Raft/FSM topology)")
+		return execClusterReplicate(cluster, c, cmdLine)
 	case "RESET":
 		if len(cmdLine) > 3 {
 			return protocol.MakeErrReply("ERR wrong number of arguments for 'cluster|reset' command")
@@ -202,7 +196,7 @@ func execClusterInfo(cluster *Cluster) redis.Reply {
 	if cluster == nil {
 		return protocol.MakeErrReply("ERR This instance has cluster support disabled")
 	}
-	return protocol.MakeBulkReply(cluster.snapshotClusterView().infoBulk())
+	return protocol.MakeBulkReply(cluster.snapshotClusterView().infoBulk(cluster.busSnapshot()))
 }
 
 // execClusterSlots 返回槽位到节点的映射
@@ -357,9 +351,9 @@ func execClusterHelp() redis.Reply {
 		"    MIGRATING/IMPORTING/STABLE update local slotsManager (ASK/ASKING).",
 		"    NODE assigns slot ownership in the Raft FSM and clears local migrate state.",
 		"CLUSTER FORGET node-id",
-		"    Not supported.",
+		"    Remove node from Raft/FSM topology (safe path: no slots/replicas; not gossip bus).",
 		"CLUSTER REPLICATE node-id",
-		"    Not supported.",
+		"    Become replica of master via FSM EventJoin/MasterSlaves (not gossip).",
 		"CLUSTER RESET [HARD|SOFT]",
 		"    Not supported.",
 		"CLUSTER FAILOVER [FORCE|TAKEOVER]",
