@@ -218,6 +218,13 @@ func TestZRem(t *testing.T) {
 	result = testDB.Exec(nil, utils.ToCmdLine("zcard", key))
 	asserts.AssertIntReply(t, result, size-10)
 
+	// Removing the last members deletes the key (Redis semantics).
+	rest := append([]string{key}, members[10:]...)
+	result = testDB.Exec(nil, utils.ToCmdLine2("zrem", rest...))
+	asserts.AssertIntReply(t, result, size-10)
+	result = testDB.Exec(nil, utils.ToCmdLine("exists", key))
+	asserts.AssertIntReply(t, result, 0)
+
 	// test ZRemRangeByRank
 	testDB.Flush()
 	size = 100

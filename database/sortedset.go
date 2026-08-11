@@ -687,6 +687,9 @@ func execZRemRangeByScore(db *DB, args [][]byte) redis.Reply {
 	}
 
 	removed := sortedSet.RemoveRange(min, max)
+	if sortedSet.Len() == 0 {
+		db.Remove(key)
+	}
 	if removed > 0 {
 		db.addAof(utils.ToCmdLine3("zremrangebyscore", args...))
 	}
@@ -738,6 +741,9 @@ func execZRemRangeByRank(db *DB, args [][]byte) redis.Reply {
 
 	// assert: start in [0, size - 1], stop in [start, size]
 	removed := sortedSet.RemoveByRank(start, stop)
+	if sortedSet.Len() == 0 {
+		db.Remove(key)
+	}
 	if removed > 0 {
 		db.addAof(utils.ToCmdLine3("zremrangebyrank", args...))
 	}
@@ -764,6 +770,9 @@ func execZPopMin(db *DB, args [][]byte) redis.Reply {
 	}
 
 	removed := sortedSet.PopMin(count)
+	if sortedSet.Len() == 0 {
+		db.Remove(key)
+	}
 	if len(removed) > 0 {
 		db.addAof(utils.ToCmdLine3("zpopmin", args...))
 	}
@@ -799,9 +808,12 @@ func execZRem(db *DB, args [][]byte) redis.Reply {
 			deleted++
 		}
 	}
+	if sortedSet.Len() == 0 {
+		db.Remove(key)
+	}
 	if deleted > 0 {
 		db.addAof(utils.ToCmdLine3("zrem", args...))
-	notifyKeyspaceEvent(db, "zrem", key)
+		notifyKeyspaceEvent(db, "zrem", key)
 	}
 	return protocol.MakeIntReply(deleted)
 }
@@ -971,6 +983,9 @@ func execZRemRangeByLex(db *DB, args [][]byte) redis.Reply {
 	}
 
 	count := sortedSet.RemoveRange(min, max)
+	if sortedSet.Len() == 0 {
+		db.Remove(key)
+	}
 
 	return protocol.MakeIntReply(count)
 }
@@ -1102,6 +1117,9 @@ func execZPopMax(db *DB, args [][]byte) redis.Reply {
 	}
 
 	removed := sortedSet.PopMax(count)
+	if sortedSet.Len() == 0 {
+		db.Remove(key)
+	}
 	if len(removed) > 0 {
 		db.addAof(utils.ToCmdLine3("zpopmax", args...))
 	}

@@ -208,7 +208,7 @@ UNWATCH、WAIT（简版）、BITOP、BITFIELD、SMOVE、LPOS、XCLAIM、SHUTDOWN
 | 范围 | Standalone 稳定命令：String/Hash/List/Set/ZSet/TTL + Stream/Geo/Bitops/HLL **lite** 子集 |
 | 排除 | **FT.\*** / 模块 / DUMP·RESTORE / ACL / cluster·gossip / FUNCTIONS ——除非用例表显式列入（当前未列） |
 | Honesty | `@skip` / `@todo` 记录已知洞；**禁止**把未对齐行为改成假 PASS |
-| 已知 skip/todo | `TYPE` on stream（Godis `getType` 未识别 `*stream.Stream`→`ERR unknown error`）；`GEODIST`/`GEOPOS` 浮点与嵌套 `--raw`；`XRANGE` 嵌套布局；大基数 `PFCOUNT` 近似漂移；`BITOP DIFF*` 非经典 allowlist；XGROUP/XREAD BLOCK |
+| 已知 skip/todo | `GEODIST`/`GEOPOS` 浮点与嵌套 `--raw`（不做脆弱精确浮点）；`XRANGE` 嵌套布局；大基数 `PFCOUNT` 近似漂移；`BITOP DIFF*` Godis 已实现但 R4-1 lite 不断言；XGROUP/XREAD BLOCK |
 | 跑法 | 两侧 `redis-cli --raw` 等值（或 `>=N`/`<=N` 整数）；CI smoke 非全量 diff |
 
 ### BM25 / KNN / DIALECT 推进笔记（2026-08-11，`compat/bm25-knn-dialect`）
@@ -279,4 +279,4 @@ UNWATCH、WAIT（简版）、BITOP、BITFIELD、SMOVE、LPOS、XCLAIM、SHUTDOWN
 
 ---
 
-**最后更新：** 2026-08-11（并入四路边界：官方模块 RDB/DUMP、FUNCTION DUMP、jemalloc/INFO memory、R4-1 套件 Stream/Geo/Bitops/HLL lite；远期仍 **7** + 可独立 **0**）
+**最后更新：** 2026-08-11（R4-1：`TYPE stream` 对齐；空 ZSet 删键；仍 skip GEODIST 浮点等；远期仍 **7** + 可独立 **0**）

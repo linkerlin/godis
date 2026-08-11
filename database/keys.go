@@ -11,6 +11,7 @@ import (
 	"github.com/linkerlin/godis/datastruct/list"
 	"github.com/linkerlin/godis/datastruct/set"
 	"github.com/linkerlin/godis/datastruct/sortedset"
+	"github.com/linkerlin/godis/datastruct/stream"
 	"github.com/linkerlin/godis/interface/redis"
 	"github.com/linkerlin/godis/lib/utils"
 	"github.com/linkerlin/godis/lib/wildcard"
@@ -80,11 +81,13 @@ func getType(db *DB, key string) string {
 		return "set"
 	case *sortedset.SortedSet:
 		return "zset"
+	case *stream.Stream:
+		return "stream"
 	}
 	return ""
 }
 
-// execType returns the type of entity, including: string, list, hash, set and zset
+// execType returns the type of entity: string, list, hash, set, zset, stream, or none
 func execType(db *DB, args [][]byte) redis.Reply {
 	key := string(args[0])
 	result := getType(db, key)

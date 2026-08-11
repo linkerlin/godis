@@ -74,8 +74,8 @@ ZCARD|1|ZCARD sidecar:allowlist:z:{{ID}}
 TYPE-zset|zset|TYPE sidecar:allowlist:z:{{ID}}
 ZREM|1|ZREM sidecar:allowlist:z:{{ID}} zm
 ZCARD-after|0|ZCARD sidecar:allowlist:z:{{ID}}
-# Redis deletes empty zset keys; Godis may keep an empty zset — cleanup only.
-@DEL sidecar:allowlist:z:{{ID}}
+# empty zset key removed by ZREM of last member (Redis semantics)
+EXISTS-after-zrem|0|EXISTS sidecar:allowlist:z:{{ID}}
 
 # --- Key TTL (stable codes only; not remaining-seconds flake) ---
 @DEL sidecar:allowlist:ttl:{{ID}}
@@ -99,7 +99,7 @@ XADD|1-0|XADD sidecar:stream:{{ID}} 1-0 f v
 XLEN|1|XLEN sidecar:stream:{{ID}}
 XADD2|2-0|XADD sidecar:stream:{{ID}} 2-0 f w
 XLEN2|2|XLEN sidecar:stream:{{ID}}
-@skip TYPE stream: Godis getType omits *stream.Stream → ERR unknown error (not Redis TYPE stream)
+TYPE-stream|stream|TYPE sidecar:stream:{{ID}}
 @todo XRANGE nested --raw flatten not asserted in this scaffold
 @todo XGROUP/XREAD BLOCK / consumer-group paths out of R4-1 lite
 DEL-stream|1|DEL sidecar:stream:{{ID}}
@@ -110,7 +110,7 @@ GEOADD|2|GEOADD sidecar:geo:{{ID}} 13.361389 38.115556 Palermo 15.087269 37.5026
 ZCARD-geo|2|ZCARD sidecar:geo:{{ID}}
 TYPE-geo|zset|TYPE sidecar:geo:{{ID}}
 GEOADD-dup|0|GEOADD sidecar:geo:{{ID}} 13.361389 38.115556 Palermo
-@skip GEODIST/GEOPOS: float and nested --raw not exact-eq stable in scaffold
+@skip GEODIST/GEOPOS: float and nested --raw not exact-eq stable in scaffold (no brittle exact float asserts)
 DEL-geo|1|DEL sidecar:geo:{{ID}}
 
 # --- Bitops (SETBIT-built; classic AND/OR/XOR/NOT) ---
@@ -134,7 +134,7 @@ BITCOUNT-XOR|1|BITCOUNT sidecar:bit:xor:{{ID}}
 BITOP-NOT|1|BITOP NOT sidecar:bit:not:{{ID}} sidecar:bit:b:{{ID}}
 BITCOUNT-NOT|7|BITCOUNT sidecar:bit:not:{{ID}}
 TYPE-bit|string|TYPE sidecar:bit:{{ID}}
-@todo BITOP DIFF/DIFF1/ANDOR/ONE not in classic allowlist (Redis 8.2+; keep lite stable)
+@todo BITOP DIFF/DIFF1/ANDOR/ONE: Godis already implements; not asserted in R4-1 lite (classic AND/OR/XOR/NOT only; Redis 8.2+ ops)
 @DEL sidecar:bit:{{ID}}
 @DEL sidecar:bit:b:{{ID}}
 @DEL sidecar:bit:and:{{ID}}

@@ -54,13 +54,14 @@ func TestR41SidecarAllowlistScaffold(t *testing.T) {
 	}
 	// Honesty markers for known gaps (must not be silently turned into PASS asserts).
 	for _, marker := range []string{
-		"@skip TYPE stream:",
+		"TYPE-stream|stream|TYPE",
 		"@skip GEODIST/GEOPOS:",
 		"@todo XRANGE",
 		"@todo large PFCOUNT",
+		"@todo BITOP DIFF",
 	} {
 		if !strings.Contains(cases, marker) {
-			t.Fatalf("r4-1-cases.txt missing honesty marker %q", marker)
+			t.Fatalf("r4-1-cases.txt missing honesty/assert marker %q", marker)
 		}
 	}
 

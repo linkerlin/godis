@@ -4,6 +4,11 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- `TYPE`：识别 `*stream.Stream` → 返回 `stream`（此前 `ERR unknown error`）；R4-1 取消对应 `@skip`
+- 空 ZSet：`ZREM` / `ZREMRANGE*` / `ZPOPMIN|MAX` 删空后删除键（对齐 Redis；R4-1 `EXISTS` 断言）
+
 ### Added
 
 - 官方模块 RDB/DUMP **边界诚实化**：`RESTORE` 拒绝 `typeModule`/`typeModule2` 标记（明确 ERR）；`LoadRDB` 遇 `ModuleTypeObject` **中止并 ERR**（不再静默丢键）；合成负向测 + `docs/COMPATIBILITY.md`「官方模块 RDB/DUMP 边界」（**不**宣称互通）

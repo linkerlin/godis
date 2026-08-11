@@ -52,6 +52,11 @@ func TestType(t *testing.T) {
 	testDB.Exec(nil, utils.ToCmdLine("zadd", key, "1", value))
 	result = testDB.Exec(nil, utils.ToCmdLine("type", key))
 	asserts.AssertStatusReply(t, result, "zset")
+
+	testDB.Remove(key)
+	testDB.Exec(nil, utils.ToCmdLine("xadd", key, "1-0", "f", "v"))
+	result = testDB.Exec(nil, utils.ToCmdLine("type", key))
+	asserts.AssertStatusReply(t, result, "stream")
 }
 
 func TestRename(t *testing.T) {

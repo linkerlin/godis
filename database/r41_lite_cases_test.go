@@ -14,6 +14,7 @@ func TestR41LiteCaseExpectations(t *testing.T) {
 	asserts.AssertIntReply(t, testDB.Exec(nil, utils.ToCmdLine("XLEN", "s")), 1)
 	asserts.AssertBulkReply(t, testDB.Exec(nil, utils.ToCmdLine("XADD", "s", "2-0", "f", "w")), "2-0")
 	asserts.AssertIntReply(t, testDB.Exec(nil, utils.ToCmdLine("XLEN", "s")), 2)
+	asserts.AssertStatusReply(t, testDB.Exec(nil, utils.ToCmdLine("TYPE", "s")), "stream")
 
 	asserts.AssertIntReply(t, testDB.Exec(nil, utils.ToCmdLine("GEOADD", "g", "13.361389", "38.115556", "Palermo", "15.087269", "37.502669", "Catania")), 2)
 	asserts.AssertIntReply(t, testDB.Exec(nil, utils.ToCmdLine("ZCARD", "g")), 2)
