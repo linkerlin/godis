@@ -116,6 +116,7 @@
 | COMMAND LIST | ✅ 枚举命令；FILTERBY PATTERN |
 | GETRANGE 缺键 | ✅ 空 bulk（非 null） |
 | OBJECT ENCODING int | ✅ 整数字符串报 `int` |
+| TYPE 扩展类型 | ✅ JSON/TS/Bloom/Cuckoo/CMS/TopK/TDigest/Vector/FT 索引对齐 Redis 模块 TYPE 名（非 `ERR unknown`） |
 | Lua error/status_reply | ✅ 及 setresp 记录版本 |
 | proto-max-bulk-len | ✅ 解析器读 CONFIG |
 | INFO clients_in_timeout_table | ✅ 对齐 blocked 等待者计数 |
@@ -208,7 +209,7 @@ UNWATCH、WAIT（简版）、BITOP、BITFIELD、SMOVE、LPOS、XCLAIM、SHUTDOWN
 | 范围 | Standalone 稳定命令：String/Hash/List/Set/ZSet/TTL + Stream/Geo/Bitops/HLL **lite** 子集 |
 | 排除 | **FT.\*** / 模块 / DUMP·RESTORE / ACL / cluster·gossip / FUNCTIONS ——除非用例表显式列入（当前未列） |
 | Honesty | `@skip` / `@todo` 记录已知洞；**禁止**把未对齐行为改成假 PASS |
-| 已知 skip/todo | `GEODIST`/`GEOPOS` 浮点与嵌套 `--raw`（不做脆弱精确浮点）；`XRANGE` 嵌套布局；大基数 `PFCOUNT` 近似漂移；`BITOP DIFF*` Godis 已实现但 R4-1 lite 不断言；XGROUP/XREAD BLOCK |
+| 已知 skip/todo | `GEODIST`/`GEOPOS` 浮点与嵌套 `--raw`（不做脆弱精确浮点）；`XRANGE` 嵌套布局；大基数 `PFCOUNT` 近似漂移；`BITOP DIFF*` Godis 已实现（单测覆盖）但 CI Redis tag `8` 可能 &lt;8.2 故 R4-1 不断言；XGROUP/XREAD BLOCK |
 | 跑法 | 两侧 `redis-cli --raw` 等值（或 `>=N`/`<=N` 整数）；CI smoke 非全量 diff |
 
 ### BM25 / KNN / DIALECT 推进笔记（2026-08-11，`compat/bm25-knn-dialect`）
@@ -279,4 +280,4 @@ UNWATCH、WAIT（简版）、BITOP、BITFIELD、SMOVE、LPOS、XCLAIM、SHUTDOWN
 
 ---
 
-**最后更新：** 2026-08-11（R4-1：`TYPE stream` 对齐；空 ZSet 删键；仍 skip GEODIST 浮点等；远期仍 **7** + 可独立 **0**）
+**最后更新：** 2026-08-11（`TYPE` 扩展类型对齐模块名；R4-1 空 List/Set 删键断言；BITOP DIFF* 仍因 sidecar&lt;8.2 风险 `@todo`；远期仍 **7** + 可独立 **0**）

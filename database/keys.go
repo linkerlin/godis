@@ -8,10 +8,15 @@ import (
 
 	"github.com/linkerlin/godis/aof"
 	"github.com/linkerlin/godis/datastruct/dict"
+	godisjson "github.com/linkerlin/godis/datastruct/json"
 	"github.com/linkerlin/godis/datastruct/list"
+	"github.com/linkerlin/godis/datastruct/probabilistic"
+	"github.com/linkerlin/godis/datastruct/redisearch"
 	"github.com/linkerlin/godis/datastruct/set"
 	"github.com/linkerlin/godis/datastruct/sortedset"
 	"github.com/linkerlin/godis/datastruct/stream"
+	"github.com/linkerlin/godis/datastruct/timeseries"
+	"github.com/linkerlin/godis/datastruct/vector"
 	"github.com/linkerlin/godis/interface/redis"
 	"github.com/linkerlin/godis/lib/utils"
 	"github.com/linkerlin/godis/lib/wildcard"
@@ -64,7 +69,7 @@ func execFlushDB(db *DB, args [][]byte) redis.Reply {
 	return &protocol.OkReply{}
 }
 
-// returns the type of entity, including: string, list, hash, set and zset
+// returns the TYPE reply for a key (Redis module type names where applicable).
 func getType(db *DB, key string) string {
 	entity, exists := db.GetEntity(key)
 	if !exists {
@@ -83,19 +88,36 @@ func getType(db *DB, key string) string {
 		return "zset"
 	case *stream.Stream:
 		return "stream"
+	case *vector.VectorSet:
+		return "vectorset"
+	case *godisjson.JSONValue:
+		return "ReJSON-RL"
+	case *timeseries.TimeSeries:
+		return "TSDB-TYPE"
+	case *probabilistic.BloomFilter:
+		return "MBbloom--"
+	case *probabilistic.CuckooFilter:
+		return "MBbloomCF"
+	case *probabilistic.CountMinSketch:
+		return "CMSk-TYPE"
+	case *probabilistic.TopK:
+		return "TopK-TYPE"
+	case *probabilistic.TDigest:
+		return "TDIS-TYPE"
+	case *redisearch.RediSearchEngine:
+		return "search-ft"
 	}
 	return ""
 }
 
-// execType returns the type of entity: string, list, hash, set, zset, stream, or none
+// execType returns the type of entity, or none when the key is missing.
 func execType(db *DB, args [][]byte) redis.Reply {
 	key := string(args[0])
 	result := getType(db, key)
 	if len(result) > 0 {
 		return protocol.MakeStatusReply(result)
-	} else {
-		return &protocol.UnknownErrReply{}
 	}
+	return &protocol.UnknownErrReply{}
 }
 
 func prepareRename(args [][]byte) ([]string, []string) {

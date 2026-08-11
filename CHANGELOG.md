@@ -6,8 +6,10 @@
 
 ### Fixed
 
+- `TYPE`：扩展类型对齐 Redis 模块名（`ReJSON-RL` / `TSDB-TYPE` / `MBbloom--` / `MBbloomCF` / `CMSk-TYPE` / `TopK-TYPE` / `TDIS-TYPE` / `vectorset` / `search-ft`）；此前返回 `ERR unknown`
 - `TYPE`：识别 `*stream.Stream` → 返回 `stream`（此前 `ERR unknown error`）；R4-1 取消对应 `@skip`
 - 空 ZSet：`ZREM` / `ZREMRANGE*` / `ZPOPMIN|MAX` 删空后删除键（对齐 Redis；R4-1 `EXISTS` 断言）
+- R4-1：空 List（末次 `LPOP`）/ 空 Set（末次 `SREM`）`EXISTS 0` 断言；`BITOP DIFF*` 仍 `@todo`（CI sidecar 可能 &lt; Redis 8.2）
 
 ### Added
 

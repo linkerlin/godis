@@ -55,6 +55,9 @@ func TestR41SidecarAllowlistScaffold(t *testing.T) {
 	// Honesty markers for known gaps (must not be silently turned into PASS asserts).
 	for _, marker := range []string{
 		"TYPE-stream|stream|TYPE",
+		"EXISTS-after-lpop|0|EXISTS",
+		"EXISTS-after-srem|0|EXISTS",
+		"EXISTS-after-zrem|0|EXISTS",
 		"@skip GEODIST/GEOPOS:",
 		"@todo XRANGE",
 		"@todo large PFCOUNT",

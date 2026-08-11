@@ -57,6 +57,23 @@ func TestType(t *testing.T) {
 	testDB.Exec(nil, utils.ToCmdLine("xadd", key, "1-0", "f", "v"))
 	result = testDB.Exec(nil, utils.ToCmdLine("type", key))
 	asserts.AssertStatusReply(t, result, "stream")
+
+	// Extended / module-style TYPE names (previously returned ERR unknown).
+	testDB.Remove(key)
+	testDB.Exec(nil, utils.ToCmdLine("JSON.SET", key, "$", `{"a":1}`))
+	asserts.AssertStatusReply(t, testDB.Exec(nil, utils.ToCmdLine("TYPE", key)), "ReJSON-RL")
+
+	testDB.Remove(key)
+	testDB.Exec(nil, utils.ToCmdLine("TS.CREATE", key))
+	asserts.AssertStatusReply(t, testDB.Exec(nil, utils.ToCmdLine("TYPE", key)), "TSDB-TYPE")
+
+	testDB.Remove(key)
+	testDB.Exec(nil, utils.ToCmdLine("BF.RESERVE", key, "0.01", "100"))
+	asserts.AssertStatusReply(t, testDB.Exec(nil, utils.ToCmdLine("TYPE", key)), "MBbloom--")
+
+	testDB.Remove(key)
+	testDB.Exec(nil, utils.ToCmdLine("VADD", key, "VALUES", "2", "0", "1", "ELE", "e1"))
+	asserts.AssertStatusReply(t, testDB.Exec(nil, utils.ToCmdLine("TYPE", key)), "vectorset")
 }
 
 func TestRename(t *testing.T) {

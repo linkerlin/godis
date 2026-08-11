@@ -53,7 +53,9 @@ LINDEX|b|LINDEX sidecar:allowlist:l:{{ID}} 0
 TYPE-list|list|TYPE sidecar:allowlist:l:{{ID}}
 LPOP|b|LPOP sidecar:allowlist:l:{{ID}}
 LLEN-after|1|LLEN sidecar:allowlist:l:{{ID}}
-DEL-l|1|DEL sidecar:allowlist:l:{{ID}}
+LPOP-last|a|LPOP sidecar:allowlist:l:{{ID}}
+# empty list key removed by LPOP of last element (Redis semantics)
+EXISTS-after-lpop|0|EXISTS sidecar:allowlist:l:{{ID}}
 
 # --- Set (no SMEMBERS: unordered) ---
 @DEL sidecar:allowlist:s:{{ID}}
@@ -64,7 +66,9 @@ SISMEMBER-miss|0|SISMEMBER sidecar:allowlist:s:{{ID}} missing
 TYPE-set|set|TYPE sidecar:allowlist:s:{{ID}}
 SREM|1|SREM sidecar:allowlist:s:{{ID}} m1
 SCARD-after|1|SCARD sidecar:allowlist:s:{{ID}}
-DEL-s|1|DEL sidecar:allowlist:s:{{ID}}
+SREM-last|1|SREM sidecar:allowlist:s:{{ID}} m2
+# empty set key removed by SREM of last member (Redis semantics)
+EXISTS-after-srem|0|EXISTS sidecar:allowlist:s:{{ID}}
 
 # --- Sorted set ---
 @DEL sidecar:allowlist:z:{{ID}}
@@ -134,7 +138,7 @@ BITCOUNT-XOR|1|BITCOUNT sidecar:bit:xor:{{ID}}
 BITOP-NOT|1|BITOP NOT sidecar:bit:not:{{ID}} sidecar:bit:b:{{ID}}
 BITCOUNT-NOT|7|BITCOUNT sidecar:bit:not:{{ID}}
 TYPE-bit|string|TYPE sidecar:bit:{{ID}}
-@todo BITOP DIFF/DIFF1/ANDOR/ONE: Godis already implements; not asserted in R4-1 lite (classic AND/OR/XOR/NOT only; Redis 8.2+ ops)
+@todo BITOP DIFF/DIFF1/ANDOR/ONE: Godis implements (unit-tested); CI sidecar redis version:'8' may be <8.2 — do not assert until sidecar ≥8.2
 @DEL sidecar:bit:{{ID}}
 @DEL sidecar:bit:b:{{ID}}
 @DEL sidecar:bit:and:{{ID}}
