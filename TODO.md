@@ -125,7 +125,7 @@
 
 - jemalloc 级 `used_memory` / 完整 OS 级内存会计（已有：进程 RSS→`used_memory_rss`；`mem_allocator:go`；`used_memory_scripts`；`used_memory` 仍为 `Alloc`）
 - 完整 Redis gossip bus；`RESET`/`SAVECONFIG`/`SET-CONFIG-EPOCH`/`CLUSTER FAILOVER`；BUMPEPOCH 真 config epoch（已有：`REPLICATE`/`FORGET`→FSM；ping/pong/meet 计数映射内部 heartbeat/MEET；`cluster_bus_port:0`；非宣称完整 gossip）
-- 官方模块原生 RDB·DUMP 互通（Godis opaque / `GODISFN1` 自洽即可；RESTORE 拒绝矩阵；含 FT 官方模块 RDB）
+- 官方模块原生 RDB·DUMP 互通（Godis opaque / `GODISFN1` 自洽即可；RESTORE/LoadRDB 对官方模块 type **明确 ERR**；含 FT 官方模块 RDB；**不**伪造互通）
 - 完整 BM25 / 完整 KNN 方言 / 完整 DIALECT（已有：IDF/多字段 WEIGHT/NORM/TANH+FACTOR；KNN `$YIELD_DISTANCE_AS`/HYBRID_POLICY；DIALECT 1/2/3 子集；**非**论文级完整）
 - FUNCTION DUMP 官方二进制互通（`GODISFN1` 自洽 + 截断/异己二进制明确 ERR；**不**伪造 Redis payload）
 - R4-1 扩大 allowlist（用例表驱动；仍非 FT/模块/DUMP/集群全量）、R4-2 覆盖率专项

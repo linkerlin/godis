@@ -28,6 +28,12 @@ import (
 // Version 11 matches REDIS0011 used by hdt3213/rdb encoder.
 const dumpRDBVersion = uint16(11)
 
+// RDB object type flags (see Redis rdb.h / hdt3213/rdb core).
+const (
+	rdbTypeModule  = 6 // legacy module encoding
+	rdbTypeModule2 = 7 // module-value v2 (ReJSON, RediSearch, …)
+)
+
 // execDump serializes the value stored at key in Redis DUMP format
 // (RDB object + version + CRC64). TTL is not embedded; use RESTORE's ttl arg.
 func execDump(db *DB, args [][]byte) redis.Reply {
@@ -106,6 +112,9 @@ func execRestore(db *DB, args [][]byte) redis.Reply {
 
 	entity, err := decodeDumpPayload(serializedData)
 	if err != nil {
+		if err == errDumpModuleRDB {
+			return protocol.MakeErrReply("ERR " + err.Error())
+		}
 		return protocol.MakeErrReply("ERR DUMP payload version or checksum are wrong (Godis accepts Redis core types + Godis GODIS1 opaque; not Redis module RDB)")
 	}
 
@@ -195,6 +204,10 @@ func decodeDumpPayload(payload []byte) (*database.DataEntity, error) {
 	}
 	if len(body) < 1 {
 		return nil, errDumpBadPayload
+	}
+	// Honest boundary: official module type markers are never round-tripped.
+	if body[0] == rdbTypeModule || body[0] == rdbTypeModule2 {
+		return nil, errDumpModuleRDB
 	}
 
 	// Wrap DUMP object as a single-key RDB (empty key) for the existing decoder.
@@ -373,6 +386,7 @@ func (e dumpError) Error() string { return string(e) }
 
 var (
 	errDumpBadPayload = dumpError("DUMP payload version or checksum are wrong")
+	errDumpModuleRDB  = dumpError("DUMP payload is a Redis module type; Godis does not restore official module RDB (use Godis GODIS1 opaque)")
 )
 
 func errDumpUnsupported(msg string) error { return dumpError(msg) }

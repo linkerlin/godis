@@ -2,6 +2,7 @@ package database
 
 import (
 	"encoding/binary"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -114,5 +115,48 @@ func TestRestoreRejectMatrix(t *testing.T) {
 				t.Fatalf("must not claim module/jemalloc support: %s", msg)
 			}
 		})
+	}
+}
+
+// TestRestoreRejectsOfficialModuleTypeMarkers ensures RESTORE never accepts
+// RDB typeModule / typeModule2 markers (even with a valid DUMP footer).
+func TestRestoreRejectsOfficialModuleTypeMarkers(t *testing.T) {
+	db := makeTestDB()
+	for _, typ := range []byte{rdbTypeModule, rdbTypeModule2} {
+		typ := typ
+		t.Run(fmt.Sprintf("type_%d", typ), func(t *testing.T) {
+			// Minimal body: type flag only; footer is well-formed so failure
+			// comes from the module marker, not CRC/version.
+			payload := appendDumpFooter([]byte{typ})
+			r := db.Exec(nil, utils.ToCmdLine("RESTORE", "mod-k", "0", string(payload)))
+			if !protocol.IsErrorReply(r) {
+				t.Fatalf("want ERR for module type %d, got %s", typ, r.ToBytes())
+			}
+			msg := string(r.ToBytes())
+			if !strings.Contains(msg, "module type") {
+				t.Fatalf("want module-type ERR, got %s", msg)
+			}
+			if strings.Contains(strings.ToLower(msg), "accepted") || strings.Contains(msg, "OK") {
+				t.Fatalf("must not claim acceptance: %s", msg)
+			}
+		})
+	}
+}
+
+// TestRestoreRejectsSyntheticModuleDUMP builds a DUMP-shaped payload with
+// typeModule2 + empty module value (OpcodeEOF) and a correct CRC footer.
+func TestRestoreRejectsSyntheticModuleDUMP(t *testing.T) {
+	db := makeTestDB()
+	body := append([]byte{rdbTypeModule2}, encodeRDBLength(moduleTypeID("ReJSON-RL", 0))...)
+	body = append(body, encodeRDBLength(0)...) // ModuleOpcodeEOF
+	payload := appendDumpFooter(body)
+
+	r := db.Exec(nil, utils.ToCmdLine("RESTORE", "rejson-k", "0", string(payload)))
+	if !protocol.IsErrorReply(r) {
+		t.Fatalf("want ERR for ReJSON-looking DUMP, got %s", r.ToBytes())
+	}
+	msg := string(r.ToBytes())
+	if !strings.Contains(msg, "module type") {
+		t.Fatalf("want module-type ERR, got %s", msg)
 	}
 }
