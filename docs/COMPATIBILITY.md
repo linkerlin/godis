@@ -223,4 +223,4 @@ UNWATCH、WAIT（简版）、BITOP、BITFIELD、SMOVE、LPOS、XCLAIM、SHUTDOWN
 
 ---
 
-**最后更新：** 2026-08-11（R4-1 用例表扩 Set/ZSet/TTL + BM25/KNN/DIALECT 子集推进；仍明确非 FT/模块/DUMP/集群全量；远期仍 **7** + 可独立 **0**；完整 BM25/KNN/DIALECT **非**100% 论文级）
+**最后更新：** 2026-08-11（并入 r4-2-cover / r4-1-full / bm25-knn-dialect / gossip：R4-1 用例表+Set/ZSet/TTL、BM25/KNN/DIALECT 子集、REPLICATE/FORGET+heartbeat 计数、R4-2 观察式覆盖；远期仍 **7** + 可独立 **0**）

@@ -108,7 +108,7 @@
 - [x] **R3-3 持久化扩展（阶段）**：Godis opaque（`GODIS1`）覆盖 JSON/Vector/TS/Stream/概率结构的 AOF 重写与 RDB 伪-String；TS opaque 保留 `DuplicatePolicy`/`ChunkSize`/`DownsampleRules`；Vector opaque 保留 `Attributes`（VSETATTR）；Stream opaque 保留 consumers + PEL + `entriesAdded`/`maxDeletedID`。仍延期（远期/非目标）：与 Redis 原生 Stream/模块 RDB 互通。
 - [x] **R3-1b 集群管理查询面**：`CLUSTER NODES`/`SLOTS`/`INFO`/`SHARDS` 读 Raft FSM 真拓扑（无 FSM 时本节点占满槽）。
 - [x] **R3-1c ADDSLOTS 写 FSM**：`ADDSLOTS`/`DELSLOTS`/`ADDSLOTSRANGE`/`DELSLOTSRANGE`/`FLUSHSLOTS` 经 Raft Propose（或 FSM-only `ApplyLocal`）；busy/unassigned 校验。
-- [x] **R3-1d 集群管理 seam（最小）**：`CLUSTER MEET ip port [raft-port]`→与 `cluster.join` 等价的 AddToRaft/EventJoin（或 FSM-only ApplyLocal）；无 Raft 时明确 ERR。`SETSLOT MIGRATING|IMPORTING|STABLE` 写本地 `slotsManager`（ASK/ASKING）；`SETSLOT NODE`→FSM `EventAssignSlots`。`REPLICATE`/`FORGET`/`RESET`/`SAVECONFIG`/`SET-CONFIG-EPOCH`/`CLUSTER FAILOVER` 仍显式 `ERR … is not supported`。仍延期（远期）：完整 Redis gossip bus。
+- [x] **R3-1d 集群管理 seam（最小）**：`CLUSTER MEET ip port [raft-port]`→与 `cluster.join` 等价的 AddToRaft/EventJoin（或 FSM-only ApplyLocal）；无 Raft 时明确 ERR。`SETSLOT MIGRATING|IMPORTING|STABLE` 写本地 `slotsManager`（ASK/ASKING）；`SETSLOT NODE`→FSM `EventAssignSlots`。**`REPLICATE`/`FORGET` 已接 FSM**（MasterSlaves / EventForget；非 gossip bus）。`RESET`/`SAVECONFIG`/`SET-CONFIG-EPOCH`/`CLUSTER FAILOVER` 仍显式 `ERR … is not supported`。仍延期（远期）：完整 Redis gossip bus。
 - [x] **R3-1e 读面诚实化**：`GETKEYSINSLOT` 返回本地 slotsManager 键；`REPLICAS`/`SLAVES` 读 FSM；`INFO cluster` 与 CLUSTER INFO 同源；BUMPEPOCH 为 `BUMPED 0` no-op（FSM 无 config epoch，远期）。
 - [x] **R3-1f 迁移闭环缝（最小）**：`execFinishExport` 成功才 dropSlot+清 importingTask；`doImports` 标 IMPORTING；`startExporting` 幂等 SETSLOT；ASK 读 FSM Migratings；`SETSLOT NODE` 本节点清迁移态。仍延期：完整 redis-cli reshard/gossip、与官方迁移编排 100% 一致。
 - [x] **R3-mem 一小步**：`used_memory_peak`/`peak.allocated` 跟踪 `Alloc` 高水位；INFO/MEMORY STATS overhead 口径对齐；Limiter 默认 `Alloc`；**进程 RSS→`used_memory_rss`**（Win/Linux）。仍延期：jemalloc 级会计。
@@ -124,9 +124,9 @@
 > 可独立项已归零；下列为**书面远期**（2026-08-11 deep8 后仍为 **7** 项）。小步≠远期完成。
 
 - jemalloc 级 `used_memory` / 完整 OS 级内存会计（已有：进程 RSS→`used_memory_rss`；`mem_allocator:go`；`used_memory_scripts`；`used_memory` 仍为 `Alloc`）
-- 完整 Redis gossip bus；`CLUSTER REPLICATE`/`FORGET`/`RESET`/`SAVECONFIG`/`SET-CONFIG-EPOCH`/`CLUSTER FAILOVER`；BUMPEPOCH 真 config epoch（已有：INFO 消息计数键恒 0 + `cluster_bus_port:0`；ERR 文案标明无 gossip）
+- 完整 Redis gossip bus；`RESET`/`SAVECONFIG`/`SET-CONFIG-EPOCH`/`CLUSTER FAILOVER`；BUMPEPOCH 真 config epoch（已有：`REPLICATE`/`FORGET`→FSM；ping/pong/meet 计数映射内部 heartbeat/MEET；`cluster_bus_port:0`；非宣称完整 gossip）
 - 官方模块原生 RDB·DUMP 互通（Godis opaque / `GODISFN1` 自洽即可；RESTORE 拒绝矩阵；含 FT 官方模块 RDB）
-- 完整 BM25 / 完整 KNN 方言 / 完整 DIALECT（已有：BM25STD + TEXT WEIGHT；**BM25STD.NORM 真 min-max**；**FT+KNN 最小路径**；DIALECT 1/2/3 子集）
+- 完整 BM25 / 完整 KNN 方言 / 完整 DIALECT（已有：IDF/多字段 WEIGHT/NORM/TANH+FACTOR；KNN `$YIELD_DISTANCE_AS`/HYBRID_POLICY；DIALECT 1/2/3 子集；**非**论文级完整）
 - FUNCTION DUMP 官方二进制互通（`GODISFN1` 自洽 + 截断/异己二进制明确 ERR；**不**伪造 Redis payload）
 - R4-1 扩大 allowlist（用例表驱动；仍非 FT/模块/DUMP/集群全量）、R4-2 覆盖率专项
 
