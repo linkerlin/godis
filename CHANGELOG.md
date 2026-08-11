@@ -60,7 +60,8 @@
 
 ### Changed
 
-- **兼容里程碑（2026-08-11 deep5）**：远期清单仍 **8** 项 + 可独立 **0**（BIN Hamming；FT+KNN 最小验收；GODISFN1 边界；小步非远期完成）
+- **兼容里程碑（2026-08-11 deep6）**：远期清单 **7** 项 + 可独立 **0**（Q8 图内 int8；BM25STD.NORM 真 min-max；RESTORE 拒绝矩阵；FAILOVER 测预同步；小步非远期完成）
+- **兼容里程碑（2026-08-11 deep5）**：远期清单曾为 **8** 项 + 可独立 **0**（BIN Hamming；FT+KNN 最小验收；GODISFN1 边界；小步非远期完成）
 - **兼容里程碑（2026-08-11 deep4）**：远期清单 **8** 项 + 可独立 **0**（FT RDB opaque；VADD BIN；BM25 WEIGHT；小步非远期完成）
 - **兼容里程碑（2026-08-11 deep3）**：远期清单曾为 **9** 项（HLL sparse；FT 纯 AOF rewrite / VADD Q8）
 - `CLUSTER REPLICATE`/`FORGET`/`FAILOVER`：ERR 文案标明无 Redis gossip bus
