@@ -196,7 +196,7 @@ UNWATCH、WAIT（简版）、BITOP、BITFIELD、SMOVE、LPOS、XCLAIM、SHUTDOWN
 | ~~Vector 图内真 int8 距离~~ | **VADD Q8/BIN 真存储**；**BIN→图内 Hamming**；**Q8→图内 int8 距离**（无搜索态 f32 缓冲）；FT VECTOR 窄类型解码已有 | ✅ 2026-08-11 deep6；VEMB 仍可显示反量化近似 |
 | ~~AOF rewrite / RDB 写出 FT 索引定义~~ | 命令 AOF + **纯 AOF rewrite→FT.CREATE** + **RDB Godis opaque `ft`**（Load 后回填） | ✅ 2026-08-11；**非**官方 RediSearch 模块 RDB |
 | ~~HLL sparse 读取~~ | dense 互通；**sparse 安全解码→内存 dense**（写回仍 dense） | ✅ 2026-08-11：corrupt/非 dense·sparse 编码→`INVALIDOBJ`；已移出远期清单 |
-| CI Redis sidecar 全量输出 diff（R4-1） | 未做全量 | **脚手架可跑 allowlist**：String（PING/ECHO/SET/GET/STRLEN/APPEND/DEL/EXISTS/INCR/DECR/TYPE）+ Hash（HSET/HGET/HLEN/HEXISTS/HDEL）+ List（LPUSH/LLEN/LINDEX/LPOP）；`redis-cli --raw`；自检校验 `--raw`；CI smoke 实跑；**非**完整套件 |
+| CI Redis sidecar 全量输出 diff（R4-1） | 未做全量 | **扩大 allowlist**（用例表 `scripts/r4-1-cases.txt`）：既有 String/Hash/List + **Set**（SADD/SCARD/SISMEMBER/SREM）+ **ZSet**（ZADD/ZSCORE/ZCARD/ZREM）+ **键 TTL**（TTL/PTTL/PEXPIRE/EXPIRE/PERSIST，稳定码/`>=N`）；`redis-cli --raw`；失败多行可读；CI smoke 实跑；**仍非** FT/模块/DUMP/集群/无序回复（SMEMBERS/HGETALL）全量套件 |
 | 覆盖率专项冲高（R4-2） | 未做 | 书面远期；**观察式门槛**见 `.github/workflows/coverall.yml` 注释（Coveralls 趋势、无私有 % 门禁、不因覆盖率 fail） |
 
 ### Godis opaque / FUNCTION 信封边界（非 Redis 互通）
@@ -212,4 +212,4 @@ UNWATCH、WAIT（简版）、BITOP、BITFIELD、SMOVE、LPOS、XCLAIM、SHUTDOWN
 
 ---
 
-**最后更新：** 2026-08-11（R4-1 allowlist 扩 Hash/List 安全命令 + `--raw` 自检；远期仍 **7** + 可独立 **0**）
+**最后更新：** 2026-08-11（R4-1 用例表驱动扩 Set/ZSet/TTL；仍明确非 FT/模块/DUMP/集群全量；远期仍 **7** + 可独立 **0**）

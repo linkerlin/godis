@@ -1,0 +1,96 @@
+# R4-1 sidecar allowlist cases (not a full compatibility suite).
+# Out of scope: FT.*, modules, DUMP/RESTORE, ACL, cluster/gossip, FUNCTIONS,
+# unordered replies (SMEMBERS/HGETALL/SRANDMEMBER), SCAN cursors, time-flake TTL seconds.
+#
+# Format:
+#   @CMD ARG...                 setup on both sides; output ignored
+#   LABEL|WANT|CMD ARG...       assert redis==godis==WANT (--raw)
+#   LABEL|>=N|CMD ARG...        assert both sides are integers >= N
+#   LABEL|<=N|CMD ARG...        assert both sides are integers <= N
+# Placeholder {{ID}} -> process id (unique keys per run).
+#
+# @allowlist PING,ECHO,SET,GET,STRLEN,APPEND,DEL,EXISTS,INCR,DECR,TYPE,HSET,HGET,HLEN,HEXISTS,HDEL,LPUSH,LLEN,LINDEX,LPOP,SADD,SCARD,SISMEMBER,SREM,ZADD,ZSCORE,ZCARD,ZREM,TTL,PTTL,PEXPIRE,EXPIRE,PERSIST
+
+# --- String / ping ---
+PING|PONG|PING
+ECHO|r41-ok|ECHO r41-ok
+@DEL sidecar:allowlist:{{ID}}
+SET|OK|SET sidecar:allowlist:{{ID}} ok
+GET|ok|GET sidecar:allowlist:{{ID}}
+STRLEN|2|STRLEN sidecar:allowlist:{{ID}}
+APPEND|3|APPEND sidecar:allowlist:{{ID}} !
+GET-appended|ok!|GET sidecar:allowlist:{{ID}}
+EXISTS|1|EXISTS sidecar:allowlist:{{ID}}
+TYPE|string|TYPE sidecar:allowlist:{{ID}}
+
+# --- INCR / DECR ---
+@DEL sidecar:allowlist:n:{{ID}}
+INCR|1|INCR sidecar:allowlist:n:{{ID}}
+INCR2|2|INCR sidecar:allowlist:n:{{ID}}
+DECR|1|DECR sidecar:allowlist:n:{{ID}}
+GET-n|1|GET sidecar:allowlist:n:{{ID}}
+
+# --- Hash ---
+@DEL sidecar:allowlist:h:{{ID}}
+HSET|1|HSET sidecar:allowlist:h:{{ID}} f v
+HGET|v|HGET sidecar:allowlist:h:{{ID}} f
+HLEN|1|HLEN sidecar:allowlist:h:{{ID}}
+HEXISTS|1|HEXISTS sidecar:allowlist:h:{{ID}} f
+TYPE-hash|hash|TYPE sidecar:allowlist:h:{{ID}}
+HDEL|1|HDEL sidecar:allowlist:h:{{ID}} f
+HEXISTS-after|0|HEXISTS sidecar:allowlist:h:{{ID}} f
+# empty hash key already removed by HDEL of last field
+DEL-h|0|DEL sidecar:allowlist:h:{{ID}}
+
+# --- List ---
+@DEL sidecar:allowlist:l:{{ID}}
+LPUSH|2|LPUSH sidecar:allowlist:l:{{ID}} a b
+LLEN|2|LLEN sidecar:allowlist:l:{{ID}}
+LINDEX|b|LINDEX sidecar:allowlist:l:{{ID}} 0
+TYPE-list|list|TYPE sidecar:allowlist:l:{{ID}}
+LPOP|b|LPOP sidecar:allowlist:l:{{ID}}
+LLEN-after|1|LLEN sidecar:allowlist:l:{{ID}}
+DEL-l|1|DEL sidecar:allowlist:l:{{ID}}
+
+# --- Set (no SMEMBERS: unordered) ---
+@DEL sidecar:allowlist:s:{{ID}}
+SADD|2|SADD sidecar:allowlist:s:{{ID}} m1 m2
+SCARD|2|SCARD sidecar:allowlist:s:{{ID}}
+SISMEMBER|1|SISMEMBER sidecar:allowlist:s:{{ID}} m1
+SISMEMBER-miss|0|SISMEMBER sidecar:allowlist:s:{{ID}} missing
+TYPE-set|set|TYPE sidecar:allowlist:s:{{ID}}
+SREM|1|SREM sidecar:allowlist:s:{{ID}} m1
+SCARD-after|1|SCARD sidecar:allowlist:s:{{ID}}
+DEL-s|1|DEL sidecar:allowlist:s:{{ID}}
+
+# --- Sorted set ---
+@DEL sidecar:allowlist:z:{{ID}}
+ZADD|1|ZADD sidecar:allowlist:z:{{ID}} 1.5 zm
+ZSCORE|1.5|ZSCORE sidecar:allowlist:z:{{ID}} zm
+ZCARD|1|ZCARD sidecar:allowlist:z:{{ID}}
+TYPE-zset|zset|TYPE sidecar:allowlist:z:{{ID}}
+ZREM|1|ZREM sidecar:allowlist:z:{{ID}} zm
+ZCARD-after|0|ZCARD sidecar:allowlist:z:{{ID}}
+# Redis deletes empty zset keys; Godis may keep an empty zset — cleanup only.
+@DEL sidecar:allowlist:z:{{ID}}
+
+# --- Key TTL (stable codes only; not remaining-seconds flake) ---
+@DEL sidecar:allowlist:ttl:{{ID}}
+TTL-missing|-2|TTL sidecar:allowlist:ttl:{{ID}}
+PTTL-missing|-2|PTTL sidecar:allowlist:ttl:{{ID}}
+SET-ttl|OK|SET sidecar:allowlist:ttl:{{ID}} v
+TTL-persist|-1|TTL sidecar:allowlist:ttl:{{ID}}
+PTTL-persist|-1|PTTL sidecar:allowlist:ttl:{{ID}}
+PEXPIRE|1|PEXPIRE sidecar:allowlist:ttl:{{ID}} 60000
+TTL-after|>=1|TTL sidecar:allowlist:ttl:{{ID}}
+PTTL-after|>=1000|PTTL sidecar:allowlist:ttl:{{ID}}
+PERSIST|1|PERSIST sidecar:allowlist:ttl:{{ID}}
+TTL-after-persist|-1|TTL sidecar:allowlist:ttl:{{ID}}
+EXPIRE|1|EXPIRE sidecar:allowlist:ttl:{{ID}} 120
+TTL-after-expire|>=1|TTL sidecar:allowlist:ttl:{{ID}}
+DEL-ttl|1|DEL sidecar:allowlist:ttl:{{ID}}
+
+# --- cleanup string / incr keys ---
+DEL|1|DEL sidecar:allowlist:{{ID}}
+EXISTS-after-del|0|EXISTS sidecar:allowlist:{{ID}}
+DEL-n|1|DEL sidecar:allowlist:n:{{ID}}
