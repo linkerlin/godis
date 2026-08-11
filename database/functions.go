@@ -256,8 +256,21 @@ func execFunctionStats(db *DB, args [][]byte) redis.Reply {
 // Official Redis FUNCTION DUMP/RESTORE binary interchange is a non-goal; keep GODISFN1 only.
 // RESTORE also accepts the legacy plain-text library dump for older Godis payloads.
 // Corrupt GODISFN1 (truncated / bad lengths) returns ERR — never silent fallthrough.
-// Non-GODISFN1 binary blobs return a clear non-interop ERR (not forged into Redis format).
+// Official Redis dumps (RDB opcode 0xF5/0xF6, or REDIS#### RDB magic) and other
+// non-GODISFN1 binary blobs return a clear non-interop ERR — never forged accept.
 var functionDumpMagic = []byte("GODISFN1")
+
+// Redis rdb.h: RDB_OPCODE_FUNCTION2=245, RDB_OPCODE_FUNCTION_PRE_GA=246.
+// Official FUNCTION DUMP payloads start with one of these opcodes (then RDB-encoded
+// libraries + 2-byte RDB version + 8-byte CRC64). We detect the leading byte only.
+const (
+	rdbOpcodeFunction2     byte = 0xF5
+	rdbOpcodeFunctionPreGA byte = 0xF6
+)
+
+const errFunctionRestoreOfficialRedis = "ERR FUNCTION RESTORE rejects Redis official FUNCTION DUMP (RDB opcode 0xF5/0xF6 or REDIS####); Godis uses GODISFN1 only - no forged interop"
+const errFunctionRestoreForeignBinary = "ERR FUNCTION RESTORE expects Godis GODISFN1 dump (not Redis official FUNCTION DUMP binary)"
+const errFunctionRestoreCorruptGodis = "ERR FUNCTION RESTORE payload is truncated or corrupt (GODISFN1; Godis-internal format, not Redis official)"
 
 // execFunctionDump dumps all functions
 // FUNCTION DUMP
@@ -353,6 +366,32 @@ func parseFunctionDumpBinaryStrict(payload []byte) (libs map[string]string, ok b
 	return libs, true
 }
 
+// looksLikeRedisOfficialFunctionDump detects Redis wire FUNCTION DUMP headers.
+// Official format (redis/src/functions.c createFunctionDumpPayload): payload begins
+// with RDB_OPCODE_FUNCTION2 (0xF5) or PRE_GA (0xF6); full RDB mistaken as dump
+// often starts with "REDIS" + 4-digit version. Detection is prefix-only — we do
+// not parse or accept the body.
+func looksLikeRedisOfficialFunctionDump(payload []byte) bool {
+	if len(payload) == 0 {
+		return false
+	}
+	switch payload[0] {
+	case rdbOpcodeFunction2, rdbOpcodeFunctionPreGA:
+		return true
+	}
+	// Full RDB header (REDIS0009 … REDIS0012+) — not Godis GODISFN1.
+	if len(payload) >= 9 && bytes.HasPrefix(payload, []byte("REDIS")) {
+		ver := payload[5:9]
+		if ver[0] >= '0' && ver[0] <= '9' &&
+			ver[1] >= '0' && ver[1] <= '9' &&
+			ver[2] >= '0' && ver[2] <= '9' &&
+			ver[3] >= '0' && ver[3] <= '9' {
+			return true
+		}
+	}
+	return false
+}
+
 // looksLikeNonGodisBinary rejects opaque binary that is neither GODISFN1 nor
 // legacy text library dump — including Redis official FUNCTION DUMP bytes.
 func looksLikeNonGodisBinary(payload []byte) bool {
@@ -361,6 +400,9 @@ func looksLikeNonGodisBinary(payload []byte) bool {
 	}
 	if bytes.HasPrefix(payload, functionDumpMagic) {
 		return false
+	}
+	if looksLikeRedisOfficialFunctionDump(payload) {
+		return true
 	}
 	// NUL or invalid UTF-8 ⇒ not legacy shebang text.
 	if bytes.IndexByte(payload, 0) >= 0 || !utf8.Valid(payload) {
@@ -405,22 +447,25 @@ func execFunctionRestore(db *DB, args [][]byte) redis.Reply {
 		return reply
 	}
 
-	if policy == "FLUSH" {
-		funcEngine.FlushAll()
-	}
-
+	// Classify payload before FLUSH so a rejected foreign dump cannot wipe libs.
 	var libs map[string]string
 	switch {
 	case bytes.HasPrefix(payload, functionDumpMagic):
 		parsed, ok := parseFunctionDumpBinaryStrict(payload)
 		if !ok {
-			return protocol.MakeErrReply("ERR FUNCTION RESTORE payload is truncated or corrupt (GODISFN1; Godis-internal format, not Redis official)")
+			return protocol.MakeErrReply(errFunctionRestoreCorruptGodis)
 		}
 		libs = parsed
+	case looksLikeRedisOfficialFunctionDump(payload):
+		return protocol.MakeErrReply(errFunctionRestoreOfficialRedis)
 	case looksLikeNonGodisBinary(payload):
-		return protocol.MakeErrReply("ERR FUNCTION RESTORE expects Godis GODISFN1 dump (not Redis official FUNCTION DUMP binary)")
+		return protocol.MakeErrReply(errFunctionRestoreForeignBinary)
 	default:
 		libs = parseLibraryDump(string(payload))
+	}
+
+	if policy == "FLUSH" {
+		funcEngine.FlushAll()
 	}
 
 	for name, code := range libs {

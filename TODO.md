@@ -127,7 +127,7 @@
 - 完整 Redis gossip bus；`RESET`/`SAVECONFIG`/`SET-CONFIG-EPOCH`/`CLUSTER FAILOVER`；BUMPEPOCH 真 config epoch（已有：`REPLICATE`/`FORGET`→FSM；ping/pong/meet 计数映射内部 heartbeat/MEET；`cluster_bus_port:0`；非宣称完整 gossip）
 - 官方模块原生 RDB·DUMP 互通（Godis opaque / `GODISFN1` 自洽即可；RESTORE 拒绝矩阵；含 FT 官方模块 RDB）
 - 完整 BM25 / 完整 KNN 方言 / 完整 DIALECT（已有：IDF/多字段 WEIGHT/NORM/TANH+FACTOR；KNN `$YIELD_DISTANCE_AS`/HYBRID_POLICY；DIALECT 1/2/3 子集；**非**论文级完整）
-- FUNCTION DUMP 官方二进制互通（`GODISFN1` 自洽 + 截断/异己二进制明确 ERR；**不**伪造 Redis payload）
+- FUNCTION DUMP 官方二进制互通（远期/非目标）：`GODISFN1` 自洽；官方 `0xF5`/`0xF6`/`REDIS####` 与异己二进制**明确拒绝**（拒绝先于 FLUSH）；**禁止假互通**／不伪造 Redis payload；见 `docs/COMPATIBILITY.md`「官方 FUNCTION DUMP 边界」
 - R4-1 扩大 allowlist（用例表驱动；仍非 FT/模块/DUMP/集群全量）、R4-2 覆盖率专项
 
 ~~HLL sparse 读取~~ ✅（sparse→dense 解码提升；写出仍 dense）  
