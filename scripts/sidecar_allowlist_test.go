@@ -35,6 +35,10 @@ func TestR41SidecarAllowlistScaffold(t *testing.T) {
 		"SADD", "SCARD", "SISMEMBER", "SREM",
 		"ZADD", "ZSCORE", "ZCARD", "ZREM",
 		"TTL", "PTTL", "PEXPIRE", "EXPIRE", "PERSIST",
+		"XADD", "XLEN",
+		"GEOADD",
+		"SETBIT", "GETBIT", "BITCOUNT", "BITOP",
+		"PFADD", "PFCOUNT",
 	} {
 		if !strings.Contains(cases, cmd) {
 			t.Fatalf("r4-1-cases.txt missing allowlist cmd %s", cmd)
@@ -47,6 +51,17 @@ func TestR41SidecarAllowlistScaffold(t *testing.T) {
 	}
 	if !strings.Contains(cases, "Out of scope") && !strings.Contains(cases, "out of scope") {
 		t.Fatal("r4-1-cases.txt must document out-of-scope surface")
+	}
+	// Honesty markers for known gaps (must not be silently turned into PASS asserts).
+	for _, marker := range []string{
+		"@skip TYPE stream:",
+		"@skip GEODIST/GEOPOS:",
+		"@todo XRANGE",
+		"@todo large PFCOUNT",
+	} {
+		if !strings.Contains(cases, marker) {
+			t.Fatalf("r4-1-cases.txt missing honesty marker %q", marker)
+		}
 	}
 
 	for _, p := range []string{shPath, psPath} {
@@ -66,6 +81,9 @@ func TestR41SidecarAllowlistScaffold(t *testing.T) {
 		}
 		if !strings.Contains(s, "FAIL") {
 			t.Fatalf("%s must emit readable FAIL diagnostics", p)
+		}
+		if !strings.Contains(s, "@skip") || !strings.Contains(s, "@todo") {
+			t.Fatalf("%s must honor @skip/@todo markers", p)
 		}
 		for _, banned := range []string{"DUMP", "RESTORE", "FT.SEARCH", "CLUSTER MEET", "FUNCTION"} {
 			if lineInvokesBanned(s, banned) {
@@ -91,8 +109,11 @@ func lineInvokesBanned(src, banned string) bool {
 			if strings.Contains(line, "echo") || strings.Contains(line, "Write-Host") {
 				continue
 			}
-			// @allowlist / disclaimer lines may name excluded surfaces.
+			// @allowlist / disclaimer / @skip / @todo lines may name excluded surfaces.
 			if strings.Contains(line, "@allowlist") || strings.Contains(strings.ToLower(line), "full suite") {
+				continue
+			}
+			if strings.HasPrefix(trim, "@skip") || strings.HasPrefix(trim, "@todo") {
 				continue
 			}
 			return true

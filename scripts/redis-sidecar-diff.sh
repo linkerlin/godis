@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # R4-1 scaffold: allowlist diff vs a Redis 8 sidecar (cases from r4-1-cases.txt).
 # NOT a full compatibility suite. Does not claim Redis parity.
-# Covers stable String/Hash/List/Set/ZSet + TTL/PEXPIRE/PERSIST codes.
+# Covers stable String/Hash/List/Set/ZSet + TTL + Stream/Geo/Bitops/HLL lite.
 # Out of scope: modules, DUMP/RESTORE, gossip, ACL, cluster, FT.*, FUNCTIONS,
 # unordered replies (SMEMBERS/HGETALL), SCAN, exact remaining TTL seconds.
+# Markers: @skip / @todo document gaps (not executed; do not fake pass).
 #
 # Prerequisites: redis-cli; Redis on REDIS_HOST:REDIS_PORT; Godis on GODIS_HOST:GODIS_PORT.
 # Cases file: R41_CASES or scripts/r4-1-cases.txt
@@ -109,6 +110,9 @@ run_cases() {
       continue
     fi
     expanded="$(subst "${line}")"
+    if [[ "${expanded}" =~ ^@(skip|todo)([[:space:]]|$) ]]; then
+      continue
+    fi
     if [[ "${expanded}" == @* ]]; then
       raw="${expanded:1}"
       # shellcheck disable=SC2206

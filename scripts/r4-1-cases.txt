@@ -1,15 +1,18 @@
 # R4-1 sidecar allowlist cases (not a full compatibility suite).
 # Out of scope: FT.*, modules, DUMP/RESTORE, ACL, cluster/gossip, FUNCTIONS,
-# unordered replies (SMEMBERS/HGETALL/SRANDMEMBER), SCAN cursors, time-flake TTL seconds.
+# unordered replies (SMEMBERS/HGETALL/SRANDMEMBER), SCAN cursors, time-flake TTL seconds,
+# consumer-group/XREAD BLOCK flake, GEODIST/GEOPOS float nested --raw, auto XADD * ids.
 #
 # Format:
 #   @CMD ARG...                 setup on both sides; output ignored
+#   @skip reason                documented gap; not executed (honesty; do not fake pass)
+#   @todo reason                deferred assert; not executed
 #   LABEL|WANT|CMD ARG...       assert redis==godis==WANT (--raw)
 #   LABEL|>=N|CMD ARG...        assert both sides are integers >= N
 #   LABEL|<=N|CMD ARG...        assert both sides are integers <= N
 # Placeholder {{ID}} -> process id (unique keys per run).
 #
-# @allowlist PING,ECHO,SET,GET,STRLEN,APPEND,DEL,EXISTS,INCR,DECR,TYPE,HSET,HGET,HLEN,HEXISTS,HDEL,LPUSH,LLEN,LINDEX,LPOP,SADD,SCARD,SISMEMBER,SREM,ZADD,ZSCORE,ZCARD,ZREM,TTL,PTTL,PEXPIRE,EXPIRE,PERSIST
+# @allowlist PING,ECHO,SET,GET,STRLEN,APPEND,DEL,EXISTS,INCR,DECR,TYPE,HSET,HGET,HLEN,HEXISTS,HDEL,LPUSH,LLEN,LINDEX,LPOP,SADD,SCARD,SISMEMBER,SREM,ZADD,ZSCORE,ZCARD,ZREM,TTL,PTTL,PEXPIRE,EXPIRE,PERSIST,XADD,XLEN,GEOADD,SETBIT,GETBIT,BITCOUNT,BITOP,PFADD,PFCOUNT
 
 # --- String / ping ---
 PING|PONG|PING
@@ -89,6 +92,65 @@ TTL-after-persist|-1|TTL sidecar:allowlist:ttl:{{ID}}
 EXPIRE|1|EXPIRE sidecar:allowlist:ttl:{{ID}} 120
 TTL-after-expire|>=1|TTL sidecar:allowlist:ttl:{{ID}}
 DEL-ttl|1|DEL sidecar:allowlist:ttl:{{ID}}
+
+# --- Stream lite (explicit IDs only; no auto *) ---
+@DEL sidecar:stream:{{ID}}
+XADD|1-0|XADD sidecar:stream:{{ID}} 1-0 f v
+XLEN|1|XLEN sidecar:stream:{{ID}}
+XADD2|2-0|XADD sidecar:stream:{{ID}} 2-0 f w
+XLEN2|2|XLEN sidecar:stream:{{ID}}
+@skip TYPE stream: Godis getType omits *stream.Stream → ERR unknown error (not Redis TYPE stream)
+@todo XRANGE nested --raw flatten not asserted in this scaffold
+@todo XGROUP/XREAD BLOCK / consumer-group paths out of R4-1 lite
+DEL-stream|1|DEL sidecar:stream:{{ID}}
+
+# --- Geo lite (card/TYPE only; no float GEODIST/GEOPOS) ---
+@DEL sidecar:geo:{{ID}}
+GEOADD|2|GEOADD sidecar:geo:{{ID}} 13.361389 38.115556 Palermo 15.087269 37.502669 Catania
+ZCARD-geo|2|ZCARD sidecar:geo:{{ID}}
+TYPE-geo|zset|TYPE sidecar:geo:{{ID}}
+GEOADD-dup|0|GEOADD sidecar:geo:{{ID}} 13.361389 38.115556 Palermo
+@skip GEODIST/GEOPOS: float and nested --raw not exact-eq stable in scaffold
+DEL-geo|1|DEL sidecar:geo:{{ID}}
+
+# --- Bitops (SETBIT-built; classic AND/OR/XOR/NOT) ---
+@DEL sidecar:bit:{{ID}}
+@DEL sidecar:bit:b:{{ID}}
+@DEL sidecar:bit:and:{{ID}}
+@DEL sidecar:bit:or:{{ID}}
+@DEL sidecar:bit:xor:{{ID}}
+@DEL sidecar:bit:not:{{ID}}
+SETBIT|0|SETBIT sidecar:bit:{{ID}} 7 1
+GETBIT|1|GETBIT sidecar:bit:{{ID}} 7
+SETBIT0|0|SETBIT sidecar:bit:{{ID}} 0 1
+BITCOUNT|2|BITCOUNT sidecar:bit:{{ID}}
+SETBIT-b|0|SETBIT sidecar:bit:b:{{ID}} 0 1
+BITOP-AND|1|BITOP AND sidecar:bit:and:{{ID}} sidecar:bit:{{ID}} sidecar:bit:b:{{ID}}
+BITCOUNT-AND|1|BITCOUNT sidecar:bit:and:{{ID}}
+BITOP-OR|1|BITOP OR sidecar:bit:or:{{ID}} sidecar:bit:{{ID}} sidecar:bit:b:{{ID}}
+BITCOUNT-OR|2|BITCOUNT sidecar:bit:or:{{ID}}
+BITOP-XOR|1|BITOP XOR sidecar:bit:xor:{{ID}} sidecar:bit:{{ID}} sidecar:bit:b:{{ID}}
+BITCOUNT-XOR|1|BITCOUNT sidecar:bit:xor:{{ID}}
+BITOP-NOT|1|BITOP NOT sidecar:bit:not:{{ID}} sidecar:bit:b:{{ID}}
+BITCOUNT-NOT|7|BITCOUNT sidecar:bit:not:{{ID}}
+TYPE-bit|string|TYPE sidecar:bit:{{ID}}
+@todo BITOP DIFF/DIFF1/ANDOR/ONE not in classic allowlist (Redis 8.2+; keep lite stable)
+@DEL sidecar:bit:{{ID}}
+@DEL sidecar:bit:b:{{ID}}
+@DEL sidecar:bit:and:{{ID}}
+@DEL sidecar:bit:or:{{ID}}
+@DEL sidecar:bit:xor:{{ID}}
+@DEL sidecar:bit:not:{{ID}}
+
+# --- HyperLogLog lite (small card; PFADD codes + PFCOUNT miss/3) ---
+@DEL sidecar:hll:{{ID}}
+PFCOUNT-miss|0|PFCOUNT sidecar:hll:{{ID}}
+PFADD|1|PFADD sidecar:hll:{{ID}} a b c
+PFADD-dup|0|PFADD sidecar:hll:{{ID}} a
+PFCOUNT|3|PFCOUNT sidecar:hll:{{ID}}
+TYPE-hll|string|TYPE sidecar:hll:{{ID}}
+@todo large PFCOUNT approx card may drift across implementations — not asserted here
+DEL-hll|1|DEL sidecar:hll:{{ID}}
 
 # --- cleanup string / incr keys ---
 DEL|1|DEL sidecar:allowlist:{{ID}}
