@@ -1,6 +1,7 @@
 package database
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/linkerlin/godis/lib/utils"
@@ -43,4 +44,18 @@ func TestRestoreAskingAndReplace(t *testing.T) {
 	asserts.AssertStatusReply(t, db.Exec(nil, utils.ToCmdLine(
 		"RESTORE", "rep-k", "0", string(newDump.Arg), "REPLACE",
 	)), "OK")
+}
+
+func TestRestoreRejectsNonGodisOpaqueGarbage(t *testing.T) {
+	db := makeTestDB()
+	// Fake Redis-module-ish / corrupt DUMP: wrong version+CRC → standard ERR (not silently accepted).
+	garbage := make([]byte, 20)
+	copy(garbage, []byte("REDIS0009mod\x00\x00"))
+	r := db.Exec(nil, utils.ToCmdLine("RESTORE", "bad", "0", string(garbage)))
+	if !protocol.IsErrorReply(r) {
+		t.Fatalf("want ERR, got %s", r.ToBytes())
+	}
+	if !strings.Contains(string(r.ToBytes()), "DUMP payload version or checksum are wrong") {
+		t.Fatalf("want checksum/version ERR, got %s", r.ToBytes())
+	}
 }

@@ -227,9 +227,10 @@ func (v clusterView) infoBulk() []byte {
 			"cluster_size:%d\n"+
 			"cluster_current_epoch:0\n"+
 			"cluster_my_epoch:0\n"+
+			// No Redis cluster bus: port 0 + message counters stay honest zeros.
+			"cluster_bus_port:0\n"+
 			"cluster_stats_messages_sent:0\n"+
 			"cluster_stats_messages_received:0\n"+
-			// No Redis gossip bus: typed counters stay honest zeros.
 			"cluster_stats_messages_ping_sent:0\n"+
 			"cluster_stats_messages_ping_received:0\n"+
 			"cluster_stats_messages_pong_sent:0\n"+

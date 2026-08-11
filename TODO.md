@@ -115,22 +115,22 @@
 
 ### R4 — 测试与文档
 
-- [ ] **R4-1 Redis 8.x 响应比对套件**：CI 中用 Redis 8 sidecar 做参考，diff 关键命令输出。（**远期非目标**，非本里程碑）
-- [ ] **R4-2 覆盖率提升**：`aof`、`pubsub`、`redis/protocol`、`redis/connection`、新数据类型包达到可接受覆盖。（**远期非目标**，非本里程碑）
+- [ ] **R4-1 Redis 8.x 响应比对套件**：CI 中用 Redis 8 sidecar 做参考，diff 关键命令输出。（**远期非目标**；脚手架：`scripts/redis-sidecar-diff.sh` allowlist only）
+- [ ] **R4-2 覆盖率提升**：`aof`、`pubsub`、`redis/protocol`、`redis/connection`、新数据类型包达到可接受覆盖。（**远期非目标**；CI 提示见 coverall.yml）
 - [x] **R4-3 文档同步 + 里程碑关闭**：`CHANGELOG` / `docs/COMPATIBILITY.md` / `TODO.md` / `兼容性改进计划.md` 勾选口径清空至仅剩远期篇；标明明确非目标列表。
 
 ### 本里程碑明确非目标（勿当缺口重开）
 
-> 可独立项已归零；下列为**书面远期**。2026-08-11 对各条做过「有意义一小步或仅文档」评估，**禁止把小步当成远期完成**。
+> 可独立项已归零；下列为**书面远期**。2026-08-11 auto_far 逐项评估后更新小步状态，**禁止把小步当成远期完成**。
 
-- jemalloc 级 `used_memory` / 完整 OS 级内存会计（已有：进程 RSS→`used_memory_rss`；`used_memory` 仍为 `Alloc`）
-- 完整 Redis gossip bus；`CLUSTER REPLICATE`/`FORGET`/`RESET`/`SAVECONFIG`/`SET-CONFIG-EPOCH`/`CLUSTER FAILOVER`；BUMPEPOCH 真 config epoch（已有：INFO 消息计数键恒 0）
-- 官方模块原生 RDB·DUMP 互通（Godis opaque / `GODISFN1` 自洽即可）
-- 完整 BM25 / FT+KNN 与完整 DIALECT；Vector **真** Q8/BIN 量化；FT VECTOR BFLOAT16/INT8/UINT8 解码（FLOAT16 解码已作一小步）
+- jemalloc 级 `used_memory` / 完整 OS 级内存会计（已有：进程 RSS→`used_memory_rss`；`mem_allocator:go`；`used_memory_scripts`；`used_memory` 仍为 `Alloc`）
+- 完整 Redis gossip bus；`CLUSTER REPLICATE`/`FORGET`/`RESET`/`SAVECONFIG`/`SET-CONFIG-EPOCH`/`CLUSTER FAILOVER`；BUMPEPOCH 真 config epoch（已有：INFO 消息计数键恒 0 + `cluster_bus_port:0`）
+- 官方模块原生 RDB·DUMP 互通（Godis opaque / `GODISFN1` 自洽即可；RESTORE 标准拒绝异己载荷）
+- 完整 BM25 / FT+KNN 与完整 DIALECT；Vector **真** Q8/BIN 量化（FT VECTOR FLOAT16/BFLOAT16/INT8/UINT8 解码已作一小步）
 - FUNCTION DUMP 官方二进制互通
 - AOF rewrite / RDB 快照写出 FT 索引定义（命令日志路径已有；rewrite/RDB 见 RediSearch 已知限制）
 - HLL sparse blob **读取**（dense 互通；sparse 明确 ERR，未实现解码）
-- R4-1 旁路比对套件、R4-2 覆盖率专项
+- R4-1 全量旁路比对（仅有 allowlist 脚手架）、R4-2 覆盖率专项
 
 ---
 

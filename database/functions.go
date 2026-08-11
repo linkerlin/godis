@@ -251,6 +251,8 @@ func execFunctionStats(db *DB, args [][]byte) redis.Reply {
 
 // Godis FUNCTION DUMP envelope (godis-internal; not Redis wire-compatible).
 // Format: magic "GODISFN1" || u32be count || repeated (u32be nameLen||name||u32be engLen||eng||u32be codeLen||code)
+// Official Redis FUNCTION DUMP/RESTORE binary interchange is a non-goal; keep GODISFN1 only.
+// RESTORE also accepts the legacy plain-text library dump for older Godis payloads.
 var functionDumpMagic = []byte("GODISFN1")
 
 // execFunctionDump dumps all functions

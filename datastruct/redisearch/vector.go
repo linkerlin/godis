@@ -234,6 +234,35 @@ func DecodeVectorByType(blob []byte, vtype string, dim int) ([]float32, error) {
 			out[i] = float16BitsToFloat32(binary.LittleEndian.Uint16(blob[i*2:]))
 		}
 		return out, nil
+	case VectorTypeBFloat16:
+		if len(blob) != dim*2 {
+			return nil, fmt.Errorf("expected %d bytes for %d-dim BFLOAT16 vector, got %d", dim*2, dim, len(blob))
+		}
+		out := make([]float32, dim)
+		for i := 0; i < dim; i++ {
+			// bfloat16 = float32 top 16 bits (little-endian wire)
+			bits := uint32(binary.LittleEndian.Uint16(blob[i*2:])) << 16
+			out[i] = math.Float32frombits(bits)
+		}
+		return out, nil
+	case VectorTypeInt8:
+		if len(blob) != dim {
+			return nil, fmt.Errorf("expected %d bytes for %d-dim INT8 vector, got %d", dim, dim, len(blob))
+		}
+		out := make([]float32, dim)
+		for i := 0; i < dim; i++ {
+			out[i] = float32(int8(blob[i]))
+		}
+		return out, nil
+	case VectorTypeUint8:
+		if len(blob) != dim {
+			return nil, fmt.Errorf("expected %d bytes for %d-dim UINT8 vector, got %d", dim, dim, len(blob))
+		}
+		out := make([]float32, dim)
+		for i := 0; i < dim; i++ {
+			out[i] = float32(blob[i])
+		}
+		return out, nil
 	default:
 		return nil, fmt.Errorf("VECTOR TYPE '%s' decoding not yet implemented", vtype)
 	}
@@ -439,7 +468,7 @@ func vectorDistance(a, b []float32, metric string) float32 {
 		var dot, na, nb float32
 		for i := range a {
 			dot += a[i] * b[i]
-			na += a[i] * b[i]
+			na += a[i] * a[i]
 			nb += b[i] * b[i]
 		}
 		if na == 0 || nb == 0 {

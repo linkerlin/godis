@@ -71,8 +71,53 @@ func TestM2coFloat16Decode(t *testing.T) {
 	if math.Abs(float64(got[0]-1.0)) > 1e-5 || math.Abs(float64(got[1]+2.0)) > 1e-5 {
 		t.Fatalf("got %v want [1, -2]", got)
 	}
-	_, err = redisearch.DecodeVectorByType(blob[:2], redisearch.VectorTypeBFloat16, 1)
-	if err == nil || !strings.Contains(err.Error(), "not yet implemented") {
-		t.Fatalf("BFLOAT16 should stay unimplemented, got %v", err)
+}
+
+func TestM2coNarrowVectorDecode(t *testing.T) {
+	// bfloat16 of 1.0f32: top 16 bits of 0x3f800000 → 0x3f80
+	bf := make([]byte, 2)
+	binary.LittleEndian.PutUint16(bf, 0x3f80)
+	got, err := redisearch.DecodeVectorByType(bf, redisearch.VectorTypeBFloat16, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if math.Abs(float64(got[0]-1.0)) > 1e-5 {
+		t.Fatalf("BFLOAT16 got %v want 1", got)
+	}
+
+	i8, err := redisearch.DecodeVectorByType([]byte{0xff, 0x7f}, redisearch.VectorTypeInt8, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if i8[0] != -1 || i8[1] != 127 {
+		t.Fatalf("INT8 got %v want [-1, 127]", i8)
+	}
+
+	u8, err := redisearch.DecodeVectorByType([]byte{0, 255}, redisearch.VectorTypeUint8, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if u8[0] != 0 || u8[1] != 255 {
+		t.Fatalf("UINT8 got %v want [0, 255]", u8)
+	}
+}
+
+func TestM2coInfoMemoryAllocatorIsGo(t *testing.T) {
+	server := getTestServer()
+	c := connection.NewFakeConn()
+	r := server.Exec(c, utils.ToCmdLine("INFO", "memory"))
+	bulk, ok := r.(*protocol.BulkReply)
+	if !ok {
+		t.Fatalf("INFO memory: %T", r)
+	}
+	s := string(bulk.Arg)
+	if !strings.Contains(s, "mem_allocator:go") {
+		t.Fatalf("want mem_allocator:go (not jemalloc), got:\n%s", s)
+	}
+	if strings.Contains(strings.ToLower(s), "jemalloc") {
+		t.Fatalf("INFO must not claim jemalloc:\n%s", s)
+	}
+	if !strings.Contains(s, "used_memory_scripts:") {
+		t.Fatalf("missing used_memory_scripts:\n%s", s)
 	}
 }

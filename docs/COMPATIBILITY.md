@@ -16,7 +16,7 @@
 | RediSearch (FT.*) | 中–高 | Phase A/B：初始扫描、STOPWORDS、同义词、内联 GEO、AGGREGATE WITHCURSOR/APPLY；见下文 |
 | 集群 (CLUSTER *) | 中–高 | 16384+CRC16；MOVED/ASK；NODES/SLOTS/INFO/SHARDS 读 FSM；MEET→Raft/FSM join（非 gossip）；SETSLOT + doMigrate 闭环缝（Importing/ASK/finish dropSlot） |
 | ACL / 安全 | 中–高 | ACL 引擎；CONFIG `aclfile` 可存取（M2bh）；文件见 ACL LOAD/SAVE |
-| 配置 | 中–高 | 布尔解析；CONFIG SET 含 maxmemory/save/tcp-backlog；**eviction 写路径已接**（per-key 估算，大 value 计入；淘汰写 AOF `DEL` 供复制）；`used_memory`/`MEMORY STATS` 贴近 `runtime.MemStats.Alloc`+峰值跟踪（**非** jemalloc / 非 OS RSS）；部分 CF-3 为存取桩 |
+| 配置 | 中–高 | 布尔解析；CONFIG SET 含 maxmemory/save/tcp-backlog；**eviction 写路径已接**（per-key 估算，大 value 计入；淘汰写 AOF `DEL` 供复制）；`used_memory`≈`MemStats.Alloc`+峰值；`used_memory_rss`≈进程 RSS（Win/Linux；非 jemalloc）；`mem_allocator:go`；部分 CF-3 为存取桩 |
 | 概率数据结构 (BF/CF/CMS…) | 中–高 | 见 `database/probabilistic.go`；CF EXPANSION 已接扩容 |
 
 **M2 里程碑：** 至 **M2cm**（+ 集群管理 seam）。M2cl：Pub/Sub RESP3 Push、Lua HKEYS/HVALS/SSCAN→Array。M2cm：UNWATCH 可在 MULTI 内排队；CLIENT LIST 字段 `watch=`（及 tot-net-in/out、rbs/rbp）；ACL GETUSER 完整 `#`+SHA256；CLUSTER ADDSLOTS/DELSLOTS 写 FSM。后续已补：`CLUSTER MEET`→Raft/FSM join；`SETSLOT MIGRATING|IMPORTING|STABLE`→本地 slotsManager；`SETSLOT NODE`→`EventAssignSlots` 写 FSM 归属。
@@ -25,7 +25,7 @@
 
 **RediSearch Phase B（2026-07-29）：** FT.AGGREGATE `WITHCURSOR [COUNT n]` + `FT.CURSOR READ/DEL`（内存游标表，按 COUNT 分页，耗尽返回游标 0，空闲 1 分钟惰性回收）；FT.AGGREGATE `APPLY <expr> AS <name>` 最小表达式子集（`@field` 引用、数字字面量、`+ - * /` 标准优先级、括号、一元负号、非数值 `+` 退化为字符串拼接），按出现位置分为 GROUPBY 前（作用于逐文档字段，供后续 REDUCE 引用）与 GROUPBY 后（作用于结果行）；顺带修正：无 GROUPBY 且无 REDUCE 时按文档逐行返回（此前会错误地把所有文档折叠成一个空字段分组）。**FT.SEARCH WITHCURSOR** 已续研落地（复用 FT.CURSOR 表）。
 
-仍延期：精确 jemalloc 级 `used_memory`（现已贴近 `MemStats.Alloc` 峰值跟踪，仍非 jemalloc）、FUNCTION DUMP 官方互通、Vector **量化**（Q8/BIN）、真 BM25/FT+KNN/完整 DIALECT 等（见计划文档）。
+仍延期：精确 jemalloc 级 `used_memory`（现已贴近 `MemStats.Alloc` 峰值跟踪 + 进程 RSS→`used_memory_rss`，仍非 jemalloc）、FUNCTION DUMP 官方互通、Vector **量化**（Q8/BIN）、真 BM25/FT+KNN/完整 DIALECT 等（见计划文档）。
 
 **兼容续研批次（2026-07-29）：** WAITAOF 真等待（本地 AOF fsync + 副本 ACK 循环）；LATENCY 命令路径采样 + HISTOGRAM；`notify-keyspace-events` 最小 K/E/g/$/x/e/A 发射；MIGRATE（DUMP→RESTORE→DEL，COPY/REPLACE/AUTH/KEYS）；LFU 对数计数逼近 Redis；FT.SEARCH WITHCURSOR（复用 FT.CURSOR 表）。
 
@@ -188,16 +188,16 @@ UNWATCH、WAIT（简版）、BITOP、BITFIELD、SMOVE、LPOS、XCLAIM、SHUTDOWN
 
 | 远期非目标 | 现状（诚实） | 本轮小步（非宣称完成） |
 |------------|--------------|------------------------|
-| jemalloc / 真 OS RSS | `used_memory`≈`MemStats.Alloc` 峰值 + per-key dataset | **`used_memory_rss` 优先真进程 RSS**（Windows WorkingSet / Linux VmRSS；否则回退 `MemStats.Sys`）；仍非 jemalloc |
-| 完整 Redis gossip bus | MEET→Raft/FSM join；写管理命令显式 ERR；BUMPEPOCH=`BUMPED 0` | **CLUSTER INFO** 补齐 ping/pong/fail 等消息计数键（恒 0，诚实无 bus） |
-| 官方模块原生 RDB·DUMP 互通 | Stream/JSON/Vector/TS/概率结构走 Godis opaque `GODIS1` | 文档边界：magic + 类型表见下节；**不**与 Redis 模块 RDB 互通 |
+| jemalloc / 真 OS RSS | `used_memory`≈`MemStats.Alloc` 峰值 + per-key dataset；`mem_allocator:go`；`used_memory_scripts`≈lua | **`used_memory_rss` 优先真进程 RSS**；`used_memory_scripts` 字段对齐；**绝不**写 jemalloc |
+| 完整 Redis gossip bus | MEET→Raft/FSM join；写管理命令显式 ERR；BUMPEPOCH=`BUMPED 0` | **CLUSTER INFO** 消息计数键恒 0 + **`cluster_bus_port:0`**（诚实无 bus） |
+| 官方模块原生 RDB·DUMP 互通 | Stream/JSON/Vector/TS/概率结构走 Godis opaque `GODIS1` | 文档 + RESTORE 对非 Godis/损坏载荷标准拒绝；**不**与 Redis 模块 RDB 互通 |
 | FUNCTION DUMP 官方互通 | Godis `GODISFN1` 自洽 | 保持自洽；**不**伪造 Redis functions payload |
-| 完整 BM25 / FT+KNN / 完整 DIALECT | BM25STD 子集 + KNN/HYBRID 路径；DIALECT 接受忽略 | 无完整打分/混合升级；见 REDISEARCH_ALIGNMENT |
-| Vector Q8/BIN 量化；FT VECTOR 窄类型解码 | VADD 的 Q8/BIN 为接受的 no-op；存 f32 | **FLOAT16**  blob→float32 解码已做；BFLOAT16/INT8/UINT8 仍报未实现；Q8/BIN 仍无真量化 |
+| 完整 BM25 / FT+KNN / 完整 DIALECT | BM25STD 子集 + KNN/HYBRID 路径；DIALECT 接受忽略 | 无完整打分/混合升级；COSINE 范数已修；见 REDISEARCH_ALIGNMENT |
+| Vector Q8/BIN 量化；FT VECTOR 窄类型解码 | VADD 的 Q8/BIN 为接受的 no-op；存 f32 | **FLOAT16/BFLOAT16/INT8/UINT8** blob→float32 已解码；Q8/BIN 仍无真量化 |
 | AOF rewrite / RDB 写出 FT 索引定义 | 命令路径写 AOF；rewrite/RDB 不落索引元数据 | 边界仍成立；未假装持久化索引定义 |
 | HLL sparse 读取 | dense 互通；sparse 拒绝 | sparse 拒绝时返回明确 `ERR sparse HyperLogLog encoding is not supported`（非伪装 WRONGTYPE） |
-| CI Redis sidecar 全量输出 diff（R4-1） | 未做 | 仍书面远期；无旁路套件可独立验收 |
-| 覆盖率专项冲高（R4-2） | 未做 | 仍书面远期；非单点可独立「完成」 |
+| CI Redis sidecar 全量输出 diff（R4-1） | 未做全量 | **脚手架** `scripts/redis-sidecar-diff.sh`（allowlist PING/SET/GET only）；非完整套件 |
+| 覆盖率专项冲高（R4-2） | 未做 | 书面远期；CI 提示见 `.github/workflows/coverall.yml` 注释 |
 
 ### Godis opaque / FUNCTION 信封边界（非 Redis 互通）
 
@@ -212,4 +212,4 @@ UNWATCH、WAIT（简版）、BITOP、BITFIELD、SMOVE、LPOS、XCLAIM、SHUTDOWN
 
 ---
 
-**最后更新：** 2026-08-11（文档漂移勘误；进程 RSS；CLUSTER INFO gossip 计数键；FLOAT16 解码；HLL sparse 明确 ERR；远期清单仍书面存在）
+**最后更新：** 2026-08-11（远期 10 逐项：窄类型解码 BFLOAT16/INT8/UINT8；INFO scripts/go allocator；bus_port:0；R4-1 脚手架；文档口径）

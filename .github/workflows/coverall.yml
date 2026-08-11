@@ -1,5 +1,10 @@
 # This workflow will build a golang project
 # For more information see: https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-go
+#
+# R4-2 note (远期非目标): coveralls 上传 profile.cov 仅供趋势观察，
+# 不设覆盖率门槛、不阻塞合并。专项冲高覆盖率不在本里程碑内。
+# R4-1 note: Redis 8 sidecar 在下方 redis-action 已起服务；完整输出 diff
+# 套件未接入。可选本地：bash scripts/redis-sidecar-diff.sh（allowlist only）。
 
 name: Go
 

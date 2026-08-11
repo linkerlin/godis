@@ -6,7 +6,8 @@
 
 ### Fixed
 
-- 文档漂移：`MEMORY DOCTOR/HELP`、`MIGRATE`、`RESTORE-ASKING`、JSON.MERGE/MSET、ACL `@search` 等与代码对齐（见 `commands.md` / `COMPATIBILITY` / `REDISEARCH_ALIGNMENT`）
+- FT VECTOR COSINE：范数改为 ‖a‖²/‖b‖²（此前误用 a·b 冒充 ‖a‖²）
+- 文档漂移：`MEMORY DOCTOR/HELP`、`MIGRATE`、`RESTORE-ASKING`、JSON.MERGE/MSET、ACL `@search`、FLOAT16/RSS 口径与 `兼容性改进计划.md` 附录对齐
 - `VSIM EPSILON`：解析后按 `Distance < delta` 后过滤（此前仅吞选项不生效）
 - 纯 AOF rewrite：`HPEXPIREAT` 补 `FIELDS n field…`，否则 LoadAof 语法错导致 hash 字段 TTL 丢失
 - WAIT / `countSyncedSlaves`：发送路径只推进 `sentOffset`，不再把「已发送」当作 REPLCONF ACK；同步计数以 ACK offset 为准
@@ -21,6 +22,10 @@
 
 ### Added
 
+- `INFO memory`：`used_memory_scripts`（≈ lua）；`mem_allocator:go` 测试锁定（绝不写 jemalloc）
+- FT VECTOR **BFLOAT16/INT8/UINT8** blob→float32 解码（与 FLOAT16 同路径 widen）
+- `CLUSTER INFO`：`cluster_bus_port:0`（诚实无 Redis gossip bus）
+- R4-1 脚手架：`scripts/redis-sidecar-diff.sh`（PING/SET/GET allowlist only）
 - `INFO memory`：`used_memory_rss` 优先真进程 RSS（Windows WorkingSet / Linux VmRSS）；`MEMORY STATS` 增加 `process.rss`（仍非 jemalloc）
 - `CLUSTER INFO`：补齐 ping/pong/fail 等 gossip 消息计数键（恒 0，诚实无 bus）
 - `RESTORE-ASKING`：注册为可调用命令（强制 REPLACE）

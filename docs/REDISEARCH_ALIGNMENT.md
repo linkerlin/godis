@@ -142,7 +142,7 @@ Redis 8.0 将 Redis Stack 的 RediSearch 模块并入核心(命令面 24 个 FT.
 | 字段类型 | TEXT/NUMERIC/TAG/GEO/VECTOR/GEOSHAPE | ✅ | 全部 6 种 |
 | 字段选项 | PHONETIC/INDEXMISSING/INDEXEMPTY/WITHSUFFIXTRIE/CASESENSITIVE/UNF/SORTABLE_UNF/SEPARATOR/WEIGHT/NOSTEM | ✅ | 解析+校验+部分行为(索引 MISSING 标记查询侧随 DIALECT 2) |
 | VECTOR 算法 | FLAT/HNSW/SVS-VAMANA | ✅ | VAMANA 走 HNSW 后端(OSS 语义) |
-| VECTOR 类型 | FLOAT32/64/16/BFLOAT16/INT8/UINT8 | 🔶 | FLOAT32/64 解码;其余接受但未解码 |
+| VECTOR 类型 | FLOAT32/64/16/BFLOAT16/INT8/UINT8 | ✅ | blob→float32 解码齐全；存储仍 widen 为 f32 |
 | KNN 查询 | `*=>[KNN K @f $p]` + HYBRID 预过滤 | ✅ | 含 EF_RUNTIME/AS 别名 |
 | FT.HYBRID | RRF/LINEAR 熔合(8.4) | ✅ | RANGE 向量搜索延后 |
 | DIALECT 2 | PARAMS/比较算符/ismissing/多字段/\| 优先级 | ✅ | |
@@ -231,12 +231,12 @@ FT.SEARCH idx "hello"  # -> %5 total_results / results / attributes / format / w
 
 | 项 | 状态 | 说明 |
 |---|---|---|
-| VECTOR 类型解码 | 🔶 | FLOAT16 已解码为 float32；BFLOAT16/INT8/UINT8 接受建索引但解码仍报未实现 |
-| BM25STD.NORM | 🔶 | min-max 归一化近似为 `x/(1+x)`(真归一化需二次遍历) |
+| VECTOR 类型解码 | ✅ | FLOAT16/BFLOAT16/INT8/UINT8 均解码为 float32；VADD Q8/BIN 仍为 no-op（无真量化） |
+| BM25STD.NORM | 🔶 | min-max 归一化近似为 `x/(1+x)`(真归一化需二次遍历)；完整 BM25/DIALECT 仍远期 |
 | FT.PROFILE 迭代器细分 | 🔶 | 只报诚实总耗时;细分需 instrument 引擎迭代器 |
 | FT.HYBRID RANGE/FILTER/POLICY | 🔶 | 接受但按暴力路径执行 |
 | APPLY 日期/geo 函数 | 🔶 | timefmt/day/hour/geodistance 等未实现(小众) |
-| RDB / AOF rewrite 索引定义持久化 | ❌ | 命令 AOF 路径完整;rewrite/RDB 为里程碑外远期 |
+| RDB / AOF rewrite 索引定义持久化 | ❌ | 命令 AOF 路径完整;rewrite/RDB **故意不写**索引元数据（远期非目标；勿伪装已持久化） |
 | ACL @search 类别 | ✅ | `+@search` / ACL CAT `@search` 已生效；非「需重构 ACL」 |
 | LVQ/LeanVec 压缩 | ❌ | Intel 专有,OSS Redis 也没有 |
 | GEOSHAPE SPHERICAL 数学 | 🔶 | 按 2D 平面处理(Redis 用测地线;影响跨经纬度边界场景) |

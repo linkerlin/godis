@@ -410,6 +410,7 @@ func GenGodisInfoString(section string, db *Server) []byte {
 			"used_memory_dataset_perc:%.2f\r\n"+
 			"used_memory_overhead:%d\r\n"+
 			"used_memory_lua:%d\r\n"+
+			"used_memory_scripts:%d\r\n"+
 			"maxmemory:%d\r\n"+
 			"maxmemory_human:%s\r\n"+
 			"maxmemory_policy:%s\r\n"+
@@ -439,6 +440,7 @@ func GenGodisInfoString(section string, db *Server) []byte {
 			datasetPerc,
 			overhead,
 			scripting.GetGlobalLuaMemory(),
+			scripting.GetGlobalLuaMemory(), // used_memory_scripts ≈ lua; not jemalloc arenas
 			maxMem,
 			humanReadableSize(maxMemU),
 			maxMemPolicy,

@@ -18,7 +18,12 @@ import (
 // Godis opaque RDB/AOF encoding (not Redis-interoperable).
 // Format: magic "GODIS1\0" || JSON{"t":type,"d":payload}
 // Types: stream|json|vector|ts|hexpire|bloom|cuckoo|cms|topk|tdigest.
-// Official Redis module RDB / DUMP interchange remains a non-goal.
+//
+// Boundary (非目标 / 勿伪装互通):
+//   - Official Redis module RDB / DUMP bytes are NOT loadable here.
+//   - RESTORE of foreign module payloads fails with the standard
+//     "DUMP payload version or checksum are wrong" (see database/dump.go).
+//   - Only Godis↔Godis GODIS1 envelopes round-trip for extension types.
 var opaqueMagic = []byte("GODIS1\x00")
 
 const (
