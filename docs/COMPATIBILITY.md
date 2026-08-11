@@ -188,7 +188,7 @@ UNWATCH、WAIT（简版）、BITOP、BITFIELD、SMOVE、LPOS、XCLAIM、SHUTDOWN
 
 | 远期非目标 | 现状（诚实） | 本轮小步（非宣称完成） |
 |------------|--------------|------------------------|
-| jemalloc / 真 OS RSS | `used_memory`≈`MemStats.Alloc` 峰值 + per-key dataset；`mem_allocator:go`；`allocator_*`=`HeapAlloc`/`HeapSys`/`Sys`（**非** jemalloc arenas）；`MEMORY STATS` `allocator=go` + `process.rss` | RSS 优先真进程；**绝不**写 jemalloc |
+| jemalloc / 真 OS RSS | `used_memory`≈`MemStats.Alloc` 峰值 + per-key dataset；`mem_allocator:go`；`allocator_*`=`HeapAlloc`/`HeapSys`/`Sys`（**非** jemalloc arenas）；`MEMORY STATS` `allocator=go` + `process.rss` | RSS 优先真进程；**绝不**写 jemalloc；详见下节「内存核算 / jemalloc 边界」 |
 | 完整 Redis gossip bus | MEET→Raft/FSM join；**REPLICATE/FORGET 接 FSM**（非 gossip）；BUMPEPOCH=`BUMPED 0`；无 CLUSTERMSG 二进制 bus | **`cluster_bus_port:0`**；ping/pong/meet 计数映射内部 heartbeat/MEET RPC（非宣称已有 gossip bus）；RESET/SAVECONFIG/CLUSTER FAILOVER/真 epoch/`fail` 传播仍延期 |
 | 官方模块原生 RDB·DUMP 互通 | Stream/JSON/Vector/TS/概率结构/FT 走 Godis opaque `GODIS1` | RESTORE **拒绝矩阵**（截断/坏版本/坏 CRC/模块样/短载荷→ERR；文案标明非模块 RDB）；**不**与 Redis 模块 RDB 互通 |
 | FUNCTION DUMP 官方互通 | Godis `GODISFN1` 自洽；截断/异己二进制明确 ERR；兼旧文本 | 保持自洽；**不**伪造 Redis functions payload |
@@ -217,10 +217,29 @@ UNWATCH、WAIT（简版）、BITOP、BITFIELD、SMOVE、LPOS、XCLAIM、SHUTDOWN
 | `GODIS1\0` + JSON `{t,d}` | DUMP/RDB/AOF 扩展类型（stream/json/vector/ts/hexpire/bloom/cuckoo/cms/topk/tdigest/**ft**） | 仅 Godis↔Godis |
 | `GODISFN1` + 长度前缀库列表 | FUNCTION DUMP/RESTORE | 仅 Godis↔Godis（兼旧文本 RESTORE；截断 GODISFN1 / 异己二进制→ERR） |
 
+### 内存核算 / jemalloc 边界
+
+> **不实现 jemalloc。** 字段名可与 Redis 客户端对齐，数值是 Go runtime / 进程估账，**不是** OS jemalloc RSS 对账。
+
+| INFO / MEMORY 字段 | Godis 口径（诚实） | 明确不是 |
+|--------------------|-------------------|----------|
+| `mem_allocator` | 恒为 **`go`** | **绝不** `jemalloc`（`CONFIG jemalloc-bg-thread` 仅存取桩，不改此字段） |
+| `used_memory` / `_human` / `_peak*` | `runtime.MemStats.Alloc` 及 Alloc 高水位 | jemalloc `allocated` / arena 账 |
+| `used_memory_rss` / `_human` | 优先真进程 RSS（Win WorkingSet / Linux VmRSS）；不可得时回退 `MemStats.Sys` | jemalloc resident / Redis jemalloc RSS 对齐 |
+| `used_memory_startup` | 启动时 `MemStats.Sys` 粗基线 | jemalloc 启动账 |
+| `used_memory_dataset` / `_perc` / `_overhead` | per-key 估算（`keyCount×floor`）相对 Alloc | jemalloc 精确 dataset |
+| `used_memory_lua` / `_scripts` | ≈ 全局 Lua 引擎占用 | jemalloc arenas |
+| `allocator_allocated` / `_active` / `_resident` / `_frag_ratio` | `HeapAlloc` / `HeapSys` / `Sys` / `HeapSys÷HeapAlloc` 镜像 | jemalloc arenas / bins / extents |
+| `MEMORY STATS` `allocator` | **`go`**；并附 `process.rss` | `allocator=jemalloc*` |
+| `MEMORY MALLOC-STATS` | 明示 Go runtime 不可用（无 arena 伪表） | 伪造 jemalloc `malloc_stats_print` |
+
+**远期仍开放：** jemalloc 级 `used_memory` / 完整 OS 级内存会计（见 TODO「明确非目标」）。本边界小步=诚实化+负向测试，**≠** jemalloc 完成。
+
 ## 测试
 
 - `go test ./...`；兼容批次测试见 `database/m2*_compat_test.go`、`m1_block_tx_bitmap_test.go` 等；RESP3 线格式见 `database/resp3_core_types_test.go`。
+- jemalloc 边界负向测：`database/memory_jemalloc_boundary_test.go`（`mem_allocator:go`、MALLOC-STATS 无 arena 伪表、`jemalloc-bg-thread` 不改 allocator）。
 
 ---
 
-**最后更新：** 2026-08-11（并入 r4-2-cover / r4-1-full / bm25-knn-dialect / gossip：R4-1 用例表+Set/ZSet/TTL、BM25/KNN/DIALECT 子集、REPLICATE/FORGET+heartbeat 计数、R4-2 观察式覆盖；远期仍 **7** + 可独立 **0**）
+**最后更新：** 2026-08-11（`compat/jemalloc-info-boundary`：INFO/MEMORY 内存核算诚实化文档 + 负向测试；**不**宣称 jemalloc；远期仍 **7** + 可独立 **0**）

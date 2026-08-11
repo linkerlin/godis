@@ -123,7 +123,7 @@
 
 > 可独立项已归零；下列为**书面远期**（2026-08-11 deep8 后仍为 **7** 项）。小步≠远期完成。
 
-- jemalloc 级 `used_memory` / 完整 OS 级内存会计（已有：进程 RSS→`used_memory_rss`；`mem_allocator:go`；`used_memory_scripts`；`used_memory` 仍为 `Alloc`）
+- jemalloc 级 `used_memory` / 完整 OS 级内存会计（**远期仍开**；已有诚实边界：进程 RSS→`used_memory_rss`；`mem_allocator:go`；`allocator_*=Go MemStats`；负向测禁止假 jemalloc；见 [`docs/COMPATIBILITY.md`](docs/COMPATIBILITY.md)「内存核算 / jemalloc 边界」）
 - 完整 Redis gossip bus；`RESET`/`SAVECONFIG`/`SET-CONFIG-EPOCH`/`CLUSTER FAILOVER`；BUMPEPOCH 真 config epoch（已有：`REPLICATE`/`FORGET`→FSM；ping/pong/meet 计数映射内部 heartbeat/MEET；`cluster_bus_port:0`；非宣称完整 gossip）
 - 官方模块原生 RDB·DUMP 互通（Godis opaque / `GODISFN1` 自洽即可；RESTORE 拒绝矩阵；含 FT 官方模块 RDB）
 - 完整 BM25 / 完整 KNN 方言 / 完整 DIALECT（已有：IDF/多字段 WEIGHT/NORM/TANH+FACTOR；KNN `$YIELD_DISTANCE_AS`/HYBRID_POLICY；DIALECT 1/2/3 子集；**非**论文级完整）

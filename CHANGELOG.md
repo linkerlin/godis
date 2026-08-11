@@ -6,6 +6,7 @@
 
 ### Added
 
+- INFO/MEMORY **内存核算 / jemalloc 边界**：专节文档 + 负向测试锁定 `mem_allocator:go`、MALLOC-STATS 不伪造 arena、`jemalloc-bg-thread` 桩不改 allocator；**不**实现 jemalloc（`used_memory*` 仍为 Go runtime / 进程估账）
 - `CLUSTER REPLICATE`/`FORGET`：**接 FSM**（MasterSlaves / EventForget 安全清理；**非** Redis gossip bus）
 - `CLUSTER INFO`：ping/pong/meet 等消息计数映射内部 **heartbeat/MEET RPC**（`cluster_bus_port:0`；不宣称完整 gossip）
 - R4-1：**用例表** `scripts/r4-1-cases.txt` 驱动 sidecar 比对；扩 **Set/ZSet/TTL**（SADD/SCARD/SISMEMBER/SREM、ZADD/ZSCORE/ZCARD/ZREM、TTL/PTTL/PEXPIRE/EXPIRE/PERSIST）；失败多行 FAIL；诚实标注非 FT/模块/DUMP/集群全量
