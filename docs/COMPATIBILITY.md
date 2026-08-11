@@ -117,6 +117,7 @@
 | GETRANGE 缺键 | ✅ 空 bulk（非 null） |
 | OBJECT ENCODING int | ✅ 整数字符串报 `int` |
 | TYPE 扩展类型 | ✅ JSON/TS/Bloom/Cuckoo/CMS/TopK/TDigest/Vector/FT 索引对齐 Redis 模块 TYPE 名（非 `ERR unknown`） |
+| Pop count=0 | ✅ `SPOP`/`LPOP`/`RPOP`/`ZPOPMIN|MAX` 空数组且不改键；`ZMPOP`/`LMPOP` COUNT≤0 → `ERR count should be greater than 0` |
 | Lua error/status_reply | ✅ 及 setresp 记录版本 |
 | proto-max-bulk-len | ✅ 解析器读 CONFIG |
 | INFO clients_in_timeout_table | ✅ 对齐 blocked 等待者计数 |
@@ -280,4 +281,4 @@ UNWATCH、WAIT（简版）、BITOP、BITFIELD、SMOVE、LPOS、XCLAIM、SHUTDOWN
 
 ---
 
-**最后更新：** 2026-08-11（`TYPE` 扩展类型对齐模块名；R4-1 空 List/Set 删键断言；BITOP DIFF* 仍因 sidecar&lt;8.2 风险 `@todo`；远期仍 **7** + 可独立 **0**）
+**最后更新：** 2026-08-11（Pop `count=0` 对齐；`TYPE` 扩展类型模块名；R4-1 空集合删键断言；BITOP DIFF* 仍 `@todo`；远期仍 **7** + 可独立 **0**）

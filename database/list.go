@@ -111,8 +111,12 @@ func execLPop(db *DB, args [][]byte) redis.Reply {
 		if err != nil {
 			return protocol.MakeErrReply("ERR value is not an integer or out of range")
 		}
-		if count64 <= 0 {
+		if count64 < 0 {
 			return protocol.MakeErrReply("ERR value is out of range, must be positive")
+		}
+		// Redis: count 0 → empty array (null array), no mutation.
+		if count64 == 0 {
+			return &protocol.EmptyMultiBulkReply{}
 		}
 		count := int(count64)
 		if count > list.Len() {
@@ -437,8 +441,12 @@ func execRPop(db *DB, args [][]byte) redis.Reply {
 		if err != nil {
 			return protocol.MakeErrReply("ERR value is not an integer or out of range")
 		}
-		if count64 <= 0 {
+		if count64 < 0 {
 			return protocol.MakeErrReply("ERR value is out of range, must be positive")
+		}
+		// Redis: count 0 → empty array (null array), no mutation.
+		if count64 == 0 {
+			return &protocol.EmptyMultiBulkReply{}
 		}
 		count := int(count64)
 		if count > list.Len() {

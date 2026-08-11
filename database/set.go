@@ -138,8 +138,12 @@ func execSPop(db *DB, args [][]byte) redis.Reply {
 	count := 1
 	if len(args) == 2 {
 		count64, err := strconv.ParseInt(string(args[1]), 10, 64)
-		if err != nil || count64 <= 0 {
+		if err != nil || count64 < 0 {
 			return protocol.MakeErrReply("ERR value is out of range, must be positive")
+		}
+		// Redis: count 0 → empty array/set (no mutation); negative rejected above.
+		if count64 == 0 {
+			return protocol.MakeSetReply(nil)
 		}
 		count = int(count64)
 	}

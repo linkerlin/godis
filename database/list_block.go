@@ -463,6 +463,9 @@ func execLMPop(db *DB, args [][]byte) redis.Reply {
 		if err != nil {
 			return protocol.MakeErrReply("ERR value is not an integer or out of range")
 		}
+		if count <= 0 {
+			return protocol.MakeErrReply("ERR count should be greater than 0")
+		}
 	}
 
 	for _, key := range keys {

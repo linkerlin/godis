@@ -6,6 +6,8 @@
 
 ### Fixed
 
+- `SPOP`/`LPOP`/`RPOP`/`ZPOPMIN|MAX`：`count=0` 返回空数组且不改键（对齐 Redis）；此前误报 `must be positive`，且 `ZPOPMIN count=0` 因 skiplist `limit=0` 表示无限而误弹成员
+- `ZMPOP`/`LMPOP`：`COUNT 0`（及非正）→ `ERR count should be greater than 0`（对齐 Redis；不同于 ZPOP* 空数组语义）
 - `TYPE`：扩展类型对齐 Redis 模块名（`ReJSON-RL` / `TSDB-TYPE` / `MBbloom--` / `MBbloomCF` / `CMSk-TYPE` / `TopK-TYPE` / `TDIS-TYPE` / `vectorset` / `search-ft`）；此前返回 `ERR unknown`
 - `TYPE`：识别 `*stream.Stream` → 返回 `stream`（此前 `ERR unknown error`）；R4-1 取消对应 `@skip`
 - 空 ZSet：`ZREM` / `ZREMRANGE*` / `ZPOPMIN|MAX` 删空后删除键（对齐 Redis；R4-1 `EXISTS` 断言）

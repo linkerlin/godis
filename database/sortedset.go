@@ -759,6 +759,9 @@ func execZPopMin(db *DB, args [][]byte) redis.Reply {
 		if err != nil {
 			return protocol.MakeErrReply("ERR value is not an integer or out of range")
 		}
+		if count < 0 {
+			return protocol.MakeErrReply("ERR value is out of range, must be positive")
+		}
 	}
 
 	sortedSet, errReply := db.getAsSortedSet(key)
@@ -766,6 +769,10 @@ func execZPopMin(db *DB, args [][]byte) redis.Reply {
 		return errReply
 	}
 	if sortedSet == nil {
+		return protocol.MakeEmptyMultiBulkReply()
+	}
+	// Redis: count 0 → empty array, no mutation (skiplist limit 0 means unlimited).
+	if count == 0 {
 		return protocol.MakeEmptyMultiBulkReply()
 	}
 
@@ -1106,6 +1113,9 @@ func execZPopMax(db *DB, args [][]byte) redis.Reply {
 		if err != nil {
 			return protocol.MakeErrReply("ERR value is not an integer or out of range")
 		}
+		if count < 0 {
+			return protocol.MakeErrReply("ERR value is out of range, must be positive")
+		}
 	}
 
 	sortedSet, errReply := db.getAsSortedSet(key)
@@ -1113,6 +1123,10 @@ func execZPopMax(db *DB, args [][]byte) redis.Reply {
 		return errReply
 	}
 	if sortedSet == nil {
+		return protocol.MakeEmptyMultiBulkReply()
+	}
+	// Redis: count 0 → empty array, no mutation.
+	if count == 0 {
 		return protocol.MakeEmptyMultiBulkReply()
 	}
 
@@ -1650,6 +1664,9 @@ func execZMPop(db *DB, args [][]byte) redis.Reply {
 			count, err = strconv.Atoi(string(args[idx+1]))
 			if err != nil {
 				return protocol.MakeErrReply("ERR value is not an integer or out of range")
+			}
+			if count <= 0 {
+				return protocol.MakeErrReply("ERR count should be greater than 0")
 			}
 			idx += 2
 		default:
