@@ -22,8 +22,9 @@ import (
 //	VSIM key ELE element [COUNT n] [WITHSCORES]
 //	VREM / VCARD / VDIM / VEMB / VINFO / VISMEMBER / VLINKS
 //
-// Accepted no-ops (no true quantization yet — still stores f32; VINFO quant-type=f32):
-// CAS, NOQUANT, Q8, BIN, NOTHREAD, REDUCE.
+// Quantization: Q8 stores true int8+range (VSIM/HNSW use dequantized f32);
+// NOQUANT locks f32; BIN is still an accepted no-op (stays f32). Default without
+// flags remains f32 (Godis historical; Redis default is Q8).
 // HNSW graph is live: M/EF on VADD and EF/TRUTH on VSIM take effect.
 
 func execVAdd(db *DB, args [][]byte) redis.Reply {
@@ -36,6 +37,8 @@ func execVAdd(db *DB, args [][]byte) redis.Reply {
 	nx, xx := false, false
 	var setattr string
 	hnswM, hnswEF := 0, 0
+	// quantReq: "" = unspecified (keep set default); "q8"/"f32"; "bin" accepted no-op → f32 for now.
+	quantReq := ""
 	i := 1
 	for i < len(args) {
 		tok := strings.ToUpper(string(args[i]))
@@ -74,7 +77,17 @@ func execVAdd(db *DB, args [][]byte) redis.Reply {
 		case "XX":
 			xx = true
 			i++
-		case "CAS", "NOQUANT", "Q8", "BIN", "TRUTH", "NOTHREAD":
+		case "CAS", "TRUTH", "NOTHREAD":
+			i++
+		case "NOQUANT":
+			quantReq = "f32"
+			i++
+		case "Q8":
+			quantReq = "q8"
+			i++
+		case "BIN":
+			// BIN (binary quant) still accepted as no-op; set stays f32.
+			quantReq = "f32"
 			i++
 		case "SETATTR":
 			if i+1 >= len(args) {
@@ -133,12 +146,23 @@ func execVAdd(db *DB, args [][]byte) redis.Reply {
 		}
 	}
 
-	if currentVectorBackend().Name() != backendSQLite && (hnswM > 0 || hnswEF > 0) {
+	if currentVectorBackend().Name() != backendSQLite && (hnswM > 0 || hnswEF > 0 || quantReq != "") {
 		vs, errReply := db.getOrInitVectorSet(key)
 		if errReply != nil {
 			return errReply
 		}
-		vs.ConfigureHNSW(hnswM, hnswEF)
+		if hnswM > 0 || hnswEF > 0 {
+			vs.ConfigureHNSW(hnswM, hnswEF)
+		}
+		if quantReq == "q8" {
+			if !vs.SetQuantMode(vector.QuantQ8) {
+				return protocol.MakeErrReply("ERR Vector set quant-type mismatch: expected int8")
+			}
+		} else if quantReq == "f32" {
+			if !vs.SetQuantMode(vector.QuantF32) {
+				return protocol.MakeErrReply("ERR Vector set quant-type mismatch: expected f32")
+			}
+		}
 	}
 
 	r := execVSAdd(db, [][]byte{[]byte(key), []byte(ele), []byte(formatFloatsCSV(floats))})
@@ -429,7 +453,7 @@ func execVInfo(db *DB, args [][]byte) redis.Reply {
 	m, efC, maxUID, maxLevel := vs.HNSWInfo()
 	return protocol.MakeMultiRawReply([]redis.Reply{
 		protocol.MakeBulkReply([]byte("quant-type")),
-		protocol.MakeBulkReply([]byte("f32")),
+		protocol.MakeBulkReply([]byte(vs.QuantMode().QuantTypeName())),
 		protocol.MakeBulkReply([]byte("vector-dim")),
 		protocol.MakeIntReply(int64(vs.Dimension())),
 		protocol.MakeBulkReply([]byte("size")),

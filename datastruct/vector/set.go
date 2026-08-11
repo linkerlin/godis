@@ -15,6 +15,10 @@ type VectorItem struct {
 	Metadata map[string]string
 	// Attributes is Redis Vector Set JSON attributes (VSETATTR/VGETATTR).
 	Attributes string
+	// Q8 / Q8Range hold true int8 quantization when the set uses QuantQ8.
+	// Vector.Data is the dequantized approximation used for HNSW / VSIM.
+	Q8      []int8
+	Q8Range float32
 }
 
 // SearchResult represents a search result with similarity score
@@ -30,7 +34,8 @@ type SearchResult struct {
 const hnswQueryKey = "\x00__hnsw_query__"
 
 // VectorSet is a collection of vectors supporting similarity search
-// via an in-memory HNSW graph (float32, no quantization yet).
+// via an in-memory HNSW graph. Default storage is float32; Q8 stores int8
+// codes (search uses dequantized f32).
 type VectorSet struct {
 	vectors   map[string]*VectorItem
 	dimension int
@@ -40,6 +45,9 @@ type VectorSet struct {
 	// pendingM / pendingEf are applied on first Add (or ConfigureHNSW).
 	pendingM  int
 	pendingEf int
+	// quant is locked after the first element is inserted.
+	quant     QuantMode
+	quantSet  bool
 }
 
 // NewVectorSet creates a new VectorSet with default HNSW parameters.
@@ -75,6 +83,27 @@ func (vs *VectorSet) ConfigureHNSW(m, efConstruction int) {
 	if efConstruction > 0 {
 		vs.hnsw.SetEfConstruction(efConstruction)
 	}
+}
+
+// SetQuantMode selects quantization before the first insert. After the set has
+// elements, only the same mode is accepted (Redis Q8/NOQUANT format check).
+// Returns false if the mode conflicts with an already-populated set.
+func (vs *VectorSet) SetQuantMode(mode QuantMode) bool {
+	vs.mu.Lock()
+	defer vs.mu.Unlock()
+	if len(vs.vectors) > 0 || vs.quantSet {
+		return vs.quant == mode
+	}
+	vs.quant = mode
+	vs.quantSet = true
+	return true
+}
+
+// QuantMode returns the set's quantization mode.
+func (vs *VectorSet) QuantMode() QuantMode {
+	vs.mu.RLock()
+	defer vs.mu.RUnlock()
+	return vs.quant
 }
 
 // HNSWInfo returns graph metadata for VINFO.
@@ -113,6 +142,10 @@ func (vs *VectorSet) Add(id string, vec *Vector, metadata map[string]string) boo
 	} else if vs.dimension != vec.Dim {
 		return false // Dimension mismatch
 	}
+	// Lock default f32 when first element arrives without an explicit SetQuantMode.
+	if !vs.quantSet {
+		vs.quantSet = true
+	}
 
 	if vs.hnsw == nil {
 		m, ef := vs.pendingM, vs.pendingEf
@@ -126,10 +159,64 @@ func (vs *VectorSet) Add(id string, vec *Vector, metadata map[string]string) boo
 	}
 
 	_, exists := vs.vectors[id]
+	store := vec
+	var q8 []int8
+	var qrange float32
+	if vs.quant == QuantQ8 {
+		q8, qrange = QuantizeQ8(vec.Data)
+		store = NewVector(DequantizeQ8(q8, qrange))
+	}
 	item := &VectorItem{
 		ID:       id,
-		Vector:   vec,
+		Vector:   store,
 		Metadata: metadata,
+		Q8:       q8,
+		Q8Range:  qrange,
+	}
+	if exists {
+		if old := vs.vectors[id]; old != nil {
+			item.Attributes = old.Attributes
+		}
+	}
+	vs.vectors[id] = item
+	vs.hnsw.Insert(id, vs.distFnLocked(CosineSimilarity))
+	return !exists
+}
+
+// AddQ8 inserts a pre-quantized vector (used by opaque restore). Does not
+// re-quantize; Vector.Data is the dequantized approximation for search.
+func (vs *VectorSet) AddQ8(id string, codes []int8, qrange float32, metadata map[string]string) bool {
+	vs.mu.Lock()
+	defer vs.mu.Unlock()
+	if !vs.quantSet {
+		vs.quant = QuantQ8
+		vs.quantSet = true
+	} else if vs.quant != QuantQ8 {
+		return false
+	}
+	dim := len(codes)
+	if vs.dimension == 0 {
+		vs.dimension = dim
+	} else if vs.dimension != dim {
+		return false
+	}
+	if vs.hnsw == nil {
+		m, ef := vs.pendingM, vs.pendingEf
+		if m <= 0 {
+			m = defaultHNSWM
+		}
+		if ef <= 0 {
+			ef = defaultHNSWEfConstruction
+		}
+		vs.hnsw = NewHNSW(m, ef)
+	}
+	_, exists := vs.vectors[id]
+	item := &VectorItem{
+		ID:       id,
+		Vector:   NewVector(DequantizeQ8(codes, qrange)),
+		Metadata: metadata,
+		Q8:       append([]int8(nil), codes...),
+		Q8Range:  qrange,
 	}
 	if exists {
 		if old := vs.vectors[id]; old != nil {

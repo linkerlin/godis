@@ -121,16 +121,17 @@
 
 ### 本里程碑明确非目标（勿当缺口重开）
 
-> 可独立项已归零；下列为**书面远期**。2026-08-11 auto_far 逐项评估后更新小步状态，**禁止把小步当成远期完成**。
+> 可独立项已归零；下列为**书面远期**（2026-08-11 deep3 后为 **9** 项）。小步≠远期完成。
 
 - jemalloc 级 `used_memory` / 完整 OS 级内存会计（已有：进程 RSS→`used_memory_rss`；`mem_allocator:go`；`used_memory_scripts`；`used_memory` 仍为 `Alloc`）
 - 完整 Redis gossip bus；`CLUSTER REPLICATE`/`FORGET`/`RESET`/`SAVECONFIG`/`SET-CONFIG-EPOCH`/`CLUSTER FAILOVER`；BUMPEPOCH 真 config epoch（已有：INFO 消息计数键恒 0 + `cluster_bus_port:0`）
 - 官方模块原生 RDB·DUMP 互通（Godis opaque / `GODISFN1` 自洽即可；RESTORE 标准拒绝异己载荷）
-- 完整 BM25 / FT+KNN 与完整 DIALECT；Vector **真** Q8/BIN 量化（FT VECTOR FLOAT16/BFLOAT16/INT8/UINT8 解码已作一小步）
+- 完整 BM25 / FT+KNN 与完整 DIALECT；Vector **BIN / 图内真 int8 距离**（VADD Q8 存储已一小步；FT VECTOR 窄类型解码已有）
 - FUNCTION DUMP 官方二进制互通
-- AOF rewrite / RDB 快照写出 FT 索引定义（命令日志路径已有；rewrite/RDB 见 RediSearch 已知限制）
-- HLL sparse blob **读取**（dense 互通；sparse 明确 ERR，未实现解码）
+- **RDB / RDB-preamble** 写出 FT 索引定义（命令 AOF + **纯 AOF rewrite→FT.CREATE** 已有）
 - R4-1 全量旁路比对（仅有 allowlist 脚手架）、R4-2 覆盖率专项
+
+~~HLL sparse 读取~~ ✅（sparse→dense 解码提升；写出仍 dense）
 
 ---
 

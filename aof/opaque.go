@@ -77,13 +77,16 @@ type streamPendingDump struct {
 }
 
 type vectorDump struct {
-	Dim   int               `json:"dim"`
-	Items []vectorItemDump  `json:"items"`
+	Dim   int              `json:"dim"`
+	Quant string           `json:"q,omitempty"` // "int8" when QuantQ8
+	Items []vectorItemDump `json:"items"`
 }
 
 type vectorItemDump struct {
 	ID         string            `json:"id"`
-	Data       []float64         `json:"d"`
+	Data       []float64         `json:"d,omitempty"` // dequant / f32
+	Q8         []int8            `json:"q8,omitempty"`
+	Q8Range    float32           `json:"qr,omitempty"`
 	Metadata   map[string]string `json:"m,omitempty"`
 	Attributes string            `json:"a,omitempty"` // VSETATTR JSON
 }
@@ -371,17 +374,27 @@ func loadStream(raw []byte) (*stream.Stream, error) {
 
 func dumpVector(vs *vector.VectorSet) vectorDump {
 	d := vectorDump{Dim: vs.Dimension()}
+	if vs.QuantMode() == vector.QuantQ8 {
+		d.Quant = "int8"
+	}
 	vs.ForEach(func(id string, item *vector.VectorItem) bool {
 		meta := make(map[string]string, len(item.Metadata))
 		for k, v := range item.Metadata {
 			meta[k] = v
 		}
-		d.Items = append(d.Items, vectorItemDump{
+		it := vectorItemDump{
 			ID:         id,
-			Data:       item.Vector.ToFloat64(),
 			Metadata:   meta,
 			Attributes: item.Attributes,
-		})
+		}
+		if len(item.Q8) > 0 {
+			it.Q8 = append([]int8(nil), item.Q8...)
+			it.Q8Range = item.Q8Range
+			it.Data = item.Vector.ToFloat64() // dequant approx for older readers
+		} else {
+			it.Data = item.Vector.ToFloat64()
+		}
+		d.Items = append(d.Items, it)
 		return true
 	})
 	return d
@@ -393,8 +406,15 @@ func loadVector(raw []byte) (*vector.VectorSet, error) {
 		return nil, err
 	}
 	vs := vector.NewVectorSet()
+	if d.Quant == "int8" {
+		_ = vs.SetQuantMode(vector.QuantQ8)
+	}
 	for _, it := range d.Items {
-		vs.Add(it.ID, vector.NewVectorFromFloat64(it.Data), it.Metadata)
+		if len(it.Q8) > 0 {
+			vs.AddQ8(it.ID, it.Q8, it.Q8Range, it.Metadata)
+		} else {
+			vs.Add(it.ID, vector.NewVectorFromFloat64(it.Data), it.Metadata)
+		}
 		if it.Attributes != "" {
 			vs.SetAttributes(it.ID, it.Attributes)
 		}

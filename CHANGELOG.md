@@ -4,24 +4,11 @@
 
 ## [Unreleased]
 
-### Fixed
-
-- FT VECTOR COSINE：范数改为 ‖a‖²/‖b‖²（此前误用 a·b 冒充 ‖a‖²）
-- 文档漂移：`MEMORY DOCTOR/HELP`、`MIGRATE`、`RESTORE-ASKING`、JSON.MERGE/MSET、ACL `@search`、FLOAT16/RSS 口径与 `兼容性改进计划.md` 附录对齐
-- `VSIM EPSILON`：解析后按 `Distance < delta` 后过滤（此前仅吞选项不生效）
-- 纯 AOF rewrite：`HPEXPIREAT` 补 `FIELDS n field…`，否则 LoadAof 语法错导致 hash 字段 TTL 丢失
-- WAIT / `countSyncedSlaves`：发送路径只推进 `sentOffset`，不再把「已发送」当作 REPLCONF ACK；同步计数以 ACK offset 为准
-- PSYNC 增量：`isValidOffset` 接纳 tip（`offset == currentOffset`）与空 backlog，已追上的副本重连走 `CONTINUE` 而非误 `FULLRESYNC`（与 `getSnapshotAfter` 上界一致）
-- 消除 `TestM2amClientKillLAddrMaxAge` / `TestM2boInfoKeyspaceAvgTTLAndSubexpiry` / `TestM2buLatencyHistogram` 全量跑 flake：`LATENCY RESET` 在 Exec 采样回写后再次清空 histogram；KILL 按预先捕获的 client id 断言并放宽计数；avg_ttl 对照 PTTL 且关闭主动过期干扰
-- `MEMORY STATS` / `INFO memory`：`peak.allocated`/`used_memory_peak` 跟踪 `runtime.MemStats.Alloc` 高水位（不再用 `TotalAlloc` 冒充峰值）；`overhead.total` 与 INFO 一致为 `Alloc−dataset`；Limiter 默认用量改 `Alloc`（仍非 jemalloc）
-- `CLUSTER` 迁移闭环缝：`execFinishExport` 成功才 `dropSlot`+清 `importingTask`、失败不丢键；真实 migrate 设 `IMPORTING`/`migratePeer`；`startExporting` 对 SETSLOT MIGRATING 幂等；ASK 可读 FSM `Migratings`（不强制本地 exporting）；`SETSLOT NODE` 转发后在本节点清迁移态
-- Failover / 复制关闭死锁：`stopSlaveWithMutex` 不再持 `slaveStatus.mutex` 等待 `receiveAOF`；`Connection.Write` 串行化（Windows 并发 net.Conn.Write 会卡 fdMutex）；`Close` 停 `startReplCron`；测试 listener 关闭已接受连接；`TestSlaveCloseAfterReplicationDoesNotHang`
-- Failover 集成测加固：关 TCP listener、`UnregisterClient`、短 `TIMEOUT`、`failoverState` Cleanup（缓解 Windows 挂起 flake）
-- 测试对齐 RESP3 双形回复：`BZPOPMIN` MultiRaw+Double、`ZRANGE WITHSCORES` ScorePairs、`ACL LOG` Map 数组；空 `ACL LOG` 统一为 `MultiRawReply`
-- `TestP8FTPersistence`：恢复全局 `config.Properties` 并用 `filepath.Join`，避免 Windows 上误删临时目录后拖垮后续用例
-
 ### Added
 
+- HLL **sparse 真读**：Redis sparse RLE→dense 提升；`PFCOUNT`/`PFADD` 可读迁移 blob；写出仍 dense；损坏编码→`INVALIDOBJ`
+- 纯 AOF rewrite：**FT.CREATE** 自引擎 `CreateArgs` 回放（剥 `SKIPINITIALSCAN`）；RDB/RDB-preamble 仍不写索引定义
+- VADD **Q8 真量化存储**：int8+range；`VINFO quant-type=int8`；VSIM/HNSW 用反量化 f32；BIN 仍 no-op；opaque 可保留 Q8 codes
 - `INFO memory`：`used_memory_scripts`（≈ lua）；`mem_allocator:go` 测试锁定（绝不写 jemalloc）
 - FT VECTOR **BFLOAT16/INT8/UINT8** blob→float32 解码（与 FLOAT16 同路径 widen）
 - `CLUSTER INFO`：`cluster_bus_port:0`（诚实无 Redis gossip bus）
@@ -29,7 +16,7 @@
 - `INFO memory`：`used_memory_rss` 优先真进程 RSS（Windows WorkingSet / Linux VmRSS）；`MEMORY STATS` 增加 `process.rss`（仍非 jemalloc）
 - `CLUSTER INFO`：补齐 ping/pong/fail 等 gossip 消息计数键（恒 0，诚实无 bus）
 - `RESTORE-ASKING`：注册为可调用命令（强制 REPLACE）
-- FT VECTOR **FLOAT16** blob→float32 解码；HLL sparse 明确 `ERR sparse HyperLogLog…`（未实现 sparse 读取）
+- FT VECTOR **FLOAT16** blob→float32 解码
 - `CLUSTER GETKEYSINSLOT`：返回本节点 `slotsManager` 登记的槽内键（与 `COUNTKEYSINSLOT` 同源）
 - `CLUSTER REPLICAS`/`SLAVES`：从 Raft FSM `MasterSlaves` 返回副本 NODES 行；未知节点 `ERR Unknown node`
 - `INFO cluster`：有 Cluster 实例时与 `CLUSTER INFO` 同源（`SetClusterInfoSectionProvider`）
@@ -63,6 +50,7 @@
 
 ### Changed
 
+- **兼容里程碑（2026-08-11 deep3）**：远期清单 **9** 项 + 可独立 **0**（HLL sparse 读取闭环；FT 纯 AOF rewrite / VADD Q8 为小步非远期完成）
 - **兼容里程碑关闭（2026-08-10）**：可独立正确性/兼容小项已清至书面远期非目标；**不宣称 100% Redis 兼容**。远期非目标见 `docs/COMPATIBILITY.md`「兼容里程碑关闭」
 - Legacy Lua（`GODIS_LUA_ENGINE=legacy`）：拒绝 `os.`/`io.`/`package.`/`debug.`/`require`/`dofile`/`loadfile`（对齐 gopher-lua SkipOpenLibs 意图）
 - `CLUSTER BUMPEPOCH`：明确为 no-op（`BUMPED 0`；FSM 无 config epoch；远期/非目标：真 epoch / gossip）
