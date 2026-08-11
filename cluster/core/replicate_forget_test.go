@@ -144,11 +144,47 @@ func TestClusterBusStatsFromHeartbeatAndMeet(t *testing.T) {
 	if !strings.Contains(info, "cluster_stats_messages_meet_sent:1\n") {
 		t.Fatalf("meet_sent: %s", info)
 	}
+	// FSM-only CLUSTER MEET is initiator-side only; no peer cluster.join recv.
+	if !strings.Contains(info, "cluster_stats_messages_meet_received:0\n") {
+		t.Fatalf("meet_received want 0 on initiator FSM MEET: %s", info)
+	}
 	if !strings.Contains(info, "cluster_stats_messages_ping_received:1\n") {
 		t.Fatalf("ping_received: %s", info)
 	}
 	if !strings.Contains(info, "cluster_stats_messages_pong_sent:1\n") {
 		t.Fatalf("pong_sent: %s", info)
+	}
+}
+
+// TestClusterBusStatsMeetReceived: peer RPC cluster.join locally applied bumps
+// meet_received (CLUSTER INFO seam); still not a Redis gossip bus.
+func TestClusterBusStatsMeetReceived(t *testing.T) {
+	cl := newFSMCluster("127.0.0.1:7300")
+	cl.raftNode.ApplyLocal(&raft.LogEntry{
+		Event:    raft.EventJoin,
+		JoinTask: &raft.JoinTask{NodeId: "127.0.0.1:7300"},
+	})
+	r := execJoin(cl, nil, [][]byte{
+		[]byte("cluster.join"), []byte("127.0.0.1:7301"), []byte("127.0.0.1:17301"),
+	})
+	if _, ok := r.(*protocol.OkReply); !ok {
+		t.Fatalf("cluster.join: %s", r.ToBytes())
+	}
+	if _, known := cl.raftNode.FSM.MasterSlaves["127.0.0.1:7301"]; !known {
+		t.Fatalf("join not in FSM MasterSlaves: %+v", cl.raftNode.FSM.MasterSlaves)
+	}
+	info := string(execClusterInfo(cl).(*protocol.BulkReply).Arg)
+	if !strings.Contains(info, "cluster_bus_port:0\n") {
+		t.Fatalf("bus_port must stay 0: %s", info)
+	}
+	if !strings.Contains(info, "cluster_stats_messages_meet_received:1\n") {
+		t.Fatalf("meet_received: %s", info)
+	}
+	if !strings.Contains(info, "cluster_stats_messages_meet_sent:0\n") {
+		t.Fatalf("meet_sent must stay 0 on peer recv: %s", info)
+	}
+	if !strings.Contains(info, "cluster_stats_messages_received:1\n") {
+		t.Fatalf("messages_received should include meet: %s", info)
 	}
 }
 

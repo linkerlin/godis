@@ -218,9 +218,9 @@ func (v clusterView) infoBulk(stats busStatsSnap) []byte {
 		}
 	}
 	// cluster_bus_port stays 0: no Redis gossip listen port.
-	// ping/pong/meet counters come from Godis peer RPC (heartbeat/MEET), not CLUSTERMSG frames.
+	// ping/pong/meet counters come from Godis peer RPC (heartbeat/MEET/join), not CLUSTERMSG frames.
 	sent := stats.pingSent + stats.pongSent + stats.meetSent
-	recv := stats.pingReceived + stats.pongReceived
+	recv := stats.pingReceived + stats.pongReceived + stats.meetReceived
 	info := fmt.Sprintf(
 		"cluster_state:%s\n"+
 			"cluster_slots_assigned:%d\n"+
@@ -239,7 +239,7 @@ func (v clusterView) infoBulk(stats busStatsSnap) []byte {
 			"cluster_stats_messages_pong_sent:%d\n"+
 			"cluster_stats_messages_pong_received:%d\n"+
 			"cluster_stats_messages_meet_sent:%d\n"+
-			"cluster_stats_messages_meet_received:0\n"+
+			"cluster_stats_messages_meet_received:%d\n"+
 			"cluster_stats_messages_fail_sent:0\n"+
 			"cluster_stats_messages_fail_received:0\n"+
 			"cluster_stats_messages_publish_sent:0\n"+
@@ -258,7 +258,7 @@ func (v clusterView) infoBulk(stats busStatsSnap) []byte {
 		sent, recv,
 		stats.pingSent, stats.pingReceived,
 		stats.pongSent, stats.pongReceived,
-		stats.meetSent,
+		stats.meetSent, stats.meetReceived,
 	)
 	return []byte(info)
 }

@@ -7,18 +7,20 @@ import "sync/atomic"
 // These are NOT Redis CLUSTERMSG_* bus frames: Godis has no gossip bus
 // (cluster_bus_port stays 0). Counters mirror:
 //   - cluster.heartbeat send/recv (followers → Raft leader) as ping/pong
-//   - CLUSTER MEET success as meet_sent
+//   - CLUSTER MEET success as meet_sent (initiator)
+//   - cluster.join locally applied as meet_received (peer RPC / leader accept)
 // Other message types remain honest zeros until a real bus exists.
 type busStats struct {
-	pingSent     uint64
-	pingReceived uint64
-	pongSent     uint64
-	pongReceived uint64
-	meetSent     uint64
+	pingSent      uint64
+	pingReceived  uint64
+	pongSent      uint64
+	pongReceived  uint64
+	meetSent      uint64
+	meetReceived  uint64
 }
 
 type busStatsSnap struct {
-	pingSent, pingReceived, pongSent, pongReceived, meetSent uint64
+	pingSent, pingReceived, pongSent, pongReceived, meetSent, meetReceived uint64
 }
 
 func (s *busStats) snapshot() busStatsSnap {
@@ -31,6 +33,7 @@ func (s *busStats) snapshot() busStatsSnap {
 		pongSent:     atomic.LoadUint64(&s.pongSent),
 		pongReceived: atomic.LoadUint64(&s.pongReceived),
 		meetSent:     atomic.LoadUint64(&s.meetSent),
+		meetReceived: atomic.LoadUint64(&s.meetReceived),
 	}
 }
 
@@ -61,6 +64,12 @@ func (s *busStats) incrPongReceived() {
 func (s *busStats) incrMeetSent() {
 	if s != nil {
 		atomic.AddUint64(&s.meetSent, 1)
+	}
+}
+
+func (s *busStats) incrMeetReceived() {
+	if s != nil {
+		atomic.AddUint64(&s.meetReceived, 1)
 	}
 }
 

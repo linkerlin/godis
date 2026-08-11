@@ -45,32 +45,46 @@ func init() {
 	RegisterCmd(migrationChangeRouteCommand, execMigrationChangeRoute)
 }
 
-// execJoin handles cluster-join command as raft leader
-// format: cluster-join redisAddress(advertised), raftAddress, masterId
-func execJoin(cluster *Cluster, c redis.Connection, cmdLine CmdLine) redis.Reply {
-	if len(cmdLine) < 3 {
-		return protocol.MakeArgNumErrReply(joinClusterCommand)
+// doClusterJoin applies a topology join (AddToRaft+EventJoin, or FSM-only ApplyLocal).
+// locallyApplied is true when this node performed the join; false when forwarded to leader.
+// Callers own CLUSTER INFO bus counters (meet_sent vs meet_received).
+func doClusterJoin(cluster *Cluster, redisAddr, raftAddr, master string) (reply redis.Reply, locallyApplied bool) {
+	if cluster == nil || cluster.raftNode == nil {
+		return protocol.MakeErrReply("ERR This instance has cluster support disabled"), false
 	}
+
+	// FSM-only stubs (unit tests): topology join without Hashicorp Raft.
+	if !cluster.raftNode.RaftReady() {
+		if cluster.raftNode.FSM == nil {
+			return protocol.MakeErrReply("ERR cluster.join requires Raft FSM"), false
+		}
+		cluster.raftNode.ApplyLocal(&raft.LogEntry{
+			Event: raft.EventJoin,
+			JoinTask: &raft.JoinTask{
+				NodeId: redisAddr,
+				Master: master,
+			},
+		})
+		return protocol.MakeOkReply(), true
+	}
+
 	state := cluster.raftNode.State()
 	if state != raft.Leader {
-		// I am not leader, forward request to leader
 		leaderConn, err := cluster.BorrowLeaderClient()
 		if err != nil {
-			return protocol.MakeErrReply(err.Error())
+			return protocol.MakeErrReply(err.Error()), false
 		}
 		defer cluster.connections.ReturnPeerClient(leaderConn)
-		return leaderConn.Send(cmdLine)
+		cmd := utils.ToCmdLine(joinClusterCommand, redisAddr, raftAddr)
+		if master != "" {
+			cmd = append(cmd, []byte(master))
+		}
+		return leaderConn.Send(cmd), false
 	}
-	// self node is leader
-	redisAddr := string(cmdLine[1])
-	raftAddr := string(cmdLine[2])
+
 	err := cluster.raftNode.AddToRaft(redisAddr, raftAddr)
 	if err != nil {
-		return protocol.MakeErrReply(err.Error())
-	}
-	master := ""
-	if len(cmdLine) == 4 {
-		master = string(cmdLine[3])
+		return protocol.MakeErrReply(err.Error()), false
 	}
 	_, err = cluster.raftNode.Propose(&raft.LogEntry{
 		Event: raft.EventJoin,
@@ -81,11 +95,29 @@ func execJoin(cluster *Cluster, c redis.Connection, cmdLine CmdLine) redis.Reply
 	})
 	if err != nil {
 		// todo: remove the node from raft
-		return protocol.MakeErrReply(err.Error())
+		return protocol.MakeErrReply(err.Error()), false
 	}
+	return protocol.MakeOkReply(), true
+}
 
-	// join sucees, rebalance node
-	return protocol.MakeOkReply()
+// execJoin handles peer RPC cluster.join (Raft path used by CLUSTER MEET).
+// format: cluster.join redisAddress(advertised) raftAddress [masterId]
+// Local success maps to CLUSTER INFO meet_received (not gossip bus frames).
+func execJoin(cluster *Cluster, c redis.Connection, cmdLine CmdLine) redis.Reply {
+	if len(cmdLine) < 3 {
+		return protocol.MakeArgNumErrReply(joinClusterCommand)
+	}
+	redisAddr := string(cmdLine[1])
+	raftAddr := string(cmdLine[2])
+	master := ""
+	if len(cmdLine) >= 4 {
+		master = string(cmdLine[3])
+	}
+	reply, local := doClusterJoin(cluster, redisAddr, raftAddr, master)
+	if local && !protocol.IsErrorReply(reply) {
+		cluster.bus.incrMeetReceived()
+	}
+	return reply
 }
 
 // execClusterMeet is the user-facing CLUSTER MEET ip port [raft-port].
@@ -142,7 +174,8 @@ func execClusterMeet(cluster *Cluster, c redis.Connection, cmdLine CmdLine) redi
 		if raftAddr == "" {
 			return protocol.MakeErrReply("ERR CLUSTER MEET requires raft-port (Godis uses Raft advertise, not gossip). Usage: CLUSTER MEET ip port raft-port")
 		}
-		reply := execJoin(cluster, c, utils.ToCmdLine(joinClusterCommand, redisAddr, raftAddr))
+		// Initiator: meet_sent only. Peer accepting cluster.join bumps meet_received.
+		reply, _ := doClusterJoin(cluster, redisAddr, raftAddr, "")
 		if !protocol.IsErrorReply(reply) {
 			cluster.bus.incrMeetSent()
 		}

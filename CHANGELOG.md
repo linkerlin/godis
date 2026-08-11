@@ -32,12 +32,13 @@
 
 ### Added
 
+- Gossip 缝（非 bus）：`cluster.join` 本地成功 → `CLUSTER INFO` **`cluster_stats_messages_meet_received`**（与发起侧 `meet_sent` 分计）；`cluster_bus_port` 仍为 **0**
 - 官方模块 RDB/DUMP **边界诚实化**：`RESTORE` 拒绝 `typeModule`/`typeModule2` 标记（明确 ERR）；`LoadRDB` 遇 `ModuleTypeObject` **中止并 ERR**（不再静默丢键）；合成负向测 + `docs/COMPATIBILITY.md`「官方模块 RDB/DUMP 边界」（**不**宣称互通）
 - `FUNCTION RESTORE`：**官方 FUNCTION DUMP 边界**——显式拒绝 Redis `0xF5`/`0xF6` 与 `REDIS####` 头（拒绝先于 FLUSH；负向测+`docs/COMPATIBILITY.md`）；**禁止假互通**
 - INFO/MEMORY **内存核算 / jemalloc 边界**：专节文档 + 负向测试锁定 `mem_allocator:go`、MALLOC-STATS 不伪造 arena、`jemalloc-bg-thread` 桩不改 allocator；**不**实现 jemalloc（`used_memory*` 仍为 Go runtime / 进程估账）
 - R4-1：用例表扩 **Stream/Geo/Bitops/HLL lite**（显式 XADD/XLEN、GEOADD/ZCARD、SETBIT/GETBIT/BITCOUNT/BITOP、PFADD/PFCOUNT）；驱动支持 `@skip`/`@todo`；文档 **「R4-1 套件边界」**（sidecar≠官方全量 Test）
 - `CLUSTER REPLICATE`/`FORGET`：**接 FSM**（MasterSlaves / EventForget 安全清理；**非** Redis gossip bus）
-- `CLUSTER INFO`：ping/pong/meet 等消息计数映射内部 **heartbeat/MEET RPC**（`cluster_bus_port:0`；不宣称完整 gossip）
+- `CLUSTER INFO`：ping/pong/meet 等消息计数映射内部 **heartbeat/MEET/`cluster.join` RPC**（`cluster_bus_port:0`；**meet_received** 接本地 apply 成功；不宣称完整 gossip）
 - R4-1：**用例表** `scripts/r4-1-cases.txt` 驱动 sidecar 比对；扩 **Set/ZSet/TTL**（SADD/SCARD/SISMEMBER/SREM、ZADD/ZSCORE/ZCARD/ZREM、TTL/PTTL/PEXPIRE/EXPIRE/PERSIST）；失败多行 FAIL；诚实标注非 FT/模块/DUMP/集群全量
 - BM25：**IDF 稀有词优先**与**多 TEXT 字段加权求和**可验；**`BM25STD_TANH_FACTOR Y`**（非法 factor→ERR）
 - KNN：**`$YIELD_DISTANCE_AS`** 属性块；**HYBRID_POLICY**∈{ADHOC_BF,BATCHES} 校验；空预过滤→0；预过滤路径贯通 DIALECT/GEOSHAPE
