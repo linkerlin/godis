@@ -6,6 +6,9 @@
 
 ### Added
 
+- BM25：**IDF 稀有词优先**与**多 TEXT 字段加权求和**可验；**`BM25STD_TANH_FACTOR Y`**（非法 factor→ERR）
+- KNN：**`$YIELD_DISTANCE_AS`** 属性块；**HYBRID_POLICY**∈{ADHOC_BF,BATCHES} 校验；空预过滤→0；预过滤路径贯通 DIALECT/GEOSHAPE
+- DIALECT：D1 拒绝 **tag 空格**与 **`@f1|f2`**（防 fallback 吞错）；比较/`ismissing`/GEOSHAPE 更具体 ERR
 - R4-1 allowlist 扩 **Hash/List** 安全命令：HSET/HGET/HLEN/HEXISTS/HDEL、LPUSH/LLEN/LINDEX/LPOP；两侧统一 `redis-cli --raw`；自检列出完整 allowlist
 - FT **DIALECT/KNN 边界错误路径**可测：非法 DIALECT；缺 PARAMS；非 VECTOR 字段；dim 不符；残缺 KNN 子句；`SplitKNNClause` 单元（`No such parameter` 文案对齐）
 - R4-1 allowlist 再扩安全样例：ECHO/STRLEN/APPEND/DECR；`.sh`/`.ps1` + `--selfcheck`/自检文案同步
