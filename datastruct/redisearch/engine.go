@@ -547,6 +547,9 @@ func (e *RediSearchEngine) Search(query string, opts *SearchOptions) (*SearchRes
 		noStop = opts.NoStopWords
 	}
 	sc := e.buildScoreContext(query, CollectOptionalTerms(node), queryPayload, verbatim, noStop)
+	if opts != nil && opts.BM25STDTanhFactor > 0 {
+		sc.tanhFactor = opts.BM25STDTanhFactor
+	}
 
 	results := make([]*SearchResult, 0, len(docIDs))
 	for _, docID := range docIDs {
@@ -748,6 +751,9 @@ type SearchOptions struct {
 	// Also: TFIDF, TFIDF.DOCNORM, DISMAX, DOCSCORE, HAMMING, BM25 (deprecated
 	// alias of BM25STD), BM25STD.NORM, BM25STD.TANH.
 	Scorer string
+	// BM25STDTanhFactor is the divisor for BM25STD.TANH (tanh(raw/factor)).
+	// Zero means the Redis default of 4. Set via FT.SEARCH BM25STD_TANH_FACTOR.
+	BM25STDTanhFactor float64
 	// Payload carries the FT.SEARCH PAYLOAD value used by the HAMMING scorer.
 	Payload []byte
 	// Params carries FT.SEARCH PARAMS name→value bindings, used by GEOSHAPE

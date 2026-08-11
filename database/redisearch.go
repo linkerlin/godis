@@ -2,6 +2,7 @@ package database
 
 import (
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 	"sync"
@@ -795,6 +796,17 @@ func execFTSearch(db *DB, args [][]byte) redis.Reply {
 				return protocol.MakeSyntaxErrReply()
 			}
 			opts.Scorer = strings.ToUpper(string(args[i+1]))
+			i++
+		case "BM25STD_TANH_FACTOR":
+			// Per-query divisor for SCORER BM25STD.TANH (default 4).
+			if i+1 >= len(args) {
+				return protocol.MakeSyntaxErrReply()
+			}
+			f, err := strconv.ParseFloat(string(args[i+1]), 64)
+			if err != nil || f <= 0 || math.IsNaN(f) || math.IsInf(f, 0) {
+				return protocol.MakeErrReply("ERR Invalid BM25STD_TANH_FACTOR value")
+			}
+			opts.BM25STDTanhFactor = f
 			i++
 		case "PARAMS":
 			// PARAMS count name value [name value ...] — count is the total

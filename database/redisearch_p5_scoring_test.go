@@ -144,6 +144,106 @@ func TestP5BM25STDTanh(t *testing.T) {
 	}
 }
 
+// TestP5BM25IDF verifies corpus IDF: a rarer term outranks a common term when
+// TF and document length are equal (same single-token docs). Guards the
+// idf(t)=ln((N-df+0.5)/(df+0.5)+1) path against a flat/zero IDF regression.
+func TestP5BM25IDF(t *testing.T) {
+	db := makeTestDB()
+	asserts.AssertStatusReply(t, db.Exec(nil, utils.ToCmdLine(
+		"FT.CREATE", "p5idf", "SCHEMA", "t", "TEXT", "NOSTEM",
+	)), "OK")
+	// "zebra" df=1; "apple" df=3. Equal length (1 token) for every doc.
+	for _, kv := range []struct{ id, body string }{
+		{"p5idf:rare", "zebra"},
+		{"p5idf:a1", "apple"},
+		{"p5idf:a2", "apple"},
+		{"p5idf:a3", "apple"},
+	} {
+		if r := db.Exec(nil, utils.ToCmdLine("FT.ADD", "p5idf", kv.id, "SCORE", "1.0", "FIELDS", "t", kv.body)); protocol.IsErrorReply(r) {
+			t.Fatalf("add %s: %s", kv.id, r.ToBytes())
+		}
+	}
+	// OR query so both rare and common docs are candidates; BM25 ranks by IDF.
+	r := db.Exec(nil, utils.ToCmdLine(
+		"FT.SEARCH", "p5idf", "zebra | apple", "WITHSCORES", "SCORER", "BM25STD", "NOCONTENT", "DIALECT", "1",
+	))
+	ids := ftSearchIDs(t, r)
+	if len(ids) < 2 {
+		t.Fatalf("want >=2 hits, got %v (%s)", ids, r.ToBytes())
+	}
+	if ids[0] != "p5idf:rare" {
+		t.Fatalf("rarer term (zebra) should rank first, got %v scores=%v", ids, ftSearchScores(t, r))
+	}
+}
+
+// TestP5BM25MultiFieldAgg verifies BM25 sums weighted per-field contributions:
+// a doc with the term in two TEXT fields outranks a doc with the term in only one
+// (same WEIGHT, same TF per field, similar length).
+func TestP5BM25MultiFieldAgg(t *testing.T) {
+	db := makeTestDB()
+	asserts.AssertStatusReply(t, db.Exec(nil, utils.ToCmdLine(
+		"FT.CREATE", "p5mf", "SCHEMA",
+		"title", "TEXT", "WEIGHT", "2.0", "NOSTEM",
+		"body", "TEXT", "WEIGHT", "2.0", "NOSTEM",
+	)), "OK")
+	if r := db.Exec(nil, utils.ToCmdLine("FT.ADD", "p5mf", "p5mf:both", "SCORE", "1.0", "FIELDS",
+		"title", "golang", "body", "golang")); protocol.IsErrorReply(r) {
+		t.Fatalf("add both: %s", r.ToBytes())
+	}
+	if r := db.Exec(nil, utils.ToCmdLine("FT.ADD", "p5mf", "p5mf:one", "SCORE", "1.0", "FIELDS",
+		"title", "golang", "body", "other")); protocol.IsErrorReply(r) {
+		t.Fatalf("add one: %s", r.ToBytes())
+	}
+	r := db.Exec(nil, utils.ToCmdLine(
+		"FT.SEARCH", "p5mf", "golang", "WITHSCORES", "SCORER", "BM25STD", "NOCONTENT",
+	))
+	ids := ftSearchIDs(t, r)
+	if len(ids) < 2 {
+		t.Fatalf("want 2 hits, got %v (%s)", ids, r.ToBytes())
+	}
+	if ids[0] != "p5mf:both" {
+		t.Fatalf("multi-field aggregate should rank 'both' first, got %v scores=%v", ids, ftSearchScores(t, r))
+	}
+	scores := ftSearchScores(t, r)
+	if len(scores) >= 2 && scores[0] <= scores[1] {
+		t.Fatalf("both-fields score should exceed one-field; scores=%v", scores)
+	}
+}
+
+// TestP5BM25STDTanhFactor verifies BM25STD_TANH_FACTOR Y changes
+// tanh(raw/Y) vs the default factor 4 (smaller Y → larger tanh score for raw>0).
+func TestP5BM25STDTanhFactor(t *testing.T) {
+	db := makeTestDB()
+	asserts.AssertStatusReply(t, db.Exec(nil, utils.ToCmdLine(
+		"FT.CREATE", "p5tf", "SCHEMA", "t", "TEXT",
+	)), "OK")
+	if r := db.Exec(nil, utils.ToCmdLine("FT.ADD", "p5tf", "p5tf:1", "SCORE", "1.0", "FIELDS", "t", "golang")); protocol.IsErrorReply(r) {
+		t.Fatalf("add: %s", r.ToBytes())
+	}
+	def := ftSearchScores(t, db.Exec(nil, utils.ToCmdLine(
+		"FT.SEARCH", "p5tf", "golang", "WITHSCORES", "SCORER", "BM25STD.TANH", "NOCONTENT",
+	)))
+	small := ftSearchScores(t, db.Exec(nil, utils.ToCmdLine(
+		"FT.SEARCH", "p5tf", "golang", "WITHSCORES", "SCORER", "BM25STD.TANH",
+		"BM25STD_TANH_FACTOR", "1", "NOCONTENT",
+	)))
+	if len(def) != 1 || len(small) != 1 {
+		t.Fatalf("want 1 hit each, got def=%v small=%v", def, small)
+	}
+	if small[0] <= def[0] {
+		t.Fatalf("factor=1 should yield larger tanh than default 4; def=%v small=%v", def[0], small[0])
+	}
+	if small[0] >= 1 {
+		t.Fatalf("tanh still in (0,1), got %v", small[0])
+	}
+	bad := db.Exec(nil, utils.ToCmdLine(
+		"FT.SEARCH", "p5tf", "golang", "SCORER", "BM25STD.TANH", "BM25STD_TANH_FACTOR", "0", "NOCONTENT",
+	))
+	if !protocol.IsErrorReply(bad) || !strings.Contains(string(bad.ToBytes()), "BM25STD_TANH_FACTOR") {
+		t.Fatalf("factor 0 want ERR, got %s", bad.ToBytes())
+	}
+}
+
 // TestP5BM25STDNormMinMax verifies BM25STD.NORM rescales the full hit set to
 // [0,1] via min-max (not the old x/(1+x) approximation).
 func TestP5BM25STDNormMinMax(t *testing.T) {
