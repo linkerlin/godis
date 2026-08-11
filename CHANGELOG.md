@@ -6,6 +6,11 @@
 
 ### Fixed
 
+- `BLMPOP`：无 `COUNT` 时最少 4 参（`timeout numkeys key LEFT|RIGHT`）不再误报 arity（对齐 Redis；此前 `len<5` 拒掉合法调用）
+- 阻塞超时：`BLPOP`/`BRPOP`/`BLMOVE`/`BLMPOP`/`BZPOP*`/`BZMPOP`/`BRPOPLPUSH` 负超时 → `ERR timeout is negative`；`inf`/溢出 → `ERR timeout is out of range`；非法/`nan` → `ERR timeout is not a float or out of range`
+- `ZADD`：`NX`+`GT`/`LT`、`GT`+`LT` → `ERR GT, LT, and/or NX options…`；`XX`+`NX` → `ERR XX and NX options…`（对齐 Redis；此前误接受或仅 `syntax error`）
+- `PFADD`：允许仅 key（arity -2）；新建空 HLL 返回 `1`（对齐 Redis）
+- `INCRBYFLOAT`/`HINCRBYFLOAT`：键/字段值为 `nan`、增量 `nan`/`inf` 的 ERR 文案与 Redis 8.10 对齐
 - `SPOP`/`LPOP`/`RPOP`/`ZPOPMIN|MAX`：`count=0` 返回空数组且不改键（对齐 Redis）；此前误报 `must be positive`，且 `ZPOPMIN count=0` 因 skiplist `limit=0` 表示无限而误弹成员
 - `ZMPOP`/`LMPOP`：`COUNT 0`（及非正）→ `ERR count should be greater than 0`（对齐 Redis；不同于 ZPOP* 空数组语义）
 - `TYPE`：扩展类型对齐 Redis 模块名（`ReJSON-RL` / `TSDB-TYPE` / `MBbloom--` / `MBbloomCF` / `CMSk-TYPE` / `TopK-TYPE` / `TDIS-TYPE` / `vectorset` / `search-ft`）；此前返回 `ERR unknown`

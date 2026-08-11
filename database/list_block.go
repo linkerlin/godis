@@ -1,6 +1,7 @@
 package database
 
 import (
+	"math"
 	"runtime"
 	"strconv"
 	"strings"
@@ -12,6 +13,26 @@ import (
 	"github.com/linkerlin/godis/lib/utils"
 	"github.com/linkerlin/godis/redis/protocol"
 )
+
+// parseBlockTimeout parses BLPOP/BRPOP/BLMPOP/BZPOP*/BZMPOP/BRPOPLPUSH timeout
+// (seconds, float). Aligns Redis: negative vs NaN/parse vs Inf/overflow.
+func parseBlockTimeout(arg []byte) (time.Duration, redis.Reply) {
+	timeoutSec, err := strconv.ParseFloat(string(arg), 64)
+	if err != nil || math.IsNaN(timeoutSec) {
+		return 0, protocol.MakeErrReply("ERR timeout is not a float or out of range")
+	}
+	if timeoutSec < 0 {
+		return 0, protocol.MakeErrReply("ERR timeout is negative")
+	}
+	if math.IsInf(timeoutSec, 0) {
+		return 0, protocol.MakeErrReply("ERR timeout is out of range")
+	}
+	d := time.Duration(timeoutSec * float64(time.Second))
+	if timeoutSec > 0 && d <= 0 {
+		return 0, protocol.MakeErrReply("ERR timeout is out of range")
+	}
+	return d, nil
+}
 
 // Blocking waiters: signal + retry. Commands manage their own key locks (noPrepare).
 var (
@@ -312,11 +333,10 @@ func execBlockingListPop(db *DB, args [][]byte, left bool) redis.Reply {
 	if len(args) < 2 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for '" + cmd + "' command")
 	}
-	timeoutSec, err := strconv.ParseFloat(string(args[len(args)-1]), 64)
-	if err != nil || timeoutSec < 0 {
-		return protocol.MakeErrReply("ERR timeout is not a float or out of range")
+	timeout, errReply := parseBlockTimeout(args[len(args)-1])
+	if errReply != nil {
+		return errReply
 	}
-	timeout := time.Duration(timeoutSec * float64(time.Second))
 	keys := make([]string, len(args)-1)
 	for i := 0; i < len(args)-1; i++ {
 		keys[i] = string(args[i])
@@ -348,11 +368,10 @@ func execBLMove(db *DB, args [][]byte) redis.Reply {
 	source := string(args[0])
 	srcSide := strings.ToUpper(string(args[2]))
 	dstSide := strings.ToUpper(string(args[3]))
-	timeoutSec, err := strconv.ParseFloat(string(args[4]), 64)
-	if err != nil || timeoutSec < 0 {
-		return protocol.MakeErrReply("ERR timeout is not a float or out of range")
+	timeout, errReply := parseBlockTimeout(args[4])
+	if errReply != nil {
+		return errReply
 	}
-	timeout := time.Duration(timeoutSec * float64(time.Second))
 	if srcSide != "LEFT" && srcSide != "RIGHT" {
 		return protocol.MakeSyntaxErrReply()
 	}
@@ -507,20 +526,21 @@ func execLMPop(db *DB, args [][]byte) redis.Reply {
 // execBLMPop is the blocking version of LMPop
 // BLMPOP timeout numkeys key [key ...] LEFT|RIGHT [COUNT count]
 func execBLMPop(db *DB, args [][]byte) redis.Reply {
-	if len(args) < 5 {
+	// Minimum without COUNT: timeout numkeys key LEFT|RIGHT → 4 args.
+	if len(args) < 4 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'blmpop' command")
 	}
-	timeoutSec, err := strconv.ParseFloat(string(args[0]), 64)
-	if err != nil || timeoutSec < 0 {
-		return protocol.MakeErrReply("ERR timeout is not a float or out of range")
+	timeout, errReply := parseBlockTimeout(args[0])
+	if errReply != nil {
+		return errReply
 	}
-	timeout := time.Duration(timeoutSec * float64(time.Second))
 
 	numKeys, err := strconv.Atoi(string(args[1]))
 	if err != nil || numKeys < 1 {
 		return protocol.MakeErrReply("ERR value is not an integer or out of range")
 	}
-	if len(args) < 2+numKeys {
+	// Need numkeys keys + LEFT|RIGHT after timeout/numkeys.
+	if len(args) < 3+numKeys {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'blmpop' command")
 	}
 	keys := make([]string, numKeys)

@@ -17,9 +17,9 @@ import (
 // string path, and the encoding is byte-compatible with Redis HLLs.
 
 // execPFAdd adds elements to a HyperLogLog
-// PFADD key element [element ...]
+// PFADD key [element ...] — Redis arity -2 (key alone creates empty HLL → 1).
 func execPFAdd(db *DB, args [][]byte) redis.Reply {
-	if len(args) < 2 {
+	if len(args) < 1 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'pfadd' command")
 	}
 
@@ -52,14 +52,9 @@ func execPFAdd(db *DB, args [][]byte) redis.Reply {
 		}
 	}
 
-	// Persist the updated registers: a new key is created even when no element
-	// was added (empty HLL), and an existing key is written back whenever any
-	// register changed.
+	// Persist when registers change, or when creating a new (possibly empty) HLL.
 	if isNew || added {
 		db.PutEntity(key, &database.DataEntity{Data: h.Encode()})
-	}
-
-	if added {
 		db.addAof(utils.ToCmdLine3("pfadd", args...))
 		return protocol.MakeIntReply(1)
 	}

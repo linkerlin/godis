@@ -460,8 +460,11 @@ func execHIncrByFloat(db *DB, args [][]byte) redis.Reply {
 	field := string(args[1])
 	rawDelta := string(args[2])
 	delta, err := strconv.ParseFloat(rawDelta, 64)
-	if err != nil {
+	if err != nil || math.IsNaN(delta) {
 		return protocol.MakeErrReply("ERR value is not a valid float")
+	}
+	if math.IsInf(delta, 0) {
+		return protocol.MakeErrReply("ERR value is NaN or Infinity")
 	}
 
 	// get or init entity
@@ -472,17 +475,14 @@ func execHIncrByFloat(db *DB, args [][]byte) redis.Reply {
 
 	value, exists := dict.Get(field)
 	if !exists {
-		if math.IsNaN(delta) || math.IsInf(delta, 0) {
-			return protocol.MakeErrReply("ERR increment would produce NaN or Infinity")
-		}
 		dict.Put(field, args[2])
 		db.addAof(utils.ToCmdLine3("hincrbyfloat", args...))
-	notifyKeyspaceEvent(db, "hincrby", key)
+		notifyKeyspaceEvent(db, "hincrby", key)
 		reindexHash(db, key)
 		return protocol.MakeDoubleReply(delta)
 	}
 	val, err := strconv.ParseFloat(string(value.([]byte)), 64)
-	if err != nil {
+	if err != nil || math.IsNaN(val) {
 		return protocol.MakeErrReply("ERR hash value is not a float")
 	}
 	result := val + delta

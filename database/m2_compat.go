@@ -178,11 +178,10 @@ func execBRPopLPush(db *DB, args [][]byte) redis.Reply {
 	if len(args) != 3 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'brpoplpush' command")
 	}
-	timeoutSec, err := strconv.ParseFloat(string(args[2]), 64)
-	if err != nil || timeoutSec < 0 {
-		return protocol.MakeErrReply("ERR timeout is not a float or out of range")
+	timeout, errReply := parseBlockTimeout(args[2])
+	if errReply != nil {
+		return errReply
 	}
-	timeout := time.Duration(timeoutSec * float64(time.Second))
 	source := string(args[0])
 	lockKeys := []string{source, string(args[1])}
 	for {

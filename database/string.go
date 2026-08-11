@@ -528,8 +528,11 @@ func execIncrByFloat(db *DB, args [][]byte) redis.Reply {
 	key := string(args[0])
 	rawDelta := string(args[1])
 	delta, err := strconv.ParseFloat(rawDelta, 64)
-	if err != nil || math.IsNaN(delta) || math.IsInf(delta, 0) {
+	if err != nil || math.IsNaN(delta) {
 		return protocol.MakeErrReply("ERR value is not a valid float")
+	}
+	if math.IsInf(delta, 0) {
+		return protocol.MakeErrReply("ERR increment would produce NaN or Infinity")
 	}
 
 	bytes, errReply := db.getAsString(key)
@@ -538,7 +541,8 @@ func execIncrByFloat(db *DB, args [][]byte) redis.Reply {
 	}
 	if bytes != nil {
 		val, err := strconv.ParseFloat(string(bytes), 64)
-		if err != nil {
+		// Redis rejects stored NaN as invalid float; Inf is accepted until result check.
+		if err != nil || math.IsNaN(val) {
 			return protocol.MakeErrReply("ERR value is not a valid float")
 		}
 		result := val + delta

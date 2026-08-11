@@ -5,7 +5,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"time"
 
 	SortedSet "github.com/linkerlin/godis/datastruct/sortedset"
 	"github.com/linkerlin/godis/interface/database"
@@ -78,10 +77,10 @@ func execZAdd(db *DB, args [][]byte) redis.Reply {
 	}
 parsePairs:
 	if nx && xx {
-		return protocol.MakeSyntaxErrReply()
+		return protocol.MakeErrReply("ERR XX and NX options at the same time are not compatible")
 	}
-	if gt && lt {
-		return protocol.MakeSyntaxErrReply()
+	if gt && lt || nx && (gt || lt) {
+		return protocol.MakeErrReply("ERR GT, LT, and/or NX options at the same time are not compatible")
 	}
 	rest := args[i:]
 	if len(rest) == 0 || len(rest)%2 != 0 {
@@ -1158,11 +1157,10 @@ func execBlockingZPop(db *DB, args [][]byte, min bool) redis.Reply {
 	if len(args) < 2 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for '" + cmd + "' command")
 	}
-	timeoutSec, err := strconv.ParseFloat(string(args[len(args)-1]), 64)
-	if err != nil || timeoutSec < 0 {
-		return protocol.MakeErrReply("ERR timeout is not a float or out of range")
+	timeout, errReply := parseBlockTimeout(args[len(args)-1])
+	if errReply != nil {
+		return errReply
 	}
-	timeout := time.Duration(timeoutSec * float64(time.Second))
 	keys := make([]string, len(args)-1)
 	for i := 0; i < len(args)-1; i++ {
 		keys[i] = string(args[i])
@@ -1720,20 +1718,21 @@ func execZMPop(db *DB, args [][]byte) redis.Reply {
 // execBZMPop is the blocking version of ZMPop
 // BZMPOP timeout numkeys key [key ...] MIN|MAX [COUNT count]
 func execBZMPop(db *DB, args [][]byte) redis.Reply {
+	// Minimum without COUNT: timeout numkeys key MIN|MAX → 4 args.
 	if len(args) < 4 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'bzmpop' command")
 	}
-	timeoutSec, err := strconv.ParseFloat(string(args[0]), 64)
-	if err != nil || timeoutSec < 0 {
-		return protocol.MakeErrReply("ERR timeout is not a float or out of range")
+	timeout, errReply := parseBlockTimeout(args[0])
+	if errReply != nil {
+		return errReply
 	}
-	timeout := time.Duration(timeoutSec * float64(time.Second))
 
 	numKeys, err := strconv.Atoi(string(args[1]))
 	if err != nil || numKeys < 1 {
 		return protocol.MakeErrReply("ERR value is not an integer or out of range")
 	}
-	if len(args) < 2+numKeys {
+	// Need numkeys keys + MIN|MAX after timeout/numkeys.
+	if len(args) < 3+numKeys {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'bzmpop' command")
 	}
 	keys := make([]string, numKeys)
