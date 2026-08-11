@@ -118,6 +118,10 @@
 | OBJECT ENCODING int | ✅ 整数字符串报 `int` |
 | TYPE 扩展类型 | ✅ JSON/TS/Bloom/Cuckoo/CMS/TopK/TDigest/Vector/FT 索引对齐 Redis 模块 TYPE 名（非 `ERR unknown`） |
 | Pop count=0 | ✅ `SPOP`/`LPOP`/`RPOP`/`ZPOPMIN|MAX` 空数组且不改键；`ZMPOP`/`LMPOP` COUNT≤0 → `ERR count should be greater than 0` |
+| BLMPOP 无 COUNT | ✅ 最少 4 参合法；负超时分文案（`negative` / `out of range` / `not a float…`） |
+| ZADD 选项互斥 | ✅ `NX`+`GT`/`LT`、`GT`+`LT`、`XX`+`NX` ERR 文案对齐 Redis |
+| PFADD 仅 key | ✅ 创建空 HLL 返回 1（arity -2） |
+| INCRBYFLOAT NaN | ✅ 存值/`nan` 增量 / `inf` 增量 ERR 与 Redis 8.x 对齐（含 HINCRBYFLOAT） |
 | Lua error/status_reply | ✅ 及 setresp 记录版本 |
 | proto-max-bulk-len | ✅ 解析器读 CONFIG |
 | INFO clients_in_timeout_table | ✅ 对齐 blocked 等待者计数 |
@@ -281,4 +285,4 @@ UNWATCH、WAIT（简版）、BITOP、BITFIELD、SMOVE、LPOS、XCLAIM、SHUTDOWN
 
 ---
 
-**最后更新：** 2026-08-11（Pop `count=0` 对齐；`TYPE` 扩展类型模块名；R4-1 空集合删键断言；BITOP DIFF* 仍 `@todo`；远期仍 **7** + 可独立 **0**）
+**最后更新：** 2026-08-11（第四批可关闭：BLMPOP 无 COUNT arity、阻塞负超时文案、ZADD 选项互斥、PFADD 仅 key、INCRBYFLOAT/HINCRBYFLOAT NaN；对照 Redis **8.10.0**；远期仍 **7** + 可独立 **0**）
