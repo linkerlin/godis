@@ -477,6 +477,7 @@ func execFTCreate(db *DB, args [][]byte) redis.Reply {
 	if err := engine.CreateIndex(fields); err != nil {
 		return protocol.MakeErrReply(fmt.Sprintf("ERR %v", err))
 	}
+	engine.SetCreateArgs(args)
 
 	// Store engine
 	searchEnginesMu.Lock()

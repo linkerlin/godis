@@ -58,6 +58,10 @@ type RediSearchEngine struct {
 	indexAll      string
 	indexMissingAll bool
 
+	// createArgs is the FT.CREATE argument list (index name first) kept so AOF
+	// rewrite / GODIS opaque can replay a minimal index definition.
+	createArgs [][]byte
+
 	mu sync.RWMutex
 }
 
@@ -128,6 +132,31 @@ func (e *RediSearchEngine) SetSynonymExpander(expand func(term string) []string)
 // Name returns the engine name
 func (e *RediSearchEngine) Name() string {
 	return e.name
+}
+
+// SetCreateArgs stores a copy of the FT.CREATE args for persistence replay.
+func (e *RediSearchEngine) SetCreateArgs(args [][]byte) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.createArgs = cloneCmdArgs(args)
+}
+
+// CreateArgs returns a copy of the stored FT.CREATE args (nil if unset).
+func (e *RediSearchEngine) CreateArgs() [][]byte {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	return cloneCmdArgs(e.createArgs)
+}
+
+func cloneCmdArgs(args [][]byte) [][]byte {
+	if len(args) == 0 {
+		return nil
+	}
+	out := make([][]byte, len(args))
+	for i, a := range args {
+		out[i] = append([]byte(nil), a...)
+	}
+	return out
 }
 
 // CreateIndex creates the index with the given schema

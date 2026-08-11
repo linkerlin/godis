@@ -2,10 +2,12 @@ package aof
 
 import (
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/linkerlin/godis/datastruct/dict"
 	List "github.com/linkerlin/godis/datastruct/list"
+	"github.com/linkerlin/godis/datastruct/redisearch"
 	"github.com/linkerlin/godis/datastruct/set"
 	SortedSet "github.com/linkerlin/godis/datastruct/sortedset"
 	"github.com/linkerlin/godis/interface/database"
@@ -29,10 +31,31 @@ func EntityToCmd(key string, entity *database.DataEntity) *protocol.MultiBulkRep
 		cmd = hashToCmd(key, val)
 	case *SortedSet.SortedSet:
 		cmd = zSetToCmd(key, val)
+	case *redisearch.RediSearchEngine:
+		cmd = ftIndexToCmd(val)
 	default:
 		cmd = opaqueToCmd(key, entity)
 	}
 	return cmd
+}
+
+// ftIndexToCmd emits FT.CREATE from the engine's stored create args so pure AOF
+// rewrite can rebuild the index definition. SKIPINITIALSCAN is stripped so
+// replay backfills documents already present in the rewritten file.
+func ftIndexToCmd(engine *redisearch.RediSearchEngine) *protocol.MultiBulkReply {
+	args := engine.CreateArgs()
+	if len(args) == 0 {
+		return nil
+	}
+	out := make([][]byte, 0, len(args)+1)
+	out = append(out, []byte("FT.CREATE"))
+	for _, a := range args {
+		if strings.EqualFold(string(a), "SKIPINITIALSCAN") {
+			continue
+		}
+		out = append(out, a)
+	}
+	return protocol.MakeMultiBulkReply(out)
 }
 
 var setCmd = []byte("SET")

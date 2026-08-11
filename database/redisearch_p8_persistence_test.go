@@ -7,6 +7,7 @@ import (
 
 	"github.com/linkerlin/godis/aof"
 	"github.com/linkerlin/godis/config"
+	"github.com/linkerlin/godis/datastruct/redisearch"
 	"github.com/linkerlin/godis/lib/utils"
 	"github.com/linkerlin/godis/redis/connection"
 	"github.com/linkerlin/godis/redis/protocol"
@@ -76,3 +77,62 @@ func TestP8FTPersistence(t *testing.T) {
 		t.Fatalf("FT.DICTDUMP after restart should list terms, got %s", r.ToBytes())
 	}
 }
+
+// TestP8FTAofRewritePersistsIndexDef verifies pure AOF rewrite emits FT.CREATE
+// so an index definition survives rewrite + restart (minimal replayable path;
+// RDB / RDB-preamble still do not encode FT engines).
+func TestP8FTAofRewritePersistsIndexDef(t *testing.T) {
+	skipHeavyTests(t)
+	tmpFile, err := os.CreateTemp(config.GetTmpDir(), "ft-rewrite-*.aof")
+	if err != nil {
+		t.Fatal(err)
+	}
+	aofFilename := tmpFile.Name()
+	_ = tmpFile.Close()
+	defer os.Remove(aofFilename)
+
+	old := config.Properties
+	config.Properties = &config.ServerProperties{
+		Databases:         16,
+		AppendOnly:        true,
+		AppendFilename:    aofFilename,
+		AofUseRdbPreamble: false,
+		AppendFsync:       aof.FsyncAlways,
+	}
+	defer func() { config.Properties = old }()
+
+	writeSrv := MustNewStandaloneServer()
+	conn := connection.NewFakeConn()
+	asserts.AssertStatusReply(t, writeSrv.Exec(conn, utils.ToCmdLine(
+		"FT.CREATE", "rwidx", "ON", "HASH", "PREFIX", "1", "rw:", "SKIPINITIALSCAN", "SCHEMA", "t", "TEXT",
+	)), "OK")
+	asserts.AssertIntReply(t, writeSrv.Exec(conn, utils.ToCmdLine("HSET", "rw:1", "t", "rewritten")), 1)
+
+	ctx, err := writeSrv.persister.StartRewrite()
+	if err != nil {
+		t.Fatalf("StartRewrite: %v", err)
+	}
+	if err := writeSrv.persister.DoRewrite(ctx); err != nil {
+		t.Fatalf("DoRewrite: %v", err)
+	}
+	if err := writeSrv.persister.FinishRewrite(ctx); err != nil {
+		t.Fatalf("FinishRewrite: %v", err)
+	}
+	writeSrv.Close()
+
+	// Simulate cold restart: drop in-memory index registry before LoadAof.
+	searchEnginesMu.Lock()
+	searchEngines = make(map[string]*redisearch.RediSearchEngine)
+	searchEnginesMu.Unlock()
+	searchIndexMetaMu.Lock()
+	searchIndexMeta = make(map[string]*indexMeta)
+	searchIndexMetaMu.Unlock()
+
+	readSrv := MustNewStandaloneServer()
+	defer readSrv.Close()
+	r := readSrv.Exec(conn, utils.ToCmdLine("FT.SEARCH", "rwidx", "rewritten", "NOCONTENT"))
+	if !searchTotalIs(t, r, 1) {
+		t.Fatalf("after AOF rewrite restart: expected 1 hit, got %s", r.ToBytes())
+	}
+}
+
