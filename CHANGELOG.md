@@ -6,6 +6,7 @@
 
 ### Fixed
 
+- Stream **不完整 ID**（仅毫秒，如 `0`/`5`）按 Redis 解析为 `ms-0`：覆盖 `XADD`/`XGROUP CREATE`/`XRANGE`/`XREAD` 等；`XGROUP CREATE … MKSTREAM` 非法 ID 先校验、不残留空流；`XGROUP CREATECONSUMER` 缺键 ERR 文案对齐 Redis 8.10
 - `XREAD`/`XREADGROUP`：`COUNT ≤ 0` 视为不限制条数（对齐 Redis 8.10；此前误报 out of range）；`BLOCK` 负超时 → `ERR timeout is negative`，非法整数 → `ERR timeout is not an integer or out of range`
 - `SINTERCARD`：`LIMIT 0` 表示不限制（返回完整交集基数；对齐 Redis；此前误返回 0）
 - `XPENDING … IDLE`：接受负 IDLE（无有效过滤）；非法值 → `ERR value is not an integer or out of range`（对齐 Redis）

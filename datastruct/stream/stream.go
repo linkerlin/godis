@@ -53,7 +53,8 @@ func (sid StreamID) Compare(other StreamID) int {
 	return 0
 }
 
-// ParseStreamID 解析 "timestamp-sequence" 或 "timestamp-*" 格式的ID
+// ParseStreamID 解析流 ID。
+// Redis 接受完整 "ms-seq"、"ms-*"，以及仅毫秒时间戳 "ms"（等价 ms-0）。
 func ParseStreamID(s string, lastID StreamID) (StreamID, error) {
 	if s == "*" {
 		// 自动生成ID
@@ -61,6 +62,14 @@ func ParseStreamID(s string, lastID StreamID) (StreamID, error) {
 	}
 
 	parts := strings.Split(s, "-")
+	if len(parts) == 1 {
+		// Incomplete ID: milliseconds only → sequence 0 (Redis XADD/XGROUP/XRANGE/XREAD).
+		timestamp, err := strconv.ParseInt(parts[0], 10, 64)
+		if err != nil {
+			return StreamID{}, ErrInvalidStreamID
+		}
+		return StreamID{Timestamp: timestamp, Sequence: 0}, nil
+	}
 	if len(parts) != 2 {
 		return StreamID{}, ErrInvalidStreamID
 	}
@@ -78,6 +87,9 @@ func ParseStreamID(s string, lastID StreamID) (StreamID, error) {
 		} else {
 			sequence = 0
 		}
+	} else if parts[1] == "" {
+		// "6-" is invalid in Redis.
+		return StreamID{}, ErrInvalidStreamID
 	} else {
 		sequence, err = strconv.ParseInt(parts[1], 10, 64)
 		if err != nil {

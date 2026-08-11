@@ -580,6 +580,14 @@ func execXGroupCreate(db *DB, args [][]byte) redis.Reply {
 		}
 	}
 
+	// Validate start ID before MKSTREAM so a bad ID does not leave an empty stream
+	// (Redis: EXISTS=0 after CREATE … MKSTREAM with invalid id).
+	if startID != "$" {
+		if _, err := stream.ParseStreamID(startID, stream.StreamID{}); err != nil {
+			return protocol.MakeErrReply("ERR Invalid stream ID specified as stream command argument")
+		}
+	}
+
 	var s *stream.Stream
 	var errReply protocol.ErrorReply
 

@@ -18,6 +18,9 @@ func TestStreamID_Parse(t *testing.T) {
 		{"1234567890-*", StreamID{1234567890, 6}, false}, // 自动序列号
 		{"1234567891-*", StreamID{1234567891, 0}, false}, // 新时间戳
 		{"0-0", StreamID{0, 0}, false},                   // 特殊ID（消费者组起始）
+		{"0", StreamID{0, 0}, false},                     // Redis incomplete ID → 0-0
+		{"5", StreamID{5, 0}, false},                     // incomplete ms → ms-0
+		{"6-", StreamID{}, true},                         // trailing dash invalid
 		{"invalid", StreamID{}, true},                    // 格式错误
 	}
 	
