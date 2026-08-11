@@ -214,21 +214,16 @@ func parseExpireCondFlags(args [][]byte) (expireCondFlags, redis.Reply) {
 			return f, protocol.MakeSyntaxErrReply()
 		}
 	}
-	n := 0
-	if f.nx {
-		n++
+	// Redis 8: GT+LT incompatible; NX cannot combine with XX/GT/LT.
+	// XX+GT and XX+LT are allowed.
+	if f.gt && f.lt {
+		return f, protocol.MakeErrReply("ERR GT and LT options at the same time are not compatible")
 	}
-	if f.xx {
-		n++
+	if f.nx && f.xx {
+		return f, protocol.MakeErrReply("ERR NX and XX, GT or LT options at the same time are not compatible")
 	}
-	if f.gt {
-		n++
-	}
-	if f.lt {
-		n++
-	}
-	if n > 1 {
-		return f, protocol.MakeErrReply("ERR NX XX GT and LT options at the same time are not compatible")
+	if f.nx && (f.gt || f.lt) {
+		return f, protocol.MakeErrReply("ERR NX and XX, GT or LT options at the same time are not compatible")
 	}
 	return f, nil
 }

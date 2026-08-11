@@ -285,4 +285,4 @@ UNWATCH、WAIT（简版）、BITOP、BITFIELD、SMOVE、LPOS、XCLAIM、SHUTDOWN
 
 ---
 
-**最后更新：** 2026-08-11（第十批可关闭：缺键 LPOP/RPOP/SPOP 负 count、XADD/XTRIM MAXLEN≥0、HEXPIRE numFields 文案；对照 Redis **8.10.0**；远期仍 **7** + 可独立 **0**）
+**最后更新：** 2026-08-12（第十一批可关闭：EXPIRE 选项互斥允许 XX+GT/LT、XPENDING NOGROUP 与空 PEL 摘要形状；对照 Redis **8.10.0**；远期仍 **7** + 可独立 **0**）

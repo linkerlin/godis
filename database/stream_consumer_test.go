@@ -35,8 +35,8 @@ func TestStreamConsumerGroupWorkflow(t *testing.T) {
 	}
 
 	pending := db.Exec(nil, utils.ToCmdLine("XPENDING", key, "g1"))
-	if _, ok := pending.(*protocol.MultiBulkReply); !ok {
-		t.Fatalf("XPENDING summary: got %s", pending.ToBytes())
+	if _, ok := pending.(*protocol.MultiRawReply); !ok {
+		t.Fatalf("XPENDING summary: got %T %s", pending, pending.ToBytes())
 	}
 
 	detail := db.Exec(nil, utils.ToCmdLine("XPENDING", key, "g1", "0-0", entryID, "10"))
@@ -81,13 +81,11 @@ func TestStreamXReadGroupNoAck(t *testing.T) {
 	}
 
 	pending := db.Exec(nil, utils.ToCmdLine("XPENDING", key, "g"))
-	multi, ok := pending.(*protocol.MultiBulkReply)
-	if !ok {
-		t.Fatalf("XPENDING: got %s", pending.ToBytes())
+	multi, ok := pending.(*protocol.MultiRawReply)
+	if !ok || len(multi.Replies) < 1 {
+		t.Fatalf("XPENDING: got %T %s", pending, pending.ToBytes())
 	}
-	if string(multi.Args[0]) != "0" {
-		t.Fatalf("expected 0 pending with NOACK, got %s", pending.ToBytes())
-	}
+	asserts.AssertIntReply(t, multi.Replies[0], 0)
 }
 
 func TestStreamGroupConsumerLifecycle(t *testing.T) {

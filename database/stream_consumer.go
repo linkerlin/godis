@@ -653,12 +653,12 @@ func execXPending(db *DB, args [][]byte) redis.Reply {
 		return errReply
 	}
 	if s == nil {
-		return protocol.MakeEmptyMultiBulkReply()
+		return protocol.MakeErrReply("NOGROUP No such key '" + key + "' or consumer group '" + groupName + "'")
 	}
 
 	group, err := s.GetGroup(groupName)
 	if err != nil {
-		return protocol.MakeEmptyMultiBulkReply()
+		return protocol.MakeErrReply("NOGROUP No such key '" + key + "' or consumer group '" + groupName + "'")
 	}
 
 	// 简单模式：只返回统计信息
@@ -666,12 +666,12 @@ func execXPending(db *DB, args [][]byte) redis.Reply {
 		// 计算pending数量、最小ID、最大ID
 		count := len(group.Pending)
 		if count == 0 {
-			nullReply := &protocol.NullBulkReply{}
-			return protocol.MakeMultiBulkReply([][]byte{
-				[]byte("0"),
-				nullReply.ToBytes(),
-				nullReply.ToBytes(),
-				nullReply.ToBytes(),
+			// Redis: [0, null, null, null] — integer + three null bulks
+			return protocol.MakeMultiRawReply([]redis.Reply{
+				protocol.MakeIntReply(0),
+				&protocol.NullBulkReply{},
+				&protocol.NullBulkReply{},
+				&protocol.NullBulkReply{},
 			})
 		}
 
@@ -691,16 +691,18 @@ func execXPending(db *DB, args [][]byte) redis.Reply {
 		}
 
 		// 构建消费者列表
-		var consumerList [][]byte
+		consumerReplies := make([]redis.Reply, 0, len(consumers)*2)
 		for name, c := range consumers {
-			consumerList = append(consumerList, []byte(name), []byte(strconv.Itoa(c)))
+			consumerReplies = append(consumerReplies,
+				protocol.MakeBulkReply([]byte(name)),
+				protocol.MakeIntReply(int64(c)))
 		}
 
-		return protocol.MakeMultiBulkReply([][]byte{
-			[]byte(strconv.Itoa(count)),
-			[]byte(minID.String()),
-			[]byte(maxID.String()),
-			protocol.MakeMultiBulkReply(consumerList).ToBytes(),
+		return protocol.MakeMultiRawReply([]redis.Reply{
+			protocol.MakeIntReply(int64(count)),
+			protocol.MakeBulkReply([]byte(minID.String())),
+			protocol.MakeBulkReply([]byte(maxID.String())),
+			protocol.MakeMultiRawReply(consumerReplies),
 		})
 	}
 

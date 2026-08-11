@@ -6,6 +6,7 @@
 
 ### Fixed
 
+- `EXPIRE`/`PEXPIRE`/`EXPIREAT`/`PEXPIREAT`：选项互斥对齐 Redis 8——`GT`+`LT` 与 `NX`+`XX`/`NX`+`GT|LT` 分别报错；**允许** `XX`+`GT`/`XX`+`LT`。`XPENDING`：缺键/缺组 → `NOGROUP No such key '…' or consumer group '…'`；空 PEL 摘要为 `[0, null, null, null]`（对照 Redis 8.10）
 - 缺键时仍校验 `LPOP`/`RPOP`/`SPOP` 负 count（→ `must be positive`）；`XADD`/`XTRIM` `MAXLEN < 0` → `The MAXLEN argument must be >= 0.`；`HEXPIRE`/`HPEXPIRE` `FIELDS`：`numFields≤0` 无字段令牌 → wrong arity，有尾随令牌 → `Parameter \`numFields\` should be greater than 0`（对照 Redis 8.10）
 - `FAILOVER TIMEOUT`：`≤0` → `ERR FAILOVER timeout must be greater than 0`；非整数 → `ERR value is not an integer or out of range`；`WAIT` 负超时 → `timeout is negative`；`WAITAOF` numlocal/numreplicas/timeout 范围校验；keyspace `SCAN COUNT ≤0` → syntax error；`CLIENT KILL ID ≤0` → `client-id should be greater than 0`；`MEMORY USAGE SAMPLES <0` → syntax error；`OBJECT FREQ` 缺键先返回 null（对照 Redis 8.10）
 - `GEOADD` 非法经纬度 ERR 对齐 Redis：`%.6f,%.6f`；`SINTERCARD`/`ZINTERCARD` arity `-3`；`numkeys≤0` 文案（SINTERCARD→`numkeys should be greater than 0`，ZINTERCARD→`at least 1 input key…`）；`ZMPOP`/`LMPOP`/`BZMPOP`/`BLMPOP` 的 `numkeys≤0` → `ERR numkeys should be greater than 0`（对照 Redis 8.10）
