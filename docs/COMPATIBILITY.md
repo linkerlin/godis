@@ -190,7 +190,7 @@ UNWATCH、WAIT（简版）、BITOP、BITFIELD、SMOVE、LPOS、XCLAIM、SHUTDOWN
 |------------|--------------|------------------------|
 | jemalloc / 真 OS RSS | `used_memory`≈`MemStats.Alloc` 峰值 + per-key dataset；`mem_allocator:go`；`allocator_*`=`HeapAlloc`/`HeapSys`/`Sys`（**非** jemalloc arenas）；`MEMORY STATS` `allocator=go` + `process.rss` | RSS 优先真进程；**绝不**写 jemalloc |
 | 完整 Redis gossip bus | MEET→Raft/FSM join；**REPLICATE/FORGET 接 FSM**（非 gossip）；BUMPEPOCH=`BUMPED 0`；无 CLUSTERMSG 二进制 bus | **`cluster_bus_port:0`**；ping/pong/meet 计数映射内部 heartbeat/MEET RPC（非宣称已有 gossip bus）；RESET/SAVECONFIG/CLUSTER FAILOVER/真 epoch/`fail` 传播仍延期 |
-| 官方模块原生 RDB·DUMP 互通 | Stream/JSON/Vector/TS/概率结构/FT 走 Godis opaque `GODIS1` | RESTORE **拒绝矩阵**（截断/坏版本/坏 CRC/模块样/短载荷→ERR；文案标明非模块 RDB）；**不**与 Redis 模块 RDB 互通 |
+| 官方模块原生 RDB·DUMP 互通 | Stream/JSON/Vector/TS/概率结构/FT 走 Godis opaque `GODIS1`；见「官方模块 RDB/DUMP 边界」 | RESTORE / LoadRDB **明确 ERR**（模块 type 标记 / ModuleTypeObject）；**不**与 Redis 模块 RDB 互通；远期仍开放 |
 | FUNCTION DUMP 官方互通 | Godis `GODISFN1` 自洽；截断/异己二进制明确 ERR；兼旧文本 | 保持自洽；**不**伪造 Redis functions payload |
 | 完整 BM25 / 完整 KNN 方言 / 完整 DIALECT | BM25STD：WEIGHT + 文档长度 + **可测 IDF** + **多字段加权求和**；NORM min-max；**TANH + BM25STD_TANH_FACTOR**；KNN：`AS`/`$YIELD_DISTANCE_AS`、**HYBRID_POLICY** 校验、空预过滤；DIALECT 1/2/3 子集（GEOSHAPE≥3；**tag 空格/多字段 `@f1\|f2` 强制 ≥2**） | **非**论文级完整 BM25（无 slop 罚分进打分、无全局 NORM over collection 等）；非完整 KNN/DIALECT 4；见 REDISEARCH_ALIGNMENT |
 | ~~Vector 图内真 int8 距离~~ | **VADD Q8/BIN 真存储**；**BIN→图内 Hamming**；**Q8→图内 int8 距离**（无搜索态 f32 缓冲）；FT VECTOR 窄类型解码已有 | ✅ 2026-08-11 deep6；VEMB 仍可显示反量化近似 |
@@ -217,10 +217,22 @@ UNWATCH、WAIT（简版）、BITOP、BITFIELD、SMOVE、LPOS、XCLAIM、SHUTDOWN
 | `GODIS1\0` + JSON `{t,d}` | DUMP/RDB/AOF 扩展类型（stream/json/vector/ts/hexpire/bloom/cuckoo/cms/topk/tdigest/**ft**） | 仅 Godis↔Godis |
 | `GODISFN1` + 长度前缀库列表 | FUNCTION DUMP/RESTORE | 仅 Godis↔Godis（兼旧文本 RESTORE；截断 GODISFN1 / 异己二进制→ERR） |
 
+### 官方模块 RDB/DUMP 边界
+
+> **不支持、不伪造互通。** Godis 扩展类型（JSON / Vector / TS / 概率结构 / FT 索引定义等）只经自研 `GODIS1` opaque 往返；与 Redis 官方模块（ReJSON、RediSearch、RedisBloom…）的原生 RDB / `DUMP` 字节 **不** 双向兼容。
+
+| 路径 | 行为（诚实） |
+|------|----------------|
+| `RESTORE` | 识别 RDB `typeModule`/`typeModule2` 标记 → 明确 `ERR … module type …`；截断/坏版本/坏 CRC/异己样载荷 → `ERR DUMP payload version or checksum…`（文案标明非模块 RDB） |
+| `LoadRDB` / 启动读 `dump.rdb` | 解析到 `ModuleTypeObject` → **返回 error 中止加载**（不再静默丢弃该键） |
+| Godis 自写入 | 扩展类型编码为 string 载体上的 `GODIS1` opaque；**不是**官方模块 RDB type |
+
+负向测：`database/dump_test.go`（`TestRestoreRejectsOfficialModuleTypeMarkers` / `TestRestoreRejectsSyntheticModuleDUMP`）、`database/module_rdb_boundary_test.go`（`TestLoadRDBRejectsOfficialModuleType`）。合成字节夹具，不依赖下载 Redis。
+
 ## 测试
 
 - `go test ./...`；兼容批次测试见 `database/m2*_compat_test.go`、`m1_block_tx_bitmap_test.go` 等；RESP3 线格式见 `database/resp3_core_types_test.go`。
 
 ---
 
-**最后更新：** 2026-08-11（并入 r4-2-cover / r4-1-full / bm25-knn-dialect / gossip：R4-1 用例表+Set/ZSet/TTL、BM25/KNN/DIALECT 子集、REPLICATE/FORGET+heartbeat 计数、R4-2 观察式覆盖；远期仍 **7** + 可独立 **0**）
+**最后更新：** 2026-08-11（`compat/module-rdb-boundary`：官方模块 RDB/DUMP 边界诚实化 — LoadRDB/RESTORE 明确 ERR；远期仍 **7** + 可独立 **0**）

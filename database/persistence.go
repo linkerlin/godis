@@ -6,6 +6,7 @@ import (
 	"sync/atomic"
 
 	"github.com/hdt3213/rdb/core"
+	"github.com/hdt3213/rdb/model"
 	rdb "github.com/hdt3213/rdb/parser"
 	"github.com/linkerlin/godis/aof"
 	"github.com/linkerlin/godis/config"
@@ -46,8 +47,17 @@ func (server *Server) LoadRDB(dec *core.Decoder) error {
 		args    [][]byte
 	}
 	var pendingFTCreates []pendingFT
+	var moduleErr error
 
 	err := dec.Parse(func(o rdb.RedisObject) bool {
+		// Official Redis module RDB (typeModule2): refuse loudly — never silent drop.
+		if mo, ok := o.(*model.ModuleTypeObject); ok {
+			moduleErr = fmt.Errorf(
+				"RDB contains Redis module type %q (key=%q); Godis does not load official module RDB (extension types use Godis GODIS1 opaque only)",
+				mo.ModuleType, mo.GetKey(),
+			)
+			return false
+		}
 		db, err := server.selectDBSafe(o.GetDBIndex())
 		if err != nil {
 			logger.Warn(fmt.Sprintf("rdb: skip object key=%q db=%d: %v", o.GetKey(), o.GetDBIndex(), err))
@@ -121,6 +131,9 @@ func (server *Server) LoadRDB(dec *core.Decoder) error {
 		}
 		return true
 	})
+	if moduleErr != nil {
+		return moduleErr
+	}
 	if err != nil {
 		return err
 	}
