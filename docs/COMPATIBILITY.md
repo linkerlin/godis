@@ -10,7 +10,7 @@
 |------|----------|------|
 | RESP2/RESP3 协议 | 高 | HELLO 3、Push、客户端缓存、blob error `!`；核心命令双形 Map/Set/Double（见下节） |
 | String/List/Hash/Set/ZSet | 高 | 常用命令齐全；List/ZSet **阻塞命令真阻塞** |
-| Stream / Bitmap / Geo | 中–高 | XCLAIM/XAUTOCLAIM/BITOP/BITFIELD；**XREAD BLOCK 真阻塞**；Stream 范围操作 O(log n)；`MAXLEN 0`/`LIMIT` 仅配 `~` 对齐 Redis |
+| Stream / Bitmap / Geo | 中–高 | XCLAIM/XAUTOCLAIM/BITOP/BITFIELD；**XREAD BLOCK 真阻塞**；`COUNT≤0`=不限；BLOCK 负/非法分文案；Stream 范围操作 O(log n)；`MAXLEN 0`/`LIMIT` 仅配 `~` 对齐 Redis |
 | FAILOVER | ✅ 真实协调切换 | TO/FORCE/ABORT/TIMEOUT、复制流注入 REPLCONF FAILOVER、从库自提升+原主降级；见 [`FAILOVER_DESIGN.md`](FAILOVER_DESIGN.md) |
 | JSON / Vector / Time Series | 中–高 | 子集 + 持续补全；Vector 保留 VS* 与 Redis 名双名 |
 | RediSearch (FT.*) | 中–高 | Phase A/B：初始扫描、STOPWORDS、同义词、内联 GEO、AGGREGATE WITHCURSOR/APPLY；见下文 |
@@ -285,4 +285,4 @@ UNWATCH、WAIT（简版）、BITOP、BITFIELD、SMOVE、LPOS、XCLAIM、SHUTDOWN
 
 ---
 
-**最后更新：** 2026-08-11（第五批可关闭：HEXPIRE/HPEXPIRE TTL=0、XADD/XTRIM LIMIT 需 `~`、MAXLEN 0、单机 CLUSTER disabled；对照 Redis **8.10.0**；远期仍 **7** + 可独立 **0**）
+**最后更新：** 2026-08-11（第六批可关闭：XREAD/XREADGROUP COUNT≤0 与 BLOCK 文案、SINTERCARD LIMIT 0、XPENDING IDLE、SELECT/SWAPDB/FCALL/RESTORE FREQ/HELLO WRONGPASS；对照 Redis **8.10.0**；远期仍 **7** + 可独立 **0**）

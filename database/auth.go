@@ -318,7 +318,7 @@ func HelloWithRole(c redis.Connection, args [][]byte, role string) redis.Reply {
 		if _, ok := reply.(*protocol.OkReply); !ok {
 			if errReply, isErr := reply.(*protocol.StandardErrReply); isErr {
 				if strings.HasPrefix(errReply.Status, "ERR invalid") {
-					return protocol.MakeErrReply("WRONGPASS invalid username-password pair")
+					return protocol.MakeErrReply("WRONGPASS invalid username-password pair or user is disabled.")
 				}
 			}
 			return reply

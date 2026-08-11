@@ -83,7 +83,7 @@ func TestHelloAuthUpdatesConnection(t *testing.T) {
 	defer func() { config.Properties.RequirePass = oldPass }()
 
 	ret := testServer.Exec(c, utils.ToCmdLine("HELLO", "3", "AUTH", "default", "wrong"))
-	asserts.AssertErrReply(t, ret, "WRONGPASS invalid username-password pair")
+	asserts.AssertErrReply(t, ret, "WRONGPASS invalid username-password pair or user is disabled.")
 
 	ret = testServer.Exec(c, utils.ToCmdLine("HELLO", "3", "AUTH", "default", "hello-secret"))
 	asserts.AssertNotError(t, ret)

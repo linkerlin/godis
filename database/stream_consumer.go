@@ -12,6 +12,19 @@ import (
 	"github.com/linkerlin/godis/redis/protocol"
 )
 
+// parseXReadBlockTimeout parses XREAD/XREADGROUP BLOCK milliseconds (integer).
+// Aligns Redis: negative vs non-integer messages.
+func parseXReadBlockTimeout(arg []byte) (int64, redis.Reply) {
+	ms, err := strconv.ParseInt(string(arg), 10, 64)
+	if err != nil {
+		return 0, protocol.MakeErrReply("ERR timeout is not an integer or out of range")
+	}
+	if ms < 0 {
+		return 0, protocol.MakeErrReply("ERR timeout is negative")
+	}
+	return ms, nil
+}
+
 // execXRead 从Stream读取数据
 // XREAD [COUNT count] [BLOCK milliseconds] STREAMS key [key ...] id [id ...]
 func execXRead(db *DB, args [][]byte) redis.Reply {
@@ -32,18 +45,21 @@ func execXRead(db *DB, args [][]byte) redis.Reply {
 				return protocol.MakeSyntaxErrReply()
 			}
 			c, err := strconv.Atoi(string(args[i+1]))
-			if err != nil || c <= 0 {
+			if err != nil {
 				return protocol.MakeErrReply("ERR value is not an integer or out of range")
 			}
-			count = c
+			// Redis: COUNT ≤ 0 means unlimited.
+			if c > 0 {
+				count = c
+			}
 			i += 2
 		case "BLOCK":
 			if i+1 >= len(args) {
 				return protocol.MakeSyntaxErrReply()
 			}
-			ms, err := strconv.ParseInt(string(args[i+1]), 10, 64)
-			if err != nil || ms < 0 {
-				return protocol.MakeErrReply("ERR value is not an integer or out of range")
+			ms, errReply := parseXReadBlockTimeout(args[i+1])
+			if errReply != nil {
+				return errReply
 			}
 			blockTimeout = time.Duration(ms) * time.Millisecond
 			i += 2
@@ -178,18 +194,21 @@ func execXReadGroup(db *DB, args [][]byte) redis.Reply {
 				return protocol.MakeSyntaxErrReply()
 			}
 			c, err := strconv.Atoi(string(args[i+1]))
-			if err != nil || c <= 0 {
+			if err != nil {
 				return protocol.MakeErrReply("ERR value is not an integer or out of range")
 			}
-			count = c
+			// Redis: COUNT ≤ 0 means unlimited.
+			if c > 0 {
+				count = c
+			}
 			i += 2
 		case "BLOCK":
 			if i+1 >= len(args) {
 				return protocol.MakeSyntaxErrReply()
 			}
-			ms, err := strconv.ParseInt(string(args[i+1]), 10, 64)
-			if err != nil || ms < 0 {
-				return protocol.MakeErrReply("ERR value is not an integer or out of range")
+			ms, errReply := parseXReadBlockTimeout(args[i+1])
+			if errReply != nil {
+				return errReply
 			}
 			blockTimeout = time.Duration(ms) * time.Millisecond
 			i += 2
@@ -699,9 +718,10 @@ func execXPending(db *DB, args [][]byte) redis.Reply {
 		switch opt {
 		case "IDLE":
 			idle, err := strconv.ParseInt(string(rest[1]), 10, 64)
-			if err != nil || idle < 0 {
-				return protocol.MakeErrReply("ERR Invalid min-idle-time")
+			if err != nil {
+				return protocol.MakeErrReply("ERR value is not an integer or out of range")
 			}
+			// Redis accepts negative IDLE (no effective filter; idleMs is always ≥ 0).
 			minIdleMs = idle
 			idx = 2
 		case "TIME":

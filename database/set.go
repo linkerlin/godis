@@ -529,11 +529,7 @@ func execSInterCard(db *DB, args [][]byte) redis.Reply {
 		sets = append(sets, set)
 	}
 
-	if limit == 0 {
-		return protocol.MakeIntReply(0)
-	}
-
-	// Compute intersection cardinality (early-stop when LIMIT is set)
+	// Compute intersection cardinality (LIMIT 0 = unlimited, same as Redis).
 	if len(sets) == 0 {
 		return protocol.MakeIntReply(0)
 	}

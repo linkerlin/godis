@@ -441,7 +441,7 @@ func (server *Server) Exec(c redis.Connection, cmdLine [][]byte) (result redis.R
 		}
 		dbIndex, err := strconv.Atoi(string(cmdLine[1]))
 		if err != nil {
-			return protocol.MakeErrReply("ERR invalid DB index")
+			return protocol.MakeErrReply("ERR value is not an integer or out of range")
 		}
 		if dbIndex >= len(server.dbSet) || dbIndex < 0 {
 			return protocol.MakeErrReply("ERR DB index is out of range")
@@ -454,11 +454,11 @@ func (server *Server) Exec(c redis.Connection, cmdLine [][]byte) (result redis.R
 		}
 		index1, err := strconv.Atoi(string(cmdLine[1]))
 		if err != nil {
-			return protocol.MakeErrReply("ERR value is not an integer or out of range")
+			return protocol.MakeErrReply("ERR invalid first DB index")
 		}
 		index2, err := strconv.Atoi(string(cmdLine[2]))
 		if err != nil {
-			return protocol.MakeErrReply("ERR value is not an integer or out of range")
+			return protocol.MakeErrReply("ERR invalid second DB index")
 		}
 		if index1 < 0 || index1 >= len(server.dbSet) || index2 < 0 || index2 >= len(server.dbSet) {
 			return protocol.MakeErrReply("ERR DB index is out of range")

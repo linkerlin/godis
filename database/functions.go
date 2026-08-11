@@ -520,7 +520,7 @@ func execFCallInternal(db *DB, args [][]byte, readonly bool) redis.Reply {
 	// Check function exists
 	fn, exists := funcEngine.GetFunction(funcName)
 	if !exists {
-		return protocol.MakeErrReply(fmt.Sprintf("ERR Function '%s' not found", funcName))
+		return protocol.MakeErrReply("ERR Function not found")
 	}
 
 	// Check readonly constraint

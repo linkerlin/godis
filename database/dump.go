@@ -95,8 +95,8 @@ func execRestore(db *DB, args [][]byte) redis.Reply {
 				return protocol.MakeSyntaxErrReply()
 			}
 			n, err := strconv.ParseInt(string(args[i+1]), 10, 64)
-			if err != nil || n < 0 {
-				return protocol.MakeErrReply("ERR Invalid FREQ value, must be >= 0")
+			if err != nil || n < 0 || n > 255 {
+				return protocol.MakeErrReply("ERR Invalid FREQ value, must be >= 0 and <= 255")
 			}
 			freqVal = n
 			i++

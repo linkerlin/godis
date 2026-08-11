@@ -6,6 +6,10 @@
 
 ### Fixed
 
+- `XREAD`/`XREADGROUP`：`COUNT ≤ 0` 视为不限制条数（对齐 Redis 8.10；此前误报 out of range）；`BLOCK` 负超时 → `ERR timeout is negative`，非法整数 → `ERR timeout is not an integer or out of range`
+- `SINTERCARD`：`LIMIT 0` 表示不限制（返回完整交集基数；对齐 Redis；此前误返回 0）
+- `XPENDING … IDLE`：接受负 IDLE（无有效过滤）；非法值 → `ERR value is not an integer or out of range`（对齐 Redis）
+- `SELECT` 非整数 → `ERR value is not an integer or out of range`；`SWAPDB` 非整数 → `ERR invalid first/second DB index`；`FCALL` 缺函数 → `ERR Function not found`；`RESTORE FREQ` 校验 `0…255`；`HELLO AUTH` 错密 → `WRONGPASS … or user is disabled.`
 - `HEXPIRE`/`HPEXPIRE`：TTL `0` 立即删字段（返回 `2`）；`<0` → `ERR invalid expire time, must be >= 0`；删空 hash 删键（对齐 Redis 8.10；此前误拒非正 TTL）
 - `XADD`/`XTRIM`：精确 `MAXLEN`/`MINID`（`=` 或无 `~`）带 `LIMIT` → `ERR syntax error, LIMIT cannot be used without the special ~ option`；`MAXLEN 0` 裁到空流（对齐 Redis）
 - 单机模式 `CLUSTER *`：→ `ERR This instance has cluster support disabled`（对齐 Redis；此前 `unknown command`）
