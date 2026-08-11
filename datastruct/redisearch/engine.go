@@ -409,6 +409,9 @@ func (e *RediSearchEngine) SearchKNN(baseQuery string, opts *SearchOptions, knn 
 		}
 	} else {
 		parser := NewExpressionParser(baseQuery)
+		if opts != nil && opts.Dialect > 0 {
+			parser.SetDialect(opts.Dialect)
+		}
 		node, err := parser.Parse()
 		if err != nil {
 			node, err = NewQueryParser().Parse(baseQuery)
@@ -416,7 +419,20 @@ func (e *RediSearchEngine) SearchKNN(baseQuery string, opts *SearchOptions, knn 
 				return nil, err
 			}
 		}
+		if opts != nil && opts.Dialect > 0 && opts.Dialect < 2 && RequiresDialect2(node) {
+			return nil, fmt.Errorf("DIALECT 2+ required for this query")
+		}
+		if opts != nil && opts.Dialect > 0 && opts.Dialect < 3 && RequiresDialect3(node) {
+			return nil, fmt.Errorf("DIALECT 3+ required for this query")
+		}
 		candidates = node.Evaluate(e.index)
+		candidates = e.filterByGeoNodes(candidates, node)
+		if opts != nil && len(opts.Params) > 0 {
+			candidates = e.filterByGeoshapeNodes(candidates, node, opts.Params)
+		}
+		if opts != nil && len(opts.Filters) > 0 {
+			candidates = e.applyFieldFilters(candidates, opts.Filters)
+		}
 	}
 
 	// Run KNN restricted to the candidate set.

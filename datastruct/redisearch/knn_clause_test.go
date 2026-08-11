@@ -18,6 +18,35 @@ func TestSplitKNNClauseHappy(t *testing.T) {
 	}
 }
 
+func TestSplitKNNClauseYieldDistanceAs(t *testing.T) {
+	base, knn, err := SplitKNNClause("*=>[KNN 2 @vec $q EF_RUNTIME 10]=>{$YIELD_DISTANCE_AS: dist}")
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if base != "*" || knn == nil {
+		t.Fatalf("base=%q knn=%v", base, knn)
+	}
+	if knn.ScoreAs != "dist" || knn.K != 2 || knn.EFRuntime != 10 {
+		t.Fatalf("clause=%+v", knn)
+	}
+	// Attribute overrides earlier AS.
+	_, knn2, err := SplitKNNClause("*=>[KNN 1 @vec $q AS old]=>{$YIELD_DISTANCE_AS: neu}")
+	if err != nil || knn2 == nil || knn2.ScoreAs != "neu" {
+		t.Fatalf("override want neu, got %+v err=%v", knn2, err)
+	}
+}
+
+func TestSplitKNNClauseHybridPolicy(t *testing.T) {
+	_, knn, err := SplitKNNClause("@price:[0 10]=>[KNN 1 @vec $q HYBRID_POLICY ADHOC_BF]")
+	if err != nil || knn == nil || knn.HybridPolicy != "ADHOC_BF" || knn.K != 1 {
+		t.Fatalf("want ADHOC_BF, got %+v err=%v", knn, err)
+	}
+	_, knn2, err := SplitKNNClause("*=>[KNN 1 @vec $q HYBRID_POLICY BATCHES]")
+	if err != nil || knn2 == nil || knn2.HybridPolicy != "BATCHES" {
+		t.Fatalf("want BATCHES, got %+v err=%v", knn2, err)
+	}
+}
+
 func TestSplitKNNClauseNoMarker(t *testing.T) {
 	base, knn, err := SplitKNNClause("@price:[0 10]")
 	if err != nil || knn != nil || base != "@price:[0 10]" {
@@ -38,6 +67,10 @@ func TestSplitKNNClauseErrorPaths(t *testing.T) {
 		{"*=>[KNN 1 @vec $q EF_RUNTIME]", "EF_RUNTIME requires"},
 		{"*=>[KNN 1 @vec $q EF_RUNTIME -1]", "Invalid KNN EF_RUNTIME"},
 		{"*=>[KNN 1 @vec $q AS]", "AS requires"},
+		{"*=>[KNN 1 @vec $q HYBRID_POLICY]", "HYBRID_POLICY requires"},
+		{"*=>[KNN 1 @vec $q HYBRID_POLICY FOO]", "Invalid KNN HYBRID_POLICY"},
+		{"*=>[KNN 1 @vec $q]=>{$YIELD_DISTANCE_AS:}", "YIELD_DISTANCE_AS requires"},
+		{"*=>[KNN 1 @vec $q] leftover", "Unexpected token after KNN"},
 	}
 	for _, tc := range cases {
 		_, knn, err := SplitKNNClause(tc.q)
