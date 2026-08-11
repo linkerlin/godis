@@ -61,7 +61,8 @@ parseMembers:
 			return protocol.MakeErrReply("ERR value is not a valid float")
 		}
 		if lat < -90 || lat > 90 || lng < -180 || lng > 180 {
-			return protocol.MakeErrReply(fmt.Sprintf("ERR invalid longitude,latitude pair %s,%s", lngStr, latStr))
+			// Redis formats the pair with six decimal places (parsed floats), not raw tokens.
+			return protocol.MakeErrReply(fmt.Sprintf("ERR invalid longitude,latitude pair %.6f,%.6f", lng, lat))
 		}
 		code := float64(geohash.Encode(lat, lng))
 		elements = append(elements, &sortedset.Element{

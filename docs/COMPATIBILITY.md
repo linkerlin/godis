@@ -285,4 +285,4 @@ UNWATCH、WAIT（简版）、BITOP、BITFIELD、SMOVE、LPOS、XCLAIM、SHUTDOWN
 
 ---
 
-**最后更新：** 2026-08-11（第七批可关闭：Stream 不完整 ID→`ms-0`、XGROUP MKSTREAM 非法 ID 不留空流、CREATECONSUMER 缺键 ERR；对照 Redis **8.10.0**；远期仍 **7** + 可独立 **0**）
+**最后更新：** 2026-08-11（第八批可关闭：GEOADD 坐标 ERR 格式、SINTERCARD/ZINTERCARD arity 与 numkeys≤0 文案、Z/L/BZ/BLMPOP numkeys≤0；对照 Redis **8.10.0**；远期仍 **7** + 可独立 **0**）

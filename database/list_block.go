@@ -458,6 +458,9 @@ func execLMPop(db *DB, args [][]byte) redis.Reply {
 	if err != nil {
 		return protocol.MakeErrReply("ERR value is not an integer or out of range")
 	}
+	if numKeys <= 0 {
+		return protocol.MakeErrReply("ERR numkeys should be greater than 0")
+	}
 	if len(args) < 1+numKeys+1 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'lmpop' command")
 	}
@@ -536,8 +539,11 @@ func execBLMPop(db *DB, args [][]byte) redis.Reply {
 	}
 
 	numKeys, err := strconv.Atoi(string(args[1]))
-	if err != nil || numKeys < 1 {
+	if err != nil {
 		return protocol.MakeErrReply("ERR value is not an integer or out of range")
+	}
+	if numKeys <= 0 {
+		return protocol.MakeErrReply("ERR numkeys should be greater than 0")
 	}
 	// Need numkeys keys + LEFT|RIGHT after timeout/numkeys.
 	if len(args) < 3+numKeys {

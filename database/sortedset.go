@@ -1281,7 +1281,7 @@ func init() {
 		attachCommandExtra([]string{redisFlagReadonly, redisFlagSortForScript}, 1, -1, 1)
 	registerCommand("ZDiffStore", execZDiffStore, prepareZStoreCalculateStore, rollbackFirstKey, -3, flagWrite).
 		attachCommandExtra([]string{redisFlagWrite, redisFlagDenyOOM}, 1, -1, 1)
-	registerCommand("ZInterCard", execZInterCard, prepareZCalculate, nil, -2, flagReadOnly).
+	registerCommand("ZInterCard", execZInterCard, prepareZCalculate, nil, -3, flagReadOnly).
 		attachCommandExtra([]string{redisFlagReadonly}, 1, -1, 1)
 }
 
@@ -1326,7 +1326,8 @@ func execZInterCard(db *DB, args [][]byte) redis.Reply {
 		return protocol.MakeErrReply("ERR value is not an integer or out of range")
 	}
 	if numKeys <= 0 {
-		return protocol.MakeErrReply("ERR numkeys should be greater than 0")
+		// Redis 8.x wording (differs from SINTERCARD).
+		return protocol.MakeErrReply("ERR at least 1 input key is needed for 'zintercard' command")
 	}
 	if len(args) < 1+numKeys {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'zintercard' command")
@@ -1336,7 +1337,7 @@ func execZInterCard(db *DB, args [][]byte) redis.Reply {
 		keys[i] = string(args[i+1])
 	}
 
-	// Parse LIMIT option (0 or negative = unlimited).
+	// Parse LIMIT option (0 = unlimited).
 	limit := 0
 	if len(args) > 1+numKeys {
 		if !strings.EqualFold(string(args[1+numKeys]), "LIMIT") {
@@ -1634,6 +1635,9 @@ func execZMPop(db *DB, args [][]byte) redis.Reply {
 	if err != nil {
 		return protocol.MakeErrReply("ERR value is not an integer or out of range")
 	}
+	if numKeys <= 0 {
+		return protocol.MakeErrReply("ERR numkeys should be greater than 0")
+	}
 
 	if len(args) < 1+numKeys {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'zmpop' command")
@@ -1728,8 +1732,11 @@ func execBZMPop(db *DB, args [][]byte) redis.Reply {
 	}
 
 	numKeys, err := strconv.Atoi(string(args[1]))
-	if err != nil || numKeys < 1 {
+	if err != nil {
 		return protocol.MakeErrReply("ERR value is not an integer or out of range")
+	}
+	if numKeys <= 0 {
+		return protocol.MakeErrReply("ERR numkeys should be greater than 0")
 	}
 	// Need numkeys keys + MIN|MAX after timeout/numkeys.
 	if len(args) < 3+numKeys {

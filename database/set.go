@@ -487,6 +487,9 @@ func execSInterCard(db *DB, args [][]byte) redis.Reply {
 	if err != nil {
 		return protocol.MakeErrReply("ERR value is not an integer or out of range")
 	}
+	if numKeys <= 0 {
+		return protocol.MakeErrReply("ERR numkeys should be greater than 0")
+	}
 
 	if len(args) < 1+numKeys {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'sintercard' command")
@@ -569,6 +572,6 @@ func init() {
 		attachCommandExtra([]string{redisFlagReadonly, redisFlagSortForScript}, 1, 1, 1)
 	registerCommand("SMIsMember", execSMIsMember, readFirstKey, nil, -3, flagReadOnly).
 		attachCommandExtra([]string{redisFlagReadonly, redisFlagFast}, 1, 1, 1)
-	registerCommand("SInterCard", execSInterCard, prepareSetCalculate, nil, -2, flagReadOnly).
+	registerCommand("SInterCard", execSInterCard, prepareSetCalculate, nil, -3, flagReadOnly).
 		attachCommandExtra([]string{redisFlagReadonly, redisFlagFast}, 1, -1, 1)
 }

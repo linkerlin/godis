@@ -25,7 +25,7 @@ func TestM2hGeoAddNXCH(t *testing.T) {
 		"GEOADD", "g", "XX", "0", "0", "Missing")), 0)
 
 	r := db.Exec(nil, utils.ToCmdLine("GEOADD", "g", "200", "0", "bad"))
-	asserts.AssertErrReply(t, r, "ERR invalid longitude,latitude pair 200,0")
+	asserts.AssertErrReply(t, r, "ERR invalid longitude,latitude pair 200.000000,0.000000")
 }
 
 func TestM2hJSONArrInsertMGet(t *testing.T) {
