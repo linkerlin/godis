@@ -394,6 +394,8 @@ func GenGodisInfoString(section string, db *Server) []byte {
 		// Prefer true process RSS when available; fall back to MemStats.Sys.
 		// mem_allocator is always "go" — never jemalloc (jemalloc accounting
 		// is an explicit non-goal; used_memory remains MemStats.Alloc).
+		// allocator_* below mirror Go runtime.MemStats (HeapAlloc/HeapSys/Sys),
+		// not jemalloc arenas — field names exist for Redis client familiarity.
 		rss := getProcessRSSBytes()
 		if rss == 0 {
 			rss = m.Sys
@@ -447,10 +449,10 @@ func GenGodisInfoString(section string, db *Server) []byte {
 			maxMemPolicy,
 			totalSys,
 			humanReadableSize(totalSys),
-			m.HeapAlloc,
-			m.HeapSys,
-			m.Sys,
-			float64(m.HeapSys)/float64(max(m.HeapAlloc, 1)),
+			m.HeapAlloc,                                    // allocator_allocated ← MemStats.HeapAlloc
+			m.HeapSys,                                      // allocator_active ← MemStats.HeapSys
+			m.Sys,                                          // allocator_resident ← MemStats.Sys
+			float64(m.HeapSys)/float64(max(m.HeapAlloc, 1)), // frag ≈ HeapSys/HeapAlloc (Go, not jemalloc)
 			0, // mem_not_counted_for_evict
 			float64(rss)/float64(max(m.Alloc, 1)),
 			fragBytes,

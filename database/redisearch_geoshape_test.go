@@ -1,12 +1,33 @@
 package database
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/linkerlin/godis/lib/utils"
 	"github.com/linkerlin/godis/redis/protocol"
 	"github.com/linkerlin/godis/redis/protocol/asserts"
 )
+
+// TestGeoShapeRequiresDialect3 locks the DIALECT subset boundary: GEOSHAPE
+// predicates must not silently succeed under DIALECT 2 (PARAMS alone is not enough).
+func TestGeoShapeRequiresDialect3(t *testing.T) {
+	db := makeTestDB()
+	asserts.AssertStatusReply(t, db.Exec(nil, utils.ToCmdLine(
+		"FT.CREATE", "geo3d", "SCHEMA", "geom", "GEOSHAPE",
+	)), "OK")
+	if r := db.Exec(nil, utils.ToCmdLine("FT.ADD", "geo3d", "p", "FIELDS", "geom", "POINT(1 1)")); protocol.IsErrorReply(r) {
+		t.Fatalf("add: %s", r.ToBytes())
+	}
+	box := "POLYGON((0 0, 0 5, 5 5, 5 0, 0 0))"
+	r := db.Exec(nil, utils.ToCmdLine(
+		"FT.SEARCH", "geo3d", "@geom:[WITHIN $poly]", "NOCONTENT",
+		"PARAMS", "2", "poly", box, "DIALECT", "2",
+	))
+	if !protocol.IsErrorReply(r) || !strings.Contains(string(r.ToBytes()), "DIALECT 3") {
+		t.Fatalf("GEOSHAPE under DIALECT 2 want DIALECT 3 ERR, got %s", r.ToBytes())
+	}
+}
 
 // TestGeoShapeEndToEnd verifies a GEOSHAPE field supports WITHIN/CONTAINS/
 // INTERSECTS/DISJOINT queries via PARAMS-supplied WKT (DIALECT 3).

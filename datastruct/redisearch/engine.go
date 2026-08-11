@@ -501,6 +501,10 @@ func (e *RediSearchEngine) Search(query string, opts *SearchOptions) (*SearchRes
 	if opts != nil && opts.Dialect > 0 && opts.Dialect < 2 && RequiresDialect2(node) {
 		return nil, fmt.Errorf("DIALECT 2+ required for this query")
 	}
+	// DIALECT 3-only constructs (GEOSHAPE predicates) require Dialect >= 3.
+	if opts != nil && opts.Dialect > 0 && opts.Dialect < 3 && RequiresDialect3(node) {
+		return nil, fmt.Errorf("DIALECT 3+ required for this query")
+	}
 
 	// Execute query (* = all documents, same as AGGREGATE)
 	var docIDs []string

@@ -118,6 +118,32 @@ func TestP5BM25DocLength(t *testing.T) {
 	}
 }
 
+// TestP5BM25STDTanh verifies BM25STD.TANH applies tanh(raw/4) so scores stay
+// in (0,1) for positive BM25 and differ from the unbound BM25STD score.
+func TestP5BM25STDTanh(t *testing.T) {
+	db := makeTestDB()
+	asserts.AssertStatusReply(t, db.Exec(nil, utils.ToCmdLine(
+		"FT.CREATE", "p5t", "SCHEMA", "t", "TEXT",
+	)), "OK")
+	if r := db.Exec(nil, utils.ToCmdLine("FT.ADD", "p5t", "p5t:1", "SCORE", "1.0", "FIELDS", "t", "golang")); protocol.IsErrorReply(r) {
+		t.Fatalf("add: %s", r.ToBytes())
+	}
+	raw := ftSearchScores(t, db.Exec(nil, utils.ToCmdLine("FT.SEARCH", "p5t", "golang", "WITHSCORES", "SCORER", "BM25STD", "NOCONTENT")))
+	tanh := ftSearchScores(t, db.Exec(nil, utils.ToCmdLine("FT.SEARCH", "p5t", "golang", "WITHSCORES", "SCORER", "BM25STD.TANH", "NOCONTENT")))
+	if len(raw) != 1 || len(tanh) != 1 {
+		t.Fatalf("want 1 hit each, got raw=%v tanh=%v", raw, tanh)
+	}
+	if raw[0] <= 0 {
+		t.Fatalf("BM25STD must be positive, got %v", raw)
+	}
+	if tanh[0] <= 0 || tanh[0] >= 1 {
+		t.Fatalf("BM25STD.TANH want in (0,1), got %v", tanh)
+	}
+	if tanh[0] >= raw[0] {
+		t.Fatalf("tanh(raw/4) should be < raw for raw>0; raw=%v tanh=%v", raw[0], tanh[0])
+	}
+}
+
 // TestP5BM25STDNormMinMax verifies BM25STD.NORM rescales the full hit set to
 // [0,1] via min-max (not the old x/(1+x) approximation).
 func TestP5BM25STDNormMinMax(t *testing.T) {

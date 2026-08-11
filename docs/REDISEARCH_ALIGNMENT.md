@@ -151,7 +151,7 @@ Redis 8.0 将 Redis Stack 的 RediSearch 模块并入核心(命令面 24 个 FT.
 | AGGREGATE reducers | COUNT/SUM/MIN/MAX/AVG/STDDEV/QUANTILE/COUNT_DISTINCT(ISH)/TOLIST/FIRST_VALUE/RANDOM_SAMPLE/COLLECT | ✅ | |
 | APPLY 表达式 | 算术 + % ^ + 数值/字符串函数 | ✅ | 日期/geo 函数延后 |
 | FILTER | 布尔组合 + 比较算符 | ✅ | |
-| 打分 | BM25STD(默认)/TFIDF/DISMAX/DOCSCORE/HAMMING + 变体 | ✅ | .NORM 近似实现 |
+| 打分 | BM25STD(默认)/TFIDF/DISMAX/DOCSCORE/HAMMING + 变体 | ✅ | .NORM 真 min-max；.TANH=tanh(raw/4) |
 | 可选词 ~ | 打分加成、不过滤 | ✅ | |
 | 索引触发面 | hash/json 全 keyspace 通知 | ✅ | 与 notifications.c 清单对齐 |
 | RESP3 | SEARCH/AGGREGATE/INFO Map 形态 | ✅ | 双形,RESP2 兼容 |
@@ -232,7 +232,8 @@ FT.SEARCH idx "hello"  # -> %5 total_results / results / attributes / format / w
 | 项 | 状态 | 说明 |
 |---|---|---|
 | VECTOR 类型解码 | ✅ | FLOAT16/BFLOAT16/INT8/UINT8 均解码为 float32；**VADD Q8** 存储 + **图内 int8 距离**；**VADD BIN** 存储 + **图内 Hamming** |
-| BM25STD.NORM | ✅ | 结果集真 min-max 归一化到 [0,1]（等分→1）；**TEXT WEIGHT** + **文档长度归一化**已计入 BM25STD；完整 BM25/DIALECT 仍远期 |
+| BM25STD.NORM | ✅ | 结果集真 min-max 归一化到 [0,1]（等分→1）；**TEXT WEIGHT** + **文档长度归一化**已计入 BM25STD；**BM25STD.TANH**→tanh(raw/4)∈(0,1)；完整 BM25/DIALECT 仍远期 |
+| GEOSHAPE DIALECT | ✅ | `@geom:[WITHIN $p]` 等强制 **DIALECT ≥ 3**（DIALECT 2+PARAMS 不再静默成功） |
 | FT.PROFILE 迭代器细分 | 🔶 | 只报诚实总耗时;细分需 instrument 引擎迭代器 |
 | FT.HYBRID RANGE/FILTER/POLICY | 🔶 | 接受但按暴力路径执行 |
 | APPLY 日期/geo 函数 | 🔶 | timefmt/day/hour/geodistance 等未实现(小众) |

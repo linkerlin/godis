@@ -3,8 +3,10 @@
 #
 # R4-2 note (远期非目标): coveralls 上传 profile.cov 仅供趋势观察，
 # 不设覆盖率门槛、不阻塞合并。专项冲高覆盖率不在本里程碑内。
-# R4-1 note: Redis 8 sidecar 在下方 redis-action 已起服务；完整输出 diff
-# 套件未接入。可选本地：bash scripts/redis-sidecar-diff.sh（allowlist only）。
+# R4-1 note: Redis 8 sidecar 在下方 redis-action 已起服务；**allowlist**
+# 脚手架（PING/SET/GET/DEL/EXISTS/INCR/TYPE）在 smoke 步真实可跑；
+# 完整输出 diff 套件未接入、亦不宣称。本地：bash scripts/redis-sidecar-diff.sh
+# 或 pwsh scripts/redis-sidecar-diff.ps1；无双端时 --selfcheck / -SelfCheck。
 
 name: Go
 
@@ -47,7 +49,13 @@ jobs:
         echo $! > godis.pid
         sleep 2
         bash scripts/smoke-test.sh
+        # R4-1: allowlist-only vs Redis sidecar (not a full compat suite).
+        REDIS_HOST=127.0.0.1 REDIS_PORT=6379 GODIS_HOST=127.0.0.1 GODIS_PORT=6399 \
+          bash scripts/redis-sidecar-diff.sh
         kill "$(cat godis.pid)"
+
+    - name: R4-1 sidecar selfcheck
+      run: bash scripts/redis-sidecar-diff.sh --selfcheck
 
     - run: go test -v -coverprofile=profile.cov ./...
     - run: go test -race ./lib/validate/... ./redis/parser/... ./acl/... ./aof/...

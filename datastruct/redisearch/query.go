@@ -347,6 +347,27 @@ func RequiresDialect2(node QueryNode) bool {
 	return false
 }
 
+// RequiresDialect3 reports whether the AST contains DIALECT-3-only constructs
+// (GEOSHAPE spatial predicates). Rejected when Dialect < 3.
+func RequiresDialect3(node QueryNode) bool {
+	if node == nil {
+		return false
+	}
+	switch n := node.(type) {
+	case *GeoShapeNode:
+		return true
+	case *AndNode:
+		return RequiresDialect3(n.Left) || RequiresDialect3(n.Right)
+	case *OrNode:
+		return RequiresDialect3(n.Left) || RequiresDialect3(n.Right)
+	case *NotNode:
+		return RequiresDialect3(n.Child)
+	case *OptionalNode:
+		return RequiresDialect3(n.Child)
+	}
+	return false
+}
+
 // ValidateExpansions walks the query AST and enforces FT.CONFIG MINPREFIX and
 // MAXEXPANSIONS against the live index term dictionary:
 //   - MINPREFIX: every PrefixNode whose prefix is shorter than minPrefix errors

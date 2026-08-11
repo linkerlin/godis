@@ -321,6 +321,8 @@ func execMemoryStats(server *Server) redis.Reply {
 	stats.Put("overhead.total", protocol.MakeIntReply(overhead))
 	stats.Put("overhead.hashtable.main", protocol.MakeIntReply(overhead))
 	stats.Put("overhead.hashtable.expires", protocol.MakeIntReply(overheadExpires))
+	// allocator.* = Go MemStats mirrors (not jemalloc). Honest label for clients.
+	stats.Put("allocator", protocol.MakeBulkReply([]byte("go")))
 	stats.Put("allocator.allocated", protocol.MakeIntReply(int64(m.HeapAlloc)))
 	stats.Put("allocator.active", protocol.MakeIntReply(int64(m.HeapSys)))
 	stats.Put("allocator.resident", protocol.MakeIntReply(int64(m.Sys)))

@@ -25,7 +25,7 @@
 
 **RediSearch Phase B（2026-07-29）：** FT.AGGREGATE `WITHCURSOR [COUNT n]` + `FT.CURSOR READ/DEL`（内存游标表，按 COUNT 分页，耗尽返回游标 0，空闲 1 分钟惰性回收）；FT.AGGREGATE `APPLY <expr> AS <name>` 最小表达式子集（`@field` 引用、数字字面量、`+ - * /` 标准优先级、括号、一元负号、非数值 `+` 退化为字符串拼接），按出现位置分为 GROUPBY 前（作用于逐文档字段，供后续 REDUCE 引用）与 GROUPBY 后（作用于结果行）；顺带修正：无 GROUPBY 且无 REDUCE 时按文档逐行返回（此前会错误地把所有文档折叠成一个空字段分组）。**FT.SEARCH WITHCURSOR** 已续研落地（复用 FT.CURSOR 表）。
 
-仍延期：精确 jemalloc 级 `used_memory`（现已贴近 `MemStats.Alloc` 峰值跟踪 + 进程 RSS→`used_memory_rss`，仍非 jemalloc）、FUNCTION DUMP 官方互通、完整 BM25/完整 DIALECT/完整 KNN 方言等（见计划文档；**FT+KNN 最小路径**已接通；**Q8 图内 int8 距离**与 **BIN Hamming** 已落地）。
+仍延期：精确 jemalloc 级 `used_memory`（现已贴近 `MemStats.Alloc` 峰值跟踪 + 进程 RSS→`used_memory_rss`，`allocator_*` 为 Go MemStats 镜像、仍非 jemalloc）、FUNCTION DUMP 官方互通、完整 BM25/完整 DIALECT/完整 KNN 方言等（见计划文档；**FT+KNN 最小路径**已接通；**Q8 图内 int8 距离**与 **BIN Hamming** 已落地；**GEOSHAPE 强制 DIALECT≥3**）。
 
 **兼容续研批次（2026-07-29）：** WAITAOF 真等待（本地 AOF fsync + 副本 ACK 循环）；LATENCY 命令路径采样 + HISTOGRAM；`notify-keyspace-events` 最小 K/E/g/$/x/e/A 发射；MIGRATE（DUMP→RESTORE→DEL，COPY/REPLACE/AUTH/KEYS）；LFU 对数计数逼近 Redis；FT.SEARCH WITHCURSOR（复用 FT.CURSOR 表）。
 
@@ -109,7 +109,7 @@
 | Lua bit | ✅ tobit/band/bor/bxor/bnot/lshift/rshift/arshift/tohex/rol/ror/bswap |
 | FT SCHEMA AS | ✅ `$.path AS name`（CREATE/ALTER 共用解析） |
 | FT ON JSON 自动索引 | ✅ JSON.SET/DEL 喂/撤索引 |
-| FT.SEARCH DIALECT/WITHSORTKEYS | ✅ DIALECT 1/2/3 子集生效（非完整方言）；WITHSORTKEYS 插入 sortkey |
+| FT.SEARCH DIALECT/WITHSORTKEYS | ✅ DIALECT 1/2/3 子集生效（非完整方言；GEOSHAPE 强制 ≥3）；WITHSORTKEYS 插入 sortkey |
 | JSON.GET `$` 封装 | ✅ 显式 `$…` 路径包数组；无路径返回裸文档 |
 | CONFIG/INFO hz | ✅ 可配置 hz（默认 10） |
 | CLIENT 无连接 | ✅ SETNAME/GETNAME/ID/REPLY 要求连接 |
@@ -188,15 +188,15 @@ UNWATCH、WAIT（简版）、BITOP、BITFIELD、SMOVE、LPOS、XCLAIM、SHUTDOWN
 
 | 远期非目标 | 现状（诚实） | 本轮小步（非宣称完成） |
 |------------|--------------|------------------------|
-| jemalloc / 真 OS RSS | `used_memory`≈`MemStats.Alloc` 峰值 + per-key dataset；`mem_allocator:go`；`used_memory_scripts`≈lua | **`used_memory_rss` 优先真进程 RSS**；`used_memory_scripts` 字段对齐；**绝不**写 jemalloc |
+| jemalloc / 真 OS RSS | `used_memory`≈`MemStats.Alloc` 峰值 + per-key dataset；`mem_allocator:go`；`allocator_*`=`HeapAlloc`/`HeapSys`/`Sys`（**非** jemalloc arenas）；`MEMORY STATS` `allocator=go` + `process.rss` | RSS 优先真进程；**绝不**写 jemalloc |
 | 完整 Redis gossip bus | MEET→Raft/FSM join；写管理命令显式 ERR（含「no gossip」文案）；BUMPEPOCH=`BUMPED 0` | **CLUSTER INFO** 消息计数键恒 0 + **`cluster_bus_port:0`**（诚实无 bus） |
 | 官方模块原生 RDB·DUMP 互通 | Stream/JSON/Vector/TS/概率结构/FT 走 Godis opaque `GODIS1` | RESTORE **拒绝矩阵**（截断/坏版本/坏 CRC/模块样/短载荷→ERR；文案标明非模块 RDB）；**不**与 Redis 模块 RDB 互通 |
 | FUNCTION DUMP 官方互通 | Godis `GODISFN1` 自洽；截断/异己二进制明确 ERR；兼旧文本 | 保持自洽；**不**伪造 Redis functions payload |
-| 完整 BM25 / 完整 KNN 方言 / 完整 DIALECT | BM25STD + **TEXT WEIGHT** + **文档长度归一化可验**；**BM25STD.NORM 真 min-max**；**FT+KNN 最小路径**；DIALECT 1/2/3 子集 | 非论文级完整 BM25/完整方言；见 REDISEARCH_ALIGNMENT |
+| 完整 BM25 / 完整 KNN 方言 / 完整 DIALECT | BM25STD + WEIGHT + 文档长度；**NORM 真 min-max**；**TANH=tanh(raw/4)∈(0,1)**；**FT+KNN 最小路径**；DIALECT 1/2/3 子集（**GEOSHAPE 强制 ≥3**） | 非论文级完整 BM25/完整方言；见 REDISEARCH_ALIGNMENT |
 | ~~Vector 图内真 int8 距离~~ | **VADD Q8/BIN 真存储**；**BIN→图内 Hamming**；**Q8→图内 int8 距离**（无搜索态 f32 缓冲）；FT VECTOR 窄类型解码已有 | ✅ 2026-08-11 deep6；VEMB 仍可显示反量化近似 |
 | ~~AOF rewrite / RDB 写出 FT 索引定义~~ | 命令 AOF + **纯 AOF rewrite→FT.CREATE** + **RDB Godis opaque `ft`**（Load 后回填） | ✅ 2026-08-11；**非**官方 RediSearch 模块 RDB |
 | ~~HLL sparse 读取~~ | dense 互通；**sparse 安全解码→内存 dense**（写回仍 dense） | ✅ 2026-08-11：corrupt/非 dense·sparse 编码→`INVALIDOBJ`；已移出远期清单 |
-| CI Redis sidecar 全量输出 diff（R4-1） | 未做全量 | **脚手架** `scripts/redis-sidecar-diff.sh`（allowlist PING/SET/GET only）；非完整套件 |
+| CI Redis sidecar 全量输出 diff（R4-1） | 未做全量 | **脚手架可跑 allowlist**：PING/SET/GET/DEL/EXISTS/INCR/TYPE（`redis-sidecar-diff.sh`/`.ps1`；CI smoke 步对 Redis 8 sidecar 实跑；`--selfcheck`）；非完整套件 |
 | 覆盖率专项冲高（R4-2） | 未做 | 书面远期；CI 提示见 `.github/workflows/coverall.yml` 注释 |
 
 ### Godis opaque / FUNCTION 信封边界（非 Redis 互通）
@@ -212,4 +212,4 @@ UNWATCH、WAIT（简版）、BITOP、BITFIELD、SMOVE、LPOS、XCLAIM、SHUTDOWN
 
 ---
 
-**最后更新：** 2026-08-11（deep6：Q8 图内 int8 码距离；BM25STD.NORM 真 min-max；DUMP RESTORE 拒绝矩阵扩；远期 **7** + 可独立 **0**）
+**最后更新：** 2026-08-11（deep7：BM25STD.TANH 可验；GEOSHAPE DIALECT≥3 拒绝；INFO/MEMORY jemalloc 边界更清；R4-1 allowlist CI 实跑；远期仍 **7** + 可独立 **0**）

@@ -124,4 +124,26 @@ func TestM2coInfoMemoryAllocatorIsGo(t *testing.T) {
 	if !strings.Contains(s, "used_memory_scripts:") {
 		t.Fatalf("missing used_memory_scripts:\n%s", s)
 	}
+	// allocator_* are Go MemStats name-compat fields; presence asserts the
+	// honest non-jemalloc surface (values are runtime mirrors, not OS malloc).
+	for _, key := range []string{"allocator_allocated:", "allocator_active:", "allocator_resident:", "allocator_frag_ratio:"} {
+		if !strings.Contains(s, key) {
+			t.Fatalf("missing %s (Go MemStats mirror):\n%s", key, s)
+		}
+	}
+
+	stats := server.Exec(c, utils.ToCmdLine("MEMORY", "STATS"))
+	m, ok := stats.(*protocol.MapReply)
+	if !ok {
+		t.Fatalf("MEMORY STATS: %T", stats)
+	}
+	allocLabel, ok := m.Data["allocator"].(*protocol.BulkReply)
+	if !ok || string(allocLabel.Arg) != "go" {
+		t.Fatalf("MEMORY STATS allocator want go, got %v", m.Data["allocator"])
+	}
+	for _, key := range []string{"allocator.allocated", "allocator.active", "allocator.resident", "process.rss"} {
+		if _, ok := m.Data[key]; !ok {
+			t.Fatalf("MEMORY STATS missing %s keys=%v", key, m.Data)
+		}
+	}
 }

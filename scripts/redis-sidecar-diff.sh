@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
 # R4-1 scaffold: optional tiny allowlist diff vs a Redis 8 sidecar.
 # NOT a full compatibility suite. Does not claim Redis parity.
+# Allowlist only: PING / SET / GET / DEL / EXISTS / INCR / TYPE
+# Out of scope: modules, DUMP/RESTORE, gossip, ACL, cluster, FT.*, FUNCTIONS.
+#
 # Prerequisites: redis-cli; Redis on REDIS_HOST:REDIS_PORT; Godis on GODIS_HOST:GODIS_PORT.
+# Self-check (no servers): bash scripts/redis-sidecar-diff.sh --selfcheck
 set -euo pipefail
 
 REDIS_HOST="${REDIS_HOST:-127.0.0.1}"
@@ -13,26 +17,56 @@ CLI="${REDISCLI:-redis-cli}"
 redis_cli() { "${CLI}" -h "${REDIS_HOST}" -p "${REDIS_PORT}" "$@"; }
 godis_cli() { "${CLI}" -h "${GODIS_HOST}" -p "${GODIS_PORT}" "$@"; }
 
-echo "R4-1 scaffold: allowlist-only (PING/SET/GET). Full module/DUMP/gossip diffs are out of scope."
+die() { echo "$*" >&2; exit 1; }
+
+eq_both() {
+  local label="$1" want="$2"
+  shift 2
+  local rv gv
+  rv="$(redis_cli "$@")"
+  gv="$(godis_cli "$@")"
+  if [[ "${rv}" != "${want}" || "${gv}" != "${want}" ]]; then
+    die "${label} mismatch: redis=${rv} godis=${gv} want=${want}"
+  fi
+}
+
+if [[ "${1:-}" == "--selfcheck" ]]; then
+  if ! command -v "${CLI}" >/dev/null 2>&1; then
+    echo "R4-1 selfcheck: ${CLI} not on PATH (install later; allowlist still documented)"
+    exit 0
+  fi
+  echo "R4-1 selfcheck ok: allowlist=PING,SET,GET,DEL,EXISTS,INCR,TYPE; full suite out of scope"
+  exit 0
+fi
+
+echo "R4-1 scaffold: allowlist-only (PING/SET/GET/DEL/EXISTS/INCR/TYPE). Full module/DUMP/gossip diffs are out of scope."
 
 r_ping="$(redis_cli PING)"
 g_ping="$(godis_cli PING)"
 if [[ "${r_ping}" != "PONG" || "${g_ping}" != "PONG" ]]; then
-  echo "PING mismatch: redis=${r_ping} godis=${g_ping}" >&2
-  exit 1
+  die "PING mismatch: redis=${r_ping} godis=${g_ping}"
 fi
 
 key="sidecar:allowlist:$$"
 val="ok"
+
 redis_cli DEL "${key}" >/dev/null || true
 godis_cli DEL "${key}" >/dev/null || true
-redis_cli SET "${key}" "${val}" | grep -q OK
-godis_cli SET "${key}" "${val}" | grep -q OK
-r_get="$(redis_cli GET "${key}")"
-g_get="$(godis_cli GET "${key}")"
-if [[ "${r_get}" != "${val}" || "${g_get}" != "${val}" ]]; then
-  echo "GET mismatch: redis=${r_get} godis=${g_get}" >&2
-  exit 1
-fi
+
+eq_both "SET" "OK" SET "${key}" "${val}"
+eq_both "GET" "${val}" GET "${key}"
+eq_both "EXISTS" "1" EXISTS "${key}"
+eq_both "TYPE" "string" TYPE "${key}"
+
+nkey="sidecar:allowlist:n:$$"
+redis_cli DEL "${nkey}" >/dev/null || true
+godis_cli DEL "${nkey}" >/dev/null || true
+eq_both "INCR" "1" INCR "${nkey}"
+eq_both "INCR2" "2" INCR "${nkey}"
+eq_both "GET-n" "2" GET "${nkey}"
+
+eq_both "DEL" "1" DEL "${key}"
+eq_both "EXISTS-after-del" "0" EXISTS "${key}"
+eq_both "DEL-n" "1" DEL "${nkey}"
 
 echo "allowlist diff passed (scaffolding only; see docs/COMPATIBILITY.md R4-1)"

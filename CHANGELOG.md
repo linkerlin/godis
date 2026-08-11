@@ -6,6 +6,10 @@
 
 ### Added
 
+- BM25STD.**TANH** 可验收：`tanh(raw/4)` 分数 ∈(0,1) 且低于未绑定 BM25STD
+- DIALECT 子集：`RequiresDialect3` — **GEOSHAPE** 谓词在 DIALECT&lt;3 明确 ERR（堵 DIALECT 2+PARAMS 静默洞）
+- `MEMORY STATS`：`allocator=go`；INFO `allocator_*` 注释锁定为 Go MemStats 镜像（非 jemalloc）
+- R4-1 allowlist 增强：PING/SET/GET/DEL/EXISTS/INCR/TYPE；`.ps1` + `--selfcheck`；CI smoke 对 Redis 8 sidecar **实跑**（非全量 diff）
 - Vector **Q8 图内 int8 距离**：HNSW/VSIM 对 int8 codes 直接算 cosine/L2/dot（不物化搜索态 f32）；与反量化路径数值对齐验收测
 - BM25STD：**文档长度归一化可验**（短文档优先）+ `avgdl<=0` 守卫；**BM25STD.NORM 真 min-max**；TEXT WEIGHT 保持
 - `RESTORE`：**拒绝矩阵**（空/过短/坏版本/坏 CRC/截断 GODIS1/异己模块样载荷→ERR；不伪装模块 RDB 互通）
@@ -22,7 +26,7 @@
 - `INFO memory`：`used_memory_scripts`（≈ lua）；`mem_allocator:go` 测试锁定（绝不写 jemalloc）
 - FT VECTOR **BFLOAT16/INT8/UINT8** blob→float32 解码（与 FLOAT16 同路径 widen）
 - `CLUSTER INFO`：`cluster_bus_port:0`（诚实无 Redis gossip bus）
-- R4-1 脚手架：`scripts/redis-sidecar-diff.sh`（PING/SET/GET allowlist only）
+- R4-1 脚手架：`scripts/redis-sidecar-diff.sh`（allowlist；非全量）
 - `INFO memory`：`used_memory_rss` 优先真进程 RSS（Windows WorkingSet / Linux VmRSS）；`MEMORY STATS` 增加 `process.rss`（仍非 jemalloc）
 - `CLUSTER INFO`：补齐 ping/pong/fail 等 gossip 消息计数键（恒 0，诚实无 bus）
 - `RESTORE-ASKING`：注册为可调用命令（强制 REPLACE）
@@ -60,6 +64,7 @@
 
 ### Changed
 
+- **兼容里程碑（2026-08-11 deep7）**：远期清单仍 **7** 项 + 可独立 **0**（BM25STD.TANH；GEOSHAPE DIALECT≥3；jemalloc 字段边界；R4-1 allowlist CI 实跑；小步非远期完成）
 - **兼容里程碑（2026-08-11 deep6）**：远期清单 **7** 项 + 可独立 **0**（Q8 图内 int8；BM25STD.NORM 真 min-max；RESTORE 拒绝矩阵；FAILOVER 测预同步；小步非远期完成）
 - **兼容里程碑（2026-08-11 deep5）**：远期清单曾为 **8** 项 + 可独立 **0**（BIN Hamming；FT+KNN 最小验收；GODISFN1 边界；小步非远期完成）
 - **兼容里程碑（2026-08-11 deep4）**：远期清单 **8** 项 + 可独立 **0**（FT RDB opaque；VADD BIN；BM25 WEIGHT；小步非远期完成）
