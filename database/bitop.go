@@ -33,7 +33,7 @@ func execBitOp(db *DB, args [][]byte) redis.Reply {
 		}
 	case "DIFF", "DIFF1", "ANDOR":
 		if len(srcKeys) < 2 {
-			return protocol.MakeErrReply("ERR BITOP " + op + " requires at least 2 source keys.")
+			return protocol.MakeErrReply("ERR BITOP " + op + " must be called with at least two source keys.")
 		}
 	default:
 		return protocol.MakeErrReply("ERR syntax error")

@@ -285,4 +285,4 @@ UNWATCH、WAIT（简版）、BITOP、BITFIELD、SMOVE、LPOS、XCLAIM、SHUTDOWN
 
 ---
 
-**最后更新：** 2026-08-12（第十三批可关闭：HGETEX/HSETEX/HGETDEL/HEXPIRETIME/HPERSIST 的 FIELDS numFields 文案与 HPERSIST 数组回复；对照 Redis **8.10.0**；远期仍 **7** + 可独立 **0**）
+**最后更新：** 2026-08-12（第十四批可关闭：LCS IDX 匹配段/LEN+IDX 互斥、BITOP DIFF* 源键 ERR；对照 Redis **8.10.0**；远期仍 **7** + 可独立 **0**）

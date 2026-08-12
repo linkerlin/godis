@@ -18,7 +18,6 @@ func execLCS(db *DB, args [][]byte) redis.Reply {
 	key1 := string(args[0])
 	key2 := string(args[1])
 
-	// Parse options
 	showLen := false
 	showIdx := false
 	minMatchLen := 0
@@ -48,6 +47,11 @@ func execLCS(db *DB, args [][]byte) redis.Reply {
 		}
 	}
 
+	// Redis 8: LEN and IDX together → use IDX only (it already includes len).
+	if showLen && showIdx {
+		return protocol.MakeErrReply("ERR If you want both the length and indexes, please just use IDX.")
+	}
+
 	// Missing keys are treated as empty strings (Redis semantics).
 	var str1, str2 []byte
 	if entity1, exists := db.GetEntity(key1); exists {
@@ -65,39 +69,32 @@ func execLCS(db *DB, args [][]byte) redis.Reply {
 		str2 = b
 	}
 
-	// Compute LCS
-	lcsStr, matches := computeLCS(string(str1), string(str2), minMatchLen)
+	lcsStr, matches := computeLCS(string(str1), string(str2))
 
-	// Return based on options
-	if showLen && !showIdx {
+	if showLen {
 		return protocol.MakeIntReply(int64(len(lcsStr)))
 	}
 
 	if showIdx {
 		// RESP3 Map {matches, len}; RESP2 flat field array via Map.ToBytes.
+		// Matches are already last→first (Redis order). Filter by MINMATCHLEN.
 		matchReplies := make([]redis.Reply, 0, len(matches))
 		for _, match := range matches {
 			if match.len < minMatchLen {
 				continue
 			}
 			matchInfo := make([]redis.Reply, 0, 3)
-
-			range1 := []redis.Reply{
+			matchInfo = append(matchInfo, protocol.MakeMultiRawReply([]redis.Reply{
 				protocol.MakeIntReply(int64(match.start1)),
 				protocol.MakeIntReply(int64(match.start1 + match.len - 1)),
-			}
-			matchInfo = append(matchInfo, protocol.MakeMultiRawReply(range1))
-
-			range2 := []redis.Reply{
+			}))
+			matchInfo = append(matchInfo, protocol.MakeMultiRawReply([]redis.Reply{
 				protocol.MakeIntReply(int64(match.start2)),
 				protocol.MakeIntReply(int64(match.start2 + match.len - 1)),
-			}
-			matchInfo = append(matchInfo, protocol.MakeMultiRawReply(range2))
-
+			}))
 			if withMatchLen {
 				matchInfo = append(matchInfo, protocol.MakeIntReply(int64(match.len)))
 			}
-
 			matchReplies = append(matchReplies, protocol.MakeMultiRawReply(matchInfo))
 		}
 		m := protocol.MakeMapReply()
@@ -106,94 +103,81 @@ func execLCS(db *DB, args [][]byte) redis.Reply {
 		return m
 	}
 
-	// Default: return the LCS string
 	return protocol.MakeBulkReply([]byte(lcsStr))
 }
 
-// lcsMatch represents a matching substring
+// lcsMatch is one contiguous run of LCS-aligned characters in both strings.
 type lcsMatch struct {
 	start1 int
 	start2 int
 	len    int
 }
 
-// computeLCS computes the longest common subsequence and matching positions
-func computeLCS(s1, s2 string, minLen int) (string, []lcsMatch) {
+// computeLCS computes the LCS string and contiguous IDX match ranges (last→first).
+func computeLCS(s1, s2 string) (string, []lcsMatch) {
 	m, n := len(s1), len(s2)
 	if m == 0 || n == 0 {
 		return "", nil
 	}
 
-	// Dynamic programming table
 	dp := make([][]int, m+1)
 	for i := range dp {
 		dp[i] = make([]int, n+1)
 	}
-
-	// Fill DP table
 	for i := 1; i <= m; i++ {
 		for j := 1; j <= n; j++ {
 			if s1[i-1] == s2[j-1] {
 				dp[i][j] = dp[i-1][j-1] + 1
+			} else if dp[i-1][j] >= dp[i][j-1] {
+				dp[i][j] = dp[i-1][j]
 			} else {
-				if dp[i-1][j] > dp[i][j-1] {
-					dp[i][j] = dp[i-1][j]
-				} else {
-					dp[i][j] = dp[i][j-1]
-				}
+				dp[i][j] = dp[i][j-1]
 			}
 		}
 	}
 
-	// Reconstruct LCS
+	// Reconstruct from the end; emit contiguous runs last→first (Redis order).
 	lcs := make([]byte, 0, dp[m][n])
+	var matches []lcsMatch
+	inMatch := false
+	var cur lcsMatch
 	i, j := m, n
 	for i > 0 && j > 0 {
 		if s1[i-1] == s2[j-1] {
 			lcs = append(lcs, s1[i-1])
+			if inMatch && cur.start1 == i && cur.start2 == j {
+				cur.start1 = i - 1
+				cur.start2 = j - 1
+				cur.len++
+			} else {
+				if inMatch {
+					matches = append(matches, cur)
+				}
+				cur = lcsMatch{start1: i - 1, start2: j - 1, len: 1}
+				inMatch = true
+			}
 			i--
 			j--
-		} else if dp[i-1][j] > dp[i][j-1] {
+			continue
+		}
+		if inMatch {
+			matches = append(matches, cur)
+			inMatch = false
+		}
+		if dp[i-1][j] >= dp[i][j-1] {
 			i--
 		} else {
 			j--
 		}
 	}
-
-	// Reverse LCS
-	for i, j := 0, len(lcs)-1; i < j; i, j = i+1, j-1 {
-		lcs[i], lcs[j] = lcs[j], lcs[i]
+	if inMatch {
+		matches = append(matches, cur)
 	}
 
-	// Find matching substrings (simplified)
-	matches := findMatches(s1, s2, minLen)
-
+	for a, b := 0, len(lcs)-1; a < b; a, b = a+1, b-1 {
+		lcs[a], lcs[b] = lcs[b], lcs[a]
+	}
 	return string(lcs), matches
-}
-
-// findMatches finds matching substrings between two strings
-func findMatches(s1, s2 string, minLen int) []lcsMatch {
-	var matches []lcsMatch
-	m, n := len(s1), len(s2)
-
-	// Simple approach: find all matching substrings
-	for i := 0; i < m; i++ {
-		for j := 0; j < n; j++ {
-			length := 0
-			for i+length < m && j+length < n && s1[i+length] == s2[j+length] {
-				length++
-			}
-			if length >= minLen {
-				matches = append(matches, lcsMatch{
-					start1: i,
-					start2: j,
-					len:    length,
-				})
-			}
-		}
-	}
-
-	return matches
 }
 
 func init() {
