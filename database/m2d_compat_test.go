@@ -64,7 +64,7 @@ func TestM2dPFMergeSingleDestAndPFAddDirty(t *testing.T) {
 func TestM2dHGetDelUndo(t *testing.T) {
 	db := makeTestDB()
 	db.Exec(nil, utils.ToCmdLine("HSET", "h", "f", "v"))
-	undo := undoHGetDel(db, [][]byte{[]byte("h"), []byte("f")})
+	undo := undoHGetDel(db, utils.ToCmdLine("HGETDEL", "h", "FIELDS", "1", "f")[1:])
 	if len(undo) == 0 {
 		t.Fatal("expected undo commands for HGETDEL")
 	}

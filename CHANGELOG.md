@@ -6,6 +6,7 @@
 
 ### Fixed
 
+- `HGETEX`/`HSETEX`/`HGETDEL`：移除 legacy 单字段表单，对齐 Redis 8 仅 `FIELDS` 语法（无 `FIELDS` → wrong arity；对照 Redis 8.10）
 - `LCS IDX`：按 LCS 回溯路径提取连续匹配段（末→首），对齐 Redis `ohmytext`/`mynewtext` 等用例；`LEN`+`IDX` → `ERR If you want both the length and indexes, please just use IDX.`。`BITOP DIFF`/`DIFF1`/`ANDOR` 源键不足 → `must be called with at least two source keys.`（对照 Redis 8.10）
 - `HGETEX`/`HSETEX` `FIELDS`：`numFields≤0` 无尾随令牌 → wrong arity（含命令名），有尾随 → `invalid number of fields`；`HGETDEL`/`HEXPIRETIME`/`HPEXPIRETIME` 同场景 → `Number of fields must be a positive integer`。`HPERSIST` 对齐 Redis 8：仅 `FIELDS` 表单（arity `-5`），按字段返回 `1`/`-1`/`-2` 数组（对照 Redis 8.10）
 - `CLIENT CACHING`：无 tracking → `…OPTIN or OPTOUT mode enabled`；`YES` 仅 OPTIN、`NO` 仅 OPTOUT（对照 Redis 8.10）。`HTTL`/`HPTTL` `FIELDS`：`numFields≤0` 无字段令牌 → wrong arity（含命令名），有尾随令牌 → `Number of fields must be a positive integer`

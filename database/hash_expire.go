@@ -196,7 +196,6 @@ func parseHashExpireOpt(args [][]byte, start int) (expireAt time.Time, persist, 
 }
 
 // execHGetEx Redis 8: HGETEX key [EX|PX|EXAT|PXAT|PERSIST] FIELDS numfields field [field ...]
-// Legacy: HGETEX key field [opts...] (single field, bulk reply)
 func execHGetEx(db *DB, args [][]byte) redis.Reply {
 	if len(args) < 2 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'hgetex' command")
@@ -252,36 +251,10 @@ func execHGetEx(db *DB, args [][]byte) redis.Reply {
 		return protocol.MakeMultiBulkReply(out)
 	}
 
-	// Legacy single-field form
-	field := string(args[1])
-	ed, errReply := db.getAsExpireDict(key)
-	if errReply != nil {
-		return errReply
-	}
-	if ed == nil {
-		return &protocol.NullBulkReply{}
-	}
-	val, _, exists := ed.GetWithExpire(field)
-	if !exists {
-		return &protocol.NullBulkReply{}
-	}
-	expireAt, persist, _, _, optErr := parseHashExpireOpt(args, 2)
-	if optErr != nil {
-		return optErr
-	}
-	if persist {
-		ed.Persist(field)
-		db.addAof(utils.ToCmdLine3("hgetex", args...))
-	} else if !expireAt.IsZero() {
-		ed.Expire(field, expireAt)
-		db.addAof(utils.ToCmdLine3("hgetex", args...))
-	}
-	value, _ := val.([]byte)
-	return protocol.MakeBulkReply(value)
+	return protocol.MakeErrReply("ERR wrong number of arguments for 'hgetex' command")
 }
 
 // execHSetEx Redis 8: HSETEX key [FNX|FXX] [EX|PX|EXAT|PXAT|KEEPTTL] FIELDS numfields field value ...
-// Legacy: HSETEX key field value [opts...]
 func execHSetEx(db *DB, args [][]byte) redis.Reply {
 	if len(args) < 3 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'hsetex' command")
@@ -377,53 +350,23 @@ func execHSetEx(db *DB, args [][]byte) redis.Reply {
 		return protocol.MakeIntReply(1)
 	}
 
-	// Legacy
-	field := string(args[1])
-	value := args[2]
-	ed, _, errReply := db.getOrInitExpireDict(key)
-	if errReply != nil {
-		return errReply
-	}
-	expireAt, _, keepTTL, _, optErr := parseHashExpireOpt(args, 3)
-	if optErr != nil {
-		return optErr
-	}
-	now := time.Now()
-	if keepTTL {
-		_, ttl, exists := ed.GetWithExpire(field)
-		if exists && ttl > 0 {
-			expireAt = now.Add(ttl)
-		}
-	}
-	if !expireAt.IsZero() {
-		ed.SetWithExpire(field, value, expireAt.Sub(now))
-	} else {
-		ed.Set(field, value)
-	}
-	db.addAof(utils.ToCmdLine3("hsetex", args...))
-	return protocol.MakeIntReply(1)
+	return protocol.MakeErrReply("ERR wrong number of arguments for 'hsetex' command")
 }
 
 // execHGetDel Redis 8: HGETDEL key FIELDS numfields field [field ...]
-// Legacy: HGETDEL key field [field ...]
 func execHGetDel(db *DB, args [][]byte) redis.Reply {
 	if len(args) < 2 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'hgetdel' command")
 	}
 	key := string(args[0])
-	var fields []string
-	if strings.ToUpper(string(args[1])) == "FIELDS" {
-		fs, _, errReply := parseHashFieldsBlock(args, 1, "hgetdel", "ERR Number of fields must be a positive integer")
-		if errReply != nil {
-			return errReply
-		}
-		fields = fs
-	} else {
-		fields = make([]string, len(args)-1)
-		for i := 1; i < len(args); i++ {
-			fields[i-1] = string(args[i])
-		}
+	if strings.ToUpper(string(args[1])) != "FIELDS" {
+		return protocol.MakeErrReply("ERR wrong number of arguments for 'hgetdel' command")
 	}
+	fs, _, errReply := parseHashFieldsBlock(args, 1, "hgetdel", "ERR Number of fields must be a positive integer")
+	if errReply != nil {
+		return errReply
+	}
+	fields := fs
 
 	ed, errReply := db.getAsExpireDict(key)
 	if errReply != nil {
@@ -853,7 +796,7 @@ func undoHGetEx(db *DB, args [][]byte) []CmdLine {
 		}
 		fields = fs
 	} else {
-		fields = []string{string(args[1])}
+		return nil
 	}
 
 	ed, errReply := db.getAsExpireDict(key)
@@ -880,20 +823,14 @@ func undoHGetEx(db *DB, args [][]byte) []CmdLine {
 
 func undoHGetDel(db *DB, args [][]byte) []CmdLine {
 	key := string(args[0])
-	var fields []string
-	if len(args) >= 2 && strings.ToUpper(string(args[1])) == "FIELDS" {
-		fs, _, err := parseHashFieldsBlock(args, 1, "hgetdel", "ERR Number of fields must be a positive integer")
-		if err != nil {
-			return nil
-		}
-		fields = fs
-	} else {
-		fields = make([]string, len(args)-1)
-		for i := 1; i < len(args); i++ {
-			fields[i-1] = string(args[i])
-		}
+	if len(args) < 2 || strings.ToUpper(string(args[1])) != "FIELDS" {
+		return nil
 	}
-	return rollbackHashFields(db, key, fields...)
+	fs, _, err := parseHashFieldsBlock(args, 1, "hgetdel", "ERR Number of fields must be a positive integer")
+	if err != nil {
+		return nil
+	}
+	return rollbackHashFields(db, key, fs...)
 }
 
 func init() {
