@@ -66,7 +66,7 @@
 | CONFIG RESETSTAT | ✅ 清零 INFO/cmd/net/rejected 计数 |
 | CONFIG REWRITE | ✅ 写回配置文件（无配置文件时报错） |
 | FUNCTION DUMP | ✅ Godis `GODISFN1`（非 Redis 互通；官方 `0xF5`/`0xF6`/`REDIS####` 与异己二进制明确 ERR） |
-| CLIENT TRACKING | ✅ RESP3 本地 Push；RESP2 需 REDIRECT；GETREDIR 正确 |
+| CLIENT TRACKING | ✅ RESP3 本地 Push；RESP2 需 REDIRECT；GETREDIR 正确；`CLIENT CACHING` 仅 OPTIN/OPTOUT（YES↔OPTIN、NO↔OPTOUT） |
 | RESTORE IDLETIME/FREQ | ✅ 写入 eviction 元数据 |
 | PING message | ✅ Bulk 回复（对齐 Redis） |
 | MEMORY USAGE SAMPLES | ✅ 嵌套类型按 SAMPLES 采样估算（默认 5，0=全量） |
@@ -285,4 +285,4 @@ UNWATCH、WAIT（简版）、BITOP、BITFIELD、SMOVE、LPOS、XCLAIM、SHUTDOWN
 
 ---
 
-**最后更新：** 2026-08-12（第十一批可关闭：EXPIRE 选项互斥允许 XX+GT/LT、XPENDING NOGROUP 与空 PEL 摘要形状；对照 Redis **8.10.0**；远期仍 **7** + 可独立 **0**）
+**最后更新：** 2026-08-12（第十二批可关闭：CLIENT CACHING 需 OPTIN/OPTOUT 及 YES/NO 分文案、HTTL/HPTTL FIELDS numFields 文案；对照 Redis **8.10.0**；远期仍 **7** + 可独立 **0**）

@@ -451,23 +451,32 @@ func execHPTTL(db *DB, args [][]byte) redis.Reply {
 }
 
 func execHTTLFamily(db *DB, args [][]byte, millis bool) redis.Reply {
+	cmdName := "httl"
+	if millis {
+		cmdName = "hpttl"
+	}
 	if len(args) < 2 {
-		return protocol.MakeErrReply("ERR wrong number of arguments")
+		return protocol.MakeErrReply("ERR wrong number of arguments for '" + cmdName + "' command")
 	}
 	key := string(args[0])
 	var fields []string
 	multi := false
 	if strings.ToUpper(string(args[1])) == "FIELDS" {
 		multi = true
-		if len(args) < 4 {
-			return protocol.MakeErrReply("ERR wrong number of arguments")
+		if len(args) < 3 {
+			return protocol.MakeErrReply("ERR wrong number of arguments for '" + cmdName + "' command")
 		}
 		n, err := strconv.Atoi(string(args[2]))
 		if err != nil || n < 1 {
-			return protocol.MakeErrReply("ERR Number of fields can't be negative or zero")
+			// Redis 8.10: FIELDS 0/-1 with no field tokens → wrong arity;
+			// with at least one trailing token → positive integer.
+			if len(args) < 4 {
+				return protocol.MakeErrReply("ERR wrong number of arguments for '" + cmdName + "' command")
+			}
+			return protocol.MakeErrReply("ERR Number of fields must be a positive integer")
 		}
 		if len(args) != 3+n {
-			return protocol.MakeErrReply("ERR wrong number of arguments")
+			return protocol.MakeErrReply("ERR wrong number of arguments for '" + cmdName + "' command")
 		}
 		fields = make([]string, n)
 		for i := 0; i < n; i++ {

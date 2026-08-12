@@ -243,9 +243,19 @@ func execClientCachingConn(c redis.Connection, args [][]byte) redis.Reply {
 	}
 	id := c.GetTrackingID()
 	if id == "" {
-		return protocol.MakeErrReply("ERR CLIENT CACHING can be issued only after CLIENT TRACKING ON")
+		// Redis 8.10: no tracking at all
+		return protocol.MakeErrReply("ERR CLIENT CACHING can be called only when the client is in tracking mode with OPTIN or OPTOUT mode enabled")
 	}
-	SetCachingDirective(id, val == "YES")
+	mode, _ := GetTrackingInfo(id)["mode"].(string)
+	yes := val == "YES"
+	// YES only valid in OPTIN; NO only valid in OPTOUT (even if tracking is on).
+	if yes && mode != "optin" {
+		return protocol.MakeErrReply("ERR CLIENT CACHING YES is only valid when tracking is enabled in OPTIN mode.")
+	}
+	if !yes && mode != "optout" {
+		return protocol.MakeErrReply("ERR CLIENT CACHING NO is only valid when tracking is enabled in OPTOUT mode.")
+	}
+	SetCachingDirective(id, yes)
 	return protocol.MakeStatusReply("OK")
 }
 
