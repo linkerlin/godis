@@ -453,19 +453,30 @@ func execHPExpireTime(db *DB, args [][]byte) redis.Reply {
 }
 
 func execHExpireTimeFamily(db *DB, args [][]byte, millis bool) redis.Reply {
-	if len(args) < 4 {
-		return protocol.MakeErrReply("ERR wrong number of arguments")
+	cmdName := "hexpiretime"
+	if millis {
+		cmdName = "hpexpiretime"
+	}
+	arity := protocol.MakeErrReply("ERR wrong number of arguments for '" + cmdName + "' command")
+	if len(args) < 2 {
+		return arity
 	}
 	key := string(args[0])
 	if strings.ToUpper(string(args[1])) != "FIELDS" {
 		return protocol.MakeSyntaxErrReply()
 	}
+	if len(args) < 3 {
+		return arity
+	}
 	n, err := strconv.Atoi(string(args[2]))
 	if err != nil || n < 1 {
-		return protocol.MakeErrReply("ERR Number of fields can't be negative or zero")
+		if len(args) < 4 {
+			return arity
+		}
+		return protocol.MakeErrReply("ERR Number of fields must be a positive integer")
 	}
 	if len(args) != 3+n {
-		return protocol.MakeErrReply("ERR wrong number of arguments")
+		return arity
 	}
 	ed, errReply := db.getAsExpireDict(key)
 	if errReply != nil {

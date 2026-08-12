@@ -105,20 +105,26 @@ func (db *DB) getOrInitExpireDict(key string) (*dict.ExpireDict, bool, protocol.
 }
 
 // parseHashFieldsBlock parses "FIELDS numfields field [field ...]" starting at args[i].
-// Returns fields and next index after the block.
-func parseHashFieldsBlock(args [][]byte, i int) (fields []string, next int, errReply redis.Reply) {
+// numFieldsErr is the Redis 8.10 message when numfields≤0 but at least one trailing token is present
+// (e.g. "ERR invalid number of fields" vs "ERR Number of fields must be a positive integer").
+func parseHashFieldsBlock(args [][]byte, i int, cmd, numFieldsErr string) (fields []string, next int, errReply redis.Reply) {
+	arity := protocol.MakeErrReply("ERR wrong number of arguments for '" + cmd + "' command")
 	if i >= len(args) || strings.ToUpper(string(args[i])) != "FIELDS" {
 		return nil, i, protocol.MakeSyntaxErrReply()
 	}
 	if i+1 >= len(args) {
-		return nil, i, protocol.MakeErrReply("ERR wrong number of arguments")
+		return nil, i, arity
 	}
 	n, err := strconv.Atoi(string(args[i+1]))
 	if err != nil || n < 1 {
-		return nil, i, protocol.MakeErrReply("ERR Number of fields can't be negative or zero")
+		// Redis: no trailing field tokens → wrong arity; else command-specific numFields ERR.
+		if i+2 >= len(args) {
+			return nil, i, arity
+		}
+		return nil, i, protocol.MakeErrReply(numFieldsErr)
 	}
 	if i+2+n > len(args) {
-		return nil, i, protocol.MakeErrReply("ERR wrong number of arguments")
+		return nil, i, arity
 	}
 	fields = make([]string, n)
 	for j := 0; j < n; j++ {
@@ -210,7 +216,7 @@ func execHGetEx(db *DB, args [][]byte) redis.Reply {
 		if optErr != nil {
 			return optErr
 		}
-		fields, _, fieldErr := parseHashFieldsBlock(args, i)
+		fields, _, fieldErr := parseHashFieldsBlock(args, i, "hgetex", "ERR invalid number of fields")
 		if fieldErr != nil {
 			return fieldErr
 		}
@@ -316,15 +322,19 @@ func execHSetEx(db *DB, args [][]byte) redis.Reply {
 			return protocol.MakeSyntaxErrReply()
 		}
 		if i+1 >= len(args) {
-			return protocol.MakeErrReply("ERR wrong number of arguments")
+			return protocol.MakeErrReply("ERR wrong number of arguments for 'hsetex' command")
 		}
 		n, err := strconv.Atoi(string(args[i+1]))
 		if err != nil || n < 1 {
-			return protocol.MakeErrReply("ERR Number of fields can't be negative or zero")
+			// Redis 8.10 HSETEX: no trailing tokens → wrong arity; else invalid number of fields.
+			if i+2 >= len(args) {
+				return protocol.MakeErrReply("ERR wrong number of arguments for 'hsetex' command")
+			}
+			return protocol.MakeErrReply("ERR invalid number of fields")
 		}
 		// each field has a value → 2*n tokens after numfields
 		if i+2+2*n > len(args) {
-			return protocol.MakeErrReply("ERR wrong number of arguments")
+			return protocol.MakeErrReply("ERR wrong number of arguments for 'hsetex' command")
 		}
 		pairs := make([][2][]byte, n)
 		for j := 0; j < n; j++ {
@@ -403,7 +413,7 @@ func execHGetDel(db *DB, args [][]byte) redis.Reply {
 	key := string(args[0])
 	var fields []string
 	if strings.ToUpper(string(args[1])) == "FIELDS" {
-		fs, _, errReply := parseHashFieldsBlock(args, 1)
+		fs, _, errReply := parseHashFieldsBlock(args, 1, "hgetdel", "ERR Number of fields must be a positive integer")
 		if errReply != nil {
 			return errReply
 		}
@@ -510,41 +520,53 @@ func execHTTLFamily(db *DB, args [][]byte, millis bool) redis.Reply {
 	return replies[0]
 }
 
-// execHPersist 移除字段的过期时间
-// HPERSIST key field [field ...]
+// execHPersist removes per-field TTLs.
+// Redis 8: HPERSIST key FIELDS numfields field [field ...] → array of 1/-1/-2 per field.
 func execHPersist(db *DB, args [][]byte) redis.Reply {
-	if len(args) < 2 {
-		return protocol.MakeArgNumErrReply("hpersist")
+	if len(args) < 2 || strings.ToUpper(string(args[1])) != "FIELDS" {
+		return protocol.MakeErrReply("ERR wrong number of arguments for 'hpersist' command")
 	}
-
-	key := string(args[0])
-	fields := make([]string, len(args)-1)
-	for i := 1; i < len(args); i++ {
-		fields[i-1] = string(args[i])
-	}
-
-	ed, errReply := db.getAsExpireDict(key)
+	fields, _, errReply := parseHashFieldsBlock(args, 1, "hpersist", "ERR Number of fields must be a positive integer")
 	if errReply != nil {
 		return errReply
 	}
-	if ed == nil {
-		return protocol.MakeIntReply(0)
+
+	key := string(args[0])
+	ed, typeErr := db.getAsExpireDict(key)
+	if typeErr != nil {
+		return typeErr
 	}
 
-	persisted := 0
-	for _, field := range fields {
+	replies := make([]redis.Reply, len(fields))
+	changed := false
+	for i, field := range fields {
+		if ed == nil {
+			replies[i] = protocol.MakeIntReply(-2)
+			continue
+		}
+		if _, exists := ed.Get(field); !exists {
+			replies[i] = protocol.MakeIntReply(-2)
+			continue
+		}
+		if _, hasTTL := ed.GetExpireTime(field); !hasTTL {
+			replies[i] = protocol.MakeIntReply(-1)
+			continue
+		}
 		if ed.Persist(field) {
-			persisted++
+			replies[i] = protocol.MakeIntReply(1)
+			changed = true
+		} else {
+			// Race/expire between GetExpireTime and Persist
+			replies[i] = protocol.MakeIntReply(-1)
 		}
 	}
 
-	if persisted > 0 {
+	if changed {
 		db.addAof(utils.ToCmdLine3("hpersist", args...))
-		// Removing a field's TTL re-evaluates the doc against the index.
 		reindexHash(db, key)
 	}
 
-	return protocol.MakeIntReply(int64(persisted))
+	return protocol.MakeMultiRawReply(replies)
 }
 
 // hExpireFlags holds optional NX/XX/GT/LT modifiers
@@ -825,7 +847,7 @@ func undoHGetEx(db *DB, args [][]byte) []CmdLine {
 				i++
 			}
 		}
-		fs, _, err := parseHashFieldsBlock(args, i)
+		fs, _, err := parseHashFieldsBlock(args, i, "hgetex", "ERR invalid number of fields")
 		if err != nil {
 			return nil
 		}
@@ -860,7 +882,7 @@ func undoHGetDel(db *DB, args [][]byte) []CmdLine {
 	key := string(args[0])
 	var fields []string
 	if len(args) >= 2 && strings.ToUpper(string(args[1])) == "FIELDS" {
-		fs, _, err := parseHashFieldsBlock(args, 1)
+		fs, _, err := parseHashFieldsBlock(args, 1, "hgetdel", "ERR Number of fields must be a positive integer")
 		if err != nil {
 			return nil
 		}
@@ -885,7 +907,7 @@ func init() {
 		attachCommandExtra([]string{redisFlagReadonly, redisFlagFast}, 1, 1, 1)
 	registerCommand("HPTTL", execHPTTL, readFirstKey, nil, -3, flagReadOnly).
 		attachCommandExtra([]string{redisFlagReadonly, redisFlagFast}, 1, 1, 1)
-	registerCommand("HPersist", execHPersist, writeFirstKey, nil, -3, flagWrite).
+	registerCommand("HPersist", execHPersist, writeFirstKey, nil, -5, flagWrite).
 		attachCommandExtra([]string{redisFlagWrite, redisFlagFast}, 1, 1, 1)
 
 	registerCommand("HExpire", execHExpire, writeFirstKey, undoHExpire, -4, flagWrite).

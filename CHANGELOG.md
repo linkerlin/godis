@@ -6,6 +6,7 @@
 
 ### Fixed
 
+- `HGETEX`/`HSETEX` `FIELDS`：`numFields≤0` 无尾随令牌 → wrong arity（含命令名），有尾随 → `invalid number of fields`；`HGETDEL`/`HEXPIRETIME`/`HPEXPIRETIME` 同场景 → `Number of fields must be a positive integer`。`HPERSIST` 对齐 Redis 8：仅 `FIELDS` 表单（arity `-5`），按字段返回 `1`/`-1`/`-2` 数组（对照 Redis 8.10）
 - `CLIENT CACHING`：无 tracking → `…OPTIN or OPTOUT mode enabled`；`YES` 仅 OPTIN、`NO` 仅 OPTOUT（对照 Redis 8.10）。`HTTL`/`HPTTL` `FIELDS`：`numFields≤0` 无字段令牌 → wrong arity（含命令名），有尾随令牌 → `Number of fields must be a positive integer`
 - `EXPIRE`/`PEXPIRE`/`EXPIREAT`/`PEXPIREAT`：选项互斥对齐 Redis 8——`GT`+`LT` 与 `NX`+`XX`/`NX`+`GT|LT` 分别报错；**允许** `XX`+`GT`/`XX`+`LT`。`XPENDING`：缺键/缺组 → `NOGROUP No such key '…' or consumer group '…'`；空 PEL 摘要为 `[0, null, null, null]`（对照 Redis 8.10）
 - 缺键时仍校验 `LPOP`/`RPOP`/`SPOP` 负 count（→ `must be positive`）；`XADD`/`XTRIM` `MAXLEN < 0` → `The MAXLEN argument must be >= 0.`；`HEXPIRE`/`HPEXPIRE` `FIELDS`：`numFields≤0` 无字段令牌 → wrong arity，有尾随令牌 → `Parameter \`numFields\` should be greater than 0`（对照 Redis 8.10）
