@@ -711,6 +711,10 @@ func execLInsert(db *DB, args [][]byte) redis.Reply {
 	if n != 4 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'linsert' command")
 	}
+	dir := strings.ToLower(string(args[1]))
+	if dir != "before" && dir != "after" {
+		return protocol.MakeErrReply("ERR syntax error")
+	}
 	key := string(args[0])
 	list, errReply := db.getAsList(key)
 	if errReply != nil {
@@ -720,10 +724,6 @@ func execLInsert(db *DB, args [][]byte) redis.Reply {
 		return protocol.MakeIntReply(0)
 	}
 
-	dir := strings.ToLower(string(args[1]))
-	if dir != "before" && dir != "after" {
-		return protocol.MakeErrReply("ERR syntax error")
-	}
 	if reply := validateBulkBytes(args[2]); reply != nil {
 		return reply
 	}

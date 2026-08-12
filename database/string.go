@@ -861,7 +861,13 @@ func execBitPos(db *DB, args [][]byte) redis.Reply {
 	} else if valStr == "0" {
 		v = 0
 	} else {
-		return protocol.MakeErrReply("ERR bit is not an integer or out of range")
+		// Redis string2ll: non-canonical 0/1 (e.g. "01","+0") → not an integer;
+		// other integers → "The bit argument must be 1 or 0."
+		n, perr := strconv.ParseInt(valStr, 10, 64)
+		if perr != nil || n == 0 || n == 1 {
+			return protocol.MakeErrReply("ERR value is not an integer or out of range")
+		}
+		return protocol.MakeErrReply("ERR The bit argument must be 1 or 0.")
 	}
 	// Redis: missing/empty key → 0 if looking for bit 0, else -1
 	if bs == nil || len(bs) == 0 {

@@ -880,15 +880,6 @@ func undoZIncr(db *DB, args [][]byte) []CmdLine {
 }
 
 func execZLexCount(db *DB, args [][]byte) redis.Reply {
-	key := string(args[0])
-	sortedSet, errReply := db.getAsSortedSet(key)
-	if errReply != nil {
-		return errReply
-	}
-	if sortedSet == nil {
-		return protocol.MakeIntReply(0)
-	}
-
 	minEle, maxEle := string(args[1]), string(args[2])
 	min, err := SortedSet.ParseLexBorder(minEle)
 	if err != nil {
@@ -897,6 +888,15 @@ func execZLexCount(db *DB, args [][]byte) redis.Reply {
 	max, err := SortedSet.ParseLexBorder(maxEle)
 	if err != nil {
 		return protocol.MakeErrReply(err.Error())
+	}
+
+	key := string(args[0])
+	sortedSet, errReply := db.getAsSortedSet(key)
+	if errReply != nil {
+		return errReply
+	}
+	if sortedSet == nil {
+		return protocol.MakeIntReply(0)
 	}
 
 	count := sortedSet.RangeCount(min, max)
@@ -914,14 +914,6 @@ func execZRangeByLex(db *DB, args [][]byte) redis.Reply {
 	}
 
 	key := string(args[0])
-	sortedSet, errReply := db.getAsSortedSet(key)
-	if errReply != nil {
-		return errReply
-	}
-	if sortedSet == nil {
-		return protocol.MakeEmptyMultiBulkReply()
-	}
-
 	minEle, maxEle := string(args[1]), string(args[2])
 	min, err := SortedSet.ParseLexBorder(minEle)
 	if err != nil {
@@ -930,6 +922,14 @@ func execZRangeByLex(db *DB, args [][]byte) redis.Reply {
 	max, err := SortedSet.ParseLexBorder(maxEle)
 	if err != nil {
 		return protocol.MakeErrReply(err.Error())
+	}
+
+	sortedSet, errReply := db.getAsSortedSet(key)
+	if errReply != nil {
+		return errReply
+	}
+	if sortedSet == nil {
+		return protocol.MakeEmptyMultiBulkReply()
 	}
 
 	offset := int64(0)
@@ -969,15 +969,6 @@ func execZRemRangeByLex(db *DB, args [][]byte) redis.Reply {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'zremrangebylex' command")
 	}
 
-	key := string(args[0])
-	sortedSet, errReply := db.getAsSortedSet(key)
-	if errReply != nil {
-		return errReply
-	}
-	if sortedSet == nil {
-		return protocol.MakeIntReply(0)
-	}
-
 	minEle, maxEle := string(args[1]), string(args[2])
 	min, err := SortedSet.ParseLexBorder(minEle)
 	if err != nil {
@@ -986,6 +977,15 @@ func execZRemRangeByLex(db *DB, args [][]byte) redis.Reply {
 	max, err := SortedSet.ParseLexBorder(maxEle)
 	if err != nil {
 		return protocol.MakeErrReply(err.Error())
+	}
+
+	key := string(args[0])
+	sortedSet, errReply := db.getAsSortedSet(key)
+	if errReply != nil {
+		return errReply
+	}
+	if sortedSet == nil {
+		return protocol.MakeIntReply(0)
 	}
 
 	count := sortedSet.RemoveRange(min, max)
@@ -1006,14 +1006,7 @@ func execZRevRangeByLex(db *DB, args [][]byte) redis.Reply {
 	}
 
 	key := string(args[0])
-	sortedSet, errReply := db.getAsSortedSet(key)
-	if errReply != nil {
-		return errReply
-	}
-	if sortedSet == nil {
-		return protocol.MakeEmptyMultiBulkReply()
-	}
-
+	// Redis ZREVRANGEBYLEX: args are max then min; validate lex borders before miss-key empty reply.
 	minEle, maxEle := string(args[2]), string(args[1])
 	min, err := SortedSet.ParseLexBorder(minEle)
 	if err != nil {
@@ -1022,6 +1015,14 @@ func execZRevRangeByLex(db *DB, args [][]byte) redis.Reply {
 	max, err := SortedSet.ParseLexBorder(maxEle)
 	if err != nil {
 		return protocol.MakeErrReply(err.Error())
+	}
+
+	sortedSet, errReply := db.getAsSortedSet(key)
+	if errReply != nil {
+		return errReply
+	}
+	if sortedSet == nil {
+		return protocol.MakeEmptyMultiBulkReply()
 	}
 
 	offset := int64(0)

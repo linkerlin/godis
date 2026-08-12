@@ -285,4 +285,4 @@ UNWATCH、WAIT（简版）、BITOP、BITFIELD、SMOVE、LPOS、XCLAIM、SHUTDOWN
 
 ---
 
-**最后更新：** 2026-08-12（第十六批可关闭：HSCAN/SSCAN/ZSCAN COUNT≤0、ZDIFF/ZINTER/ZUNION numkeys≤0；对照 Redis **8.10.0**；远期仍 **7** + 可独立 **0**）
+**最后更新：** 2026-08-12（第十七批可关闭：BITPOS bit 文案、LINSERT 方向校验顺序、Z*LEX 边界先于缺键；对照 Redis **8.10.0**；远期仍 **7** + 可独立 **0**）

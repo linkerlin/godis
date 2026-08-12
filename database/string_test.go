@@ -768,7 +768,7 @@ func TestBitPos(t *testing.T) {
 	actual = testDB.Exec(nil, utils.ToCmdLine("BitPos", key, "1", "a", "14"))
 	asserts.AssertErrReply(t, actual, "ERR value is not an integer or out of range")
 	actual = testDB.Exec(nil, utils.ToCmdLine("BitPos", key, "-1"))
-	asserts.AssertErrReply(t, actual, "ERR bit is not an integer or out of range")
+	asserts.AssertErrReply(t, actual, "ERR The bit argument must be 1 or 0.")
 }
 
 func TestRandomkey(t *testing.T) {
