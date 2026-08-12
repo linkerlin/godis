@@ -599,6 +599,40 @@ func (mdb *Server) execMove(conn redis.Connection, args [][]byte) redis.Reply {
 	return protocol.MakeIntReply(1)
 }
 
+// parseTypeScanOptions parses MATCH/COUNT after key+cursor for HSCAN/SSCAN/ZSCAN.
+// Redis 8.10: COUNT ≤ 0 → syntax error; non-integer COUNT → not an integer or out of range.
+func parseTypeScanOptions(args [][]byte, start int) (count int, pattern string, errReply redis.Reply) {
+	count = 10
+	pattern = "*"
+	for i := start; i < len(args); i++ {
+		arg := strings.ToLower(string(args[i]))
+		switch arg {
+		case "count":
+			if i+1 >= len(args) {
+				return 0, "", &protocol.SyntaxErrReply{}
+			}
+			n, err := strconv.Atoi(string(args[i+1]))
+			if err != nil {
+				return 0, "", protocol.MakeErrReply("ERR value is not an integer or out of range")
+			}
+			if n <= 0 {
+				return 0, "", &protocol.SyntaxErrReply{}
+			}
+			count = n
+			i++
+		case "match":
+			if i+1 >= len(args) {
+				return 0, "", &protocol.SyntaxErrReply{}
+			}
+			pattern = string(args[i+1])
+			i++
+		default:
+			return 0, "", &protocol.SyntaxErrReply{}
+		}
+	}
+	return count, pattern, nil
+}
+
 // execScan return the result of the scan
 func execScan(db *DB, args [][]byte) redis.Reply {
 	var count int = 10
@@ -615,7 +649,7 @@ func execScan(db *DB, args [][]byte) redis.Reply {
 				if err != nil {
 					return &protocol.SyntaxErrReply{}
 				}
-				// Redis keyspace SCAN: COUNT must be > 0 (HSCAN/SSCAN/ZSCAN allow 0).
+				// Redis keyspace SCAN: COUNT must be > 0.
 				if count0 <= 0 {
 					return &protocol.SyntaxErrReply{}
 				}

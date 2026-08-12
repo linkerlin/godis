@@ -6,6 +6,7 @@
 
 ### Fixed
 
+- `HSCAN`/`SSCAN`/`ZSCAN`：键存在时 `COUNT≤0` → syntax error，非整数 COUNT → `value is not an integer or out of range`；缺键仍返回空扫描（不校验 COUNT）。`ZDIFF`/`ZINTER`/`ZUNION` 及 `*STORE`：`numkeys≤0` 且带尾随令牌 → `at least 1 input key is needed for '…'`；arity 对齐 Redis（对照 Redis 8.10）
 - `HGETEX`/`HSETEX`/`HGETDEL`：移除 legacy 单字段表单，对齐 Redis 8 仅 `FIELDS` 语法（无 `FIELDS` → wrong arity；对照 Redis 8.10）
 - `LCS IDX`：按 LCS 回溯路径提取连续匹配段（末→首），对齐 Redis `ohmytext`/`mynewtext` 等用例；`LEN`+`IDX` → `ERR If you want both the length and indexes, please just use IDX.`。`BITOP DIFF`/`DIFF1`/`ANDOR` 源键不足 → `must be called with at least two source keys.`（对照 Redis 8.10）
 - `HGETEX`/`HSETEX` `FIELDS`：`numFields≤0` 无尾随令牌 → wrong arity（含命令名），有尾随 → `invalid number of fields`；`HGETDEL`/`HEXPIRETIME`/`HPEXPIRETIME` 同场景 → `Number of fields must be a positive integer`。`HPERSIST` 对齐 Redis 8：仅 `FIELDS` 表单（arity `-5`），按字段返回 `1`/`-1`/`-2` 数组（对照 Redis 8.10）

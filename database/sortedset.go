@@ -1056,34 +1056,17 @@ func execZRevRangeByLex(db *DB, args [][]byte) redis.Reply {
 }
 
 func execZScan(db *DB, args [][]byte) redis.Reply {
-	var count int = 10
-	var pattern string = "*"
-	if len(args) > 2 {
-		for i := 2; i < len(args); i++ {
-			arg := strings.ToLower(string(args[i]))
-			if arg == "count" {
-				count0, err := strconv.Atoi(string(args[i+1]))
-				if err != nil {
-					return &protocol.SyntaxErrReply{}
-				}
-				count = count0
-				i++
-			} else if arg == "match" {
-				pattern = string(args[i+1])
-				i++
-			} else {
-				return &protocol.SyntaxErrReply{}
-			}
-		}
-	}
 	key := string(args[0])
-	// get entity
 	set, errReply := db.getAsSortedSet(key)
 	if errReply != nil {
 		return errReply
 	}
 	if set == nil {
 		return emptyScanReply()
+	}
+	count, pattern, optErr := parseTypeScanOptions(args, 2)
+	if optErr != nil {
+		return optErr
 	}
 	cursor, err := strconv.Atoi(string(args[1]))
 	if err != nil {
@@ -1269,17 +1252,17 @@ func init() {
 		attachCommandExtra([]string{redisFlagWrite}, 1, -2, 1)
 	registerCommand("BZMPop", execBZMPop, nil, nil, -5, flagSpecial).
 		attachCommandExtra([]string{redisFlagBlocking}, 1, -2, 1)
-	registerCommand("ZUnion", execZUnion, prepareZCalculate, nil, -2, flagReadOnly).
+	registerCommand("ZUnion", execZUnion, prepareZCalculate, nil, -3, flagReadOnly).
 		attachCommandExtra([]string{redisFlagReadonly, redisFlagSortForScript}, 1, -1, 1)
-	registerCommand("ZUnionStore", execZUnionStore, prepareZStoreCalculateStore, rollbackFirstKey, -3, flagWrite).
+	registerCommand("ZUnionStore", execZUnionStore, prepareZStoreCalculateStore, rollbackFirstKey, -4, flagWrite).
 		attachCommandExtra([]string{redisFlagWrite, redisFlagDenyOOM}, 1, -1, 1)
-	registerCommand("ZInter", execZInter, prepareZCalculate, nil, -2, flagReadOnly).
+	registerCommand("ZInter", execZInter, prepareZCalculate, nil, -3, flagReadOnly).
 		attachCommandExtra([]string{redisFlagReadonly, redisFlagSortForScript}, 1, -1, 1)
-	registerCommand("ZInterStore", execZInterStore, prepareZStoreCalculateStore, rollbackFirstKey, -3, flagWrite).
+	registerCommand("ZInterStore", execZInterStore, prepareZStoreCalculateStore, rollbackFirstKey, -4, flagWrite).
 		attachCommandExtra([]string{redisFlagWrite, redisFlagDenyOOM}, 1, -1, 1)
-	registerCommand("ZDiff", execZDiff, prepareZCalculate, nil, -2, flagReadOnly).
+	registerCommand("ZDiff", execZDiff, prepareZCalculate, nil, -3, flagReadOnly).
 		attachCommandExtra([]string{redisFlagReadonly, redisFlagSortForScript}, 1, -1, 1)
-	registerCommand("ZDiffStore", execZDiffStore, prepareZStoreCalculateStore, rollbackFirstKey, -3, flagWrite).
+	registerCommand("ZDiffStore", execZDiffStore, prepareZStoreCalculateStore, rollbackFirstKey, -4, flagWrite).
 		attachCommandExtra([]string{redisFlagWrite, redisFlagDenyOOM}, 1, -1, 1)
 	registerCommand("ZInterCard", execZInterCard, prepareZCalculate, nil, -3, flagReadOnly).
 		attachCommandExtra([]string{redisFlagReadonly}, 1, -1, 1)
@@ -1411,6 +1394,13 @@ func execZSetOperation(db *DB, args [][]byte, op string, store bool) redis.Reply
 	numKeys, err := strconv.Atoi(string(args[numKeysIdx]))
 	if err != nil {
 		return protocol.MakeErrReply("ERR value is not an integer or out of range")
+	}
+	if numKeys <= 0 {
+		cmd := "z" + strings.ToLower(op)
+		if store {
+			cmd += "store"
+		}
+		return protocol.MakeErrReply("ERR at least 1 input key is needed for '" + cmd + "' command")
 	}
 
 	if len(args) < numKeysIdx+1+numKeys {

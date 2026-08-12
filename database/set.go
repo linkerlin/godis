@@ -411,34 +411,17 @@ func stringsToSetReply(members []string) redis.Reply {
 }
 
 func execSScan(db *DB, args [][]byte) redis.Reply {
-	var count int = 10
-	var pattern string = "*"
-	if len(args) > 2 {
-		for i := 2; i < len(args); i++ {
-			arg := strings.ToLower(string(args[i]))
-			if arg == "count" {
-				count0, err := strconv.Atoi(string(args[i+1]))
-				if err != nil {
-					return &protocol.SyntaxErrReply{}
-				}
-				count = count0
-				i++
-			} else if arg == "match" {
-				pattern = string(args[i+1])
-				i++
-			} else {
-				return &protocol.SyntaxErrReply{}
-			}
-		}
-	}
 	key := string(args[0])
-	// get entity
 	set, errReply := db.getAsSet(key)
 	if errReply != nil {
 		return errReply
 	}
 	if set == nil {
 		return emptyScanReply()
+	}
+	count, pattern, optErr := parseTypeScanOptions(args, 2)
+	if optErr != nil {
+		return optErr
 	}
 	cursor, err := strconv.Atoi(string(args[1]))
 	if err != nil {
