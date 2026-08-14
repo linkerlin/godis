@@ -111,9 +111,11 @@ func execEval(db *DB, args [][]byte) redis.Reply {
 
 	numKeys, err := strconv.Atoi(string(args[1]))
 	if err != nil {
-		return protocol.MakeErrReply("ERR Number of keys can't be greater than number of args")
+		return protocol.MakeErrReply("ERR value is not an integer or out of range")
 	}
-
+	if numKeys < 0 {
+		return protocol.MakeErrReply("ERR Number of keys can't be negative")
+	}
 	if len(args) < 2+numKeys {
 		return protocol.MakeErrReply("ERR Number of keys can't be greater than number of args")
 	}
@@ -173,9 +175,11 @@ func execEvalSha(db *DB, args [][]byte) redis.Reply {
 
 	numKeys, err := strconv.Atoi(string(args[1]))
 	if err != nil {
-		return protocol.MakeErrReply("ERR Number of keys can't be greater than number of args")
+		return protocol.MakeErrReply("ERR value is not an integer or out of range")
 	}
-
+	if numKeys < 0 {
+		return protocol.MakeErrReply("ERR Number of keys can't be negative")
+	}
 	if len(args) < 2+numKeys {
 		return protocol.MakeErrReply("ERR Number of keys can't be greater than number of args")
 	}

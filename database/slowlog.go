@@ -174,11 +174,12 @@ func (sl *SlowLogger) HandleSlowlogCommand(args [][]byte) redis.Reply {
 		count := 10
 		if argsLen == 3 {
 			n, err := strconv.Atoi(string(args[2]))
-			if err != nil {
-				return protocol.MakeErrReply("ERR value is not an integer or out of range")
+			// Redis: count must be >= -1; -1 means return all entries.
+			if err != nil || n < -1 {
+				return protocol.MakeErrReply("ERR count should be greater than or equal to -1")
 			}
-			if n < 0 {
-				return protocol.MakeEmptyMultiBulkReply()
+			if n == -1 {
+				n = sl.Len()
 			}
 			count = n
 		}

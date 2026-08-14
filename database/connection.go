@@ -122,8 +122,11 @@ func execClientPause(db *DB, args [][]byte) redis.Reply {
 	}
 
 	timeout, err := strconv.Atoi(string(args[0]))
-	if err != nil || timeout < 0 {
+	if err != nil {
 		return protocol.MakeErrReply("ERR timeout is not an integer or out of range")
+	}
+	if timeout < 0 {
+		return protocol.MakeErrReply("ERR timeout is negative")
 	}
 
 	mode := "ALL"
@@ -199,7 +202,7 @@ func execClientTracking(args [][]byte) redis.Reply {
 			}
 			_, err := strconv.Atoi(string(args[i+1]))
 			if err != nil {
-				return protocol.MakeErrReply("ERR Invalid client ID")
+				return protocol.MakeErrReply("ERR value is not an integer or out of range")
 			}
 			i++
 		case "PREFIX":

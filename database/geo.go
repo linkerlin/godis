@@ -161,6 +161,16 @@ func execGeoDist(db *DB, args [][]byte) redis.Reply {
 	if len(args) != 3 && len(args) != 4 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'geodist' command")
 	}
+	// Redis: validate unit before miss / missing-member null.
+	unit := "m"
+	if len(args) == 4 {
+		unit = strings.ToLower(string(args[3]))
+		switch unit {
+		case "m", "km", "mi", "ft":
+		default:
+			return protocol.MakeErrReply("ERR unsupported unit provided. please use M, KM, FT, MI")
+		}
+	}
 	key := string(args[0])
 	sortedSet, errReply := db.getAsSortedSet(key)
 	if errReply != nil {
@@ -180,10 +190,6 @@ func execGeoDist(db *DB, args [][]byte) redis.Reply {
 		lat, lng := geohash.Decode(uint64(elem.Score))
 		positions[i-1] = []float64{lat, lng}
 	}
-	unit := "m"
-	if len(args) == 4 {
-		unit = strings.ToLower(string(args[3]))
-	}
 	dis := geohash.Distance(positions[0][0], positions[0][1], positions[1][0], positions[1][1])
 	switch unit {
 	case "m":
@@ -195,7 +201,7 @@ func execGeoDist(db *DB, args [][]byte) redis.Reply {
 	case "ft":
 		return protocol.MakeDoubleReply(dis / 0.3048)
 	}
-	return protocol.MakeErrReply("ERR unsupported unit provided. please use m, km, ft, mi")
+	return protocol.MakeErrReply("ERR unsupported unit provided. please use M, KM, FT, MI")
 }
 
 // execGeoHash return geo-hash-code of given position

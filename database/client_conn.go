@@ -124,7 +124,7 @@ func execClientTrackingConn(c redis.Connection, args [][]byte) redis.Reply {
 				return protocol.MakeSyntaxErrReply()
 			}
 			if _, err := strconv.Atoi(string(args[i+1])); err != nil {
-				return protocol.MakeErrReply("ERR Invalid client ID")
+				return protocol.MakeErrReply("ERR value is not an integer or out of range")
 			}
 			redirectID = string(args[i+1])
 			i++

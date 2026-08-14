@@ -484,7 +484,7 @@ func execCopy(mdb *Server, conn redis.Connection, args [][]byte) redis.Reply {
 				}
 				idx, err := strconv.Atoi(string(args[i+1]))
 				if err != nil {
-					return &protocol.SyntaxErrReply{}
+					return protocol.MakeErrReply("ERR value is not an integer or out of range")
 				}
 				if idx >= len(mdb.dbSet) || idx < 0 {
 					return protocol.MakeErrReply("ERR DB index is out of range")
@@ -647,7 +647,7 @@ func execScan(db *DB, args [][]byte) redis.Reply {
 				}
 				count0, err := strconv.Atoi(string(args[i+1]))
 				if err != nil {
-					return &protocol.SyntaxErrReply{}
+					return protocol.MakeErrReply("ERR value is not an integer or out of range")
 				}
 				// Redis keyspace SCAN: COUNT must be > 0.
 				if count0 <= 0 {

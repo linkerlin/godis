@@ -308,7 +308,7 @@ func HelloWithRole(c redis.Connection, args [][]byte, role string) redis.Reply {
 				protoVersion = v
 				i++
 			} else {
-				return protocol.MakeSyntaxErrReply()
+				return protocol.MakeErrReply("ERR Protocol version is not an integer or out of range")
 			}
 		}
 	}
