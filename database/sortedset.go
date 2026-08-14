@@ -753,14 +753,12 @@ func execZPopMin(db *DB, args [][]byte) redis.Reply {
 	key := string(args[0])
 	count := 1
 	if len(args) > 1 {
-		var err error
-		count, err = strconv.Atoi(string(args[1]))
-		if err != nil {
-			return protocol.MakeErrReply("ERR value is not an integer or out of range")
-		}
-		if count < 0 {
+		count64, err := strconv.ParseInt(string(args[1]), 10, 64)
+		// Redis 8.10: non-integer and negative share "must be positive".
+		if err != nil || count64 < 0 {
 			return protocol.MakeErrReply("ERR value is out of range, must be positive")
 		}
+		count = int(count64)
 	}
 
 	sortedSet, errReply := db.getAsSortedSet(key)
@@ -1091,14 +1089,12 @@ func execZPopMax(db *DB, args [][]byte) redis.Reply {
 	key := string(args[0])
 	count := 1
 	if len(args) > 1 {
-		var err error
-		count, err = strconv.Atoi(string(args[1]))
-		if err != nil {
-			return protocol.MakeErrReply("ERR value is not an integer or out of range")
-		}
-		if count < 0 {
+		count64, err := strconv.ParseInt(string(args[1]), 10, 64)
+		// Redis 8.10: non-integer and negative share "must be positive".
+		if err != nil || count64 < 0 {
 			return protocol.MakeErrReply("ERR value is out of range, must be positive")
 		}
+		count = int(count64)
 	}
 
 	sortedSet, errReply := db.getAsSortedSet(key)

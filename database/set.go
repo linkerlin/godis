@@ -362,33 +362,35 @@ func execSRandMember(db *DB, args [][]byte) redis.Reply {
 	}
 	key := string(args[0])
 
-	// get or init entity
+	// Redis: validate count before the missing-key shortcut.
+	var count int
+	hasCount := false
+	if len(args) == 2 {
+		hasCount = true
+		count64, err := strconv.ParseInt(string(args[1]), 10, 64)
+		if err != nil {
+			return protocol.MakeErrReply("ERR value is not an integer or out of range")
+		}
+		count = int(count64)
+	}
+
 	set, errReply := db.getAsSet(key)
 	if errReply != nil {
 		return errReply
 	}
 	if set == nil {
-		// Redis: no count → nil; with count → empty
-		if len(args) == 2 {
+		if hasCount {
 			return protocol.MakeSetReply(nil)
 		}
 		return &protocol.NullBulkReply{}
 	}
-	if len(args) == 1 {
-		// get a random member
+	if !hasCount {
 		members := set.RandomMembers(1)
 		return protocol.MakeBulkReply([]byte(members[0]))
 	}
-	count64, err := strconv.ParseInt(string(args[1]), 10, 64)
-	if err != nil {
-		return protocol.MakeErrReply("ERR value is not an integer or out of range")
-	}
-	count := int(count64)
 	if count > 0 {
-		// Distinct members → Set in RESP3
 		return stringsToSetReply(set.RandomDistinctMembers(count))
 	} else if count < 0 {
-		// May contain duplicates → stay array
 		members := set.RandomMembers(-count)
 		result := make([][]byte, len(members))
 		for i, v := range members {

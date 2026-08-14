@@ -605,7 +605,7 @@ func execXGroupCreate(db *DB, args [][]byte) redis.Reply {
 			return errReply
 		}
 		if s == nil {
-			return protocol.MakeErrReply("ERR The XGROUP subcommand requires the key to exist.")
+			return protocol.MakeErrReply("ERR The XGROUP subcommand requires the key to exist. Note that for CREATE you may want to use the MKSTREAM option to create an empty stream automatically.")
 		}
 	}
 

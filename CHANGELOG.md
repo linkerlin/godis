@@ -6,6 +6,7 @@
 
 ### Fixed
 
+- `RESTORE`：`TTL < 0` 先于 payload → `Invalid TTL value, must be >= 0`。`SRANDMEMBER`：缺键前先校验 count。`LPOP`/`RPOP`/`ZPOPMIN`/`ZPOPMAX`：非整数 count 与负 count 同 Redis 8.10 → `must be positive`。`LINDEX`：缺键先返回 null（不校 index）。`XGROUP CREATE` 缺键文案补 MKSTREAM 提示（对照 Redis 8.10）
 - `BITPOS`：非法 bit 整数（如 `2`/`-1`）→ `The bit argument must be 1 or 0.`；非规范整数（`abc`/`01`）→ `value is not an integer or out of range`。`LINSERT`：缺键前先校验 BEFORE/AFTER。`ZLEXCOUNT`/`ZRANGEBYLEX`/`ZREMRANGEBYLEX`/`ZREVRANGEBYLEX`：缺键前先校验 lex 边界（对照 Redis 8.10）
 - `HSCAN`/`SSCAN`/`ZSCAN`：键存在时 `COUNT≤0` → syntax error，非整数 COUNT → `value is not an integer or out of range`；缺键仍返回空扫描（不校验 COUNT）。`ZDIFF`/`ZINTER`/`ZUNION` 及 `*STORE`：`numkeys≤0` 且带尾随令牌 → `at least 1 input key is needed for '…'`；arity 对齐 Redis（对照 Redis 8.10）
 - `HGETEX`/`HSETEX`/`HGETDEL`：移除 legacy 单字段表单，对齐 Redis 8 仅 `FIELDS` 语法（无 `FIELDS` → wrong arity；对照 Redis 8.10）

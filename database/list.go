@@ -44,13 +44,8 @@ func (db *DB) getOrInitList(key string) (list List.List, isNew bool, errReply pr
 func execLIndex(db *DB, args [][]byte) redis.Reply {
 	// parse args
 	key := string(args[0])
-	index64, err := strconv.ParseInt(string(args[1]), 10, 64)
-	if err != nil {
-		return protocol.MakeErrReply("ERR value is not an integer or out of range")
-	}
-	index := int(index64)
 
-	// get entity
+	// Redis: missing key → null even if index is non-integer; WRONGTYPE still first.
 	list, errReply := db.getAsList(key)
 	if errReply != nil {
 		return errReply
@@ -58,6 +53,12 @@ func execLIndex(db *DB, args [][]byte) redis.Reply {
 	if list == nil {
 		return &protocol.NullBulkReply{}
 	}
+
+	index64, err := strconv.ParseInt(string(args[1]), 10, 64)
+	if err != nil {
+		return protocol.MakeErrReply("ERR value is not an integer or out of range")
+	}
+	index := int(index64)
 
 	size := list.Len() // assert: size > 0
 	if index < -1*size {
@@ -101,10 +102,8 @@ func execLPop(db *DB, args [][]byte) redis.Reply {
 		withCount = true
 		var err error
 		count64, err = strconv.ParseInt(string(args[1]), 10, 64)
-		if err != nil {
-			return protocol.MakeErrReply("ERR value is not an integer or out of range")
-		}
-		if count64 < 0 {
+		// Redis 8.10: non-integer and negative count share this wording for LPOP/RPOP.
+		if err != nil || count64 < 0 {
 			return protocol.MakeErrReply("ERR value is out of range, must be positive")
 		}
 	}
@@ -438,10 +437,8 @@ func execRPop(db *DB, args [][]byte) redis.Reply {
 		withCount = true
 		var err error
 		count64, err = strconv.ParseInt(string(args[1]), 10, 64)
-		if err != nil {
-			return protocol.MakeErrReply("ERR value is not an integer or out of range")
-		}
-		if count64 < 0 {
+		// Redis 8.10: non-integer and negative count share this wording for LPOP/RPOP.
+		if err != nil || count64 < 0 {
 			return protocol.MakeErrReply("ERR value is out of range, must be positive")
 		}
 	}

@@ -66,6 +66,9 @@ func execRestore(db *DB, args [][]byte) redis.Reply {
 	if err != nil {
 		return protocol.MakeErrReply("ERR value is not an integer or out of range")
 	}
+	if ttlArg < 0 {
+		return protocol.MakeErrReply("ERR Invalid TTL value, must be >= 0")
+	}
 
 	serializedData := args[2]
 	replace := false
