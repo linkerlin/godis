@@ -285,4 +285,4 @@ UNWATCH、WAIT（简版）、BITOP、BITFIELD、SMOVE、LPOS、XCLAIM、SHUTDOWN
 
 ---
 
-**最后更新：** 2026-08-14（第十九批可关闭：LSET 键序、SET*/GETEX TTL 文案、EXPIRE Unsupported option 大小写、HSCAN/SSCAN/ZSCAN cursor 序、CLIENT KILL ID 非整数；对照 Redis **8.10.0**；远期仍 **7**）
+**最后更新：** 2026-08-14（第二十批可关闭：EVAL numkeys、GEODIST unit 序、SCAN COUNT、HELLO/TRACKING/PAUSE/SLOWLOG/COPY DB 文案；对照 Redis **8.10.0**；远期仍 **7**）
