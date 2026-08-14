@@ -325,7 +325,7 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 		case "maxmemory":
 			n, err := strconv.ParseInt(value, 10, 64)
 			if err != nil || n < 0 {
-				return protocol.MakeErrReply(fmt.Sprintf("ERR Invalid value for '%s'", key))
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'maxmemory') - argument must be a memory value")
 			}
 			config.Properties.Maxmemory = n
 			server.syncMemoryConfig()

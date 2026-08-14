@@ -383,15 +383,7 @@ func execZRange(db *DB, args [][]byte) redis.Reply {
 		return protocol.MakeErrReply("ERR syntax error, WITHSCORES not supported in combination with BYLEX")
 	}
 
-	sortedSet, errReply := db.getAsSortedSet(key)
-	if errReply != nil {
-		return errReply
-	}
-	if sortedSet == nil {
-		return &protocol.EmptyMultiBulkReply{}
-	}
-
-	var elements []*SortedSet.Element
+	// Redis: validate range args before miss / WRONGTYPE.
 	if byLex {
 		minBorder, err := SortedSet.ParseLexBorder(string(args[1]))
 		if err != nil {
@@ -401,12 +393,26 @@ func execZRange(db *DB, args [][]byte) redis.Reply {
 		if err != nil {
 			return protocol.MakeErrReply(err.Error())
 		}
+		sortedSet, errReply := db.getAsSortedSet(key)
+		if errReply != nil {
+			return errReply
+		}
+		if sortedSet == nil {
+			return &protocol.EmptyMultiBulkReply{}
+		}
+		var elements []*SortedSet.Element
 		if rev {
 			elements = sortedSet.Range(maxBorder, minBorder, limitOffset, limitCount, true)
 		} else {
 			elements = sortedSet.Range(minBorder, maxBorder, limitOffset, limitCount, false)
 		}
-	} else if byScore {
+		result := make([][]byte, len(elements))
+		for i, e := range elements {
+			result[i] = []byte(e.Member)
+		}
+		return protocol.MakeMultiBulkReply(result)
+	}
+	if byScore {
 		minBorder, err := SortedSet.ParseScoreBorder(string(args[1]))
 		if err != nil {
 			return protocol.MakeErrReply(err.Error())
@@ -415,31 +421,38 @@ func execZRange(db *DB, args [][]byte) redis.Reply {
 		if err != nil {
 			return protocol.MakeErrReply(err.Error())
 		}
+		sortedSet, errReply := db.getAsSortedSet(key)
+		if errReply != nil {
+			return errReply
+		}
+		if sortedSet == nil {
+			return &protocol.EmptyMultiBulkReply{}
+		}
+		var elements []*SortedSet.Element
 		if rev {
 			elements = sortedSet.Range(maxBorder, minBorder, limitOffset, limitCount, true)
 		} else {
 			elements = sortedSet.Range(minBorder, maxBorder, limitOffset, limitCount, false)
 		}
-	} else {
-		start, err := strconv.ParseInt(string(args[1]), 10, 64)
-		if err != nil {
-			return protocol.MakeErrReply("ERR value is not an integer or out of range")
+		if withScores {
+			return elementsToScorePairs(elements, true)
 		}
-		stop, err := strconv.ParseInt(string(args[2]), 10, 64)
-		if err != nil {
-			return protocol.MakeErrReply("ERR value is not an integer or out of range")
+		result := make([][]byte, len(elements))
+		for i, e := range elements {
+			result[i] = []byte(e.Member)
 		}
-		return range0(db, key, start, stop, withScores, rev)
+		return protocol.MakeMultiBulkReply(result)
 	}
 
-	if withScores {
-		return elementsToScorePairs(elements, true)
+	start, err := strconv.ParseInt(string(args[1]), 10, 64)
+	if err != nil {
+		return protocol.MakeErrReply("ERR value is not an integer or out of range")
 	}
-	result := make([][]byte, len(elements))
-	for i, e := range elements {
-		result[i] = []byte(e.Member)
+	stop, err := strconv.ParseInt(string(args[2]), 10, 64)
+	if err != nil {
+		return protocol.MakeErrReply("ERR value is not an integer or out of range")
 	}
-	return protocol.MakeMultiBulkReply(result)
+	return range0(db, key, start, stop, withScores, rev)
 }
 
 // execZRevRange gets members in range, sort by score in descending order

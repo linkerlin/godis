@@ -6,6 +6,7 @@
 
 ### Fixed
 
+- `ZRANGE`：rank/`BYSCORE`/`BYLEX` 边界先于缺键空数组。`HELLO` 非法版本 → `NOPROTO unsupported protocol version`。`FLUSHDB`/`FLUSHALL` 多余参数 → syntax。`FUNCTION DELETE` → `Library not found`。HLL `PFCOUNT`/`PFADD` → `WRONGTYPE Key is not a valid HyperLogLog…`。`COMMAND GETKEYS*` arity → `Invalid number of arguments specified for command`。`CONFIG SET maxmemory` 非法值文案；`TS.ADD`/`BF.RESERVE` 非法参数文案（对照 Redis 8.10）
 - `EVAL`/`EVALSHA`：`numkeys` 非整数 → `value is not an integer…`；负值 → `Number of keys can't be negative`（防 panic）。`GEODIST`：非法 unit 先于缺键/缺成员 null，文案 `M, KM, FT, MI`。`SCAN COUNT` 非整数 → integer ERR（`≤0` 仍 syntax）。`HELLO` 非法协议版本文案；`CLIENT TRACKING REDIRECT` / `COPY … DB` 非整数；`CLIENT PAUSE` 区分非整数与负超时；`SLOWLOG GET` count `≥ -1`（对照 Redis 8.10）
 - `LSET`：缺键/`WRONGTYPE` 先于 index 解析。`SET`/`SETEX`/`PSETEX`/`GETEX` 非整数 TTL → `value is not an integer or out of range`（非 syntax）；`GETEX` `n≤0` 仍为 invalid expire。`EXPIRE*` 未知选项保留原始大小写 → `Unsupported option …`。`HSCAN`/`SSCAN`/`ZSCAN`：非法 cursor 先于缺键/`WRONGTYPE`。`CLIENT KILL ID` 非整数与 `≤0` 同文案 `client-id should be greater than 0`（对照 Redis 8.10）
 - `RESTORE`：`TTL < 0` 先于 payload → `Invalid TTL value, must be >= 0`。`SRANDMEMBER`：缺键前先校验 count。`LPOP`/`RPOP`/`ZPOPMIN`/`ZPOPMAX`：非整数 count 与负 count 同 Redis 8.10 → `must be positive`。`LINDEX`：缺键先返回 null（不校 index）。`XGROUP CREATE` 缺键文案补 MKSTREAM 提示（对照 Redis 8.10）

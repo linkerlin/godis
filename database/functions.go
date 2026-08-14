@@ -161,7 +161,7 @@ func execFunctionDelete(db *DB, args [][]byte) redis.Reply {
 	libName := string(args[0])
 
 	if err := funcEngine.DeleteLibrary(libName); err != nil {
-		return protocol.MakeErrReply(fmt.Sprintf("ERR %v", err))
+		return protocol.MakeErrReply("ERR Library not found")
 	}
 
 	cmdLine := append([][]byte{[]byte("function"), []byte("delete")}, args...)

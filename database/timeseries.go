@@ -135,7 +135,7 @@ func execTSAdd(db *DB, args [][]byte) redis.Reply {
 		var err error
 		timestamp, err = strconv.ParseInt(timestampStr, 10, 64)
 		if err != nil {
-			return protocol.MakeErrReply("ERR Timestamp must be an integer or *")
+			return protocol.MakeErrReply("ERR TSDB: invalid timestamp")
 		}
 	}
 
@@ -234,7 +234,7 @@ func execTSMAdd(db *DB, args [][]byte) redis.Reply {
 			var err error
 			timestamp, err = strconv.ParseInt(timestampStr, 10, 64)
 			if err != nil {
-				return protocol.MakeErrReply("ERR Timestamp must be an integer or *")
+				return protocol.MakeErrReply("ERR TSDB: invalid timestamp")
 			}
 		}
 		value, err := strconv.ParseFloat(string(args[i+2]), 64)

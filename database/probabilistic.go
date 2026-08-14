@@ -24,7 +24,7 @@ func execBFReserve(db *DB, args [][]byte) redis.Reply {
 
 	errorRate, err := strconv.ParseFloat(string(args[1]), 64)
 	if err != nil {
-		return protocol.MakeErrReply("ERR Error rate must be a double")
+		return protocol.MakeErrReply("ERR bad error rate")
 	}
 
 	capacity, err := strconv.ParseUint(string(args[2]), 10, 64)

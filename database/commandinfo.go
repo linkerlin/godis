@@ -113,7 +113,7 @@ func getKeys(args [][]byte) redis.Reply {
 	}
 	cmd := cmdTable[cmdName]
 	if !validateArity(cmd.arity, cmdLine) {
-		return protocol.MakeArgNumErrReply(cmdName)
+		return protocol.MakeErrReply("ERR Invalid number of arguments specified for command")
 	}
 	if err := validateEvalKeyArgs(cmdName, cmdLine); err != nil {
 		return err
@@ -160,7 +160,7 @@ func getKeysAndFlags(args [][]byte) redis.Reply {
 	}
 	cmd := cmdTable[cmdName]
 	if !validateArity(cmd.arity, cmdLine) {
-		return protocol.MakeArgNumErrReply(cmdName)
+		return protocol.MakeErrReply("ERR Invalid number of arguments specified for command")
 	}
 	if err := validateEvalKeyArgs(cmdName, cmdLine); err != nil {
 		return err

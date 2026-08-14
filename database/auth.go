@@ -303,7 +303,7 @@ func HelloWithRole(c redis.Connection, args [][]byte, role string) redis.Reply {
 		default:
 			if v, err := strconv.Atoi(string(args[i])); err == nil {
 				if v != 2 && v != 3 {
-					return protocol.MakeErrReply("ERR Protocol version not supported")
+					return protocol.MakeErrReply("NOPROTO unsupported protocol version")
 				}
 				protoVersion = v
 				i++

@@ -399,7 +399,7 @@ func (server *Server) Exec(c redis.Connection, cmdLine [][]byte) (result redis.R
 		return RewriteAOF(server, cmdLine[1:])
 	} else if cmdName == "flushall" {
 		if len(cmdLine) > 2 {
-			return protocol.MakeArgNumErrReply(cmdName)
+			return protocol.MakeSyntaxErrReply()
 		}
 		if len(cmdLine) == 2 {
 			opt := strings.ToUpper(string(cmdLine[1]))
@@ -410,7 +410,7 @@ func (server *Server) Exec(c redis.Connection, cmdLine [][]byte) (result redis.R
 		return server.flushAll()
 	} else if cmdName == "flushdb" {
 		if len(cmdLine) > 2 {
-			return protocol.MakeArgNumErrReply(cmdName)
+			return protocol.MakeSyntaxErrReply()
 		}
 		if len(cmdLine) == 2 {
 			opt := strings.ToUpper(string(cmdLine[1]))

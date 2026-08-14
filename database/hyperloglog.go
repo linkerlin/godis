@@ -33,7 +33,7 @@ func execPFAdd(db *DB, args [][]byte) redis.Reply {
 	} else {
 		raw, ok := entity.Data.([]byte)
 		if !ok {
-			return &protocol.WrongTypeErrReply{}
+			return protocol.MakeErrReply("WRONGTYPE Key is not a valid HyperLogLog string value.")
 		}
 		var err error
 		h, err = hll.Decode(raw)
@@ -41,7 +41,7 @@ func execPFAdd(db *DB, args [][]byte) redis.Reply {
 			if err == hll.ErrSparseEncoding || err == hll.ErrCorruptHLL {
 				return protocol.MakeErrReply("ERR INVALIDOBJ Corrupted HLL object detected")
 			}
-			return &protocol.WrongTypeErrReply{}
+			return protocol.MakeErrReply("WRONGTYPE Key is not a valid HyperLogLog string value.")
 		}
 	}
 
@@ -130,17 +130,17 @@ func (db *DB) getAsHLL(key string) (*hll.HLL, protocol.ErrorReply) {
 	}
 	raw, ok := entity.Data.([]byte)
 	if !ok {
-		return nil, &protocol.WrongTypeErrReply{}
+		return nil, protocol.MakeErrReply("WRONGTYPE Key is not a valid HyperLogLog string value.")
 	}
 	if !hll.IsHLLString(raw) {
-		return nil, &protocol.WrongTypeErrReply{}
+		return nil, protocol.MakeErrReply("WRONGTYPE Key is not a valid HyperLogLog string value.")
 	}
 	h, err := hll.Decode(raw)
 	if err != nil {
 		if err == hll.ErrSparseEncoding || err == hll.ErrCorruptHLL {
 			return nil, protocol.MakeErrReply("ERR INVALIDOBJ Corrupted HLL object detected")
 		}
-		return nil, &protocol.WrongTypeErrReply{}
+		return nil, protocol.MakeErrReply("WRONGTYPE Key is not a valid HyperLogLog string value.")
 	}
 	return h, nil
 }
