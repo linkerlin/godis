@@ -37,7 +37,7 @@ func execTSCreate(db *DB, args [][]byte) redis.Reply {
 				return protocol.MakeSyntaxErrReply()
 			}
 			retentionMs, err := strconv.ParseInt(string(args[i+1]), 10, 64)
-			if err != nil {
+			if err != nil || retentionMs < 0 {
 				return protocol.MakeErrReply("ERR TSDB: Couldn't parse RETENTION")
 			}
 			retention = time.Duration(retentionMs) * time.Millisecond
@@ -136,6 +136,9 @@ func execTSAdd(db *DB, args [][]byte) redis.Reply {
 		timestamp, err = strconv.ParseInt(timestampStr, 10, 64)
 		if err != nil {
 			return protocol.MakeErrReply("ERR TSDB: invalid timestamp")
+		}
+		if timestamp < 0 {
+			return protocol.MakeErrReply("ERR TSDB: invalid timestamp, must be a nonnegative integer")
 		}
 	}
 
@@ -699,7 +702,7 @@ func execTSAlter(db *DB, args [][]byte) redis.Reply {
 				return protocol.MakeSyntaxErrReply()
 			}
 			retentionMs, err := strconv.ParseInt(string(args[i+1]), 10, 64)
-			if err != nil {
+			if err != nil || retentionMs < 0 {
 				return protocol.MakeErrReply("ERR TSDB: Couldn't parse RETENTION")
 			}
 			ts.SetRetention(time.Duration(retentionMs) * time.Millisecond)

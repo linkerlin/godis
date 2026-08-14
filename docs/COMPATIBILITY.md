@@ -285,4 +285,4 @@ UNWATCH、WAIT（简版）、BITOP、BITFIELD、SMOVE、LPOS、XCLAIM、SHUTDOWN
 
 ---
 
-**最后更新：** 2026-08-14（第二十二批可关闭：score `(` 边界、TRACKING REDIRECT、FUNCTION FLUSH、TS/Bloom 族/FT/VADD/FCALL/timeout 文案；对照 Redis **8.10.0**；远期仍 **7**）
+**最后更新：** 2026-08-15（第二十三批可关闭：BF/CF/CMS/TopK/TDigest、TS 负值、XADD 0-0、XGROUP DESTROY、CONFIG save、JSON 缺键/EOF、GEORADIUS radius、FUNCTION LOAD/RESTORE 文案；对照 Redis **8.10.0**；远期仍 **7**）

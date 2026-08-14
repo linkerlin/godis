@@ -33,7 +33,11 @@ func execJSONSet(db *DB, args [][]byte) redis.Reply {
 	// Parse the JSON value
 	var value interface{}
 	if err := json.Unmarshal(args[2], &value); err != nil {
-		return protocol.MakeErrReply(fmt.Sprintf("ERR invalid JSON: %v", err))
+		msg := err.Error()
+		if strings.Contains(msg, "unexpected end of JSON") {
+			return protocol.MakeErrReply("EOF while parsing an object at line 1 column 1")
+		}
+		return protocol.MakeErrReply(msg)
 	}
 
 	// Parse options
@@ -387,7 +391,7 @@ func execJSONNumIncrBy(db *DB, args [][]byte) redis.Reply {
 	// Get JSON value
 	entity, exists := db.GetEntity(key)
 	if !exists {
-		return protocol.MakeErrReply("ERR key does not exist")
+		return protocol.MakeErrReply("ERR could not perform this operation on a key that doesn't exist")
 	}
 
 	jv, ok := entity.Data.(*godisjson.JSONValue)
@@ -491,7 +495,7 @@ func execJSONArrAppend(db *DB, args [][]byte) redis.Reply {
 	// Get JSON value
 	entity, exists := db.GetEntity(key)
 	if !exists {
-		return protocol.MakeErrReply("ERR key does not exist")
+		return protocol.MakeErrReply("ERR could not perform this operation on a key that doesn't exist")
 	}
 
 	jv, ok := entity.Data.(*godisjson.JSONValue)

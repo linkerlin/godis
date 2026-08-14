@@ -438,7 +438,7 @@ func execFunctionRestore(db *DB, args [][]byte) redis.Reply {
 		switch policy {
 		case "FLUSH", "APPEND", "REPLACE":
 		default:
-			return protocol.MakeErrReply("ERR FUNCTION RESTORE policy must be FLUSH, APPEND or REPLACE")
+			return protocol.MakeErrReply("ERR Wrong restore policy given, value should be either FLUSH, APPEND or REPLACE.")
 		}
 	}
 
@@ -583,11 +583,13 @@ func extractLibraryName(code string) string {
 // parseFunctionShebang parses #!lua name=... [api_version=1.0]
 func parseFunctionShebang(code string) (string, redis.Reply) {
 	lines := strings.Split(code, "\n")
+	foundShebang := false
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
 		if !strings.HasPrefix(line, "#!") {
 			continue
 		}
+		foundShebang = true
 		// Expect #!lua ...
 		rest := strings.TrimSpace(strings.TrimPrefix(line, "#!"))
 		fields := strings.Fields(rest)
@@ -606,14 +608,18 @@ func parseFunctionShebang(code string) (string, redis.Reply) {
 			}
 		}
 		if libName == "" {
-			return "", protocol.MakeErrReply("ERR Library name not specified (use '#!lua name=libname' shebang)")
+			// Redis: shebang present but unusable → Invalid library metadata
+			return "", protocol.MakeErrReply("ERR Invalid library metadata")
 		}
 		if hasAPI && apiVersion != "1.0" {
 			return "", protocol.MakeErrReply("ERR Invalid API version in shebang")
 		}
 		return libName, nil
 	}
-	return "", protocol.MakeErrReply("ERR Library name not specified (use '#!lua name=libname' shebang)")
+	if !foundShebang {
+		return "", protocol.MakeErrReply("ERR Missing library metadata")
+	}
+	return "", protocol.MakeErrReply("ERR Invalid library metadata")
 }
 
 func formatLibraryInfoReply(lib *functions.Library, withCode bool) redis.Reply {

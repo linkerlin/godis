@@ -266,9 +266,12 @@ func (s *Stream) Add(idStr string, fields map[string]string, opts *AddOptions) (
 		return StreamID{}, err
 	}
 
-	// 检查ID是否大于lastID
+	// 检查ID是否大于lastID（Redis：0-0 单独文案；否则 equal or smaller）
+	if id.IsZero() {
+		return StreamID{}, errors.New("ERR The ID specified in XADD must be greater than 0-0")
+	}
 	if id.Compare(s.lastID) <= 0 {
-		return StreamID{}, ErrStreamIDTooSmall
+		return StreamID{}, errors.New("ERR The ID specified in XADD is equal or smaller than the target stream top item")
 	}
 
 	// 创建条目

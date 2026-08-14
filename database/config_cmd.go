@@ -14,6 +14,31 @@ import (
 	"github.com/linkerlin/godis/redis/protocol"
 )
 
+// validSaveParams reports whether CONFIG SET save value is Redis-acceptable.
+// Empty disables autosave; otherwise requires even-length non-negative int pairs
+// with at least one non-(0,0) rule (Redis rejects "0 0" and odd/non-int tokens).
+func validSaveParams(s string) bool {
+	fields := strings.Fields(strings.TrimSpace(s))
+	if len(fields) == 0 {
+		return true
+	}
+	if len(fields)%2 != 0 {
+		return false
+	}
+	any := false
+	for i := 0; i < len(fields); i += 2 {
+		sec, err1 := strconv.ParseInt(fields[i], 10, 64)
+		chg, err2 := strconv.ParseInt(fields[i+1], 10, 64)
+		if err1 != nil || err2 != nil || sec < 0 || chg < 0 {
+			return false
+		}
+		if !(sec == 0 && chg == 0) {
+			any = true
+		}
+	}
+	return any
+}
+
 // execConfig handles CONFIG command
 func (server *Server) execConfig(args [][]byte) redis.Reply {
 	if len(args) < 1 {
@@ -756,6 +781,9 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 			}
 			config.Properties.ProtoMaxBulkLen = n
 		case "save":
+			if !validSaveParams(value) {
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'save') - Invalid save parameters")
+			}
 			config.Properties.Save = value
 		case "tcp-backlog":
 			n, err := strconv.Atoi(value)

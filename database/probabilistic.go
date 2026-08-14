@@ -26,6 +26,9 @@ func execBFReserve(db *DB, args [][]byte) redis.Reply {
 	if err != nil {
 		return protocol.MakeErrReply("ERR bad error rate")
 	}
+	if errorRate <= 0 || errorRate >= 1 {
+		return protocol.MakeErrReply("ERR error rate must be in the range (0.000000, 1.000000)")
+	}
 
 	capacity, err := strconv.ParseUint(string(args[2]), 10, 64)
 	if err != nil {
@@ -329,7 +332,8 @@ func execCFReserve(db *DB, args [][]byte) redis.Reply {
 
 	key := string(args[0])
 
-	capacity, err := strconv.ParseUint(string(args[1]), 10, 64)
+	// Redis: non-integer → Bad capacity; integer out of range (incl. negative) → Capacity must be in the range…
+	capSigned, err := strconv.ParseInt(string(args[1]), 10, 64)
 	if err != nil {
 		return protocol.MakeErrReply("Bad capacity")
 	}
@@ -374,6 +378,13 @@ func execCFReserve(db *DB, args [][]byte) redis.Reply {
 			return protocol.MakeSyntaxErrReply()
 		}
 	}
+
+	// Redis Bloom: capacity must be in [2*BUCKETSIZE, 2^30].
+	const cfCapMax = 1073741824
+	if capSigned < int64(2*bucketSize) || capSigned > int64(cfCapMax) {
+		return protocol.MakeErrReply("Capacity must be in the range [2 * BUCKETSIZE, 1073741824]")
+	}
+	capacity := uint64(capSigned)
 
 	_, exists := db.GetEntity(key)
 	if exists {
@@ -791,11 +802,11 @@ func execCMSInitByProb(db *DB, args [][]byte) redis.Reply {
 	key := string(args[0])
 	errRate, err := strconv.ParseFloat(string(args[1]), 64)
 	if err != nil || errRate <= 0 || errRate >= 1 {
-		return protocol.MakeErrReply("ERR invalid error rate")
+		return protocol.MakeErrReply("CMS: invalid overestimation value")
 	}
 	prob, err := strconv.ParseFloat(string(args[2]), 64)
 	if err != nil || prob <= 0 || prob >= 1 {
-		return protocol.MakeErrReply("ERR invalid probability")
+		return protocol.MakeErrReply("CMS: invalid prob value")
 	}
 	if _, exists := db.GetEntity(key); exists {
 		return protocol.MakeErrReply("ERR key already exists")
@@ -916,7 +927,7 @@ func execTopKReserve(db *DB, args [][]byte) redis.Reply {
 	key := string(args[0])
 
 	k, err := strconv.Atoi(string(args[1]))
-	if err != nil {
+	if err != nil || k <= 0 {
 		return protocol.MakeErrReply("TopK: invalid k")
 	}
 

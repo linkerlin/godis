@@ -256,6 +256,10 @@ func execGeoRadiusByMember(db *DB, args [][]byte) redis.Reply {
 
 // execGeoRadiusViaSearch maps GEORADIUS* onto GEOSEARCH / GEOSEARCHSTORE (haversine + options).
 func execGeoRadiusViaSearch(db *DB, key []byte, fromMember bool, a, b, radius, unit []byte, opts [][]byte) redis.Reply {
+	// Redis GEORADIUS*: radius is validated before lon/lat / key lookup.
+	if _, err := strconv.ParseFloat(string(radius), 64); err != nil {
+		return protocol.MakeErrReply("ERR need numeric radius")
+	}
 	var storeKey, storeDistKey []byte
 	hasWith := false
 	forward := make([][]byte, 0, 8+len(opts))

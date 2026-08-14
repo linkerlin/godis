@@ -26,6 +26,9 @@ func execTDigestCreate(db *DB, args [][]byte) redis.Reply {
 		if err != nil {
 			return protocol.MakeErrReply("ERR T-Digest: error parsing compression parameter")
 		}
+		if compression <= 0 {
+			return protocol.MakeErrReply("ERR T-Digest: compression parameter needs to be a positive integer")
+		}
 	}
 
 	_, exists := db.GetEntity(key)
