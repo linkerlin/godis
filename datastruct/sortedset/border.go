@@ -91,8 +91,13 @@ func ParseScoreBorder(s string) (Border, error) {
 		return scoreNegativeInfBorder, nil
 	}
 	if s[0] == '(' {
+		// Redis: "(" alone is exclusive 0 (strtod of empty → 0).
 		if len(s) == 1 {
-			return nil, errors.New("ERR min or max is not a float")
+			return &ScoreBorder{
+				Inf:     0,
+				Value:   0,
+				Exclude: true,
+			}, nil
 		}
 		value, err := strconv.ParseFloat(s[1:], 64)
 		if err != nil {

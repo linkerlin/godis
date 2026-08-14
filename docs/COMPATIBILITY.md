@@ -285,4 +285,4 @@ UNWATCH、WAIT（简版）、BITOP、BITFIELD、SMOVE、LPOS、XCLAIM、SHUTDOWN
 
 ---
 
-**最后更新：** 2026-08-14（第二十一批可关闭：ZRANGE 边界序、HELLO NOPROTO、FLUSH* 多余参、FUNCTION DELETE、HLL WRONGTYPE、GETKEYS arity、maxmemory/TS/BF 文案；对照 Redis **8.10.0**；远期仍 **7**）
+**最后更新：** 2026-08-14（第二十二批可关闭：score `(` 边界、TRACKING REDIRECT、FUNCTION FLUSH、TS/Bloom 族/FT/VADD/FCALL/timeout 文案；对照 Redis **8.10.0**；远期仍 **7**）

@@ -38,7 +38,7 @@ func execTSCreate(db *DB, args [][]byte) redis.Reply {
 			}
 			retentionMs, err := strconv.ParseInt(string(args[i+1]), 10, 64)
 			if err != nil {
-				return protocol.MakeErrReply("ERR Retention must be an integer")
+				return protocol.MakeErrReply("ERR TSDB: Couldn't parse RETENTION")
 			}
 			retention = time.Duration(retentionMs) * time.Millisecond
 			i += 2
@@ -142,7 +142,7 @@ func execTSAdd(db *DB, args [][]byte) redis.Reply {
 	// Parse value
 	value, err := strconv.ParseFloat(string(args[2]), 64)
 	if err != nil {
-		return protocol.MakeErrReply("ERR Value must be a double")
+		return protocol.MakeErrReply("ERR TSDB: invalid value")
 	}
 
 	// Parse optional trailing options.
@@ -239,7 +239,7 @@ func execTSMAdd(db *DB, args [][]byte) redis.Reply {
 		}
 		value, err := strconv.ParseFloat(string(args[i+2]), 64)
 		if err != nil {
-			return protocol.MakeErrReply("ERR Value must be a double")
+			return protocol.MakeErrReply("ERR TSDB: invalid value")
 		}
 		entity, exists := db.GetEntity(key)
 		var ts *timeseries.TimeSeries
@@ -277,7 +277,7 @@ func execTSGet(db *DB, args [][]byte) redis.Reply {
 
 	entity, exists := db.GetEntity(key)
 	if !exists {
-		return &protocol.NullBulkReply{}
+		return protocol.MakeErrReply("ERR TSDB: the key does not exist")
 	}
 
 	ts, ok := entity.Data.(*timeseries.TimeSeries)
@@ -450,7 +450,7 @@ func execTSInfo(db *DB, args [][]byte) redis.Reply {
 
 	entity, exists := db.GetEntity(key)
 	if !exists {
-		return protocol.MakeErrReply("ERR key does not exist")
+		return protocol.MakeErrReply("ERR TSDB: the key does not exist")
 	}
 
 	ts, ok := entity.Data.(*timeseries.TimeSeries)
@@ -533,7 +533,7 @@ func execTSIncrDecr(db *DB, args [][]byte, isIncr bool) redis.Reply {
 
 	delta, err := strconv.ParseFloat(string(args[1]), 64)
 	if err != nil {
-		return protocol.MakeErrReply("ERR Value must be a double")
+		return protocol.MakeErrReply("ERR TSDB: invalid value")
 	}
 
 	if !isIncr {
@@ -563,7 +563,7 @@ func execTSIncrDecr(db *DB, args [][]byte, isIncr bool) redis.Reply {
 			}
 			ms, err := strconv.ParseInt(string(args[i+1]), 10, 64)
 			if err != nil || ms < 0 {
-				return protocol.MakeErrReply("ERR Retention must be an integer")
+				return protocol.MakeErrReply("ERR TSDB: Couldn't parse RETENTION")
 			}
 			retention = time.Duration(ms) * time.Millisecond
 			i += 2
@@ -681,7 +681,7 @@ func execTSAlter(db *DB, args [][]byte) redis.Reply {
 
 	entity, exists := db.GetEntity(key)
 	if !exists {
-		return protocol.MakeErrReply("ERR key does not exist")
+		return protocol.MakeErrReply("ERR TSDB: the key does not exist")
 	}
 
 	ts, ok := entity.Data.(*timeseries.TimeSeries)
@@ -700,7 +700,7 @@ func execTSAlter(db *DB, args [][]byte) redis.Reply {
 			}
 			retentionMs, err := strconv.ParseInt(string(args[i+1]), 10, 64)
 			if err != nil {
-				return protocol.MakeErrReply("ERR Retention must be an integer")
+				return protocol.MakeErrReply("ERR TSDB: Couldn't parse RETENTION")
 			}
 			ts.SetRetention(time.Duration(retentionMs) * time.Millisecond)
 			i += 2

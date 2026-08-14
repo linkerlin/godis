@@ -535,7 +535,7 @@ func execFTDropIndex(db *DB, args [][]byte) redis.Reply {
 	searchEnginesMu.Unlock()
 
 	if !ok {
-		return protocol.MakeErrReply(fmt.Sprintf("ERR Index '%s' does not exist", string(args[0])))
+		return protocol.MakeErrReply(fmt.Sprintf("SEARCH_INDEX_NOT_FOUND Index not found: %s", string(args[0])))
 	}
 
 	if err := engine.DropIndex(deleteDocs); err != nil {
@@ -583,7 +583,7 @@ func execFTAdd(db *DB, args [][]byte) redis.Reply {
 	searchEnginesMu.RUnlock()
 
 	if !ok {
-		return protocol.MakeErrReply(fmt.Sprintf("ERR Index '%s' does not exist", indexName))
+		return protocol.MakeErrReply(fmt.Sprintf("SEARCH_INDEX_NOT_FOUND Index not found: %s", indexName))
 	}
 
 	// Parse options
@@ -682,7 +682,7 @@ func execFTDel(db *DB, args [][]byte) redis.Reply {
 	searchEnginesMu.RUnlock()
 
 	if !ok {
-		return protocol.MakeErrReply(fmt.Sprintf("ERR Index '%s' does not exist", indexName))
+		return protocol.MakeErrReply(fmt.Sprintf("SEARCH_INDEX_NOT_FOUND Index not found: %s", indexName))
 	}
 
 	deleted := engine.DeleteDocument(docID)
@@ -719,7 +719,7 @@ func execFTSearch(db *DB, args [][]byte) redis.Reply {
 	searchEnginesMu.RUnlock()
 
 	if !ok {
-		return protocol.MakeErrReply(fmt.Sprintf("ERR Index '%s' does not exist", indexName))
+		return protocol.MakeErrReply(fmt.Sprintf("SEARCH_INDEX_NOT_FOUND Index not found: %s", indexName))
 	}
 
 	// Parse options (Redis default LIMIT 0 10 when omitted)
@@ -1342,7 +1342,7 @@ func execFTAggregate(db *DB, args [][]byte) redis.Reply {
 	searchEnginesMu.RUnlock()
 
 	if !ok {
-		return protocol.MakeErrReply(fmt.Sprintf("ERR Index '%s' does not exist", indexName))
+		return protocol.MakeErrReply(fmt.Sprintf("SEARCH_INDEX_NOT_FOUND Index not found: %s", indexName))
 	}
 
 	// Parse aggregation request
@@ -1844,7 +1844,7 @@ func execFTInfo(db *DB, args [][]byte) redis.Reply {
 	searchEnginesMu.RUnlock()
 
 	if !ok {
-		return protocol.MakeErrReply(fmt.Sprintf("ERR Index '%s' does not exist", string(args[0])))
+		return protocol.MakeErrReply(fmt.Sprintf("SEARCH_INDEX_NOT_FOUND Index not found: %s", string(args[0])))
 	}
 
 	info := engine.Info()

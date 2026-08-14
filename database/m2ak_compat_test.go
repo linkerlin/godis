@@ -94,7 +94,7 @@ func TestM2akScriptFunctionFlushMode(t *testing.T) {
 
 	asserts.AssertStatusReply(t, server.Exec(c, utils.ToCmdLine("FUNCTION", "FLUSH", "ASYNC")), "OK")
 	bad := server.Exec(c, utils.ToCmdLine("FUNCTION", "FLUSH", "NOW"))
-	asserts.AssertErrReply(t, bad, "ERR FUNCTION FLUSH only supports SYNC|ASYNC mode")
+	asserts.AssertErrReply(t, bad, "ERR FUNCTION FLUSH only supports SYNC|ASYNC option")
 }
 
 func TestM2akOpsWindow(t *testing.T) {

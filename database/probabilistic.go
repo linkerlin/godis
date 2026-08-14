@@ -331,7 +331,7 @@ func execCFReserve(db *DB, args [][]byte) redis.Reply {
 
 	capacity, err := strconv.ParseUint(string(args[1]), 10, 64)
 	if err != nil {
-		return protocol.MakeErrReply("ERR Capacity must be an integer")
+		return protocol.MakeErrReply("Bad capacity")
 	}
 
 	bucketSize := uint(4)
@@ -690,7 +690,7 @@ func execCMSInitByDim(db *DB, args [][]byte) redis.Reply {
 
 	width, err := strconv.ParseUint(string(args[1]), 10, 64)
 	if err != nil {
-		return protocol.MakeErrReply("ERR Width must be an integer")
+		return protocol.MakeErrReply("CMS: invalid width")
 	}
 
 	depth, err := strconv.ParseUint(string(args[2]), 10, 64)
@@ -917,7 +917,7 @@ func execTopKReserve(db *DB, args [][]byte) redis.Reply {
 
 	k, err := strconv.Atoi(string(args[1]))
 	if err != nil {
-		return protocol.MakeErrReply("ERR K must be an integer")
+		return protocol.MakeErrReply("TopK: invalid k")
 	}
 
 	width, depth := 8, 7

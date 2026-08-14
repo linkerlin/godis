@@ -126,6 +126,10 @@ func execClientTrackingConn(c redis.Connection, args [][]byte) redis.Reply {
 			if _, err := strconv.Atoi(string(args[i+1])); err != nil {
 				return protocol.MakeErrReply("ERR value is not an integer or out of range")
 			}
+			rid, _ := strconv.ParseInt(string(args[i+1]), 10, 64)
+			if rid <= 0 || FindClientByID(rid) == nil {
+				return protocol.MakeErrReply("ERR The client ID you want redirect to does not exist")
+			}
 			redirectID = string(args[i+1])
 			i++
 		case "PREFIX":

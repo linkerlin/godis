@@ -21,7 +21,11 @@ func execTDigestCreate(db *DB, args [][]byte) redis.Reply {
 
 	compression := 100.0
 	if len(args) >= 3 && strings.ToUpper(string(args[1])) == "COMPRESSION" {
-		compression, _ = strconv.ParseFloat(string(args[2]), 64)
+		var err error
+		compression, err = strconv.ParseFloat(string(args[2]), 64)
+		if err != nil {
+			return protocol.MakeErrReply("ERR T-Digest: error parsing compression parameter")
+		}
 	}
 
 	_, exists := db.GetEntity(key)

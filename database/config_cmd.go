@@ -339,7 +339,7 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 		case "timeout":
 			n, err := strconv.Atoi(value)
 			if err != nil || n < 0 {
-				return protocol.MakeErrReply(fmt.Sprintf("ERR Invalid value for '%s'", key))
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'timeout') - argument couldn't be parsed into an integer")
 			}
 			config.Properties.Timeout = n
 		case "tcp-keepalive":

@@ -51,7 +51,7 @@ func execFTHybrid(db *DB, args [][]byte) redis.Reply {
 	engine, ok := searchEngines[indexName]
 	searchEnginesMu.RUnlock()
 	if !ok {
-		return protocol.MakeErrReply(fmt.Sprintf("ERR Index '%s' does not exist", string(args[0])))
+		return protocol.MakeErrReply(fmt.Sprintf("SEARCH_INDEX_NOT_FOUND Index not found: %s", string(args[0])))
 	}
 
 	spec, errReply := parseFTHybrid(args[1:])

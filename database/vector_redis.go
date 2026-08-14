@@ -59,7 +59,7 @@ func execVAdd(db *DB, args [][]byte) redis.Reply {
 			for d := 0; d < dim; d++ {
 				f, err := strconv.ParseFloat(string(args[i+2+d]), 64)
 				if err != nil {
-					return protocol.MakeErrReply("ERR invalid vector component")
+					return protocol.MakeErrReply("ERR invalid vector specification")
 				}
 				floats[d] = f
 			}
@@ -214,7 +214,7 @@ func execVSim(db *DB, args [][]byte) redis.Reply {
 			for d := 0; d < dim; d++ {
 				f, err := strconv.ParseFloat(string(args[i+2+d]), 64)
 				if err != nil {
-					return protocol.MakeErrReply("ERR invalid vector component")
+					return protocol.MakeErrReply("ERR invalid vector specification")
 				}
 				floats[d] = f
 			}

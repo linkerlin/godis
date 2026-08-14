@@ -178,7 +178,7 @@ func execFunctionFlush(db *DB, args [][]byte) redis.Reply {
 	if len(args) == 1 {
 		mode := strings.ToUpper(string(args[0]))
 		if mode != "ASYNC" && mode != "SYNC" {
-			return protocol.MakeErrReply("ERR FUNCTION FLUSH only supports SYNC|ASYNC mode")
+			return protocol.MakeErrReply("ERR FUNCTION FLUSH only supports SYNC|ASYNC option")
 		}
 	}
 
@@ -508,19 +508,22 @@ func execFCallInternal(db *DB, args [][]byte, readonly bool) redis.Reply {
 
 	funcName := string(args[0])
 
+	// Redis: missing function is reported before numkeys parse errors.
+	fn, exists := funcEngine.GetFunction(funcName)
+	if !exists {
+		return protocol.MakeErrReply("ERR Function not found")
+	}
+
 	numKeys, err := atoi(string(args[1]))
 	if err != nil {
-		return protocol.MakeErrReply("ERR numkeys should be integer")
+		return protocol.MakeErrReply("ERR value is not an integer or out of range")
+	}
+	if numKeys < 0 {
+		return protocol.MakeErrReply("ERR Number of keys can't be negative")
 	}
 
 	if len(args) < 2+numKeys {
 		return protocol.MakeErrReply("ERR wrong number of arguments")
-	}
-
-	// Check function exists
-	fn, exists := funcEngine.GetFunction(funcName)
-	if !exists {
-		return protocol.MakeErrReply("ERR Function not found")
 	}
 
 	// Check readonly constraint

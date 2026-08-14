@@ -46,7 +46,7 @@ func execFTAliasAdd(db *DB, args [][]byte) redis.Reply {
 	_, ok := searchEngines[index]
 	searchEnginesMu.RUnlock()
 	if !ok {
-		return protocol.MakeErrReply(fmt.Sprintf("ERR Index '%s' does not exist", index))
+		return protocol.MakeErrReply(fmt.Sprintf("SEARCH_INDEX_NOT_FOUND Index not found: %s", index))
 	}
 
 	searchAliasesMu.Lock()
@@ -93,7 +93,7 @@ func execFTAliasUpdate(db *DB, args [][]byte) redis.Reply {
 	_, ok := searchEngines[index]
 	searchEnginesMu.RUnlock()
 	if !ok {
-		return protocol.MakeErrReply(fmt.Sprintf("ERR Index '%s' does not exist", index))
+		return protocol.MakeErrReply(fmt.Sprintf("SEARCH_INDEX_NOT_FOUND Index not found: %s", index))
 	}
 
 	searchAliasesMu.Lock()
@@ -115,7 +115,7 @@ func execFTTagVals(db *DB, args [][]byte) redis.Reply {
 	engine, ok := searchEngines[indexName]
 	searchEnginesMu.RUnlock()
 	if !ok || engine == nil {
-		return protocol.MakeErrReply(fmt.Sprintf("ERR Index '%s' does not exist", string(args[0])))
+		return protocol.MakeErrReply(fmt.Sprintf("SEARCH_INDEX_NOT_FOUND Index not found: %s", string(args[0])))
 	}
 
 	tags := engine.TagVals(field)
