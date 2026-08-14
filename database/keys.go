@@ -211,7 +211,7 @@ func parseExpireCondFlags(args [][]byte) (expireCondFlags, redis.Reply) {
 		case "LT":
 			f.lt = true
 		default:
-			return f, protocol.MakeSyntaxErrReply()
+			return f, protocol.MakeErrReply("ERR Unsupported option " + string(a))
 		}
 	}
 	// Redis 8: GT+LT incompatible; NX cannot combine with XX/GT/LT.

@@ -364,10 +364,8 @@ func execClientKillConn(c redis.Connection, args [][]byte) redis.Reply {
 					return protocol.MakeSyntaxErrReply()
 				}
 				id, err := strconv.ParseInt(string(args[i+1]), 10, 64)
-				if err != nil {
-					return protocol.MakeErrReply("ERR Invalid client ID")
-				}
-				if id <= 0 {
+				// Redis: non-integer and non-positive share the same wording.
+				if err != nil || id <= 0 {
 					return protocol.MakeErrReply("ERR client-id should be greater than 0")
 				}
 				filterID = id

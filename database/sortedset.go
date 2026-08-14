@@ -1055,6 +1055,10 @@ func execZRevRangeByLex(db *DB, args [][]byte) redis.Reply {
 }
 
 func execZScan(db *DB, args [][]byte) redis.Reply {
+	cursor, err := strconv.Atoi(string(args[1]))
+	if err != nil {
+		return protocol.MakeErrReply("ERR invalid cursor")
+	}
 	key := string(args[0])
 	set, errReply := db.getAsSortedSet(key)
 	if errReply != nil {
@@ -1066,10 +1070,6 @@ func execZScan(db *DB, args [][]byte) redis.Reply {
 	count, pattern, optErr := parseTypeScanOptions(args, 2)
 	if optErr != nil {
 		return optErr
-	}
-	cursor, err := strconv.Atoi(string(args[1]))
-	if err != nil {
-		return protocol.MakeErrReply("ERR invalid cursor")
 	}
 
 	keysReply, nextCursor := set.ZSetScan(cursor, count, pattern)

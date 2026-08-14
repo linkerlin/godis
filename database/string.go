@@ -74,7 +74,10 @@ func execGetEX(db *DB, args [][]byte) redis.Reply {
 				return &protocol.SyntaxErrReply{}
 			}
 			n, err := strconv.ParseInt(string(args[i+1]), 10, 64)
-			if err != nil || n <= 0 {
+			if err != nil {
+				return protocol.MakeErrReply("ERR value is not an integer or out of range")
+			}
+			if n <= 0 {
 				return protocol.MakeErrReply("ERR invalid expire time in 'getex' command")
 			}
 			switch arg {
@@ -156,7 +159,7 @@ func execSet(db *DB, args [][]byte) redis.Reply {
 				}
 				n, err := strconv.ParseInt(string(args[i+1]), 10, 64)
 				if err != nil {
-					return &protocol.SyntaxErrReply{}
+					return protocol.MakeErrReply("ERR value is not an integer or out of range")
 				}
 				switch arg {
 				case "EX":
@@ -263,7 +266,7 @@ func execSetEX(db *DB, args [][]byte) redis.Reply {
 
 	ttlArg, err := strconv.ParseInt(string(args[1]), 10, 64)
 	if err != nil {
-		return &protocol.SyntaxErrReply{}
+		return protocol.MakeErrReply("ERR value is not an integer or out of range")
 	}
 	if ttlArg <= 0 {
 		return protocol.MakeErrReply("ERR invalid expire time in 'setex' command")
@@ -289,7 +292,7 @@ func execPSetEX(db *DB, args [][]byte) redis.Reply {
 
 	ttlArg, err := strconv.ParseInt(string(args[1]), 10, 64)
 	if err != nil {
-		return &protocol.SyntaxErrReply{}
+		return protocol.MakeErrReply("ERR value is not an integer or out of range")
 	}
 	if ttlArg <= 0 {
 		return protocol.MakeErrReply("ERR invalid expire time in 'psetex' command")

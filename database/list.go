@@ -357,19 +357,13 @@ func execLRem(db *DB, args [][]byte) redis.Reply {
 
 // execLSet puts element at specified index of list
 func execLSet(db *DB, args [][]byte) redis.Reply {
-	// parse args
 	key := string(args[0])
-	index64, err := strconv.ParseInt(string(args[1]), 10, 64)
-	if err != nil {
-		return protocol.MakeErrReply("ERR value is not an integer or out of range")
-	}
-	index := int(index64)
 	value := args[2]
 	if reply := validateBulkBytes(value); reply != nil {
 		return reply
 	}
 
-	// get data
+	// Redis: WRONGTYPE / no such key before index parse.
 	list, errReply := db.getAsList(key)
 	if errReply != nil {
 		return errReply
@@ -377,6 +371,12 @@ func execLSet(db *DB, args [][]byte) redis.Reply {
 	if list == nil {
 		return protocol.MakeErrReply("ERR no such key")
 	}
+
+	index64, err := strconv.ParseInt(string(args[1]), 10, 64)
+	if err != nil {
+		return protocol.MakeErrReply("ERR value is not an integer or out of range")
+	}
+	index := int(index64)
 
 	size := list.Len() // assert: size > 0
 	if index < -1*size {
