@@ -617,7 +617,7 @@ func execXAck(db *DB, args [][]byte) redis.Reply {
 	for i := 2; i < len(args); i++ {
 		id, err := stream.ParseStreamID(string(args[i]), stream.StreamID{})
 		if err != nil {
-			return protocol.MakeErrReply("ERR Invalid stream ID")
+			return protocol.MakeErrReply("ERR Invalid stream ID specified as stream command argument")
 		}
 		ids[i-2] = id
 	}

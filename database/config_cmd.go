@@ -484,19 +484,19 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 		case "aof-load-truncated":
 			ok, b := config.ParseConfigBool(value)
 			if !ok {
-				return protocol.MakeErrReply("ERR invalid aof-load-truncated value")
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'aof-load-truncated') - argument must be 'yes' or 'no'")
 			}
 			config.Properties.AofLoadTruncated = b
 		case "activerehashing":
 			ok, b := config.ParseConfigBool(value)
 			if !ok {
-				return protocol.MakeErrReply("ERR invalid activerehashing value")
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'activerehashing') - argument must be 'yes' or 'no'")
 			}
 			config.Properties.ActiveRehashing = b
 		case "sanitize-dump-payload":
 			ok, b := config.ParseConfigBool(value)
 			if !ok {
-				return protocol.MakeErrReply("ERR invalid sanitize-dump-payload value")
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'sanitize-dump-payload') - argument(s) must be one of the following: no, yes, clients")
 			}
 			config.Properties.SanitizeDumpPayload = b
 		case "ignore-warnings":
@@ -504,7 +504,7 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 		case "replica-announced":
 			ok, b := config.ParseConfigBool(value)
 			if !ok {
-				return protocol.MakeErrReply("ERR invalid replica-announced value")
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'replica-announced') - argument must be 'yes' or 'no'")
 			}
 			config.Properties.ReplicaAnnounced = b
 		case "set-proc-title":
@@ -535,13 +535,19 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 			config.Properties.ClientOutputBufferLimit = value
 		case "min-replicas-to-write":
 			n, err := strconv.Atoi(value)
-			if err != nil || n < 0 {
+			if err != nil {
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'min-replicas-to-write') - argument couldn't be parsed into an integer")
+			}
+			if n < 0 {
 				return protocol.MakeErrReply(fmt.Sprintf("ERR Invalid value for '%s'", key))
 			}
 			config.Properties.MinReplicasToWrite = n
 		case "min-replicas-max-lag":
 			n, err := strconv.Atoi(value)
-			if err != nil || n < 0 {
+			if err != nil {
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'min-replicas-max-lag') - argument couldn't be parsed into an integer")
+			}
+			if n < 0 {
 				return protocol.MakeErrReply(fmt.Sprintf("ERR Invalid value for '%s'", key))
 			}
 			config.Properties.MinReplicasMaxLag = n
@@ -631,7 +637,10 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 			config.Properties.ReplDisklessSyncDelay = n
 		case "maxmemory-samples":
 			n, err := strconv.Atoi(value)
-			if err != nil || n < 1 {
+			if err != nil {
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'maxmemory-samples') - argument couldn't be parsed into an integer")
+			}
+			if n < 1 {
 				return protocol.MakeErrReply(fmt.Sprintf("ERR Invalid value for '%s'", key))
 			}
 			config.Properties.MaxmemorySamples = n
@@ -650,7 +659,7 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 		case "replica-ignore-maxmemory":
 			ok, b := config.ParseConfigBool(value)
 			if !ok {
-				return protocol.MakeErrReply("ERR invalid replica-ignore-maxmemory value")
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'replica-ignore-maxmemory') - argument must be 'yes' or 'no'")
 			}
 			config.Properties.ReplicaIgnoreMaxmemory = b
 		case "aof-rewrite-incremental-fsync":
@@ -662,12 +671,15 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 		case "cluster-allow-replica-migration":
 			ok, b := config.ParseConfigBool(value)
 			if !ok {
-				return protocol.MakeErrReply("ERR invalid cluster-allow-replica-migration value")
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'cluster-allow-replica-migration') - argument must be 'yes' or 'no'")
 			}
 			config.Properties.ClusterAllowReplicaMigration = b
 		case "cluster-replica-validity-factor":
 			n, err := strconv.Atoi(value)
-			if err != nil || n < 0 {
+			if err != nil {
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'cluster-replica-validity-factor') - argument couldn't be parsed into an integer")
+			}
+			if n < 0 {
 				return protocol.MakeErrReply(fmt.Sprintf("ERR Invalid value for '%s'", key))
 			}
 			config.Properties.ClusterReplicaValidityFactor = n
@@ -867,7 +879,7 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 		case "repl-timeout":
 			n, err := strconv.Atoi(value)
 			if err != nil {
-				return protocol.MakeErrReply(fmt.Sprintf("ERR Invalid value for '%s'", key))
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'repl-timeout') - argument couldn't be parsed into an integer")
 			}
 			config.Properties.ReplTimeout = n
 		case "use-gnet":

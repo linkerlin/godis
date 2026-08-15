@@ -968,7 +968,7 @@ func execXGroupSetID(db *DB, args [][]byte) redis.Reply {
 	} else {
 		newStreamID, err = stream.ParseStreamID(newID, stream.StreamID{})
 		if err != nil {
-			return protocol.MakeErrReply("ERR Invalid stream ID")
+			return protocol.MakeErrReply("ERR Invalid stream ID specified as stream command argument")
 		}
 	}
 

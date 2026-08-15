@@ -6,6 +6,7 @@
 
 ### Fixed
 
+- 第三十批可关闭：CONFIG aof-load-truncated/activerehashing/replica-*/cluster-allow/sanitize 文案；validity-factor/repl-timeout/min-replicas*/maxmemory-samples 整数解析；ACL HELP/PUBSUB NUMPAT/REPLICAOF arity；CLIENT CACHING 先校验 tracking；TS.CREATERULE 聚合文案；XGROUP SETID/XACK 非法 ID；JSON.OBJLEN 缺键无 path→null（对照 Redis 8.10）
 - 第二十九批可关闭：CONFIG lazyfree*/jemalloc/activedefrag/aof-rewrite-incremental-fsync/replica-lazy-flush yes|no；announce-port/busy-reply-threshold/acllog-max-len 整数解析；MODULE/OBJECT HELP、BGREWRITEAOF arity；FUNCTION LIST 未知参数；ACL LOG/CAT；WAITAOF numreplicas；XGROUP CREATECONSUMER/DELCONSUMER NOGROUP（对照 Redis 8.10）
 - 第二十八批可关闭：CONFIG dynamic-hz/replica-serve-stale-data yes|no 与 listpack/stream-node/replica-priority/announce-bus-port 整数解析文案；MONITOR/SAVE/MEMORY DOCTOR/LATENCY LATEST/MODULE LIST/PUBSUB HELP arity；TS.CREATERULE/DELETERULE 缺键；XCLAIM/XAUTOCLAIM/XINFO CONSUMERS NOGROUP；FT.ALIASDEL（对照 Redis 8.10）
 - 第二十七批可关闭：CONFIG hz/slowlog/listpack/stream-node 整数解析与 notify-keyspace-events 文案；JSON.STRAPPEND 缺键；CMS.MERGE/TOPK.COUNT 缺键；XSETID smaller；FT.SUGADD invalid score；REPLICAOF 非法端口；TIME/DBSIZE/LASTSAVE/COMMAND COUNT arity；BGSAVE 非法选项；LATENCY GRAPH 无样本（对照 Redis 8.10）

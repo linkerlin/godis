@@ -970,6 +970,9 @@ func execJSONObjLen(db *DB, args [][]byte) redis.Reply {
 	// Get JSON value
 	entity, exists := db.GetEntity(key)
 	if !exists {
+		if !explicitPath {
+			return &protocol.NullBulkReply{}
+		}
 		return protocol.MakeErrReply("ERR Path does not exist or not an object")
 	}
 

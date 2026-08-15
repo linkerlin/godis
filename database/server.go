@@ -305,7 +305,7 @@ func (server *Server) Exec(c redis.Connection, cmdLine [][]byte) (result redis.R
 			return protocol.MakeErrReply("ERR cannot use SLAVEOF/REPLICAOF within MULTI")
 		}
 		if len(cmdLine) != 3 {
-			return protocol.MakeArgNumErrReply(strings.ToUpper(cmdName))
+			return protocol.MakeArgNumErrReply(cmdName)
 		}
 		return server.execSlaveOf(c, cmdLine[1:])
 	} else if cmdName == "command" {

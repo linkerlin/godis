@@ -748,12 +748,12 @@ func execTSCreateRule(db *DB, args [][]byte) redis.Reply {
 
 	aggType, err := timeseries.ParseAggregationType(string(args[3]))
 	if err != nil {
-		return protocol.MakeErrReply("ERR Invalid aggregation type")
+		return protocol.MakeErrReply("ERR TSDB: Unknown aggregation type")
 	}
 
 	timeBucketMs, err := strconv.ParseInt(string(args[4]), 10, 64)
 	if err != nil {
-		return protocol.MakeErrReply("ERR Time bucket must be an integer")
+		return protocol.MakeErrReply("ERR TSDB: Couldn't parse AGGREGATION")
 	}
 
 	// Get source time series

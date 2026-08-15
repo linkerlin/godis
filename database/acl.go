@@ -497,6 +497,9 @@ func execACLLog(args [][]byte) redis.Reply {
 
 // execACLHelp returns help information
 func execACLHelp(args [][]byte) redis.Reply {
+	if len(args) != 0 {
+		return protocol.MakeErrReply("ERR wrong number of arguments for 'acl|help' command")
+	}
 	help := []string{
 		"ACL (<subcommand> [<arg> [value] [opt] ...])",
 		"Subcommands:",

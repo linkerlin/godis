@@ -24,6 +24,9 @@ func execPubsub(hub *pubsub.Hub, args [][]byte) redis.Reply {
 	case "NUMSUB":
 		return execPubsubNumsub(hub, args[1:])
 	case "NUMPAT":
+		if len(args) != 1 {
+			return protocol.MakeErrReply("ERR wrong number of arguments for 'pubsub|numpat' command")
+		}
 		return execPubsubNumpat(hub)
 	case "SHARDCHANNELS":
 		return execPubsubShardChannels(args[1:])

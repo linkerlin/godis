@@ -244,14 +244,14 @@ func execClientCachingConn(c redis.Connection, args [][]byte) redis.Reply {
 	if len(args) != 1 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'client|caching' command")
 	}
-	val := strings.ToUpper(string(args[0]))
-	if val != "YES" && val != "NO" {
-		return protocol.MakeErrReply("ERR syntax error")
-	}
 	id := c.GetTrackingID()
 	if id == "" {
-		// Redis 8.10: no tracking at all
+		// Redis 8.10: no tracking at all (checked before YES/NO token)
 		return protocol.MakeErrReply("ERR CLIENT CACHING can be called only when the client is in tracking mode with OPTIN or OPTOUT mode enabled")
+	}
+	val := strings.ToUpper(string(args[0]))
+	if val != "YES" && val != "NO" {
+		return protocol.MakeSyntaxErrReply()
 	}
 	mode, _ := GetTrackingInfo(id)["mode"].(string)
 	yes := val == "YES"
