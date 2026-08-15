@@ -6,6 +6,7 @@
 
 ### Fixed
 
+- 第二十七批可关闭：CONFIG hz/slowlog/listpack/stream-node 整数解析与 notify-keyspace-events 文案；JSON.STRAPPEND 缺键；CMS.MERGE/TOPK.COUNT 缺键；XSETID smaller；FT.SUGADD invalid score；REPLICAOF 非法端口；TIME/DBSIZE/LASTSAVE/COMMAND COUNT arity；BGSAVE 非法选项；LATENCY GRAPH 无样本（对照 Redis 8.10）
 - 第二十六批可关闭：CONFIG bool/policy/announce-port；ACL GENPASS；SCRIPT DEBUG；GEOADD NX+XX / GEOSEARCH unit；JSON TOGGLE/ARR*/NUMMULTBY 缺键；BF/CF INFO；CMS INITBYDIM 0；TOPK 缺键不自建；XGROUP SETID 缺键（对照 Redis 8.10）
 - 第二十五批可关闭：`CONFIG` tcp-keepalive/lua-time-limit/loglevel/appendfsync 文案；`SCRIPT FLUSH` option；`LOLWUT VERSION`；`HELLO` SETNAME/AUTH；`SINTERCARD`/`ZINTERCARD` LIMIT；TOPK/CMS/TDigest 缺键；JSON OBJ*/ARR*/STR*/CLEAR 缺键；`TS.RANGE` 缺键（对照 Redis 8.10）
 - 第二十四批可关闭：`GEOSEARCH`/`GEOSEARCHSTORE` 非法坐标先于缺键空数组；`ZUNION`/`Z*STORE` `WEIGHTS` → `weight value is not a float`（含 `nan`）；`CONFIG SET maxclients`/`appendonly` 文案；`BITCOUNT` 缺键仍先校验 start/end（对照 Redis 8.10）

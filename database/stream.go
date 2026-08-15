@@ -1000,7 +1000,7 @@ func execXSetID(db *DB, args [][]byte) redis.Reply {
 		return protocol.MakeErrReply("ERR Invalid stream ID")
 	}
 	if newID.Compare(s.GetLastID()) < 0 {
-		return protocol.MakeErrReply("ERR The ID specified in XSETID is smaller than the current top-level ID")
+		return protocol.MakeErrReply("ERR The ID specified in XSETID is smaller than the target stream top item")
 	}
 	entriesAdded := int64(-1)
 	var maxDeleted *stream.StreamID

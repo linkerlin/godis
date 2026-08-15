@@ -295,6 +295,9 @@ func (server *Server) Exec(c redis.Connection, cmdLine [][]byte) (result redis.R
 	}
 
 	if cmdName == "dbsize" {
+		if len(cmdLine) != 1 {
+			return protocol.MakeArgNumErrReply("dbsize")
+		}
 		return DbSize(c, server)
 	}
 	if cmdName == "slaveof" || cmdName == "replicaof" {
@@ -316,6 +319,9 @@ func (server *Server) Exec(c redis.Connection, cmdLine [][]byte) (result redis.R
 	} else if cmdName == "module" {
 		return execModule(cmdLine[1:])
 	} else if cmdName == "time" {
+		if len(cmdLine) != 1 {
+			return protocol.MakeArgNumErrReply("time")
+		}
 		return execTime(cmdLine[1:])
 	} else if cmdName == "role" {
 		return server.execRole(cmdLine[1:])
@@ -425,8 +431,17 @@ func (server *Server) Exec(c redis.Connection, cmdLine [][]byte) (result redis.R
 	} else if cmdName == "save" {
 		return SaveRDB(server, cmdLine[1:])
 	} else if cmdName == "bgsave" {
+		if len(cmdLine) > 2 {
+			return protocol.MakeSyntaxErrReply()
+		}
+		if len(cmdLine) == 2 && !strings.EqualFold(string(cmdLine[1]), "SCHEDULE") {
+			return protocol.MakeSyntaxErrReply()
+		}
 		return BGSaveRDB(server, cmdLine[1:])
 	} else if cmdName == "lastsave" {
+		if len(cmdLine) != 1 {
+			return protocol.MakeArgNumErrReply("lastsave")
+		}
 		return execLastSave(server, cmdLine[1:])
 	} else if cmdName == "wait" {
 		return server.execWait(cmdLine[1:])

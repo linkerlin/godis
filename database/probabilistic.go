@@ -854,7 +854,7 @@ func execCMSMerge(db *DB, args [][]byte) redis.Reply {
 		// create with first source dimensions
 		first, ok := db.GetEntity(srcKeys[0])
 		if !ok {
-			return protocol.MakeErrReply("ERR key does not exist")
+			return protocol.MakeErrReply("CMS: key does not exist")
 		}
 		src, ok := first.Data.(*probabilistic.CountMinSketch)
 		if !ok {
@@ -874,7 +874,7 @@ func execCMSMerge(db *DB, args [][]byte) redis.Reply {
 	for i, sk := range srcKeys {
 		entity, ok := db.GetEntity(sk)
 		if !ok {
-			return protocol.MakeErrReply("ERR key does not exist")
+			return protocol.MakeErrReply("CMS: key does not exist")
 		}
 		src, ok := entity.Data.(*probabilistic.CountMinSketch)
 		if !ok {
@@ -1067,10 +1067,7 @@ func execTopKCount(db *DB, args [][]byte) redis.Reply {
 	results := make([][]byte, len(args)-1)
 	entity, exists := db.GetEntity(string(args[0]))
 	if !exists {
-		for i := range results {
-			results[i] = []byte("0")
-		}
-		return protocol.MakeMultiBulkReply(results)
+		return protocol.MakeErrReply("TopK: key does not exist")
 	}
 	topk, ok := entity.Data.(*probabilistic.TopK)
 	if !ok {

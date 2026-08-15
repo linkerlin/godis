@@ -604,7 +604,7 @@ func execFTAdd(db *DB, args [][]byte) redis.Reply {
 			var err error
 			score, err = strconv.ParseFloat(string(args[i+1]), 64)
 			if err != nil {
-				return protocol.MakeErrReply("ERR Invalid score")
+				return protocol.MakeErrReply("ERR invalid score")
 			}
 			i++
 		case "NOSAVE":
@@ -1947,7 +1947,7 @@ func execFTSugAdd(db *DB, args [][]byte) redis.Reply {
 
 	score, err := strconv.ParseFloat(string(args[2]), 64)
 	if err != nil {
-		return protocol.MakeErrReply("ERR Invalid score")
+		return protocol.MakeErrReply("ERR invalid score")
 	}
 
 	// Parse options

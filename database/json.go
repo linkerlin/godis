@@ -446,7 +446,7 @@ func execJSONStrAppend(db *DB, args [][]byte) redis.Reply {
 	// Get JSON value
 	entity, exists := db.GetEntity(key)
 	if !exists {
-		return protocol.MakeErrReply("ERR key does not exist")
+		return protocol.MakeErrReply("ERR could not perform this operation on a key that doesn't exist")
 	}
 
 	jv, ok := entity.Data.(*godisjson.JSONValue)

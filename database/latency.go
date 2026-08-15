@@ -273,7 +273,7 @@ func execLatencyDoctor() redis.Reply {
 func execLatencyGraph(eventName string) redis.Reply {
 	events := latencyMonitor.GetEvents(eventName)
 	if len(events) == 0 {
-		return protocol.MakeBulkReply([]byte(fmt.Sprintf("No data available for event '%s'", eventName)))
+		return protocol.MakeErrReply(fmt.Sprintf("ERR No samples available for event '%s'", eventName))
 	}
 
 	// 简化图形表示

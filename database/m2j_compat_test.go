@@ -78,7 +78,7 @@ func TestM2jXSetID(t *testing.T) {
 	asserts.AssertStatusReply(t, db.Exec(nil, utils.ToCmdLine(
 		"XSETID", "s", "2-0", "ENTRIESADDED", "5")), "OK")
 	r := db.Exec(nil, utils.ToCmdLine("XSETID", "s", "1-0"))
-	asserts.AssertErrReply(t, r, "ERR The ID specified in XSETID is smaller than the current top-level ID")
+	asserts.AssertErrReply(t, r, "ERR The ID specified in XSETID is smaller than the target stream top item")
 }
 
 func TestM2jSaveWithoutAOF(t *testing.T) {

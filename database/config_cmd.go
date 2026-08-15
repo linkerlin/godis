@@ -673,37 +673,52 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 			config.Properties.ClusterReplicaValidityFactor = n
 		case "hash-max-listpack-entries":
 			n, err := strconv.Atoi(value)
-			if err != nil || n < 0 {
+			if err != nil {
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'hash-max-listpack-entries') - argument couldn't be parsed into an integer")
+			}
+			if n < 0 {
 				return protocol.MakeErrReply(fmt.Sprintf("ERR Invalid value for '%s'", key))
 			}
 			config.Properties.HashMaxListpackEntries = n
 		case "list-max-listpack-size":
 			n, err := strconv.Atoi(value)
 			if err != nil {
-				return protocol.MakeErrReply(fmt.Sprintf("ERR Invalid value for '%s'", key))
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'list-max-listpack-size') - argument couldn't be parsed into an integer")
 			}
 			config.Properties.ListMaxListpackSize = n
 		case "set-max-intset-entries":
 			n, err := strconv.Atoi(value)
-			if err != nil || n < 0 {
+			if err != nil {
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'set-max-intset-entries') - argument couldn't be parsed into an integer")
+			}
+			if n < 0 {
 				return protocol.MakeErrReply(fmt.Sprintf("ERR Invalid value for '%s'", key))
 			}
 			config.Properties.SetMaxIntsetEntries = n
 		case "zset-max-listpack-entries":
 			n, err := strconv.Atoi(value)
-			if err != nil || n < 0 {
+			if err != nil {
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'zset-max-listpack-entries') - argument couldn't be parsed into an integer")
+			}
+			if n < 0 {
 				return protocol.MakeErrReply(fmt.Sprintf("ERR Invalid value for '%s'", key))
 			}
 			config.Properties.ZSetMaxListpackEntries = n
 		case "zset-max-listpack-value":
 			n, err := strconv.Atoi(value)
-			if err != nil || n < 0 {
+			if err != nil {
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'zset-max-listpack-value') - argument couldn't be parsed into an integer")
+			}
+			if n < 0 {
 				return protocol.MakeErrReply(fmt.Sprintf("ERR Invalid value for '%s'", key))
 			}
 			config.Properties.ZSetMaxListpackValue = n
 		case "stream-node-max-bytes":
 			n, err := strconv.ParseInt(value, 10, 64)
-			if err != nil || n < 0 {
+			if err != nil {
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'stream-node-max-bytes') - argument couldn't be parsed into an integer")
+			}
+			if n < 0 {
 				return protocol.MakeErrReply(fmt.Sprintf("ERR Invalid value for '%s'", key))
 			}
 			config.Properties.StreamNodeMaxBytes = n
@@ -796,14 +811,17 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 			config.Properties.TCPBacklog = n
 		case "hz":
 			n, err := strconv.Atoi(value)
-			if err != nil || n < 1 || n > 500 {
+			if err != nil {
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'hz') - argument couldn't be parsed into an integer")
+			}
+			if n < 1 || n > 500 {
 				return protocol.MakeErrReply(fmt.Sprintf("ERR Invalid value for '%s'", key))
 			}
 			config.Properties.Hz = n
 		case "slowlog-log-slower-than":
 			n, err := strconv.ParseInt(value, 10, 64)
 			if err != nil {
-				return protocol.MakeErrReply(fmt.Sprintf("ERR Invalid value for '%s'", key))
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'slowlog-log-slower-than') - argument couldn't be parsed into an integer")
 			}
 			config.Properties.SlowLogSlowerThan = n
 			if server.slogLogger != nil {
@@ -811,7 +829,10 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 			}
 		case "slowlog-max-len":
 			n, err := strconv.Atoi(value)
-			if err != nil || n < 0 {
+			if err != nil {
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'slowlog-max-len') - argument couldn't be parsed into an integer")
+			}
+			if n < 0 {
 				return protocol.MakeErrReply(fmt.Sprintf("ERR Invalid value for '%s'", key))
 			}
 			config.Properties.SlowLogMaxLen = n
@@ -860,11 +881,11 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 			}
 			config.Properties.SqliteMmapSize = n
 		case "notify-keyspace-events":
-			// Redis validates the event-class flags (K E g $ l s h z t d m x e A
-			// n) and rejects unknown letters.
+			// Redis 8.10 allowed class set (see CONFIG SET error Use '…').
+			const notifyClasses = "Ag$lshzxeKEtmdnocaSTIV"
 			for i := 0; i < len(value); i++ {
-				if !strings.ContainsRune("KEg$lshztdmxenA", rune(value[i])) {
-					return protocol.MakeErrReply(fmt.Sprintf("ERR Invalid event class character '%c' in notify-keyspace-events", rune(value[i])))
+				if !strings.ContainsRune(notifyClasses, rune(value[i])) {
+					return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'notify-keyspace-events') - Invalid event class character. Use 'Ag$lshzxeKEtmdnocaSTIV'.")
 				}
 			}
 			config.Properties.NotifyKeyspaceEvents = value

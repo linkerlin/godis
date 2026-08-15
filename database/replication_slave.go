@@ -65,7 +65,7 @@ func (server *Server) execSlaveOf(c redis.Connection, args [][]byte) redis.Reply
 	host := string(args[0])
 	port, err := strconv.Atoi(string(args[1]))
 	if err != nil {
-		return protocol.MakeErrReply("ERR value is not an integer or out of range")
+		return protocol.MakeErrReply("ERR Invalid master port")
 	}
 	server.slaveStatus.mutex.Lock()
 	atomic.StoreInt32(&server.role, slaveRole)
