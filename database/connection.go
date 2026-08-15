@@ -375,6 +375,9 @@ func formatClientTrackingInfo(info map[string]interface{}) redis.Reply {
 
 // execClientHelp returns help information
 func execClientHelp(args [][]byte) redis.Reply {
+	if len(args) != 0 {
+		return protocol.MakeErrReply("ERR wrong number of arguments for 'client|help' command")
+	}
 	help := []string{
 		"CLIENT <subcommand> [<arg> [value] [opt] ...]",
 		"Subcommands:",

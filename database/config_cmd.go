@@ -337,8 +337,11 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 			config.Properties.SlaveAnnouncePort = n
 		case "lua-time-limit":
 			n, err := strconv.ParseInt(value, 10, 64)
-			if err != nil || n < 0 {
+			if err != nil {
 				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'lua-time-limit') - argument couldn't be parsed into an integer")
+			}
+			if n < 0 {
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'lua-time-limit') - argument must be between 0 and 9223372036854775807 inclusive")
 			}
 			config.Properties.LuaTimeLimit = n
 		case "maxclients":
@@ -553,8 +556,8 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 			if err != nil {
 				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'min-replicas-to-write') - argument couldn't be parsed into an integer")
 			}
-			if n < 0 {
-				return protocol.MakeErrReply(fmt.Sprintf("ERR Invalid value for '%s'", key))
+			if n < 0 || n > 2147483647 {
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'min-replicas-to-write') - argument must be between 0 and 2147483647 inclusive")
 			}
 			config.Properties.MinReplicasToWrite = n
 		case "min-replicas-max-lag":
@@ -562,8 +565,8 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 			if err != nil {
 				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'min-replicas-max-lag') - argument couldn't be parsed into an integer")
 			}
-			if n < 0 {
-				return protocol.MakeErrReply(fmt.Sprintf("ERR Invalid value for '%s'", key))
+			if n < 0 || n > 2147483647 {
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'min-replicas-max-lag') - argument must be between 0 and 2147483647 inclusive")
 			}
 			config.Properties.MinReplicasMaxLag = n
 		case "cluster-require-full-coverage":
@@ -586,8 +589,8 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 			if err != nil {
 				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'cluster-migration-barrier') - argument couldn't be parsed into an integer")
 			}
-			if n < 0 {
-				return protocol.MakeErrReply(fmt.Sprintf("ERR Invalid value for '%s'", key))
+			if n < 0 || n > 2147483647 {
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'cluster-migration-barrier') - argument must be between 0 and 2147483647 inclusive")
 			}
 			config.Properties.ClusterMigrationBarrier = n
 		case "cluster-allow-reads-when-down":
@@ -623,7 +626,10 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 		case "auto-aof-rewrite-percentage":
 			n, err := strconv.Atoi(value)
 			if err != nil {
-				return protocol.MakeErrReply(fmt.Sprintf("ERR Invalid value for '%s'", key))
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'auto-aof-rewrite-percentage') - argument couldn't be parsed into an integer")
+			}
+			if n < 0 || n > 2147483647 {
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'auto-aof-rewrite-percentage') - argument must be between 0 and 2147483647 inclusive")
 			}
 			config.Properties.AutoAofRewritePercentage = n
 		case "auto-aof-rewrite-min-size":
@@ -655,8 +661,8 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 			if err != nil {
 				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'repl-diskless-sync-delay') - argument couldn't be parsed into an integer")
 			}
-			if n < 0 {
-				return protocol.MakeErrReply(fmt.Sprintf("ERR Invalid value for '%s'", key))
+			if n < 0 || n > 2147483647 {
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'repl-diskless-sync-delay') - argument must be between 0 and 2147483647 inclusive")
 			}
 			config.Properties.ReplDisklessSyncDelay = n
 		case "maxmemory-samples":
@@ -674,7 +680,7 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'tracking-table-max-keys') - argument couldn't be parsed into an integer")
 			}
 			if n < 0 {
-				return protocol.MakeErrReply(fmt.Sprintf("ERR Invalid value for '%s'", key))
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'tracking-table-max-keys') - argument must be between 0 and 9223372036854775807 inclusive")
 			}
 			config.Properties.TrackingTableMaxKeys = n
 		case "repl-backlog-ttl":
@@ -709,8 +715,8 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 			if err != nil {
 				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'cluster-replica-validity-factor') - argument couldn't be parsed into an integer")
 			}
-			if n < 0 {
-				return protocol.MakeErrReply(fmt.Sprintf("ERR Invalid value for '%s'", key))
+			if n < 0 || n > 2147483647 {
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'cluster-replica-validity-factor') - argument must be between 0 and 2147483647 inclusive")
 			}
 			config.Properties.ClusterReplicaValidityFactor = n
 		case "hash-max-listpack-entries":
@@ -734,7 +740,7 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'set-max-intset-entries') - argument couldn't be parsed into an integer")
 			}
 			if n < 0 {
-				return protocol.MakeErrReply(fmt.Sprintf("ERR Invalid value for '%s'", key))
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'set-max-intset-entries') - argument must be between 0 and 9223372036854775807 inclusive")
 			}
 			config.Properties.SetMaxIntsetEntries = n
 		case "zset-max-listpack-entries":
@@ -743,7 +749,7 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'zset-max-listpack-entries') - argument couldn't be parsed into an integer")
 			}
 			if n < 0 {
-				return protocol.MakeErrReply(fmt.Sprintf("ERR Invalid value for '%s'", key))
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'zset-max-listpack-entries') - argument must be between 0 and 9223372036854775807 inclusive")
 			}
 			config.Properties.ZSetMaxListpackEntries = n
 		case "zset-max-listpack-value":
@@ -790,7 +796,7 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'stream-node-max-entries') - argument couldn't be parsed into an integer")
 			}
 			if n < 0 {
-				return protocol.MakeErrReply(fmt.Sprintf("ERR Invalid value for '%s'", key))
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'stream-node-max-entries') - argument must be between 0 and 9223372036854775807 inclusive")
 			}
 			config.Properties.StreamNodeMaxEntries = n
 		case "hash-max-listpack-value":
@@ -839,8 +845,8 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 			if err != nil {
 				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'replica-priority') - argument couldn't be parsed into an integer")
 			}
-			if n < 0 {
-				return protocol.MakeErrReply(fmt.Sprintf("ERR Invalid value for '%s'", key))
+			if n < 0 || n > 2147483647 {
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'replica-priority') - argument must be between 0 and 2147483647 inclusive")
 			}
 			config.Properties.ReplicaPriority = n
 		case "proto-max-bulk-len":
@@ -887,7 +893,7 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'slowlog-max-len') - argument couldn't be parsed into an integer")
 			}
 			if n < 0 {
-				return protocol.MakeErrReply(fmt.Sprintf("ERR Invalid value for '%s'", key))
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'slowlog-max-len') - argument must be between 0 and 9223372036854775807 inclusive")
 			}
 			config.Properties.SlowLogMaxLen = n
 			if server.slogLogger != nil {
@@ -907,6 +913,9 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 			n, err := strconv.Atoi(value)
 			if err != nil {
 				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'repl-timeout') - argument couldn't be parsed into an integer")
+			}
+			if n < 1 || n > 2147483647 {
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'repl-timeout') - argument must be between 1 and 2147483647 inclusive")
 			}
 			config.Properties.ReplTimeout = n
 		case "use-gnet":
@@ -969,8 +978,11 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 			config.Properties.DynamicHz = b
 		case "repl-backlog-size":
 			n, err := strconv.ParseInt(value, 10, 64)
-			if err != nil || n <= 0 {
+			if err != nil || n < 0 {
 				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'repl-backlog-size') - argument must be a memory value")
+			}
+			if n < 1 {
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'repl-backlog-size') - argument must be between 1 and 9223372036854775807 inclusive")
 			}
 			config.Properties.ReplBacklogSize = n
 		default:

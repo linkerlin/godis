@@ -285,4 +285,4 @@ UNWATCH、WAIT（简版）、BITOP、BITFIELD、SMOVE、LPOS、XCLAIM、SHUTDOWN
 
 ---
 
-**最后更新：** 2026-08-15（第三十五批可关闭：CONFIG 范围文案；XCLAIM LASTID；ENTRIESREAD；CLIENT UNBLOCK；LPOS COUNT/MAXLEN；对照 Redis **8.10.0**；远期仍 **7**）
+**最后更新：** 2026-08-16（第三十六批可关闭：CONFIG 多参数范围文案；CLIENT HELP arity；对照 Redis **8.10.0**；远期仍 **7**）
