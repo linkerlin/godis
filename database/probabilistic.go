@@ -34,6 +34,9 @@ func execBFReserve(db *DB, args [][]byte) redis.Reply {
 	if err != nil {
 		return protocol.MakeErrReply("ERR Capacity must be an integer")
 	}
+	if capacity < 1 || capacity > 1073741824 {
+		return protocol.MakeErrReply("ERR capacity must be in the range [1, 1073741824]")
+	}
 
 	expansion := uint(2)
 	nonScaling := false

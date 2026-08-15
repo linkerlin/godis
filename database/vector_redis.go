@@ -53,7 +53,7 @@ func execVAdd(db *DB, args [][]byte) redis.Reply {
 				return protocol.MakeErrReply("ERR invalid vector dimension")
 			}
 			if i+1+dim >= len(args) {
-				return protocol.MakeErrReply("ERR wrong number of arguments for 'vadd' command")
+				return protocol.MakeErrReply("ERR invalid vector specification")
 			}
 			floats = make([]float64, dim)
 			for d := 0; d < dim; d++ {

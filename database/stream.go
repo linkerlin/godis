@@ -910,6 +910,9 @@ func execXGroup(db *DB, args [][]byte) redis.Reply {
 		}
 		return execXGroupDelConsumer(db, args[1:])
 	case "HELP":
+		if len(args) != 1 {
+			return protocol.MakeErrReply("ERR wrong number of arguments for 'xgroup|help' command")
+		}
 		return execXGroupHelp()
 	default:
 		return protocol.MakeErrReply("ERR Unknown XGROUP subcommand '" + subCmd + "'. Try XGROUP HELP.")

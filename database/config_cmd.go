@@ -739,11 +739,8 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 			config.Properties.ZSetMaxListpackEntries = n
 		case "zset-max-listpack-value":
 			n, err := strconv.Atoi(value)
-			if err != nil {
-				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'zset-max-listpack-value') - argument couldn't be parsed into an integer")
-			}
-			if n < 0 {
-				return protocol.MakeErrReply(fmt.Sprintf("ERR Invalid value for '%s'", key))
+			if err != nil || n < 0 {
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'zset-max-listpack-value') - argument must be a memory value")
 			}
 			config.Properties.ZSetMaxListpackValue = n
 		case "stream-node-max-bytes":
@@ -793,7 +790,7 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 		case "hash-max-listpack-value":
 			n, err := strconv.Atoi(value)
 			if err != nil || n < 0 {
-				return protocol.MakeErrReply(fmt.Sprintf("ERR Invalid value for '%s'", key))
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'hash-max-listpack-value') - argument must be a memory value")
 			}
 			config.Properties.HashMaxListpackValue = n
 		case "set-max-listpack-entries":

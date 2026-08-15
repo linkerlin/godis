@@ -113,6 +113,9 @@ func execClientTrackingConn(c redis.Connection, args [][]byte) redis.Reply {
 	}
 
 	trackMode := ""
+	bcast := false
+	optIn := false
+	optOut := false
 	var prefixes []string
 	redirectID := ""
 	noLoop := false
@@ -139,22 +142,33 @@ func execClientTrackingConn(c redis.Connection, args [][]byte) redis.Reply {
 			prefixes = append(prefixes, string(args[i+1]))
 			i++
 		case "BCAST":
-			trackMode = "bcast"
+			bcast = true
 		case "OPTIN":
-			if trackMode == "optout" {
+			if optOut {
 				return protocol.MakeErrReply("ERR You can't specify both OPTIN mode and OPTOUT mode")
 			}
-			trackMode = "optin"
+			optIn = true
 		case "OPTOUT":
-			if trackMode == "optin" {
+			if optIn {
 				return protocol.MakeErrReply("ERR You can't specify both OPTIN mode and OPTOUT mode")
 			}
-			trackMode = "optout"
+			optOut = true
 		case "NOLOOP":
 			noLoop = true
 		default:
 			return protocol.MakeSyntaxErrReply()
 		}
+	}
+	if bcast && (optIn || optOut) {
+		return protocol.MakeErrReply("ERR OPTIN and OPTOUT are not compatible with BCAST")
+	}
+	switch {
+	case bcast:
+		trackMode = "bcast"
+	case optIn:
+		trackMode = "optin"
+	case optOut:
+		trackMode = "optout"
 	}
 
 	// RESP3 can receive Push invalidations locally; RESP2 requires REDIRECT to a RESP3 peer.
