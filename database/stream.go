@@ -576,6 +576,9 @@ func execXGroupCreate(db *DB, args [][]byte) redis.Reply {
 			if err != nil {
 				return protocol.MakeErrReply("ERR value is not an integer or out of range")
 			}
+			if er < -1 {
+				return protocol.MakeErrReply("ERR value for ENTRIESREAD must be positive or -1")
+			}
 			entriesRead = er
 			i++
 		default:
@@ -944,6 +947,9 @@ func execXGroupSetID(db *DB, args [][]byte) redis.Reply {
 			er, err := strconv.ParseInt(string(args[i+1]), 10, 64)
 			if err != nil {
 				return protocol.MakeErrReply("ERR value is not an integer or out of range")
+			}
+			if er < -1 {
+				return protocol.MakeErrReply("ERR value for ENTRIESREAD must be positive or -1")
 			}
 			entriesRead = er
 			i++

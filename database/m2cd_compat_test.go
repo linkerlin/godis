@@ -28,9 +28,9 @@ func TestM2cdConfigClientBufferMinReplicasClusterCoverage(t *testing.T) {
 
 	asserts.AssertMultiBulkReply(t, server.Exec(c, utils.ToCmdLine("CONFIG", "GET", "client-query-buffer-limit")),
 		[]string{"client-query-buffer-limit", "1073741824"})
-	asserts.AssertStatusReply(t, server.Exec(c, utils.ToCmdLine("CONFIG", "SET", "client-query-buffer-limit", "2048")), "OK")
+	asserts.AssertStatusReply(t, server.Exec(c, utils.ToCmdLine("CONFIG", "SET", "client-query-buffer-limit", "2097152")), "OK")
 	asserts.AssertMultiBulkReply(t, server.Exec(c, utils.ToCmdLine("CONFIG", "GET", "client-query-buffer-limit")),
-		[]string{"client-query-buffer-limit", "2048"})
+		[]string{"client-query-buffer-limit", "2097152"})
 
 	asserts.AssertMultiBulkReply(t, server.Exec(c, utils.ToCmdLine("CONFIG", "GET", "min-replicas-to-write")),
 		[]string{"min-replicas-to-write", "0"})

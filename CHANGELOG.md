@@ -6,6 +6,7 @@
 
 ### Fixed
 
+- 第三十五批可关闭：CONFIG maxmemory-samples/timeout/tcp-keepalive/busy-reply/acllog/listpack/proto-max-bulk-len/client-query-buffer-limit 范围文案；XCLAIM LASTID；XGROUP ENTRIESREAD；CLIENT UNBLOCK reason；LPOS COUNT/MAXLEN 非整数（对照 Redis 8.10）
 - 第三十四批可关闭：CONFIG stream-node-max-bytes 内存值；CLIENT PAUSE mode 文案；SLOWLOG LEN/RESET arity；XAUTOCLAIM COUNT>0；XCLAIM IDLE/TIME/RETRYCOUNT 选项文案（对照 Redis 8.10）
 - 第三十三批可关闭：CONFIG hash/zset-max-listpack-value 内存值文案；CLIENT TRACKING BCAST 与 OPTIN/OPTOUT 互斥；XGROUP HELP arity；BF.RESERVE capacity 范围；VADD VALUES 维数不足→invalid vector specification（对照 Redis 8.10）
 - 第三十二批可关闭：CONFIG replica-read-only/rdbcompression/cluster-allow-reads-when-down/stop-writes-on-bgsave-error yes|no；cluster-migration-barrier 整数；client-query-buffer-limit/proto-max-bulk-len/hll-sparse-max-bytes/repl-backlog-size 内存值；XCLAIM 非法 ID→Unrecognized option；XAUTOCLAIM min-idle；FT.SUGADD nan（允许 inf）；MEMORY PURGE 异步 GC；lazyfree/MEMORY/LATENCY/OBJECT arity 兄弟覆盖（对照 Redis 8.10）

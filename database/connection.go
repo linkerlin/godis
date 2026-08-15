@@ -312,7 +312,7 @@ func execClientUnblock(args [][]byte) redis.Reply {
 	if len(args) == 2 {
 		mode = strings.ToUpper(string(args[1]))
 		if mode != "TIMEOUT" && mode != "ERROR" {
-			return protocol.MakeErrReply("ERR syntax error")
+			return protocol.MakeErrReply("ERR CLIENT UNBLOCK reason should be TIMEOUT or ERROR")
 		}
 	}
 

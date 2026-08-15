@@ -366,14 +366,20 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 			server.syncMemoryConfig()
 		case "timeout":
 			n, err := strconv.Atoi(value)
-			if err != nil || n < 0 {
+			if err != nil {
 				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'timeout') - argument couldn't be parsed into an integer")
+			}
+			if n < 0 || n > 2147483647 {
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'timeout') - argument must be between 0 and 2147483647 inclusive")
 			}
 			config.Properties.Timeout = n
 		case "tcp-keepalive":
 			n, err := strconv.Atoi(value)
-			if err != nil || n < 0 {
+			if err != nil {
 				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'tcp-keepalive') - argument couldn't be parsed into an integer")
+			}
+			if n < 0 || n > 2147483647 {
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'tcp-keepalive') - argument must be between 0 and 2147483647 inclusive")
 			}
 			config.Properties.TCPKeepAlive = n
 		case "loglevel":
@@ -536,6 +542,9 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 			if err != nil || n < 0 {
 				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'client-query-buffer-limit') - argument must be a memory value")
 			}
+			if n < 1048576 {
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'client-query-buffer-limit') - argument must be between 1048576 and 9223372036854775807 inclusive")
+			}
 			config.Properties.ClientQueryBufferLimit = n
 		case "client-output-buffer-limit":
 			config.Properties.ClientOutputBufferLimit = value
@@ -655,8 +664,8 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 			if err != nil {
 				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'maxmemory-samples') - argument couldn't be parsed into an integer")
 			}
-			if n < 1 {
-				return protocol.MakeErrReply(fmt.Sprintf("ERR Invalid value for '%s'", key))
+			if n < 1 || n > 64 {
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'maxmemory-samples') - argument must be between 1 and 64 inclusive")
 			}
 			config.Properties.MaxmemorySamples = n
 		case "tracking-table-max-keys":
@@ -710,7 +719,7 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'hash-max-listpack-entries') - argument couldn't be parsed into an integer")
 			}
 			if n < 0 {
-				return protocol.MakeErrReply(fmt.Sprintf("ERR Invalid value for '%s'", key))
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'hash-max-listpack-entries') - argument must be between 0 and 9223372036854775807 inclusive")
 			}
 			config.Properties.HashMaxListpackEntries = n
 		case "list-max-listpack-size":
@@ -796,7 +805,7 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'set-max-listpack-entries') - argument couldn't be parsed into an integer")
 			}
 			if n < 0 {
-				return protocol.MakeErrReply(fmt.Sprintf("ERR Invalid value for '%s'", key))
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'set-max-listpack-entries') - argument must be between 0 and 9223372036854775807 inclusive")
 			}
 			config.Properties.SetMaxListpackEntries = n
 		case "oom-score-adj":
@@ -838,6 +847,9 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 			n, err := strconv.ParseInt(value, 10, 64)
 			if err != nil || n < 0 {
 				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'proto-max-bulk-len') - argument must be a memory value")
+			}
+			if n < 1048576 {
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'proto-max-bulk-len') - argument must be between 1048576 and 9223372036854775807 inclusive")
 			}
 			config.Properties.ProtoMaxBulkLen = n
 		case "save":
@@ -887,7 +899,7 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'acllog-max-len') - argument couldn't be parsed into an integer")
 			}
 			if n < 0 {
-				return protocol.MakeErrReply(fmt.Sprintf("ERR Invalid value for '%s'", key))
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'acllog-max-len') - argument must be between 0 and 9223372036854775807 inclusive")
 			}
 			config.Properties.AclLogMaxLen = n
 			trimACLLogToMax(n)
@@ -946,7 +958,7 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'busy-reply-threshold') - argument couldn't be parsed into an integer")
 			}
 			if n < 0 {
-				return protocol.MakeErrReply(fmt.Sprintf("ERR Invalid value for '%s'", key))
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'busy-reply-threshold') - argument must be between 0 and 9223372036854775807 inclusive")
 			}
 			config.Properties.BusyReplyThreshold = n
 		case "dynamic-hz":

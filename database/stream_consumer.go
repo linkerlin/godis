@@ -454,7 +454,10 @@ func execXClaim(db *DB, args [][]byte) redis.Reply {
 			i++
 		case "LASTID":
 			if i+1 >= len(args) {
-				return protocol.MakeSyntaxErrReply()
+				return protocol.MakeErrReply("ERR Unrecognized XCLAIM option 'LASTID'")
+			}
+			if _, err := stream.ParseStreamID(string(args[i+1]), stream.StreamID{}); err != nil {
+				return protocol.MakeErrReply("ERR Invalid stream ID specified as stream command argument")
 			}
 			i += 2 // accepted but unused
 		default:

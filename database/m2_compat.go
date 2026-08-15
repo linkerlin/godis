@@ -74,24 +74,25 @@ func execLPos(db *DB, args [][]byte) redis.Reply {
 			return protocol.MakeSyntaxErrReply()
 		}
 		n, err := strconv.ParseInt(string(args[i+1]), 10, 64)
-		if err != nil {
-			return protocol.MakeErrReply("ERR value is not an integer or out of range")
-		}
 		switch opt {
 		case "RANK":
+			if err != nil {
+				return protocol.MakeErrReply("ERR value is not an integer or out of range")
+			}
 			if n == 0 {
 				return protocol.MakeErrReply("ERR RANK can't be zero: use 1 to start from the first match, 2 from the second ... or use negative to start from the end of the list")
 			}
 			rank = n
 			i += 2
 		case "COUNT":
-			if n < 0 {
+			// Redis 8.10: non-integer COUNT also yields "COUNT can't be negative".
+			if err != nil || n < 0 {
 				return protocol.MakeErrReply("ERR COUNT can't be negative")
 			}
 			count = n
 			i += 2
 		case "MAXLEN":
-			if n < 0 {
+			if err != nil || n < 0 {
 				return protocol.MakeErrReply("ERR MAXLEN can't be negative")
 			}
 			maxlen = n
