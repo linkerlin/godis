@@ -59,9 +59,15 @@ func (server *Server) execConfig(args [][]byte) redis.Reply {
 		}
 		return server.execConfigSet(args[1:])
 	case "RESETSTAT":
+		if len(args) != 1 {
+			return protocol.MakeErrReply("ERR wrong number of arguments for 'config|resetstat' command")
+		}
 		resetServerStats()
 		return protocol.MakeOkReply()
 	case "REWRITE":
+		if len(args) != 1 {
+			return protocol.MakeErrReply("ERR wrong number of arguments for 'config|rewrite' command")
+		}
 		if reply := rewriteConfigFile(); reply != nil {
 			return reply
 		}
@@ -331,8 +337,11 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 			config.Properties.SlaveAnnounceIP = value
 		case "slave-announce-port", "replica-announce-port":
 			n, err := strconv.Atoi(value)
-			if err != nil || n < 0 || n > 65535 {
+			if err != nil {
 				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument '" + key + "') - argument couldn't be parsed into an integer")
+			}
+			if n < 0 || n > 65535 {
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument '" + key + "') - argument must be between 0 and 65535 inclusive")
 			}
 			config.Properties.SlaveAnnouncePort = n
 		case "lua-time-limit":
@@ -581,7 +590,7 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'cluster-node-timeout') - argument couldn't be parsed into an integer")
 			}
 			if n < 0 {
-				return protocol.MakeErrReply(fmt.Sprintf("ERR Invalid value for '%s'", key))
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'cluster-node-timeout') - argument must be between 0 and 9223372036854775807 inclusive")
 			}
 			config.Properties.ClusterNodeTimeout = n
 		case "cluster-migration-barrier":
@@ -635,7 +644,7 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 		case "auto-aof-rewrite-min-size":
 			n, err := strconv.ParseInt(value, 10, 64)
 			if err != nil || n < 0 {
-				return protocol.MakeErrReply(fmt.Sprintf("ERR Invalid value for '%s'", key))
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'auto-aof-rewrite-min-size') - argument must be a memory value")
 			}
 			config.Properties.AutoAofRewriteMinSize = n
 		case "io-threads":
@@ -689,7 +698,7 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'repl-backlog-ttl') - argument couldn't be parsed into an integer")
 			}
 			if n < 0 {
-				return protocol.MakeErrReply(fmt.Sprintf("ERR Invalid value for '%s'", key))
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'repl-backlog-ttl') - argument must be between 0 and 9223372036854775807 inclusive")
 			}
 			config.Properties.ReplBacklogTTL = n
 		case "replica-ignore-maxmemory":
@@ -777,8 +786,8 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 			if err != nil {
 				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'cluster-announce-port') - argument couldn't be parsed into an integer")
 			}
-			if n < 0 {
-				return protocol.MakeErrReply(fmt.Sprintf("ERR Invalid value for '%s'", key))
+			if n < 0 || n > 65535 {
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'cluster-announce-port') - argument must be between 0 and 65535 inclusive")
 			}
 			config.Properties.ClusterAnnouncePort = n
 		case "cluster-announce-bus-port":
@@ -786,8 +795,8 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 			if err != nil {
 				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'cluster-announce-bus-port') - argument couldn't be parsed into an integer")
 			}
-			if n < 0 {
-				return protocol.MakeErrReply(fmt.Sprintf("ERR Invalid value for '%s'", key))
+			if n < 0 || n > 65535 {
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'cluster-announce-bus-port') - argument must be between 0 and 65535 inclusive")
 			}
 			config.Properties.ClusterAnnounceBusPort = n
 		case "stream-node-max-entries":

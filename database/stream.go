@@ -235,10 +235,15 @@ func execXRange(db *DB, args [][]byte) redis.Reply {
 			return protocol.MakeSyntaxErrReply()
 		}
 		c, err := strconv.Atoi(string(args[4]))
-		if err != nil || c < 0 {
+		if err != nil {
 			return protocol.MakeErrReply("ERR value is not an integer or out of range")
 		}
-		countArg = c
+		// Redis: COUNT ≤ 0 → empty result (unlike XREAD unlimited).
+		if c <= 0 {
+			countArg = 0
+		} else {
+			countArg = c
+		}
 	}
 
 	// 解析start
@@ -310,10 +315,15 @@ func execXRevRange(db *DB, args [][]byte) redis.Reply {
 			return protocol.MakeSyntaxErrReply()
 		}
 		c, err := strconv.Atoi(string(args[4]))
-		if err != nil || c < 0 {
+		if err != nil {
 			return protocol.MakeErrReply("ERR value is not an integer or out of range")
 		}
-		count = c
+		// Redis: COUNT ≤ 0 → empty result (unlike XREAD unlimited).
+		if c <= 0 {
+			count = 0
+		} else {
+			count = c
+		}
 	}
 
 	// 解析end (作为最大值)
@@ -399,7 +409,7 @@ func execXDel(db *DB, args [][]byte) redis.Reply {
 	for i := 1; i < len(args); i++ {
 		id, err := stream.ParseStreamID(string(args[i]), stream.StreamID{})
 		if err != nil {
-			return protocol.MakeErrReply("ERR Invalid stream ID")
+			return protocol.MakeErrReply("ERR Invalid stream ID specified as stream command argument")
 		}
 		ids[i-1] = id
 	}

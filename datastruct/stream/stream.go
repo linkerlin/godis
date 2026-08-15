@@ -385,6 +385,10 @@ func (s *Stream) ReverseRange(start, end StreamID, count int) []*StreamEntry {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
+	if count == 0 {
+		return nil
+	}
+
 	// 最后一个 <= end 的索引
 	hi := s.lowerBound(end)
 	// 注意: lowerBound 返回第一个 >= end 的; 若 ordered[hi] 恰为 end 保留, 否则回退

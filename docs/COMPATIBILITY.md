@@ -285,4 +285,4 @@ UNWATCH、WAIT（简版）、BITOP、BITFIELD、SMOVE、LPOS、XCLAIM、SHUTDOWN
 
 ---
 
-**最后更新：** 2026-08-16（第三十六批可关闭：CONFIG 多参数范围文案；CLIENT HELP arity；对照 Redis **8.10.0**；远期仍 **7**）
+**最后更新：** 2026-08-16（第三十七批可关闭：CONFIG announce/timeout/ttl/min-size；RESETSTAT/REWRITE arity；XDEL/XRANGE COUNT；对照 Redis **8.10.0**；远期仍 **7**）
