@@ -349,7 +349,7 @@ func execTSRangeInternal(db *DB, args [][]byte, reverse bool) redis.Reply {
 
 	entity, exists := db.GetEntity(key)
 	if !exists {
-		return protocol.MakeEmptyMultiBulkReply()
+		return protocol.MakeErrReply("ERR TSDB: the key does not exist")
 	}
 
 	ts, ok := entity.Data.(*timeseries.TimeSeries)

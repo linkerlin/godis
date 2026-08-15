@@ -1340,10 +1340,7 @@ func execZInterCard(db *DB, args [][]byte) redis.Reply {
 			return protocol.MakeSyntaxErrReply()
 		}
 		n, perr := strconv.Atoi(string(args[2+numKeys]))
-		if perr != nil {
-			return protocol.MakeErrReply("ERR value is not an integer or out of range")
-		}
-		if n < 0 {
+		if perr != nil || n < 0 {
 			return protocol.MakeErrReply("ERR LIMIT can't be negative")
 		}
 		limit = n

@@ -311,7 +311,7 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 		case "appendfsync":
 			v := strings.ToLower(value)
 			if v != "always" && v != "everysec" && v != "no" {
-				return protocol.MakeErrReply("ERR Invalid argument '" + value + "' for CONFIG SET 'appendfsync'")
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'appendfsync') - argument(s) must be one of the following: everysec, always, no")
 			}
 			config.Properties.AppendFsync = v
 			if server.persister != nil {
@@ -338,7 +338,7 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 		case "lua-time-limit":
 			n, err := strconv.ParseInt(value, 10, 64)
 			if err != nil || n < 0 {
-				return protocol.MakeErrReply(fmt.Sprintf("ERR Invalid value for '%s'", key))
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'lua-time-limit') - argument couldn't be parsed into an integer")
 			}
 			config.Properties.LuaTimeLimit = n
 		case "maxclients":
@@ -373,13 +373,13 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 		case "tcp-keepalive":
 			n, err := strconv.Atoi(value)
 			if err != nil || n < 0 {
-				return protocol.MakeErrReply(fmt.Sprintf("ERR Invalid value for '%s'", key))
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'tcp-keepalive') - argument couldn't be parsed into an integer")
 			}
 			config.Properties.TCPKeepAlive = n
 		case "loglevel":
 			lv, ok := logger.ParseRedisLogLevel(value)
 			if !ok {
-				return protocol.MakeErrReply("ERR Invalid argument '" + value + "' for CONFIG SET 'loglevel'")
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'loglevel') - argument(s) must be one of the following: debug, verbose, notice, warning, nothing")
 			}
 			config.Properties.LogLevel = strings.ToLower(strings.TrimSpace(value))
 			if config.Properties.LogLevel == "warn" {

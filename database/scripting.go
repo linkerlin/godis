@@ -263,7 +263,7 @@ func execScriptFlush(db *DB, args [][]byte) redis.Reply {
 	if len(args) == 1 {
 		mode := strings.ToUpper(string(args[0]))
 		if mode != "ASYNC" && mode != "SYNC" {
-			return protocol.MakeErrReply("ERR SCRIPT FLUSH only support SYNC|ASYNC mode")
+			return protocol.MakeErrReply("ERR SCRIPT FLUSH only support SYNC|ASYNC option")
 		}
 	}
 

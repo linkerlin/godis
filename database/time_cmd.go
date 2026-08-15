@@ -33,7 +33,7 @@ func execLolwut(args [][]byte) redis.Reply {
 		}
 		n, err := strconv.Atoi(string(args[1]))
 		if err != nil || n < 0 {
-			return protocol.MakeErrReply("ERR Invalid version")
+			return protocol.MakeErrReply("ERR value is not an integer or out of range")
 		}
 		ver = n
 	}

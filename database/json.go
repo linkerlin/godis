@@ -603,7 +603,7 @@ func execJSONArrLen(db *DB, args [][]byte) redis.Reply {
 	// Get JSON value
 	entity, exists := db.GetEntity(key)
 	if !exists {
-		return &protocol.NullBulkReply{}
+		return protocol.MakeErrReply("ERR could not perform this operation on a key that doesn't exist")
 	}
 
 	jv, ok := entity.Data.(*godisjson.JSONValue)
@@ -688,7 +688,7 @@ func execJSONClear(db *DB, args [][]byte) redis.Reply {
 	}
 	entity, exists := db.GetEntity(key)
 	if !exists {
-		return wrapEnhancedJSONIntReply(path, explicitPath, 0)
+		return protocol.MakeErrReply("ERR could not perform this operation on a key that doesn't exist")
 	}
 	jv, ok := entity.Data.(*godisjson.JSONValue)
 	if !ok {
@@ -929,7 +929,7 @@ func execJSONObjKeys(db *DB, args [][]byte) redis.Reply {
 	// Get JSON value
 	entity, exists := db.GetEntity(key)
 	if !exists {
-		return &protocol.NullBulkReply{}
+		return protocol.MakeErrReply("ERR could not perform this operation on a key that doesn't exist")
 	}
 
 	jv, ok := entity.Data.(*godisjson.JSONValue)
@@ -970,7 +970,7 @@ func execJSONObjLen(db *DB, args [][]byte) redis.Reply {
 	// Get JSON value
 	entity, exists := db.GetEntity(key)
 	if !exists {
-		return &protocol.NullBulkReply{}
+		return protocol.MakeErrReply("ERR Path does not exist or not an object")
 	}
 
 	jv, ok := entity.Data.(*godisjson.JSONValue)

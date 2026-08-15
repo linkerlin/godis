@@ -55,7 +55,7 @@ func execTDigestAdd(db *DB, args [][]byte) redis.Reply {
 
 	entity, exists := db.GetEntity(key)
 	if !exists {
-		return protocol.MakeErrReply("ERR key does not exist")
+		return protocol.MakeErrReply("ERR T-Digest: key does not exist")
 	}
 
 	td, ok := entity.Data.(*probabilistic.TDigest)
@@ -190,7 +190,7 @@ func execTDigestInfo(db *DB, args [][]byte) redis.Reply {
 
 	entity, exists := db.GetEntity(key)
 	if !exists {
-		return protocol.MakeErrReply("ERR key does not exist")
+		return protocol.MakeErrReply("ERR T-Digest: key does not exist")
 	}
 
 	td, ok := entity.Data.(*probabilistic.TDigest)
@@ -210,7 +210,7 @@ func execTDigestMin(db *DB, args [][]byte) redis.Reply {
 	}
 	entity, exists := db.GetEntity(string(args[0]))
 	if !exists {
-		return protocol.MakeErrReply("ERR key does not exist")
+		return protocol.MakeErrReply("ERR T-Digest: key does not exist")
 	}
 	td, ok := entity.Data.(*probabilistic.TDigest)
 	if !ok {
@@ -227,7 +227,7 @@ func execTDigestMax(db *DB, args [][]byte) redis.Reply {
 	}
 	entity, exists := db.GetEntity(string(args[0]))
 	if !exists {
-		return protocol.MakeErrReply("ERR key does not exist")
+		return protocol.MakeErrReply("ERR T-Digest: key does not exist")
 	}
 	td, ok := entity.Data.(*probabilistic.TDigest)
 	if !ok {
@@ -244,7 +244,7 @@ func execTDigestReset(db *DB, args [][]byte) redis.Reply {
 	}
 	entity, exists := db.GetEntity(string(args[0]))
 	if !exists {
-		return protocol.MakeErrReply("ERR key does not exist")
+		return protocol.MakeErrReply("ERR T-Digest: key does not exist")
 	}
 	td, ok := entity.Data.(*probabilistic.TDigest)
 	if !ok {
@@ -277,7 +277,7 @@ func execTDigestRankInternal(db *DB, args [][]byte, rev bool) redis.Reply {
 	}
 	entity, exists := db.GetEntity(string(args[0]))
 	if !exists {
-		return protocol.MakeErrReply("ERR key does not exist")
+		return protocol.MakeErrReply("ERR T-Digest: key does not exist")
 	}
 	td, ok := entity.Data.(*probabilistic.TDigest)
 	if !ok {
@@ -322,7 +322,7 @@ func execTDigestByRankInternal(db *DB, args [][]byte, rev bool) redis.Reply {
 	}
 	entity, exists := db.GetEntity(string(args[0]))
 	if !exists {
-		return protocol.MakeErrReply("ERR key does not exist")
+		return protocol.MakeErrReply("ERR T-Digest: key does not exist")
 	}
 	td, ok := entity.Data.(*probabilistic.TDigest)
 	if !ok {
@@ -352,7 +352,7 @@ func execTDigestTrimmedMean(db *DB, args [][]byte) redis.Reply {
 	}
 	entity, exists := db.GetEntity(string(args[0]))
 	if !exists {
-		return protocol.MakeErrReply("ERR key does not exist")
+		return protocol.MakeErrReply("ERR T-Digest: key does not exist")
 	}
 	td, ok := entity.Data.(*probabilistic.TDigest)
 	if !ok {
@@ -408,7 +408,7 @@ func execTDigestMerge(db *DB, args [][]byte) redis.Reply {
 	for i := 0; i < numKeys; i++ {
 		entity, exists := db.GetEntity(string(args[2+i]))
 		if !exists {
-			return protocol.MakeErrReply("ERR key does not exist")
+			return protocol.MakeErrReply("ERR T-Digest: key does not exist")
 		}
 		td, ok := entity.Data.(*probabilistic.TDigest)
 		if !ok {

@@ -27,7 +27,7 @@ func TestM2bdConfigLogLevel(t *testing.T) {
 		t.Fatalf("min level want WARNING, got %v", logger.GetMinLevel())
 	}
 	bad := server.Exec(c, utils.ToCmdLine("CONFIG", "SET", "loglevel", "bogus"))
-	if !protocol.IsErrorReply(bad) || !strings.Contains(string(bad.ToBytes()), "Invalid argument") {
+	if !protocol.IsErrorReply(bad) || !strings.Contains(string(bad.ToBytes()), "loglevel") {
 		t.Fatalf("bogus loglevel: %s", bad.ToBytes())
 	}
 }

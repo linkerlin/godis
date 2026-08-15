@@ -771,12 +771,7 @@ func execCMSQuery(db *DB, args [][]byte) redis.Reply {
 
 	entity, exists := db.GetEntity(key)
 	if !exists {
-		// Return 0s for all items
-		results := make([][]byte, len(args)-1)
-		for i := range results {
-			results[i] = []byte("0")
-		}
-		return protocol.MakeMultiBulkReply(results)
+		return protocol.MakeErrReply("CMS: key does not exist")
 	}
 
 	cms, ok := entity.Data.(*probabilistic.CountMinSketch)
@@ -901,7 +896,7 @@ func execCMSInfo(db *DB, args [][]byte) redis.Reply {
 	}
 	entity, exists := db.GetEntity(string(args[0]))
 	if !exists {
-		return protocol.MakeErrReply("ERR key does not exist")
+		return protocol.MakeErrReply("CMS: key does not exist")
 	}
 	cms, ok := entity.Data.(*probabilistic.CountMinSketch)
 	if !ok {
@@ -1011,12 +1006,7 @@ func execTopKQuery(db *DB, args [][]byte) redis.Reply {
 
 	entity, exists := db.GetEntity(key)
 	if !exists {
-		// Return 0s
-		results := make([][]byte, len(args)-1)
-		for i := range results {
-			results[i] = []byte("0")
-		}
-		return protocol.MakeMultiBulkReply(results)
+		return protocol.MakeErrReply("TopK: key does not exist")
 	}
 
 	topk, ok := entity.Data.(*probabilistic.TopK)
@@ -1053,7 +1043,7 @@ func execTopKList(db *DB, args [][]byte) redis.Reply {
 
 	entity, exists := db.GetEntity(key)
 	if !exists {
-		return protocol.MakeEmptyMultiBulkReply()
+		return protocol.MakeErrReply("TopK: key does not exist")
 	}
 
 	topk, ok := entity.Data.(*probabilistic.TopK)

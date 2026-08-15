@@ -287,19 +287,19 @@ func HelloWithRole(c redis.Connection, args [][]byte, role string) redis.Reply {
 	for i < len(args) {
 		arg := strings.ToUpper(string(args[i]))
 		switch arg {
+		case "SETNAME":
+			if i+1 >= len(args) {
+				return protocol.MakeErrReply("ERR Syntax error in HELLO option 'SETNAME'")
+			}
+			clientName = string(args[i+1])
+			i += 2
 		case "AUTH":
 			if i+2 >= len(args) {
-				return protocol.MakeSyntaxErrReply()
+				return protocol.MakeErrReply("ERR Syntax error in HELLO option 'AUTH'")
 			}
 			username = string(args[i+1])
 			password = string(args[i+2])
 			i += 3
-		case "SETNAME":
-			if i+1 >= len(args) {
-				return protocol.MakeSyntaxErrReply()
-			}
-			clientName = string(args[i+1])
-			i += 2
 		default:
 			if v, err := strconv.Atoi(string(args[i])); err == nil {
 				if v != 2 && v != 3 {
