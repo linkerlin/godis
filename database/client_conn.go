@@ -141,8 +141,14 @@ func execClientTrackingConn(c redis.Connection, args [][]byte) redis.Reply {
 		case "BCAST":
 			trackMode = "bcast"
 		case "OPTIN":
+			if trackMode == "optout" {
+				return protocol.MakeErrReply("ERR You can't specify both OPTIN mode and OPTOUT mode")
+			}
 			trackMode = "optin"
 		case "OPTOUT":
+			if trackMode == "optin" {
+				return protocol.MakeErrReply("ERR You can't specify both OPTIN mode and OPTOUT mode")
+			}
 			trackMode = "optout"
 		case "NOLOOP":
 			noLoop = true

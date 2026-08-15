@@ -98,7 +98,7 @@ func execClientSetInfoConn(c redis.Connection, args [][]byte) redis.Reply {
 	case "LIB-VER":
 		setter.SetLibVer(val)
 	default:
-		return protocol.MakeErrReply("ERR Unrecognized CLIENT SETINFO attribute '" + string(args[0]) + "'")
+		return protocol.MakeErrReply("ERR Unrecognized option '" + string(args[0]) + "'")
 	}
 	return protocol.MakeOkReply()
 }

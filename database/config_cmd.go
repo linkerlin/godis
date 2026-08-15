@@ -494,6 +494,12 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 			}
 			config.Properties.ActiveRehashing = b
 		case "sanitize-dump-payload":
+			v := strings.ToLower(strings.TrimSpace(value))
+			if v == "clients" {
+				// Redis tri-state stub: accept "clients" like yes for local sanitize flag.
+				config.Properties.SanitizeDumpPayload = true
+				break
+			}
 			ok, b := config.ParseConfigBool(value)
 			if !ok {
 				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'sanitize-dump-payload') - argument(s) must be one of the following: no, yes, clients")
@@ -554,12 +560,15 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 		case "cluster-require-full-coverage":
 			ok, b := config.ParseConfigBool(value)
 			if !ok {
-				return protocol.MakeErrReply("ERR invalid cluster-require-full-coverage value")
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'cluster-require-full-coverage') - argument must be 'yes' or 'no'")
 			}
 			config.Properties.ClusterRequireFullCoverage = b
 		case "cluster-node-timeout":
 			n, err := strconv.ParseInt(value, 10, 64)
-			if err != nil || n < 0 {
+			if err != nil {
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'cluster-node-timeout') - argument couldn't be parsed into an integer")
+			}
+			if n < 0 {
 				return protocol.MakeErrReply(fmt.Sprintf("ERR Invalid value for '%s'", key))
 			}
 			config.Properties.ClusterNodeTimeout = n
@@ -626,12 +635,15 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 		case "repl-diskless-sync":
 			ok, b := config.ParseConfigBool(value)
 			if !ok {
-				return protocol.MakeErrReply("ERR invalid repl-diskless-sync value")
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'repl-diskless-sync') - argument must be 'yes' or 'no'")
 			}
 			config.Properties.ReplDisklessSync = b
 		case "repl-diskless-sync-delay":
 			n, err := strconv.Atoi(value)
-			if err != nil || n < 0 {
+			if err != nil {
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'repl-diskless-sync-delay') - argument couldn't be parsed into an integer")
+			}
+			if n < 0 {
 				return protocol.MakeErrReply(fmt.Sprintf("ERR Invalid value for '%s'", key))
 			}
 			config.Properties.ReplDisklessSyncDelay = n
@@ -646,13 +658,19 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 			config.Properties.MaxmemorySamples = n
 		case "tracking-table-max-keys":
 			n, err := strconv.ParseInt(value, 10, 64)
-			if err != nil || n < 0 {
+			if err != nil {
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'tracking-table-max-keys') - argument couldn't be parsed into an integer")
+			}
+			if n < 0 {
 				return protocol.MakeErrReply(fmt.Sprintf("ERR Invalid value for '%s'", key))
 			}
 			config.Properties.TrackingTableMaxKeys = n
 		case "repl-backlog-ttl":
 			n, err := strconv.Atoi(value)
-			if err != nil || n < 0 {
+			if err != nil {
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'repl-backlog-ttl') - argument couldn't be parsed into an integer")
+			}
+			if n < 0 {
 				return protocol.MakeErrReply(fmt.Sprintf("ERR Invalid value for '%s'", key))
 			}
 			config.Properties.ReplBacklogTTL = n

@@ -34,26 +34,26 @@ func execObject(db *DB, args [][]byte) redis.Reply {
 	// subcommand must surface the "Try OBJECT HELP." error regardless of arity
 	// (matching Redis).
 	switch subCmd {
-	case "REFCOUNT":
-		if len(args) < 2 {
-			return protocol.MakeErrReply("ERR wrong number of arguments for 'object' command")
-		}
-		return execObjectRefCount(db, string(args[1]))
 	case "ENCODING":
-		if len(args) < 2 {
-			return protocol.MakeErrReply("ERR wrong number of arguments for 'object' command")
+		if len(args) != 2 {
+			return protocol.MakeErrReply("ERR wrong number of arguments for 'object|encoding' command")
 		}
 		return execObjectEncoding(db, string(args[1]))
 	case "IDLETIME":
-		if len(args) < 2 {
-			return protocol.MakeErrReply("ERR wrong number of arguments for 'object' command")
+		if len(args) != 2 {
+			return protocol.MakeErrReply("ERR wrong number of arguments for 'object|idletime' command")
 		}
 		return execObjectIdleTime(db, string(args[1]))
 	case "FREQ":
-		if len(args) < 2 {
-			return protocol.MakeErrReply("ERR wrong number of arguments for 'object' command")
+		if len(args) != 2 {
+			return protocol.MakeErrReply("ERR wrong number of arguments for 'object|freq' command")
 		}
 		return execObjectFreq(db, string(args[1]))
+	case "REFCOUNT":
+		if len(args) != 2 {
+			return protocol.MakeErrReply("ERR wrong number of arguments for 'object|refcount' command")
+		}
+		return execObjectRefCount(db, string(args[1]))
 	case "HELP":
 		if len(args) != 1 {
 			return protocol.MakeErrReply("ERR wrong number of arguments for 'object|help' command")

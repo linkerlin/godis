@@ -407,7 +407,7 @@ func execXClaim(db *DB, args [][]byte) redis.Reply {
 	consumerName := string(args[2])
 	minIdleMs, err := strconv.ParseInt(string(args[3]), 10, 64)
 	if err != nil || minIdleMs < 0 {
-		return protocol.MakeErrReply("ERR Invalid min-idle-time")
+		return protocol.MakeErrReply("ERR Invalid min-idle-time argument for XCLAIM")
 	}
 
 	opts := &stream.ClaimOptions{}

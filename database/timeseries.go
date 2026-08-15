@@ -85,7 +85,7 @@ func execTSCreate(db *DB, args [][]byte) redis.Reply {
 			}
 			pol, err := timeseries.ParseDuplicatePolicy(string(args[i+1]))
 			if err != nil {
-				return protocol.MakeErrReply("ERR Unknown DUPLICATE_POLICY '" + string(args[i+1]) + "'")
+				return protocol.MakeErrReply("ERR TSDB: Unknown DUPLICATE_POLICY")
 			}
 			dupPolicy = pol
 			i += 2
@@ -159,7 +159,7 @@ func execTSAdd(db *DB, args [][]byte) redis.Reply {
 			}
 			pol, err := timeseries.ParseDuplicatePolicy(string(args[i+1]))
 			if err != nil {
-				return protocol.MakeErrReply("ERR Unknown DUPLICATE_POLICY '" + string(args[i+1]) + "'")
+				return protocol.MakeErrReply("ERR TSDB: Unknown DUPLICATE_POLICY")
 			}
 			onDup = &pol
 			i += 2

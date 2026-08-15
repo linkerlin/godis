@@ -959,7 +959,7 @@ func execXGroupSetID(db *DB, args [][]byte) redis.Reply {
 
 	group, err := s.GetGroup(groupName)
 	if err != nil {
-		return protocol.MakeErrReply("ERR No such consumer group '" + groupName + "' for key name '" + key + "'")
+		return protocol.MakeErrReply("NOGROUP No such consumer group '" + groupName + "' for key name '" + key + "'")
 	}
 
 	var newStreamID stream.StreamID
@@ -1090,6 +1090,9 @@ func execXInfo(db *DB, args [][]byte) redis.Reply {
 		}
 		return execXInfoConsumers(db, args[1:])
 	case "HELP":
+		if len(args) != 1 {
+			return protocol.MakeErrReply("ERR wrong number of arguments for 'xinfo|help' command")
+		}
 		return execXInfoHelp()
 	default:
 		return protocol.MakeErrReply("ERR unknown subcommand '" + string(args[0]) + "'. Try XINFO HELP.")

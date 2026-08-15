@@ -534,9 +534,6 @@ func execIncrByFloat(db *DB, args [][]byte) redis.Reply {
 	if err != nil || math.IsNaN(delta) {
 		return protocol.MakeErrReply("ERR value is not a valid float")
 	}
-	if math.IsInf(delta, 0) {
-		return protocol.MakeErrReply("ERR increment would produce NaN or Infinity")
-	}
 
 	bytes, errReply := db.getAsString(key)
 	if errReply != nil {
@@ -548,6 +545,9 @@ func execIncrByFloat(db *DB, args [][]byte) redis.Reply {
 		if err != nil || math.IsNaN(val) {
 			return protocol.MakeErrReply("ERR value is not a valid float")
 		}
+		if math.IsInf(delta, 0) {
+			return protocol.MakeErrReply("ERR increment would produce NaN or Infinity")
+		}
 		result := val + delta
 		if math.IsNaN(result) || math.IsInf(result, 0) {
 			return protocol.MakeErrReply("ERR increment would produce NaN or Infinity")
@@ -558,6 +558,9 @@ func execIncrByFloat(db *DB, args [][]byte) redis.Reply {
 		})
 		db.addAof(utils.ToCmdLine3("incrbyfloat", args...))
 		return protocol.MakeDoubleReply(result)
+	}
+	if math.IsInf(delta, 0) {
+		return protocol.MakeErrReply("ERR increment would produce NaN or Infinity")
 	}
 	db.PutEntity(key, &database.DataEntity{
 		Data: args[1],

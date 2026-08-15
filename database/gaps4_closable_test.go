@@ -53,6 +53,9 @@ func TestGaps4IncrByFloatNaN(t *testing.T) {
 		"ERR value is not a valid float")
 	asserts.AssertErrReply(t, db.Exec(nil, utils.ToCmdLine("INCRBYFLOAT", "x", "inf")),
 		"ERR increment would produce NaN or Infinity")
+	db.Exec(nil, utils.ToCmdLine("SET", "s", "v"))
+	asserts.AssertErrReply(t, db.Exec(nil, utils.ToCmdLine("INCRBYFLOAT", "s", "inf")),
+		"ERR value is not a valid float")
 	db.Exec(nil, utils.ToCmdLine("SET", "x", "nan"))
 	asserts.AssertErrReply(t, db.Exec(nil, utils.ToCmdLine("INCRBYFLOAT", "x", "1")),
 		"ERR value is not a valid float")
