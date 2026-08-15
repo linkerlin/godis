@@ -848,7 +848,7 @@ func execXGroupCreateConsumer(db *DB, args [][]byte) redis.Reply {
 
 	group, err := s.GetGroup(groupName)
 	if err != nil {
-		return protocol.MakeErrReply(err.Error())
+		return protocol.MakeErrReply("NOGROUP No such consumer group '" + groupName + "' for key name '" + key + "'")
 	}
 
 	// 检查消费者是否已存在
@@ -878,12 +878,12 @@ func execXGroupDelConsumer(db *DB, args [][]byte) redis.Reply {
 		return errReply
 	}
 	if s == nil {
-		return protocol.MakeIntReply(0)
+		return protocol.MakeErrReply("ERR The XGROUP subcommand requires the key to exist. Note that for CREATE you may want to use the MKSTREAM option to create an empty stream automatically.")
 	}
 
 	group, err := s.GetGroup(groupName)
 	if err != nil {
-		return protocol.MakeIntReply(0)
+		return protocol.MakeErrReply("NOGROUP No such consumer group '" + groupName + "' for key name '" + key + "'")
 	}
 
 	pendingCount, err := group.DeleteConsumer(consumerName)

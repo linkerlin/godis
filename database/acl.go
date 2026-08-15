@@ -326,6 +326,9 @@ func execACLDelUser(args [][]byte) redis.Reply {
 
 // execACLCat lists command categories
 func execACLCat(args [][]byte) redis.Reply {
+	if len(args) > 1 {
+		return protocol.MakeErrReply("ERR unknown subcommand or wrong number of arguments for 'CAT'. Try ACL HELP.")
+	}
 	if aclEngine == nil {
 		return protocol.MakeEmptyMultiBulkReply()
 	}
@@ -481,7 +484,10 @@ func execACLLog(args [][]byte) redis.Reply {
 	count := -1
 	if len(args) >= 1 {
 		c, err := strconv.Atoi(string(args[0]))
-		if err == nil && c > 0 {
+		if err != nil {
+			return protocol.MakeErrReply("ERR value is not an integer or out of range")
+		}
+		if c > 0 {
 			count = c
 		}
 	}

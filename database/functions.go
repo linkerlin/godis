@@ -123,6 +123,8 @@ func execFunctionList(db *DB, args [][]byte) redis.Reply {
 			i++
 		case "WITHCODE":
 			withCode = true
+		default:
+			return protocol.MakeErrReply("ERR Unknown argument " + string(args[i]))
 		}
 	}
 

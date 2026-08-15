@@ -32,6 +32,9 @@ func execModule(args [][]byte) redis.Reply {
 	case "UNLOAD":
 		return execModuleUnload(args[1:])
 	case "HELP":
+		if len(args) != 1 {
+			return protocol.MakeErrReply("ERR wrong number of arguments for 'module|help' command")
+		}
 		return execModuleHelp()
 	default:
 		return protocol.MakeErrReply("ERR Unknown subcommand or wrong number of arguments for '" + subCmd + "'. Try MODULE HELP.")

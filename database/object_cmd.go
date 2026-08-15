@@ -55,6 +55,9 @@ func execObject(db *DB, args [][]byte) redis.Reply {
 		}
 		return execObjectFreq(db, string(args[1]))
 	case "HELP":
+		if len(args) != 1 {
+			return protocol.MakeErrReply("ERR wrong number of arguments for 'object|help' command")
+		}
 		return execObjectHelp()
 	default:
 		return protocol.MakeErrReply(fmt.Sprintf("ERR Unknown subcommand or wrong number of arguments for '%s'. Try OBJECT HELP.", subCmd))

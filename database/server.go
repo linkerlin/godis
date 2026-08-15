@@ -400,6 +400,9 @@ func (server *Server) Exec(c redis.Connection, cmdLine [][]byte) (result redis.R
 	} else if cmdName == "failover" {
 		return execFailover(server, cmdLine[1:])
 	} else if cmdName == "bgrewriteaof" {
+		if len(cmdLine) != 1 {
+			return protocol.MakeArgNumErrReply("bgrewriteaof")
+		}
 		return BGRewriteAOF(server, cmdLine[1:])
 	} else if cmdName == "rewriteaof" {
 		return RewriteAOF(server, cmdLine[1:])

@@ -685,7 +685,7 @@ func (server *Server) execWaitAOF(args [][]byte) redis.Reply {
 	}
 	numReplicas, err := strconv.ParseInt(string(args[1]), 10, 64)
 	if err != nil {
-		return protocol.MakeErrReply("ERR value is not an integer or out of range")
+		return protocol.MakeErrReply("ERR value is out of range, must be positive")
 	}
 	if numReplicas < 0 {
 		return protocol.MakeErrReply("ERR value is out of range, must be positive")

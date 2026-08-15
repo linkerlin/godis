@@ -442,43 +442,43 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 		case "lazyfree-lazy-eviction":
 			ok, b := config.ParseConfigBool(value)
 			if !ok {
-				return protocol.MakeErrReply("ERR invalid lazyfree-lazy-eviction value")
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'lazyfree-lazy-eviction') - argument must be 'yes' or 'no'")
 			}
 			config.Properties.LazyfreeLazyEviction = b
 		case "lazyfree-lazy-expire":
 			ok, b := config.ParseConfigBool(value)
 			if !ok {
-				return protocol.MakeErrReply("ERR invalid lazyfree-lazy-expire value")
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'lazyfree-lazy-expire') - argument must be 'yes' or 'no'")
 			}
 			config.Properties.LazyfreeLazyExpire = b
 		case "lazyfree-lazy-server-del":
 			ok, b := config.ParseConfigBool(value)
 			if !ok {
-				return protocol.MakeErrReply("ERR invalid lazyfree-lazy-server-del value")
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'lazyfree-lazy-server-del') - argument must be 'yes' or 'no'")
 			}
 			config.Properties.LazyfreeLazyServerDel = b
 		case "jemalloc-bg-thread":
 			ok, b := config.ParseConfigBool(value)
 			if !ok {
-				return protocol.MakeErrReply("ERR invalid jemalloc-bg-thread value")
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'jemalloc-bg-thread') - argument must be 'yes' or 'no'")
 			}
 			config.Properties.JemallocBgThread = b
 		case "lazyfree-lazy-user-del":
 			ok, b := config.ParseConfigBool(value)
 			if !ok {
-				return protocol.MakeErrReply("ERR invalid lazyfree-lazy-user-del value")
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'lazyfree-lazy-user-del') - argument must be 'yes' or 'no'")
 			}
 			config.Properties.LazyfreeLazyUserDel = b
 		case "lazyfree-lazy-user-flush":
 			ok, b := config.ParseConfigBool(value)
 			if !ok {
-				return protocol.MakeErrReply("ERR invalid lazyfree-lazy-user-flush value")
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'lazyfree-lazy-user-flush') - argument must be 'yes' or 'no'")
 			}
 			config.Properties.LazyfreeLazyUserFlush = b
 		case "replica-lazy-flush":
 			ok, b := config.ParseConfigBool(value)
 			if !ok {
-				return protocol.MakeErrReply("ERR invalid replica-lazy-flush value")
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'replica-lazy-flush') - argument must be 'yes' or 'no'")
 			}
 			config.Properties.ReplicaLazyFlush = b
 		case "aof-load-truncated":
@@ -656,7 +656,7 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 		case "aof-rewrite-incremental-fsync":
 			ok, b := config.ParseConfigBool(value)
 			if !ok {
-				return protocol.MakeErrReply("ERR invalid aof-rewrite-incremental-fsync value")
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'aof-rewrite-incremental-fsync') - argument must be 'yes' or 'no'")
 			}
 			config.Properties.AofRewriteIncrementalFsync = b
 		case "cluster-allow-replica-migration":
@@ -732,7 +732,10 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 			config.Properties.ClusterAnnounceIP = value
 		case "cluster-announce-port":
 			n, err := strconv.Atoi(value)
-			if err != nil || n < 0 {
+			if err != nil {
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'cluster-announce-port') - argument couldn't be parsed into an integer")
+			}
+			if n < 0 {
 				return protocol.MakeErrReply(fmt.Sprintf("ERR Invalid value for '%s'", key))
 			}
 			config.Properties.ClusterAnnouncePort = n
@@ -853,7 +856,10 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 			}
 		case "acllog-max-len":
 			n, err := strconv.Atoi(value)
-			if err != nil || n < 0 {
+			if err != nil {
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'acllog-max-len') - argument couldn't be parsed into an integer")
+			}
+			if n < 0 {
 				return protocol.MakeErrReply(fmt.Sprintf("ERR Invalid value for '%s'", key))
 			}
 			config.Properties.AclLogMaxLen = n
@@ -904,12 +910,15 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 		case "activedefrag":
 			ok, b := config.ParseConfigBool(value)
 			if !ok {
-				return protocol.MakeErrReply("ERR invalid activedefrag value")
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'activedefrag') - argument must be 'yes' or 'no'")
 			}
 			config.Properties.ActiveDefrag = b
 		case "busy-reply-threshold":
 			n, err := strconv.ParseInt(value, 10, 64)
-			if err != nil || n < 0 {
+			if err != nil {
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'busy-reply-threshold') - argument couldn't be parsed into an integer")
+			}
+			if n < 0 {
 				return protocol.MakeErrReply(fmt.Sprintf("ERR Invalid value for '%s'", key))
 			}
 			config.Properties.BusyReplyThreshold = n

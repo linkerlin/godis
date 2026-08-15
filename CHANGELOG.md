@@ -6,6 +6,7 @@
 
 ### Fixed
 
+- 第二十九批可关闭：CONFIG lazyfree*/jemalloc/activedefrag/aof-rewrite-incremental-fsync/replica-lazy-flush yes|no；announce-port/busy-reply-threshold/acllog-max-len 整数解析；MODULE/OBJECT HELP、BGREWRITEAOF arity；FUNCTION LIST 未知参数；ACL LOG/CAT；WAITAOF numreplicas；XGROUP CREATECONSUMER/DELCONSUMER NOGROUP（对照 Redis 8.10）
 - 第二十八批可关闭：CONFIG dynamic-hz/replica-serve-stale-data yes|no 与 listpack/stream-node/replica-priority/announce-bus-port 整数解析文案；MONITOR/SAVE/MEMORY DOCTOR/LATENCY LATEST/MODULE LIST/PUBSUB HELP arity；TS.CREATERULE/DELETERULE 缺键；XCLAIM/XAUTOCLAIM/XINFO CONSUMERS NOGROUP；FT.ALIASDEL（对照 Redis 8.10）
 - 第二十七批可关闭：CONFIG hz/slowlog/listpack/stream-node 整数解析与 notify-keyspace-events 文案；JSON.STRAPPEND 缺键；CMS.MERGE/TOPK.COUNT 缺键；XSETID smaller；FT.SUGADD invalid score；REPLICAOF 非法端口；TIME/DBSIZE/LASTSAVE/COMMAND COUNT arity；BGSAVE 非法选项；LATENCY GRAPH 无样本（对照 Redis 8.10）
 - 第二十六批可关闭：CONFIG bool/policy/announce-port；ACL GENPASS；SCRIPT DEBUG；GEOADD NX+XX / GEOSEARCH unit；JSON TOGGLE/ARR*/NUMMULTBY 缺键；BF/CF INFO；CMS INITBYDIM 0；TOPK 缺键不自建；XGROUP SETID 缺键（对照 Redis 8.10）
