@@ -154,8 +154,14 @@ func execLatency(args [][]byte) redis.Reply {
 		}
 		return execLatencyHistory(string(args[1]))
 	case "LATEST":
+		if len(args) != 1 {
+			return protocol.MakeErrReply("ERR wrong number of arguments for 'latency|latest' command")
+		}
 		return execLatencyLatest()
 	case "DOCTOR":
+		if len(args) != 1 {
+			return protocol.MakeErrReply("ERR wrong number of arguments for 'latency|doctor' command")
+		}
 		return execLatencyDoctor()
 	case "GRAPH":
 		if len(args) < 2 {
@@ -172,6 +178,9 @@ func execLatency(args [][]byte) redis.Reply {
 	case "HISTOGRAM":
 		return execLatencyHistogram(args[1:])
 	case "HELP":
+		if len(args) != 1 {
+			return protocol.MakeErrReply("ERR wrong number of arguments for 'latency|help' command")
+		}
 		return execLatencyHelp()
 	default:
 		return protocol.MakeErrReply(fmt.Sprintf("ERR Unknown subcommand or wrong number of arguments for '%s'. Try LATENCY HELP.", subCmd))

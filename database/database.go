@@ -160,6 +160,9 @@ func (db *DB) Exec(c redis.Connection, cmdLine [][]byte) redis.Reply {
 		return execACLConn(c, db, cmdLine[1:])
 	}
 	if cmdName == "monitor" {
+		if len(cmdLine) != 1 {
+			return protocol.MakeArgNumErrReply("monitor")
+		}
 		if c != nil {
 			AddMonitorClient(c)
 		}

@@ -759,7 +759,7 @@ func execTSCreateRule(db *DB, args [][]byte) redis.Reply {
 	// Get source time series
 	entity, exists := db.GetEntity(sourceKey)
 	if !exists {
-		return protocol.MakeErrReply("ERR source key does not exist")
+		return protocol.MakeErrReply("ERR TSDB: the key does not exist")
 	}
 
 	sourceTS, ok := entity.Data.(*timeseries.TimeSeries)
@@ -806,7 +806,7 @@ func execTSDeleteRule(db *DB, args [][]byte) redis.Reply {
 
 	entity, exists := db.GetEntity(sourceKey)
 	if !exists {
-		return protocol.MakeErrReply("ERR source key does not exist")
+		return protocol.MakeErrReply("ERR TSDB: the key does not exist")
 	}
 
 	ts, ok := entity.Data.(*timeseries.TimeSeries)

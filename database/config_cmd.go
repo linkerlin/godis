@@ -738,13 +738,19 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 			config.Properties.ClusterAnnouncePort = n
 		case "cluster-announce-bus-port":
 			n, err := strconv.Atoi(value)
-			if err != nil || n < 0 {
+			if err != nil {
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'cluster-announce-bus-port') - argument couldn't be parsed into an integer")
+			}
+			if n < 0 {
 				return protocol.MakeErrReply(fmt.Sprintf("ERR Invalid value for '%s'", key))
 			}
 			config.Properties.ClusterAnnounceBusPort = n
 		case "stream-node-max-entries":
 			n, err := strconv.ParseInt(value, 10, 64)
-			if err != nil || n < 0 {
+			if err != nil {
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'stream-node-max-entries') - argument couldn't be parsed into an integer")
+			}
+			if n < 0 {
 				return protocol.MakeErrReply(fmt.Sprintf("ERR Invalid value for '%s'", key))
 			}
 			config.Properties.StreamNodeMaxEntries = n
@@ -756,7 +762,10 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 			config.Properties.HashMaxListpackValue = n
 		case "set-max-listpack-entries":
 			n, err := strconv.Atoi(value)
-			if err != nil || n < 0 {
+			if err != nil {
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'set-max-listpack-entries') - argument couldn't be parsed into an integer")
+			}
+			if n < 0 {
 				return protocol.MakeErrReply(fmt.Sprintf("ERR Invalid value for '%s'", key))
 			}
 			config.Properties.SetMaxListpackEntries = n
@@ -783,12 +792,15 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 		case "replica-serve-stale-data":
 			ok, b := config.ParseConfigBool(value)
 			if !ok {
-				return protocol.MakeErrReply("ERR invalid replica-serve-stale-data value")
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'replica-serve-stale-data') - argument must be 'yes' or 'no'")
 			}
 			config.Properties.ReplicaServeStaleData = b
 		case "replica-priority":
 			n, err := strconv.Atoi(value)
-			if err != nil || n < 0 {
+			if err != nil {
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'replica-priority') - argument couldn't be parsed into an integer")
+			}
+			if n < 0 {
 				return protocol.MakeErrReply(fmt.Sprintf("ERR Invalid value for '%s'", key))
 			}
 			config.Properties.ReplicaPriority = n
@@ -904,7 +916,7 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 		case "dynamic-hz":
 			ok, b := config.ParseConfigBool(value)
 			if !ok {
-				return protocol.MakeErrReply("ERR invalid dynamic-hz value")
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'dynamic-hz') - argument must be 'yes' or 'no'")
 			}
 			config.Properties.DynamicHz = b
 		case "repl-backlog-size":

@@ -21,6 +21,9 @@ func execModule(args [][]byte) redis.Reply {
 
 	switch subCmd {
 	case "LIST":
+		if len(args) != 1 {
+			return protocol.MakeErrReply("ERR wrong number of arguments for 'module|list' command")
+		}
 		return execModuleList()
 	case "LOAD":
 		return execModuleLoad(args[1:])

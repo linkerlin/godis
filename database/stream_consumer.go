@@ -475,7 +475,10 @@ func execXClaim(db *DB, args [][]byte) redis.Reply {
 		return errReply
 	}
 	if s == nil {
-		return protocol.MakeErrReply("ERR no such key")
+		return protocol.MakeErrReply("NOGROUP No such key '" + key + "' or consumer group '" + groupName + "'")
+	}
+	if _, err := s.GetGroup(groupName); err != nil {
+		return protocol.MakeErrReply("NOGROUP No such key '" + key + "' or consumer group '" + groupName + "'")
 	}
 
 	claimed, err := s.Claim(groupName, consumerName, time.Duration(minIdleMs)*time.Millisecond, ids, opts)
@@ -551,7 +554,10 @@ func execXAutoClaim(db *DB, args [][]byte) redis.Reply {
 		return errReply
 	}
 	if s == nil {
-		return protocol.MakeErrReply("ERR no such key")
+		return protocol.MakeErrReply("NOGROUP No such key '" + key + "' or consumer group '" + groupName + "'")
+	}
+	if _, err := s.GetGroup(groupName); err != nil {
+		return protocol.MakeErrReply("NOGROUP No such key '" + key + "' or consumer group '" + groupName + "'")
 	}
 
 	claimed, deleted, nextID, err := s.AutoClaim(groupName, consumerName,
@@ -937,7 +943,7 @@ func execXInfoConsumers(db *DB, args [][]byte) redis.Reply {
 	}
 	group, err := s.GetGroup(groupName)
 	if err != nil {
-		return protocol.MakeErrReply("ERR NOGROUP No such consumer group '" + groupName + "' for key name '" + key + "'")
+		return protocol.MakeErrReply("NOGROUP No such consumer group '" + groupName + "' for key name '" + key + "'")
 	}
 
 	var replies []redis.Reply

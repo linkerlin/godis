@@ -429,6 +429,9 @@ func (server *Server) Exec(c redis.Connection, cmdLine [][]byte) (result redis.R
 		}
 		return server.execFlushDB(c.GetDBIndex())
 	} else if cmdName == "save" {
+		if len(cmdLine) != 1 {
+			return protocol.MakeArgNumErrReply("save")
+		}
 		return SaveRDB(server, cmdLine[1:])
 	} else if cmdName == "bgsave" {
 		if len(cmdLine) > 2 {

@@ -32,6 +32,9 @@ func execPubsub(hub *pubsub.Hub, args [][]byte) redis.Reply {
 	case "SHARDNUMSUB":
 		return execPubsubShardNumsub(args[1:])
 	case "HELP":
+		if len(args) != 1 {
+			return protocol.MakeErrReply("ERR wrong number of arguments for 'pubsub|help' command")
+		}
 		return execPubsubHelp()
 	default:
 		return protocol.MakeErrReply("ERR Unknown subcommand or wrong number of arguments for '" + subCmd + "'. Try PUBSUB HELP.")

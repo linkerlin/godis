@@ -31,15 +31,30 @@ func execMemory(server *Server, c redis.Connection, args [][]byte) redis.Reply {
 	case "USAGE":
 		return execMemoryUsage(server, c, args[1:])
 	case "STATS":
+		if len(args) != 1 {
+			return protocol.MakeErrReply("ERR wrong number of arguments for 'memory|stats' command")
+		}
 		return execMemoryStats(server)
 	case "PURGE":
+		if len(args) != 1 {
+			return protocol.MakeErrReply("ERR wrong number of arguments for 'memory|purge' command")
+		}
 		runtime.GC()
 		return protocol.MakeOkReply()
 	case "DOCTOR":
+		if len(args) != 1 {
+			return protocol.MakeErrReply("ERR wrong number of arguments for 'memory|doctor' command")
+		}
 		return protocol.MakeBulkReply([]byte("Hi Sam, I can't find any memory issue in your instance. I can only account for what occurs on this base."))
 	case "MALLOC-STATS":
+		if len(args) != 1 {
+			return protocol.MakeErrReply("ERR wrong number of arguments for 'memory|malloc-stats' command")
+		}
 		return protocol.MakeBulkReply([]byte("Stats not available in Go runtime"))
 	case "HELP":
+		if len(args) != 1 {
+			return protocol.MakeErrReply("ERR wrong number of arguments for 'memory|help' command")
+		}
 		return execMemoryHelp()
 	default:
 		return protocol.MakeErrReply(fmt.Sprintf("ERR Unknown subcommand or wrong number of arguments for '%s'. Try MEMORY HELP.", subCmd))

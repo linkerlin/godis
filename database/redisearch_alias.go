@@ -74,7 +74,7 @@ func execFTAliasDel(db *DB, args [][]byte) redis.Reply {
 	searchAliasesMu.Lock()
 	defer searchAliasesMu.Unlock()
 	if _, ok := searchAliases[alias]; !ok {
-		return protocol.MakeErrReply(fmt.Sprintf("ERR Alias '%s' does not exist", alias))
+		return protocol.MakeErrReply("Alias does not exist")
 	}
 	delete(searchAliases, alias)
 	db.addAof(utils.ToCmdLine3("ft.aliasdel", args...))
