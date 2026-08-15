@@ -361,15 +361,8 @@ func execGeoSearch(db *DB, args [][]byte) redis.Reply {
 	}
 
 	key := string(args[0])
-	sortedSet, errReply := db.getAsSortedSet(key)
-	if errReply != nil {
-		return errReply
-	}
-	if sortedSet == nil {
-		return protocol.MakeEmptyMultiBulkReply()
-	}
 
-	// Parse options
+	// Parse options before key miss → empty (Redis validates floats even when key is absent).
 	var member string
 	var lon, lat float64
 	var useMember, useCoord bool
@@ -471,6 +464,14 @@ func execGeoSearch(db *DB, args [][]byte) redis.Reply {
 		default:
 			return protocol.MakeSyntaxErrReply()
 		}
+	}
+
+	sortedSet, errReply := db.getAsSortedSet(key)
+	if errReply != nil {
+		return errReply
+	}
+	if sortedSet == nil {
+		return protocol.MakeEmptyMultiBulkReply()
 	}
 
 	// Get center point

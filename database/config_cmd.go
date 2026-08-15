@@ -283,7 +283,7 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 		case "appendonly":
 			ok, b := config.ParseConfigBool(value)
 			if !ok {
-				return protocol.MakeErrReply("ERR invalid appendonly value")
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'appendonly') - argument must be 'yes' or 'no'")
 			}
 			config.Properties.AppendOnly = b
 			if b && server.persister == nil {
@@ -342,11 +342,14 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 			}
 			config.Properties.LuaTimeLimit = n
 		case "maxclients":
-			n, err := strconv.Atoi(value)
-			if err != nil || n < 0 {
-				return protocol.MakeErrReply(fmt.Sprintf("ERR Invalid value for '%s'", key))
+			n64, err := strconv.ParseInt(value, 10, 64)
+			if err != nil {
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'maxclients') - argument couldn't be parsed into an integer")
 			}
-			config.Properties.MaxClients = n
+			if n64 < 1 || n64 > 4294967295 {
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'maxclients') - argument must be between 1 and 4294967295 inclusive")
+			}
+			config.Properties.MaxClients = int(n64)
 		case "maxmemory":
 			n, err := strconv.ParseInt(value, 10, 64)
 			if err != nil || n < 0 {

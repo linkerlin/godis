@@ -1440,8 +1440,8 @@ func execZSetOperation(db *DB, args [][]byte, op string, store bool) redis.Reply
 			}
 			for i := 0; i < numKeys; i++ {
 				w, err := strconv.ParseFloat(string(args[idx+1+i]), 64)
-				if err != nil {
-					return protocol.MakeErrReply("ERR value is not a valid float")
+				if err != nil || math.IsNaN(w) {
+					return protocol.MakeErrReply("ERR weight value is not a float")
 				}
 				weights[i] = w
 			}

@@ -788,17 +788,11 @@ func execGetBit(db *DB, args [][]byte) redis.Reply {
 
 func execBitCount(db *DB, args [][]byte) redis.Reply {
 	key := string(args[0])
-	bs, err := db.getAsString(key)
-	if err != nil {
-		return err
-	}
-	if bs == nil {
-		return protocol.MakeIntReply(0)
-	}
 	// BITCOUNT key [start end [BYTE|BIT]] — start alone is invalid
 	if len(args) == 2 {
 		return protocol.MakeErrReply("ERR syntax error")
 	}
+
 	byteMode := true
 	if len(args) > 3 {
 		mode := strings.ToLower(string(args[3]))
@@ -810,17 +804,11 @@ func execBitCount(db *DB, args [][]byte) redis.Reply {
 			return protocol.MakeErrReply("ERR syntax error")
 		}
 	}
-	var size int64
-	bm := bitmap.FromBytes(bs)
-	if byteMode {
-		size = int64(len(*bm))
-	} else {
-		size = int64(bm.BitSize())
-	}
-	var beg, end int
-	if len(args) > 1 {
+
+	var startIdx, endIdx int64
+	hasRange := len(args) > 1
+	if hasRange {
 		var err2 error
-		var startIdx, endIdx int64
 		startIdx, err2 = strconv.ParseInt(string(args[1]), 10, 64)
 		if err2 != nil {
 			return protocol.MakeErrReply("ERR value is not an integer or out of range")
@@ -829,6 +817,25 @@ func execBitCount(db *DB, args [][]byte) redis.Reply {
 		if err2 != nil {
 			return protocol.MakeErrReply("ERR value is not an integer or out of range")
 		}
+	}
+
+	bs, err := db.getAsString(key)
+	if err != nil {
+		return err
+	}
+	if bs == nil {
+		return protocol.MakeIntReply(0)
+	}
+
+	var size int64
+	bm := bitmap.FromBytes(bs)
+	if byteMode {
+		size = int64(len(*bm))
+	} else {
+		size = int64(bm.BitSize())
+	}
+	var beg, end int
+	if hasRange {
 		beg, end = utils.ConvertRange(startIdx, endIdx, size)
 		if beg < 0 {
 			return protocol.MakeIntReply(0)

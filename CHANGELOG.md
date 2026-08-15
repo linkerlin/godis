@@ -6,6 +6,7 @@
 
 ### Fixed
 
+- 第二十四批可关闭：`GEOSEARCH`/`GEOSEARCHSTORE` 非法坐标先于缺键空数组；`ZUNION`/`Z*STORE` `WEIGHTS` → `weight value is not a float`（含 `nan`）；`CONFIG SET maxclients`/`appendonly` 文案；`BITCOUNT` 缺键仍先校验 start/end（对照 Redis 8.10）
 - 第二十三批可关闭：`BF.RESERVE` rate∉(0,1)；`CF.RESERVE` 容量范围（含负整数）；`TOPK`/`CMS.INITBYPROB`/`TDIGEST` 非法参数；`TS` 负 timestamp/RETENTION；`XADD` `0`/`0-0` 与 equal-or-smaller；`XGROUP DESTROY` 缺键 MKSTREAM 提示；`CONFIG SET save`；`JSON.SET` EOF / `ARRAPPEND`/`NUMINCRBY` 缺键；`GEORADIUS*` `need numeric radius`；`FUNCTION LOAD` Missing/Invalid metadata、`RESTORE` Wrong restore policy（对照 Redis 8.10）
 - `ZCOUNT`/`Z*BYSCORE`：单独 `(` 按 Redis 解析为 exclusive `0`（缺键→0，错类型→WRONGTYPE）。`FUNCTION FLUSH` → `SYNC|ASYNC option`。`CLIENT TRACKING REDIRECT` 对 `≤0`/不存在 ID → `The client ID you want redirect to does not exist`。TS/CF/CMS/TopK/T-Digest/FT/VADD/`CONFIG timeout`/`FCALL` 缺函数序与文案对齐 Redis 8.10
 - `ZRANGE`：rank/`BYSCORE`/`BYLEX` 边界先于缺键空数组。`HELLO` 非法版本 → `NOPROTO unsupported protocol version`。`FLUSHDB`/`FLUSHALL` 多余参数 → syntax。`FUNCTION DELETE` → `Library not found`。HLL `PFCOUNT`/`PFADD` → `WRONGTYPE Key is not a valid HyperLogLog…`。`COMMAND GETKEYS*` arity → `Invalid number of arguments specified for command`。`CONFIG SET maxmemory` 非法值文案；`TS.ADD`/`BF.RESERVE` 非法参数文案（对照 Redis 8.10）
