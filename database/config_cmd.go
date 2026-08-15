@@ -320,7 +320,7 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 		case "aof-use-rdb-preamble":
 			ok, b := config.ParseConfigBool(value)
 			if !ok {
-				return protocol.MakeErrReply("ERR invalid aof-use-rdb-preamble value")
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'aof-use-rdb-preamble') - argument must be 'yes' or 'no'")
 			}
 			config.Properties.AofUseRdbPreamble = b
 		case "masterauth":
@@ -332,7 +332,7 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 		case "slave-announce-port", "replica-announce-port":
 			n, err := strconv.Atoi(value)
 			if err != nil || n < 0 || n > 65535 {
-				return protocol.MakeErrReply(fmt.Sprintf("ERR Invalid value for '%s'", key))
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument '" + key + "') - argument couldn't be parsed into an integer")
 			}
 			config.Properties.SlaveAnnouncePort = n
 		case "lua-time-limit":
@@ -360,7 +360,7 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 		case "maxmemory-policy":
 			pol := strings.ToLower(value)
 			if _, ok := memory.ParseEvictionPolicyStrict(pol); !ok {
-				return protocol.MakeErrReply("ERR Invalid argument '" + value + "' for CONFIG SET 'maxmemory-policy'")
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'maxmemory-policy') - argument(s) must be one of the following: volatile-lru, volatile-lfu, volatile-random, volatile-ttl, volatile-lrm, allkeys-lru, allkeys-lfu, allkeys-random, allkeys-lrm, noeviction")
 			}
 			config.Properties.MaxmemoryPolicy = pol
 			server.syncMemoryConfig()
@@ -397,7 +397,7 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 		case "protected-mode":
 			ok, b := config.ParseConfigBool(value)
 			if !ok {
-				return protocol.MakeErrReply("ERR invalid protected-mode value")
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'protected-mode') - argument must be 'yes' or 'no'")
 			}
 			config.Properties.ProtectedMode = b
 		case "daemonize":
@@ -590,7 +590,7 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 		case "no-appendfsync-on-rewrite":
 			ok, b := config.ParseConfigBool(value)
 			if !ok {
-				return protocol.MakeErrReply("ERR invalid no-appendfsync-on-rewrite value")
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'no-appendfsync-on-rewrite') - argument must be 'yes' or 'no'")
 			}
 			config.Properties.NoAppendFsyncOnRewrite = b
 		case "auto-aof-rewrite-percentage":

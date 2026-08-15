@@ -309,7 +309,7 @@ func execBFInfo(db *DB, args [][]byte) redis.Reply {
 
 	entity, exists := db.GetEntity(key)
 	if !exists {
-		return protocol.MakeErrReply("ERR key does not exist")
+		return protocol.MakeErrReply("ERR not found")
 	}
 
 	bf, ok := entity.Data.(*probabilistic.BloomFilter)
@@ -663,7 +663,7 @@ func execCFInfo(db *DB, args [][]byte) redis.Reply {
 	}
 	entity, exists := db.GetEntity(string(args[0]))
 	if !exists {
-		return protocol.MakeErrReply("ERR key does not exist")
+		return protocol.MakeErrReply("ERR not found")
 	}
 	cf, ok := entity.Data.(*probabilistic.CuckooFilter)
 	if !ok {
@@ -700,13 +700,13 @@ func execCMSInitByDim(db *DB, args [][]byte) redis.Reply {
 	key := string(args[0])
 
 	width, err := strconv.ParseUint(string(args[1]), 10, 64)
-	if err != nil {
+	if err != nil || width == 0 {
 		return protocol.MakeErrReply("CMS: invalid width")
 	}
 
 	depth, err := strconv.ParseUint(string(args[2]), 10, 64)
-	if err != nil {
-		return protocol.MakeErrReply("ERR Depth must be an integer")
+	if err != nil || depth == 0 {
+		return protocol.MakeErrReply("CMS: invalid depth")
 	}
 
 	_, exists := db.GetEntity(key)
@@ -967,18 +967,12 @@ func execTopKAdd(db *DB, args [][]byte) redis.Reply {
 	key := string(args[0])
 
 	entity, exists := db.GetEntity(key)
-	var topk *probabilistic.TopK
-
 	if !exists {
-		// Auto-create with k=10
-		topk = probabilistic.NewTopK(10)
-		db.PutEntity(key, &database.DataEntity{Data: topk})
-	} else {
-		var ok bool
-		topk, ok = entity.Data.(*probabilistic.TopK)
-		if !ok {
-			return &protocol.WrongTypeErrReply{}
-		}
+		return protocol.MakeErrReply("TopK: key does not exist")
+	}
+	topk, ok := entity.Data.(*probabilistic.TopK)
+	if !ok {
+		return &protocol.WrongTypeErrReply{}
 	}
 
 	// Return items that were dropped (null if none)
@@ -1101,7 +1095,7 @@ func execTopKInfo(db *DB, args [][]byte) redis.Reply {
 	}
 	entity, exists := db.GetEntity(string(args[0]))
 	if !exists {
-		return protocol.MakeErrReply("ERR key does not exist")
+		return protocol.MakeErrReply("TopK: key does not exist")
 	}
 	topk, ok := entity.Data.(*probabilistic.TopK)
 	if !ok {
@@ -1119,16 +1113,12 @@ func execTopKIncrBy(db *DB, args [][]byte) redis.Reply {
 	}
 	key := string(args[0])
 	entity, exists := db.GetEntity(key)
-	var topk *probabilistic.TopK
 	if !exists {
-		topk = probabilistic.NewTopK(10)
-		db.PutEntity(key, &database.DataEntity{Data: topk})
-	} else {
-		var ok bool
-		topk, ok = entity.Data.(*probabilistic.TopK)
-		if !ok {
-			return &protocol.WrongTypeErrReply{}
-		}
+		return protocol.MakeErrReply("TopK: key does not exist")
+	}
+	topk, ok := entity.Data.(*probabilistic.TopK)
+	if !ok {
+		return &protocol.WrongTypeErrReply{}
 	}
 	dropped := make([][]byte, 0, (len(args)-1)/2)
 	for i := 1; i < len(args); i += 2 {

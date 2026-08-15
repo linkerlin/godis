@@ -538,13 +538,16 @@ func execACLGenPass(args [][]byte) redis.Reply {
 	}
 	if len(args) == 1 {
 		n, err := strconv.Atoi(string(args[0]))
-		if err != nil || n <= 0 || n > 4096 || n%4 != 0 {
-			return protocol.MakeErrReply("ERR The size of the password should be a multiple of 4 between 4 and 4096")
+		if err != nil {
+			return protocol.MakeErrReply("ERR value is not an integer or out of range")
+		}
+		if n <= 0 || n > 4096 {
+			return protocol.MakeErrReply("ERR ACL GENPASS argument must be the number of bits for the output password, a positive number up to 4096")
 		}
 		bits = n
 	}
-	// Each hex char is 4 bits
-	length := bits / 4
+	// Hex length: ceil(bits/4) characters (Redis ACL GENPASS).
+	length := (bits + 3) / 4
 	password := generateRandomPassword(length)
 	return protocol.MakeBulkReply([]byte(password))
 }

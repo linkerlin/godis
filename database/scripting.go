@@ -317,7 +317,7 @@ func execScriptDebug(db *DB, args [][]byte) redis.Reply {
 		scripting.SetDebugMode(scripting.DebugModeNo) // For backward compatibility
 		return protocol.MakeOkReply()
 	default:
-		return protocol.MakeErrReply("ERR Unknown DEBUG subcommand or wrong number of arguments for 'debug'")
+		return protocol.MakeErrReply("ERR Use SCRIPT DEBUG YES/SYNC/NO")
 	}
 }
 

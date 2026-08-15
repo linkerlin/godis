@@ -6,6 +6,7 @@
 
 ### Fixed
 
+- 第二十六批可关闭：CONFIG bool/policy/announce-port；ACL GENPASS；SCRIPT DEBUG；GEOADD NX+XX / GEOSEARCH unit；JSON TOGGLE/ARR*/NUMMULTBY 缺键；BF/CF INFO；CMS INITBYDIM 0；TOPK 缺键不自建；XGROUP SETID 缺键（对照 Redis 8.10）
 - 第二十五批可关闭：`CONFIG` tcp-keepalive/lua-time-limit/loglevel/appendfsync 文案；`SCRIPT FLUSH` option；`LOLWUT VERSION`；`HELLO` SETNAME/AUTH；`SINTERCARD`/`ZINTERCARD` LIMIT；TOPK/CMS/TDigest 缺键；JSON OBJ*/ARR*/STR*/CLEAR 缺键；`TS.RANGE` 缺键（对照 Redis 8.10）
 - 第二十四批可关闭：`GEOSEARCH`/`GEOSEARCHSTORE` 非法坐标先于缺键空数组；`ZUNION`/`Z*STORE` `WEIGHTS` → `weight value is not a float`（含 `nan`）；`CONFIG SET maxclients`/`appendonly` 文案；`BITCOUNT` 缺键仍先校验 start/end（对照 Redis 8.10）
 - 第二十三批可关闭：`BF.RESERVE` rate∉(0,1)；`CF.RESERVE` 容量范围（含负整数）；`TOPK`/`CMS.INITBYPROB`/`TDIGEST` 非法参数；`TS` 负 timestamp/RETENTION；`XADD` `0`/`0-0` 与 equal-or-smaller；`XGROUP DESTROY` 缺键 MKSTREAM 提示；`CONFIG SET save`；`JSON.SET` EOF / `ARRAPPEND`/`NUMINCRBY` 缺键；`GEORADIUS*` `need numeric radius`；`FUNCTION LOAD` Missing/Invalid metadata、`RESTORE` Wrong restore policy（对照 Redis 8.10）

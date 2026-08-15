@@ -41,7 +41,7 @@ func execGeoAdd(db *DB, args [][]byte) redis.Reply {
 	}
 parseMembers:
 	if nx && xx {
-		return protocol.MakeErrReply("ERR NX and XX options at the same time are not compatible")
+		return protocol.MakeSyntaxErrReply()
 	}
 	remaining := args[i:]
 	if len(remaining) < 3 || len(remaining)%3 != 0 {
@@ -411,6 +411,11 @@ func execGeoSearch(db *DB, args [][]byte) redis.Reply {
 				return protocol.MakeErrReply("ERR value is not a valid float")
 			}
 			unit = strings.ToUpper(string(args[i+2]))
+			switch unit {
+			case "M", "KM", "FT", "MI":
+			default:
+				return protocol.MakeErrReply("ERR unsupported unit provided. please use M, KM, FT, MI")
+			}
 			useRadius = true
 			i += 3
 		case "BYBOX":
@@ -427,6 +432,11 @@ func execGeoSearch(db *DB, args [][]byte) redis.Reply {
 				return protocol.MakeErrReply("ERR value is not a valid float")
 			}
 			unit = strings.ToUpper(string(args[i+3]))
+			switch unit {
+			case "M", "KM", "FT", "MI":
+			default:
+				return protocol.MakeErrReply("ERR unsupported unit provided. please use M, KM, FT, MI")
+			}
 			useBox = true
 			i += 4
 		case "ASC":
@@ -497,7 +507,7 @@ func execGeoSearch(db *DB, args [][]byte) redis.Reply {
 	case "FT":
 		unitMultiplier = 0.3048
 	default:
-		return protocol.MakeErrReply("ERR unsupported unit provided. please use M, KM, MI or FT")
+		return protocol.MakeErrReply("ERR unsupported unit provided. please use M, KM, FT, MI")
 	}
 
 	// Get all members and filter

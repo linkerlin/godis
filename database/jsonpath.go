@@ -28,7 +28,7 @@ func execJSONNumMultBy(db *DB, args [][]byte) redis.Reply {
 
 	entity, exists := db.GetEntity(key)
 	if !exists {
-		return protocol.MakeErrReply("ERR key does not exist")
+		return protocol.MakeErrReply("ERR could not perform this operation on a key that doesn't exist")
 	}
 
 	jv, ok := entity.Data.(*godisjson.JSONValue)
@@ -88,7 +88,7 @@ func execJSONArrPop(db *DB, args [][]byte) redis.Reply {
 
 	entity, exists := db.GetEntity(key)
 	if !exists {
-		return &protocol.NullBulkReply{}
+		return protocol.MakeErrReply("ERR could not perform this operation on a key that doesn't exist")
 	}
 
 	jv, ok := entity.Data.(*godisjson.JSONValue)
@@ -144,7 +144,7 @@ func execJSONArrTrim(db *DB, args [][]byte) redis.Reply {
 
 	entity, exists := db.GetEntity(key)
 	if !exists {
-		return protocol.MakeErrReply("ERR key does not exist")
+		return protocol.MakeErrReply("ERR could not perform this operation on a key that doesn't exist")
 	}
 
 	jv, ok := entity.Data.(*godisjson.JSONValue)
@@ -176,7 +176,7 @@ func execJSONArrIndex(db *DB, args [][]byte) redis.Reply {
 
 	entity, exists := db.GetEntity(key)
 	if !exists {
-		return protocol.MakeIntReply(-1)
+		return protocol.MakeErrReply("ERR Path does not exist")
 	}
 
 	jv, ok := entity.Data.(*godisjson.JSONValue)
