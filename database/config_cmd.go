@@ -420,7 +420,7 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 		case "replica-read-only", "slave-read-only":
 			ok, b := config.ParseConfigBool(value)
 			if !ok {
-				return protocol.MakeErrReply("ERR invalid replica-read-only value")
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'replica-read-only') - argument must be 'yes' or 'no'")
 			}
 			config.Properties.ReplicaReadOnly = b
 		case "dir":
@@ -534,7 +534,7 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 		case "client-query-buffer-limit":
 			n, err := strconv.ParseInt(value, 10, 64)
 			if err != nil || n < 0 {
-				return protocol.MakeErrReply(fmt.Sprintf("ERR Invalid value for '%s'", key))
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'client-query-buffer-limit') - argument must be a memory value")
 			}
 			config.Properties.ClientQueryBufferLimit = n
 		case "client-output-buffer-limit":
@@ -574,26 +574,29 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 			config.Properties.ClusterNodeTimeout = n
 		case "cluster-migration-barrier":
 			n, err := strconv.Atoi(value)
-			if err != nil || n < 0 {
+			if err != nil {
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'cluster-migration-barrier') - argument couldn't be parsed into an integer")
+			}
+			if n < 0 {
 				return protocol.MakeErrReply(fmt.Sprintf("ERR Invalid value for '%s'", key))
 			}
 			config.Properties.ClusterMigrationBarrier = n
 		case "cluster-allow-reads-when-down":
 			ok, b := config.ParseConfigBool(value)
 			if !ok {
-				return protocol.MakeErrReply("ERR invalid cluster-allow-reads-when-down value")
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'cluster-allow-reads-when-down') - argument must be 'yes' or 'no'")
 			}
 			config.Properties.ClusterAllowReadsWhenDown = b
 		case "stop-writes-on-bgsave-error":
 			ok, b := config.ParseConfigBool(value)
 			if !ok {
-				return protocol.MakeErrReply("ERR invalid stop-writes-on-bgsave-error value")
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'stop-writes-on-bgsave-error') - argument must be 'yes' or 'no'")
 			}
 			config.Properties.StopWritesOnBgsaveError = b
 		case "rdbcompression":
 			ok, b := config.ParseConfigBool(value)
 			if !ok {
-				return protocol.MakeErrReply("ERR invalid rdbcompression value")
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'rdbcompression') - argument must be 'yes' or 'no'")
 			}
 			config.Properties.RDBCompression = b
 		case "rdbchecksum":
@@ -755,7 +758,7 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 		case "hll-sparse-max-bytes":
 			n, err := strconv.Atoi(value)
 			if err != nil || n < 0 {
-				return protocol.MakeErrReply(fmt.Sprintf("ERR Invalid value for '%s'", key))
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'hll-sparse-max-bytes') - argument must be a memory value")
 			}
 			config.Properties.HLLSparseMaxBytes = n
 		case "cluster-announce-ip":
@@ -840,7 +843,7 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 		case "proto-max-bulk-len":
 			n, err := strconv.ParseInt(value, 10, 64)
 			if err != nil || n < 0 {
-				return protocol.MakeErrReply(fmt.Sprintf("ERR Invalid value for '%s'", key))
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'proto-max-bulk-len') - argument must be a memory value")
 			}
 			config.Properties.ProtoMaxBulkLen = n
 		case "save":
@@ -961,7 +964,7 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 		case "repl-backlog-size":
 			n, err := strconv.ParseInt(value, 10, 64)
 			if err != nil || n <= 0 {
-				return protocol.MakeErrReply(fmt.Sprintf("ERR Invalid value for '%s'", key))
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'repl-backlog-size') - argument must be a memory value")
 			}
 			config.Properties.ReplBacklogSize = n
 		default:

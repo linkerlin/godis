@@ -6,6 +6,7 @@
 
 ### Fixed
 
+- 第三十二批可关闭：CONFIG replica-read-only/rdbcompression/cluster-allow-reads-when-down/stop-writes-on-bgsave-error yes|no；cluster-migration-barrier 整数；client-query-buffer-limit/proto-max-bulk-len/hll-sparse-max-bytes/repl-backlog-size 内存值；XCLAIM 非法 ID→Unrecognized option；XAUTOCLAIM min-idle；FT.SUGADD nan（允许 inf）；MEMORY PURGE 异步 GC；lazyfree/MEMORY/LATENCY/OBJECT arity 兄弟覆盖（对照 Redis 8.10）
 - 第三十一批可关闭：CONFIG cluster-require/repl-diskless/node-timeout/backlog-ttl/tracking-table；sanitize `clients`；CLIENT SETINFO/TRACKING OPTIN+OPTOUT；XGROUP SETID NOGROUP；XCLAIM min-idle；TS DUPLICATE_POLICY；XINFO HELP/OBJECT arity；INCRBYFLOAT 非数字键+inf（对照 Redis 8.10）
 - 第三十批可关闭：CONFIG aof-load-truncated/activerehashing/replica-*/cluster-allow/sanitize 文案；validity-factor/repl-timeout/min-replicas*/maxmemory-samples 整数解析；ACL HELP/PUBSUB NUMPAT/REPLICAOF arity；CLIENT CACHING 先校验 tracking；TS.CREATERULE 聚合文案；XGROUP SETID/XACK 非法 ID；JSON.OBJLEN 缺键无 path→null（对照 Redis 8.10）
 - 第二十九批可关闭：CONFIG lazyfree*/jemalloc/activedefrag/aof-rewrite-incremental-fsync/replica-lazy-flush yes|no；announce-port/busy-reply-threshold/acllog-max-len 整数解析；MODULE/OBJECT HELP、BGREWRITEAOF arity；FUNCTION LIST 未知参数；ACL LOG/CAT；WAITAOF numreplicas；XGROUP CREATECONSUMER/DELCONSUMER NOGROUP（对照 Redis 8.10）

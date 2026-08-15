@@ -39,7 +39,8 @@ func execMemory(server *Server, c redis.Connection, args [][]byte) redis.Reply {
 		if len(args) != 1 {
 			return protocol.MakeErrReply("ERR wrong number of arguments for 'memory|purge' command")
 		}
-		runtime.GC()
+		// Best-effort like Redis jemalloc purge: do not block the client on a full GC.
+		go runtime.GC()
 		return protocol.MakeOkReply()
 	case "DOCTOR":
 		if len(args) != 1 {

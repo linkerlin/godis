@@ -285,4 +285,4 @@ UNWATCH、WAIT（简版）、BITOP、BITFIELD、SMOVE、LPOS、XCLAIM、SHUTDOWN
 
 ---
 
-**最后更新：** 2026-08-15（第三十一批可关闭：CONFIG cluster/repl-diskless/sanitize clients；CLIENT SETINFO/TRACKING；XGROUP SETID/XCLAIM；TS DUPLICATE_POLICY；XINFO/OBJECT arity；INCRBYFLOAT；对照 Redis **8.10.0**；远期仍 **7**）
+**最后更新：** 2026-08-15（第三十二批可关闭：CONFIG replica-read-only/rdbcompression/cluster-allow-reads/stop-writes/migration-barrier/memory-value 文案；XCLAIM Unrecognized option；XAUTOCLAIM min-idle；FT.SUGADD nan；MEMORY PURGE；对照 Redis **8.10.0**；远期仍 **7**）

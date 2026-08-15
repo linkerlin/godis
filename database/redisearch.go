@@ -1946,7 +1946,7 @@ func execFTSugAdd(db *DB, args [][]byte) redis.Reply {
 	str := string(args[1])
 
 	score, err := strconv.ParseFloat(string(args[2]), 64)
-	if err != nil {
+	if err != nil || math.IsNaN(score) {
 		return protocol.MakeErrReply("ERR invalid score")
 	}
 

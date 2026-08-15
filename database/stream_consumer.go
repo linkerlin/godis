@@ -460,7 +460,7 @@ func execXClaim(db *DB, args [][]byte) redis.Reply {
 		default:
 			id, err := stream.ParseStreamID(string(args[i]), stream.StreamID{})
 			if err != nil {
-				return protocol.MakeErrReply("ERR Invalid stream ID specified as stream command argument")
+				return protocol.MakeErrReply("ERR Unrecognized XCLAIM option '" + string(args[i]) + "'")
 			}
 			ids = append(ids, id)
 			i++
@@ -509,7 +509,7 @@ func execXAutoClaim(db *DB, args [][]byte) redis.Reply {
 	consumerName := string(args[2])
 	minIdleMs, err := strconv.ParseInt(string(args[3]), 10, 64)
 	if err != nil || minIdleMs < 0 {
-		return protocol.MakeErrReply("ERR Invalid min-idle-time")
+		return protocol.MakeErrReply("ERR Invalid min-idle-time argument for XAUTOCLAIM")
 	}
 	start, err := stream.ParseStreamID(string(args[4]), stream.StreamID{})
 	if err != nil {

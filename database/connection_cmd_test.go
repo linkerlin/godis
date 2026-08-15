@@ -40,7 +40,7 @@ func TestConnectionCommandsViaDB(t *testing.T) {
 	}
 	c.SetProtocolVersion(3)
 	asserts.AssertStatusReply(t, db.Exec(c, utils.ToCmdLine("CLIENT", "REPLY", "ON")), "OK")
-	asserts.AssertStatusReply(t, db.Exec(c, utils.ToCmdLine("CLIENT", "TRACKING", "ON")), "OK")
+	asserts.AssertStatusReply(t, db.Exec(c, utils.ToCmdLine("CLIENT", "TRACKING", "ON", "OPTIN")), "OK")
 	asserts.AssertStatusReply(t, db.Exec(c, utils.ToCmdLine("CLIENT", "CACHING", "YES")), "OK")
 	trackingInfo := db.Exec(c, utils.ToCmdLine("CLIENT", "TRACKINGINFO"))
 	if _, ok := trackingInfo.(*protocol.MapReply); !ok {
@@ -76,7 +76,7 @@ func TestClientSubcommands(t *testing.T) {
 	}
 
 	asserts.AssertStatusReply(t, server.Exec(c, utils.ToCmdLine("CLIENT", "REPLY", "ON")), "OK")
-	asserts.AssertStatusReply(t, server.Exec(c, utils.ToCmdLine("CLIENT", "TRACKING", "ON")), "OK")
+	asserts.AssertStatusReply(t, server.Exec(c, utils.ToCmdLine("CLIENT", "TRACKING", "ON", "OPTIN")), "OK")
 	asserts.AssertStatusReply(t, server.Exec(c, utils.ToCmdLine("CLIENT", "CACHING", "YES")), "OK")
 	redir := server.Exec(c, utils.ToCmdLine("CLIENT", "GETREDIR"))
 	if _, ok := redir.(*protocol.IntReply); !ok {
