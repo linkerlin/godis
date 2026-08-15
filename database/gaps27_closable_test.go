@@ -24,7 +24,7 @@ func TestGaps27ConfigWording(t *testing.T) {
 	asserts.AssertErrReply(t, srv.Exec(c, utils.ToCmdLine("CONFIG", "SET", "zset-max-listpack-entries", "abc")),
 		"ERR CONFIG SET failed (possibly related to argument 'zset-max-listpack-entries') - argument couldn't be parsed into an integer")
 	asserts.AssertErrReply(t, srv.Exec(c, utils.ToCmdLine("CONFIG", "SET", "stream-node-max-bytes", "abc")),
-		"ERR CONFIG SET failed (possibly related to argument 'stream-node-max-bytes') - argument couldn't be parsed into an integer")
+		"ERR CONFIG SET failed (possibly related to argument 'stream-node-max-bytes') - argument must be a memory value")
 	asserts.AssertErrReply(t, srv.Exec(c, utils.ToCmdLine("CONFIG", "SET", "notify-keyspace-events", "!!")),
 		"ERR CONFIG SET failed (possibly related to argument 'notify-keyspace-events') - Invalid event class character. Use 'Ag$lshzxeKEtmdnocaSTIV'.")
 }

@@ -418,31 +418,31 @@ func execXClaim(db *DB, args [][]byte) redis.Reply {
 		switch arg {
 		case "IDLE":
 			if i+1 >= len(args) {
-				return protocol.MakeSyntaxErrReply()
+				return protocol.MakeErrReply("ERR Unrecognized XCLAIM option 'IDLE'")
 			}
 			ms, err := strconv.ParseInt(string(args[i+1]), 10, 64)
 			if err != nil || ms < 0 {
-				return protocol.MakeErrReply("ERR Invalid IDLE")
+				return protocol.MakeErrReply("ERR Invalid IDLE option argument for XCLAIM")
 			}
 			opts.Idle = time.Duration(ms) * time.Millisecond
 			i += 2
 		case "TIME":
 			if i+1 >= len(args) {
-				return protocol.MakeSyntaxErrReply()
+				return protocol.MakeErrReply("ERR Unrecognized XCLAIM option 'TIME'")
 			}
 			ms, err := strconv.ParseInt(string(args[i+1]), 10, 64)
 			if err != nil || ms < 0 {
-				return protocol.MakeErrReply("ERR Invalid TIME")
+				return protocol.MakeErrReply("ERR Invalid TIME option argument for XCLAIM")
 			}
 			opts.Time = time.UnixMilli(ms)
 			i += 2
 		case "RETRYCOUNT":
 			if i+1 >= len(args) {
-				return protocol.MakeSyntaxErrReply()
+				return protocol.MakeErrReply("ERR Unrecognized XCLAIM option 'RETRYCOUNT'")
 			}
 			n, err := strconv.Atoi(string(args[i+1]))
 			if err != nil || n < 0 {
-				return protocol.MakeErrReply("ERR count must be a non-negative integer")
+				return protocol.MakeErrReply("ERR Invalid RETRYCOUNT option argument for XCLAIM")
 			}
 			opts.RetryCount = n
 			i += 2
@@ -527,7 +527,7 @@ func execXAutoClaim(db *DB, args [][]byte) redis.Reply {
 			}
 			c, err := strconv.Atoi(string(args[i+1]))
 			if err != nil || c <= 0 {
-				return protocol.MakeErrReply("ERR COUNT must be a positive integer")
+				return protocol.MakeErrReply("ERR COUNT must be > 0")
 			}
 			count = c
 			i += 2

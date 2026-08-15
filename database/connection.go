@@ -133,7 +133,7 @@ func execClientPause(db *DB, args [][]byte) redis.Reply {
 	if len(args) == 2 {
 		mode = strings.ToUpper(string(args[1]))
 		if mode != "WRITE" && mode != "ALL" {
-			return protocol.MakeErrReply("ERR mode must be WRITE or ALL")
+			return protocol.MakeErrReply("ERR CLIENT PAUSE mode must be WRITE or ALL")
 		}
 	}
 

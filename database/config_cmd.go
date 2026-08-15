@@ -745,11 +745,8 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 			config.Properties.ZSetMaxListpackValue = n
 		case "stream-node-max-bytes":
 			n, err := strconv.ParseInt(value, 10, 64)
-			if err != nil {
-				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'stream-node-max-bytes') - argument couldn't be parsed into an integer")
-			}
-			if n < 0 {
-				return protocol.MakeErrReply(fmt.Sprintf("ERR Invalid value for '%s'", key))
+			if err != nil || n < 0 {
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'stream-node-max-bytes') - argument must be a memory value")
 			}
 			config.Properties.StreamNodeMaxBytes = n
 		case "hll-sparse-max-bytes":

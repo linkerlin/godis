@@ -163,7 +163,7 @@ func (sl *SlowLogger) Reset() {
 // HandleSlowlogCommand Process SLOWLOG command
 func (sl *SlowLogger) HandleSlowlogCommand(args [][]byte) redis.Reply {
 	argsLen := len(args)
-	if argsLen <= 1 || argsLen > 3 {
+	if argsLen <= 1 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'SLOWLOG' command")
 	}
 
@@ -171,6 +171,9 @@ func (sl *SlowLogger) HandleSlowlogCommand(args [][]byte) redis.Reply {
 
 	switch subCmd {
 	case "get":
+		if argsLen > 3 {
+			return protocol.MakeErrReply("ERR unknown subcommand or wrong number of arguments for 'GET'. Try SLOWLOG HELP.")
+		}
 		count := 10
 		if argsLen == 3 {
 			n, err := strconv.Atoi(string(args[2]))
@@ -186,8 +189,14 @@ func (sl *SlowLogger) HandleSlowlogCommand(args [][]byte) redis.Reply {
 		entries := sl.GetEntries(count)
 		return formatSlowlogEntries(entries)
 	case "len":
+		if argsLen != 2 {
+			return protocol.MakeErrReply("ERR wrong number of arguments for 'slowlog|len' command")
+		}
 		return protocol.MakeIntReply(int64(sl.Len()))
 	case "reset":
+		if argsLen != 2 {
+			return protocol.MakeErrReply("ERR wrong number of arguments for 'slowlog|reset' command")
+		}
 		sl.Reset()
 		return protocol.MakeOkReply()
 	case "help":
@@ -206,7 +215,7 @@ func (sl *SlowLogger) HandleSlowlogCommand(args [][]byte) redis.Reply {
 			[]byte("    Print this help."),
 		})
 	default:
-		return protocol.MakeErrReply("ERR Unknown subcommand or wrong number of arguments for '" + subCmd + "'. Try SLOWLOG HELP.")
+		return protocol.MakeErrReply("ERR unknown subcommand '" + subCmd + "'. Try SLOWLOG HELP.")
 	}
 }
 
