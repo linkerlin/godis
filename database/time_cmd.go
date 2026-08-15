@@ -24,18 +24,24 @@ func execTime(args [][]byte) redis.Reply {
 }
 
 // execLolwut returns a short Redis-compatible easter-egg banner.
-// LOLWUT [VERSION version]
+// LOLWUT [VERSION [version]]
 func execLolwut(args [][]byte) redis.Reply {
 	ver := 0
 	if len(args) > 0 {
-		if len(args) != 2 || !strings.EqualFold(string(args[0]), "VERSION") {
+		if !strings.EqualFold(string(args[0]), "VERSION") {
 			return protocol.MakeSyntaxErrReply()
 		}
-		n, err := strconv.Atoi(string(args[1]))
-		if err != nil || n < 0 {
-			return protocol.MakeErrReply("ERR value is not an integer or out of range")
+		if len(args) == 1 {
+			// Redis: bare VERSION uses the default style.
+		} else if len(args) == 2 {
+			n, err := strconv.Atoi(string(args[1]))
+			if err != nil || n < 0 {
+				return protocol.MakeErrReply("ERR value is not an integer or out of range")
+			}
+			ver = n
+		} else {
+			return protocol.MakeSyntaxErrReply()
 		}
-		ver = n
 	}
 	msg := "Godis ver. redis-compat"
 	if ver > 0 {

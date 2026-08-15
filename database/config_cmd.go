@@ -193,10 +193,14 @@ func getConfigMatches(pattern string) []configPair {
 		{"cluster-allow-replica-migration", boolToString(getClusterAllowReplicaMigration())},
 		{"cluster-replica-validity-factor", strconv.Itoa(getClusterReplicaValidityFactor())},
 		{"hash-max-listpack-entries", strconv.Itoa(getHashMaxListpackEntries())},
+		{"hash-max-ziplist-entries", strconv.Itoa(getHashMaxListpackEntries())},
 		{"list-max-listpack-size", strconv.Itoa(getListMaxListpackSize())},
+		{"list-max-ziplist-size", strconv.Itoa(getListMaxListpackSize())},
 		{"set-max-intset-entries", strconv.Itoa(getSetMaxIntsetEntries())},
 		{"zset-max-listpack-entries", strconv.Itoa(getZSetMaxListpackEntries())},
+		{"zset-max-ziplist-entries", strconv.Itoa(getZSetMaxListpackEntries())},
 		{"zset-max-listpack-value", strconv.Itoa(getZSetMaxListpackValue())},
+		{"zset-max-ziplist-value", strconv.Itoa(getZSetMaxListpackValue())},
 		{"stream-node-max-bytes", strconv.FormatInt(getStreamNodeMaxBytes(), 10)},
 		{"hll-sparse-max-bytes", strconv.Itoa(getHLLSparseMaxBytes())},
 		{"cluster-announce-ip", getClusterAnnounceIP()},
@@ -204,6 +208,7 @@ func getConfigMatches(pattern string) []configPair {
 		{"cluster-announce-bus-port", strconv.Itoa(getClusterAnnounceBusPort())},
 		{"stream-node-max-entries", strconv.FormatInt(getStreamNodeMaxEntries(), 10)},
 		{"hash-max-listpack-value", strconv.Itoa(getHashMaxListpackValue())},
+		{"hash-max-ziplist-value", strconv.Itoa(getHashMaxListpackValue())},
 		{"set-max-listpack-entries", strconv.Itoa(getSetMaxListpackEntries())},
 		{"oom-score-adj", strconv.Itoa(getOOMScoreAdj())},
 		{"replicaof", getReplicaOf()},
@@ -728,19 +733,19 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'cluster-replica-validity-factor') - argument must be between 0 and 2147483647 inclusive")
 			}
 			config.Properties.ClusterReplicaValidityFactor = n
-		case "hash-max-listpack-entries":
+		case "hash-max-listpack-entries", "hash-max-ziplist-entries":
 			n, err := strconv.Atoi(value)
 			if err != nil {
-				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'hash-max-listpack-entries') - argument couldn't be parsed into an integer")
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument '" + key + "') - argument couldn't be parsed into an integer")
 			}
 			if n < 0 {
-				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'hash-max-listpack-entries') - argument must be between 0 and 9223372036854775807 inclusive")
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument '" + key + "') - argument must be between 0 and 9223372036854775807 inclusive")
 			}
 			config.Properties.HashMaxListpackEntries = n
-		case "list-max-listpack-size":
+		case "list-max-listpack-size", "list-max-ziplist-size":
 			n, err := strconv.Atoi(value)
 			if err != nil {
-				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'list-max-listpack-size') - argument couldn't be parsed into an integer")
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument '" + key + "') - argument couldn't be parsed into an integer")
 			}
 			config.Properties.ListMaxListpackSize = n
 		case "set-max-intset-entries":
@@ -752,19 +757,19 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'set-max-intset-entries') - argument must be between 0 and 9223372036854775807 inclusive")
 			}
 			config.Properties.SetMaxIntsetEntries = n
-		case "zset-max-listpack-entries":
+		case "zset-max-listpack-entries", "zset-max-ziplist-entries":
 			n, err := strconv.Atoi(value)
 			if err != nil {
-				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'zset-max-listpack-entries') - argument couldn't be parsed into an integer")
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument '" + key + "') - argument couldn't be parsed into an integer")
 			}
 			if n < 0 {
-				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'zset-max-listpack-entries') - argument must be between 0 and 9223372036854775807 inclusive")
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument '" + key + "') - argument must be between 0 and 9223372036854775807 inclusive")
 			}
 			config.Properties.ZSetMaxListpackEntries = n
-		case "zset-max-listpack-value":
+		case "zset-max-listpack-value", "zset-max-ziplist-value":
 			n, err := strconv.Atoi(value)
 			if err != nil || n < 0 {
-				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'zset-max-listpack-value') - argument must be a memory value")
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument '" + key + "') - argument must be a memory value")
 			}
 			config.Properties.ZSetMaxListpackValue = n
 		case "stream-node-max-bytes":
@@ -808,10 +813,10 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'stream-node-max-entries') - argument must be between 0 and 9223372036854775807 inclusive")
 			}
 			config.Properties.StreamNodeMaxEntries = n
-		case "hash-max-listpack-value":
+		case "hash-max-listpack-value", "hash-max-ziplist-value":
 			n, err := strconv.Atoi(value)
 			if err != nil || n < 0 {
-				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'hash-max-listpack-value') - argument must be a memory value")
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument '" + key + "') - argument must be a memory value")
 			}
 			config.Properties.HashMaxListpackValue = n
 		case "set-max-listpack-entries":

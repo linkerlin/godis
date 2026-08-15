@@ -6,6 +6,7 @@
 
 ### Fixed
 
+- 第三十八批可关闭：FUNCTION LIST LIBRARYNAME 缺名；COMMAND GETKEYS/GETKEYSANDFLAGS arity 文案；LOLWUT 裸 VERSION；CONFIG hash/zset/list `*-ziplist-*` 别名（对照 Redis 8.10）
 - 第三十七批可关闭：CONFIG cluster-node-timeout/repl-backlog-ttl/auto-aof-rewrite-min-size/announce-port(s) 范围文案；CONFIG RESETSTAT/REWRITE arity；XDEL 非法 ID 文案；XRANGE/XREVRANGE COUNT≤0→空（对照 Redis 8.10）
 - 第三十六批可关闭：CONFIG stream-node-max-entries/repl-backlog-size/repl-diskless-sync-delay/cluster-migration-barrier/auto-aof-rewrite-percentage/lua-time-limit/listpack·intset/tracking/slowlog/replica-priority/min-replicas*/validity-factor/repl-timeout 范围文案；CLIENT HELP arity（对照 Redis 8.10）
 - 第三十五批可关闭：CONFIG maxmemory-samples/timeout/tcp-keepalive/busy-reply/acllog/listpack/proto-max-bulk-len/client-query-buffer-limit 范围文案；XCLAIM LASTID；XGROUP ENTRIESREAD；CLIENT UNBLOCK reason；LPOS COUNT/MAXLEN 非整数（对照 Redis 8.10）

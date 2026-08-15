@@ -117,7 +117,7 @@ func execFunctionList(db *DB, args [][]byte) redis.Reply {
 		switch arg {
 		case "LIBRARYNAME":
 			if i+1 >= len(args) {
-				return protocol.MakeSyntaxErrReply()
+				return protocol.MakeErrReply("ERR library name argument was not given")
 			}
 			libName = string(args[i+1])
 			i++

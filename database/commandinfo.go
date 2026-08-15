@@ -46,12 +46,12 @@ func execCommand(args [][]byte) redis.Reply {
 		return getCommandList(args[1:])
 	} else if subCommand == "getkeys" {
 		if len(args) < 2 {
-			return protocol.MakeErrReply("ERR wrong number of arguments for 'command|" + subCommand + "'")
+			return protocol.MakeErrReply("ERR wrong number of arguments for 'command|" + subCommand + "' command")
 		}
 		return getKeys(args[1:])
 	} else if subCommand == "getkeysandflags" {
 		if len(args) < 2 {
-			return protocol.MakeErrReply("ERR wrong number of arguments for 'command|" + subCommand + "'")
+			return protocol.MakeErrReply("ERR wrong number of arguments for 'command|" + subCommand + "' command")
 		}
 		return getKeysAndFlags(args[1:])
 	} else if subCommand == "help" {
