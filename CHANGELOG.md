@@ -6,6 +6,7 @@
 
 ### Fixed
 
+- 第四十四批可关闭：ACL LOG 多余参数文案；CONFIG active-expire-effort；TLS 相关 GET/SET 桩（tls-*-file/protocols/ciphers/auth-clients/replication/cluster/session-* / prefer-server-ciphers / cluster-announce-tls-port）（对照 Redis 8.10；TLS 仅桩，不伪造真实握手）
 - 第四十三批可关闭：CONFIG oom-score-adj-values / propagation-error-behavior / hide-user-data-from-log / cluster-replica-no-failover / cluster-allow-pubsubshard-when-down / proc-title-template 校验与 GET/SET 桩（对照 Redis 8.10；不伪造 OOM/进程标题真实副作用）
 - 第四十二批可关闭：FCALL_RO 单 token 注册；LOLWUT VERSION 负整数；CONFIG client-output-buffer-limit 校验；shutdown-timeout/sigint/sigterm、locale-collate、cluster-announce-human-nodename、latency-tracking-info-percentiles、active-defrag-* GET/SET 桩（对照 Redis 8.10；defrag 仅桩，不伪造 jemalloc）
 - 第四十一批可关闭：SCRIPT/FUNCTION 裸命令 arity 与未知子命令文案；CONFIG lfu-*/tenacity/list-compress/aof-timestamp/repl-disable-tcp-nodelay/latency-tracking/crash-*/repl-diskless-load/cluster-preferred-endpoint-type/cluster-link-sendbuf-limit/cluster-announce-hostname 校验与 GET/SET 桩（对照 Redis 8.10；crash/diskless/latency 仅桩，不伪造真实行为）

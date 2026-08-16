@@ -187,6 +187,22 @@ type ServerProperties struct {
 	ClusterAllowPubsubshardWhenDown bool   `cfg:"cluster-allow-pubsubshard-when-down"`
 	ProcTitleTemplate               string `cfg:"proc-title-template"`
 
+	// Active expire / TLS CONFIG stubs (GET/SET only; no real TLS stack).
+	ActiveExpireEffort         int    `cfg:"active-expire-effort"`
+	TLSCertFile                string `cfg:"tls-cert-file"`
+	TLSKeyFile                 string `cfg:"tls-key-file"`
+	TLSCACertFile              string `cfg:"tls-ca-cert-file"`
+	TLSProtocols               string `cfg:"tls-protocols"`
+	TLSCiphers                 string `cfg:"tls-ciphers"`
+	TLSAuthClients             string `cfg:"tls-auth-clients"`
+	TLSReplication             bool   `cfg:"tls-replication"`
+	TLSCluster                 bool   `cfg:"tls-cluster"`
+	TLSSessionCaching          bool   `cfg:"tls-session-caching"`
+	TLSSessionCacheSize        int    `cfg:"tls-session-cache-size"`
+	TLSSessionCacheTimeout     int    `cfg:"tls-session-cache-timeout"`
+	TLSPreferServerCiphers     bool   `cfg:"tls-prefer-server-ciphers"`
+	ClusterAnnounceTLSPort     int    `cfg:"cluster-announce-tls-port"`
+
 	// Encoding / structure size CONFIG stubs (GET/SET only).
 	ListMaxListpackSize    int   `cfg:"list-max-listpack-size"`
 	SetMaxIntsetEntries    int   `cfg:"set-max-intset-entries"`
@@ -335,6 +351,15 @@ func init() {
 		ClusterReplicaNoFailover:       false,
 		ClusterAllowPubsubshardWhenDown: false,
 		ProcTitleTemplate:              "{title} {listen-addr} {server-mode}",
+		ActiveExpireEffort:             1,
+		TLSAuthClients:                 "no",
+		TLSReplication:                 false,
+		TLSCluster:                     false,
+		TLSSessionCaching:              true,
+		TLSSessionCacheSize:            0,
+		TLSSessionCacheTimeout:         300,
+		TLSPreferServerCiphers:         false,
+		ClusterAnnounceTLSPort:         0,
 		ListMaxListpackSize:    -2,
 		SetMaxIntsetEntries:    512,
 		ZSetMaxListpackEntries: 128,

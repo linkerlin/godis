@@ -225,6 +225,20 @@ func getConfigMatches(pattern string) []configPair {
 		{"cluster-replica-no-failover", boolToString(getClusterReplicaNoFailover())},
 		{"cluster-allow-pubsubshard-when-down", boolToString(getClusterAllowPubsubshardWhenDown())},
 		{"proc-title-template", getProcTitleTemplate()},
+		{"active-expire-effort", strconv.Itoa(getActiveExpireEffort())},
+		{"tls-cert-file", getTLSCertFile()},
+		{"tls-key-file", getTLSKeyFile()},
+		{"tls-ca-cert-file", getTLSCACertFile()},
+		{"tls-protocols", getTLSProtocols()},
+		{"tls-ciphers", getTLSCiphers()},
+		{"tls-auth-clients", getTLSAuthClients()},
+		{"tls-replication", boolToString(getTLSReplication())},
+		{"tls-cluster", boolToString(getTLSCluster())},
+		{"tls-session-caching", boolToString(getTLSSessionCaching())},
+		{"tls-session-cache-size", strconv.Itoa(getTLSSessionCacheSize())},
+		{"tls-session-cache-timeout", strconv.Itoa(getTLSSessionCacheTimeout())},
+		{"tls-prefer-server-ciphers", boolToString(getTLSPreferServerCiphers())},
+		{"cluster-announce-tls-port", strconv.Itoa(getClusterAnnounceTLSPort())},
 		{"cluster-allow-replica-migration", boolToString(getClusterAllowReplicaMigration())},
 		{"cluster-replica-validity-factor", strconv.Itoa(getClusterReplicaValidityFactor())},
 		{"hash-max-listpack-entries", strconv.Itoa(getHashMaxListpackEntries())},
@@ -1004,6 +1018,84 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'proc-title-template') - " + errMsg)
 			}
 			config.Properties.ProcTitleTemplate = value
+		case "active-expire-effort":
+			n, err := strconv.Atoi(value)
+			if err != nil {
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'active-expire-effort') - argument couldn't be parsed into an integer")
+			}
+			if n < 1 || n > 10 {
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'active-expire-effort') - argument must be between 1 and 10 inclusive")
+			}
+			config.Properties.ActiveExpireEffort = n
+		case "tls-cert-file":
+			config.Properties.TLSCertFile = value
+		case "tls-key-file":
+			config.Properties.TLSKeyFile = value
+		case "tls-ca-cert-file":
+			config.Properties.TLSCACertFile = value
+		case "tls-protocols":
+			config.Properties.TLSProtocols = value
+		case "tls-ciphers":
+			config.Properties.TLSCiphers = value
+		case "tls-auth-clients":
+			v := strings.ToLower(value)
+			switch v {
+			case "no", "yes", "optional":
+				config.Properties.TLSAuthClients = v
+			default:
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'tls-auth-clients') - argument(s) must be one of the following: no, yes, optional")
+			}
+		case "tls-replication":
+			ok, b := config.ParseConfigBool(value)
+			if !ok {
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'tls-replication') - argument must be 'yes' or 'no'")
+			}
+			config.Properties.TLSReplication = b
+		case "tls-cluster":
+			ok, b := config.ParseConfigBool(value)
+			if !ok {
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'tls-cluster') - argument must be 'yes' or 'no'")
+			}
+			config.Properties.TLSCluster = b
+		case "tls-session-caching":
+			ok, b := config.ParseConfigBool(value)
+			if !ok {
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'tls-session-caching') - argument must be 'yes' or 'no'")
+			}
+			config.Properties.TLSSessionCaching = b
+		case "tls-session-cache-size":
+			n, err := strconv.Atoi(value)
+			if err != nil {
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'tls-session-cache-size') - argument couldn't be parsed into an integer")
+			}
+			if n < 0 || n > 2147483647 {
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'tls-session-cache-size') - argument must be between 0 and 2147483647 inclusive")
+			}
+			config.Properties.TLSSessionCacheSize = n
+		case "tls-session-cache-timeout":
+			n, err := strconv.Atoi(value)
+			if err != nil {
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'tls-session-cache-timeout') - argument couldn't be parsed into an integer")
+			}
+			if n < 0 || n > 2147483647 {
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'tls-session-cache-timeout') - argument must be between 0 and 2147483647 inclusive")
+			}
+			config.Properties.TLSSessionCacheTimeout = n
+		case "tls-prefer-server-ciphers":
+			ok, b := config.ParseConfigBool(value)
+			if !ok {
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'tls-prefer-server-ciphers') - argument must be 'yes' or 'no'")
+			}
+			config.Properties.TLSPreferServerCiphers = b
+		case "cluster-announce-tls-port":
+			n, err := strconv.Atoi(value)
+			if err != nil {
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'cluster-announce-tls-port') - argument couldn't be parsed into an integer")
+			}
+			if n < 0 || n > 65535 {
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'cluster-announce-tls-port') - argument must be between 0 and 65535 inclusive")
+			}
+			config.Properties.ClusterAnnounceTLSPort = n
 		case "cluster-allow-replica-migration":
 			ok, b := config.ParseConfigBool(value)
 			if !ok {
@@ -1838,6 +1930,104 @@ func getProcTitleTemplate() string {
 		return "{title} {listen-addr} {server-mode}"
 	}
 	return config.Properties.ProcTitleTemplate
+}
+
+func getActiveExpireEffort() int {
+	if config.Properties == nil || config.Properties.ActiveExpireEffort == 0 {
+		return 1
+	}
+	return config.Properties.ActiveExpireEffort
+}
+
+func getTLSCertFile() string {
+	if config.Properties == nil {
+		return ""
+	}
+	return config.Properties.TLSCertFile
+}
+
+func getTLSKeyFile() string {
+	if config.Properties == nil {
+		return ""
+	}
+	return config.Properties.TLSKeyFile
+}
+
+func getTLSCACertFile() string {
+	if config.Properties == nil {
+		return ""
+	}
+	return config.Properties.TLSCACertFile
+}
+
+func getTLSProtocols() string {
+	if config.Properties == nil {
+		return ""
+	}
+	return config.Properties.TLSProtocols
+}
+
+func getTLSCiphers() string {
+	if config.Properties == nil {
+		return ""
+	}
+	return config.Properties.TLSCiphers
+}
+
+func getTLSAuthClients() string {
+	if config.Properties == nil || config.Properties.TLSAuthClients == "" {
+		return "no"
+	}
+	return config.Properties.TLSAuthClients
+}
+
+func getTLSReplication() bool {
+	if config.Properties == nil {
+		return false
+	}
+	return config.Properties.TLSReplication
+}
+
+func getTLSCluster() bool {
+	if config.Properties == nil {
+		return false
+	}
+	return config.Properties.TLSCluster
+}
+
+func getTLSSessionCaching() bool {
+	if config.Properties == nil {
+		return true
+	}
+	return config.Properties.TLSSessionCaching
+}
+
+func getTLSSessionCacheSize() int {
+	if config.Properties == nil {
+		return 0
+	}
+	return config.Properties.TLSSessionCacheSize
+}
+
+func getTLSSessionCacheTimeout() int {
+	if config.Properties == nil {
+		return 300
+	}
+	return config.Properties.TLSSessionCacheTimeout
+}
+
+func getTLSPreferServerCiphers() bool {
+	if config.Properties == nil {
+		return false
+	}
+	return config.Properties.TLSPreferServerCiphers
+}
+
+func getClusterAnnounceTLSPort() int {
+	if config.Properties == nil {
+		return 0
+	}
+	return config.Properties.ClusterAnnounceTLSPort
 }
 
 func validateOOMScoreAdjValues(value string) string {

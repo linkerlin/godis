@@ -470,28 +470,28 @@ func listCmdsBySign(sign string) []string {
 // execACLLog manages the ACL log
 func execACLLog(args [][]byte) redis.Reply {
 	if len(args) == 0 {
-		// 返回所有日志条目
 		return getACLLogEntries(-1)
 	}
 
-	// 检查RESET
-	if len(args) == 1 && strings.ToUpper(string(args[0])) == "RESET" {
+	if strings.ToUpper(string(args[0])) == "RESET" {
+		if len(args) != 1 {
+			return protocol.MakeErrReply("ERR unknown subcommand or wrong number of arguments for 'LOG'. Try ACL HELP.")
+		}
 		resetACLLog()
 		return protocol.MakeOkReply()
 	}
 
-	// 解析数量限制
-	count := -1
-	if len(args) >= 1 {
-		c, err := strconv.Atoi(string(args[0]))
-		if err != nil {
-			return protocol.MakeErrReply("ERR value is not an integer or out of range")
-		}
-		if c > 0 {
-			count = c
-		}
+	if len(args) != 1 {
+		return protocol.MakeErrReply("ERR unknown subcommand or wrong number of arguments for 'LOG'. Try ACL HELP.")
 	}
-
+	c, err := strconv.Atoi(string(args[0]))
+	if err != nil {
+		return protocol.MakeErrReply("ERR value is not an integer or out of range")
+	}
+	count := -1
+	if c > 0 {
+		count = c
+	}
 	return getACLLogEntries(count)
 }
 
