@@ -238,6 +238,8 @@ FT.SEARCH idx "hello"  # -> %5 total_results / results / attributes / format / w
 | VECTOR_RANGE | ✅ 子集 | `@vec:[VECTOR_RANGE r|$r $q]` + DIALECT≥2；`$YIELD_DISTANCE_AS`；`$EPSILON`（HNSW/SVS）；FLAT 暴力；**非** HNSW 近似扫描；**非** `$EF_RUNTIME` |
 
 | FT.AGGREGATE ADDSCORES | ✅ 子集 | 管道注入 `@__score`（BM25STD）；可 SORTBY；**非**字节级对齐 RediSearch |
+| FT.SEARCH FORMAT | ✅ 子集 | STRING；拒 JSON/未知；EXPAND→DIALECT≥3+RESP3+ON JSON（回复仍为双形 FTSearchReply，非完整 EXPAND 树） |
+| 查询属性 `$weight` | ✅ 子集 | 乘分；`$slop`/`$inorder`；拒非法/未知/`$phonetic:true`；**非** Redis 字节级项贡献 |
 | FT.SEARCH EXPLAINSCORE | ✅ 子集 | 需 WITHSCORES；BM25STD/DOCSCORE/DISMAX 嵌套线格式；**非**字节级对齐 RediSearch（b=0.09） |
 | SORTBY WITHCOUNT | ✅ 语法 | 接受令牌；准确总数本为默认（WITHOUTCOUNT 除外） |
 | FT.PROFILE 迭代器细分 | 🔶 | 只报诚实总耗时;细分需 instrument 引擎迭代器 |

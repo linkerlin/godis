@@ -416,7 +416,7 @@ func (e *RediSearchEngine) SearchKNN(baseQuery string, opts *SearchOptions, knn 
 		}
 		node, err := parser.Parse()
 		if err != nil {
-			if isDialectGateError(err) {
+			if isDialectGateError(err) || isQueryAttrError(err) {
 				return nil, err
 			}
 			node, err = NewQueryParser().Parse(baseQuery)
@@ -504,7 +504,7 @@ func (e *RediSearchEngine) Search(query string, opts *SearchOptions) (*SearchRes
 	}
 	node, err := parser.Parse()
 	if err != nil {
-		if isDialectGateError(err) {
+		if isDialectGateError(err) || isQueryAttrError(err) {
 			return nil, err
 		}
 		// Fallback to simple parser
@@ -579,6 +579,8 @@ func (e *RediSearchEngine) Search(query string, opts *SearchOptions) (*SearchRes
 	// Fetch documents and calculate scores. Build the score context once so
 	// every doc scores against the same corpus snapshot; collect optional ~
 	// terms from the AST so the chosen scorer can boost matches on them.
+	// Strip trailing =>{$weight…} so tokenizer does not treat attribute keys
+	// as query terms (AST already carries WeightedNode for CollectQueryWeight).
 	scorerName := ""
 	var queryPayload []byte
 	verbatim := false
@@ -589,7 +591,11 @@ func (e *RediSearchEngine) Search(query string, opts *SearchOptions) (*SearchRes
 		verbatim = opts.Verbatim
 		noStop = opts.NoStopWords
 	}
-	sc := e.buildScoreContext(query, CollectOptionalTerms(node), queryPayload, verbatim, noStop)
+	scoreQuery := query
+	if base, attrs, aerr := StripTrailingAttrBlock(query); aerr == nil && attrs != nil {
+		scoreQuery = base
+	}
+	sc := e.buildScoreContext(scoreQuery, CollectOptionalTerms(node), queryPayload, verbatim, noStop)
 	if opts != nil && opts.BM25STDTanhFactor > 0 {
 		sc.tanhFactor = opts.BM25STDTanhFactor
 	}
@@ -605,6 +611,9 @@ func (e *RediSearchEngine) Search(query string, opts *SearchOptions) (*SearchRes
 		}
 
 		score := e.calculateScore(doc, sc, scorerName)
+		if w := CollectQueryWeight(node); w != 1 {
+			score *= w
+		}
 		fields := doc.Fields
 		if d, ok := vrDistances[docID]; ok {
 			score = float64(d)

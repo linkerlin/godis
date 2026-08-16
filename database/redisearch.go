@@ -747,6 +747,7 @@ func execFTSearch(db *DB, args [][]byte) redis.Reply {
 	dialectSpecified := false
 	var inKeys map[string]struct{}
 	var params map[string][]byte // PARAMS name -> raw value (often a vector blob)
+	formatExpand := false
 
 	for i := 2; i < len(args); i++ {
 		arg := strings.ToUpper(string(args[i]))
@@ -773,6 +774,24 @@ func execFTSearch(db *DB, args [][]byte) redis.Reply {
 		case "WITHSORTKEYS":
 			withSortKeys = true
 			opts.WithSortKeys = true
+		case "FORMAT":
+			// Redis 8.x: STRING (default wire), JSON unsupported, EXPAND needs
+			// DIALECT≥3 + RESP3 + ON JSON (validated after dialect resolve).
+			if i+1 >= len(args) {
+				return protocol.MakeErrReply("SEARCH_VALUE_BAD Need an argument for FORMAT")
+			}
+			fmtOpt := strings.ToUpper(string(args[i+1]))
+			i++
+			switch fmtOpt {
+			case "STRING":
+				// default RESP shape
+			case "JSON":
+				return protocol.MakeErrReply("SEARCH_PARSE_ARGS FORMAT JSON is not supported")
+			case "EXPAND":
+				formatExpand = true
+			default:
+				return protocol.MakeErrReply(fmt.Sprintf("SEARCH_PARSE_ARGS FORMAT %s is not supported", fmtOpt))
+			}
 		case "WITHCURSOR":
 			withCursor = true
 			if i+1 < len(args) && strings.EqualFold(string(args[i+1]), "COUNT") {
@@ -1115,6 +1134,29 @@ func execFTSearch(db *DB, args [][]byte) redis.Reply {
 		}
 		opts.Dialect = dialect
 	}
+	if formatExpand {
+		if dialect < 3 {
+			return protocol.MakeErrReply("SEARCH_LIMIT_OVER EXPAND format requires dialect 3 or greater")
+		}
+		resp3 := false
+		if id := peekBlockingClientID(); id != 0 {
+			if c := FindClientByID(id); c != nil && c.GetProtocolVersion() == 3 {
+				resp3 = true
+			}
+		}
+		if !resp3 {
+			return protocol.MakeErrReply("SEARCH_VALUE_BAD EXPAND format is only supported with RESP3")
+		}
+		searchIndexMetaMu.RLock()
+		meta := searchIndexMeta[indexName]
+		onJSON := meta != nil && meta.onType == "JSON"
+		searchIndexMetaMu.RUnlock()
+		if !onJSON {
+			return protocol.MakeErrReply("SEARCH_VALUE_BAD EXPAND format is only supported with JSON")
+		}
+		// JSON+RESP3+DIALECT≥3: accept; reply shape remains dual-form FTSearchReply
+		// (not a full Redis EXPAND JSON tree — subset).
+	}
 	// PARAMS (and any $-parameter substitution) requires DIALECT >= 2. Deferred
 	// to here so the DIALECT option may appear in any order relative to PARAMS.
 	if len(params) > 0 && dialect < 2 {
@@ -1177,40 +1219,44 @@ func execFTSearch(db *DB, args [][]byte) redis.Reply {
 		// VECTOR_RANGE attr block (Redis 8.10): $YIELD_DISTANCE_AS always;
 		// $EPSILON only on HNSW/SVS (validated at search); reject $EF_RUNTIME,
 		// hybrid-only attrs, and unknown keys (do not silently ignore).
+		// Text-clause attributes ($weight/$slop/…) use the same "=> {…}" shape
+		// and must NOT be consumed here — leave them for ExpressionParser.
 		q := query
-		base, attrs, aerr := redisearch.StripTrailingAttrBlock(q)
-		if aerr != nil {
-			return protocol.MakeErrReply("ERR " + aerr.Error())
-		}
-		if attrs != nil {
-			q = base
-			for k, val := range attrs {
-				switch k {
-				case "YIELD_DISTANCE_AS":
-					if val == "" {
-						return protocol.MakeErrReply("ERR YIELD_DISTANCE_AS requires a field name")
+		if strings.Contains(strings.ToUpper(q), "VECTOR_RANGE") {
+			base, attrs, aerr := redisearch.StripTrailingAttrBlock(q)
+			if aerr != nil {
+				return protocol.MakeErrReply("ERR " + aerr.Error())
+			}
+			if attrs != nil {
+				q = base
+				for k, val := range attrs {
+					switch k {
+					case "YIELD_DISTANCE_AS":
+						if val == "" {
+							return protocol.MakeErrReply("ERR YIELD_DISTANCE_AS requires a field name")
+						}
+						opts.VectorRangeYield = val
+					case "EPSILON":
+						if val == "" {
+							return protocol.MakeErrReply("ERR EPSILON requires a value")
+						}
+						eps, perr := strconv.ParseFloat(val, 64)
+						if perr != nil || eps < 0 {
+							return protocol.MakeErrReply("ERR Invalid EPSILON")
+						}
+						opts.VectorRangeEpsilon = eps
+						opts.VectorRangeEpsilonSet = true
+					case "EF_RUNTIME":
+						// Redis rejects $EF_RUNTIME on VECTOR_RANGE (KNN-only hint).
+						return protocol.MakeErrReply("ERR Invalid option EF_RUNTIME for VECTOR_RANGE")
+					case "HYBRID_POLICY", "BATCH_SIZE":
+						if val == "" {
+							return protocol.MakeErrReply("ERR " + k + " requires a value")
+						}
+						return protocol.MakeErrReply("ERR hybrid query attributes were sent for a non-hybrid query")
+					default:
+						return protocol.MakeErrReply("ERR Invalid attribute " + k)
 					}
-					opts.VectorRangeYield = val
-				case "EPSILON":
-					if val == "" {
-						return protocol.MakeErrReply("ERR EPSILON requires a value")
-					}
-					eps, perr := strconv.ParseFloat(val, 64)
-					if perr != nil || eps < 0 {
-						return protocol.MakeErrReply("ERR Invalid EPSILON")
-					}
-					opts.VectorRangeEpsilon = eps
-					opts.VectorRangeEpsilonSet = true
-				case "EF_RUNTIME":
-					// Redis rejects $EF_RUNTIME on VECTOR_RANGE (KNN-only hint).
-					return protocol.MakeErrReply("ERR Invalid option EF_RUNTIME for VECTOR_RANGE")
-				case "HYBRID_POLICY", "BATCH_SIZE":
-					if val == "" {
-						return protocol.MakeErrReply("ERR " + k + " requires a value")
-					}
-					return protocol.MakeErrReply("ERR hybrid query attributes were sent for a non-hybrid query")
-				default:
-					return protocol.MakeErrReply("ERR Invalid attribute " + k)
 				}
 			}
 		}
@@ -1476,6 +1522,22 @@ func execFTAggregate(db *DB, args [][]byte) redis.Reply {
 			// Expose full-text score as @__score for SORTBY/APPLY/FILTER.
 			req.AddScores = true
 			i++
+			continue
+
+		case "FORMAT":
+			if i+1 >= len(args) {
+				return protocol.MakeErrReply("SEARCH_VALUE_BAD Need an argument for FORMAT")
+			}
+			fmtOpt := strings.ToUpper(string(args[i+1]))
+			switch fmtOpt {
+			case "STRING":
+				// default wire
+			case "JSON":
+				return protocol.MakeErrReply("SEARCH_PARSE_ARGS FORMAT JSON is not supported")
+			default:
+				return protocol.MakeErrReply(fmt.Sprintf("SEARCH_PARSE_ARGS FORMAT %s is not supported", fmtOpt))
+			}
+			i += 2
 			continue
 
 		case "DIALECT":

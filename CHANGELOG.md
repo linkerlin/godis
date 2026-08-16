@@ -6,6 +6,7 @@
 
 ### Fixed
 
+- 第六十四批（远期子集续研）：FT.SEARCH/AGGREGATE **FORMAT**（STRING；拒 JSON/未知；EXPAND 需 DIALECT≥3+RESP3+ON JSON，对照 Redis 8.10）；查询属性 **`$weight`**（乘分；`$slop`/`$inorder`；拒非法/未知/`$phonetic:true`；非字节级 BM25）；R4-1 扩至 **329** 条（ZRANGESTORE/ZRANGEBYLEX/BITFIELD/HEXPIRE+HTTL）；远期仍 7 项，不宣称完整 KNN/DIALECT 或全量 sidecar
 - 第六十三批（远期子集续研）：VECTOR_RANGE 属性块对齐 Redis 8.10（`$YIELD_DISTANCE_AS`；`$EPSILON` 仅 HNSW/SVS；拒 `$EF_RUNTIME`/`$HYBRID_POLICY`/`$BATCH_SIZE`/未知键）；FT.AGGREGATE **ADDSCORES**（管道 `@__score`，BM25STD 自洽非字节级）；R4-1 扩至 **314** 条（ZPOPMIN/ZPOPMAX 多行 WANT、`ZLEXCOUNT`/`PFMERGE`/`ZRANGEBYSCORE`；sidecar `\n` 转义）；远期仍 7 项，不宣称完整 KNN/DIALECT 或全量 sidecar
 - 第六十二批（远期子集续研）：FT.SEARCH **VECTOR_RANGE `$radius` PARAM**（对照 Redis 8.10；`($r)` 括号形 Redis 拒→不实现）；VECTOR_RANGE 属性块 **`$EF_RUNTIME`→ERR**（Redis Invalid option；KNN/HNSW 路径仍接受）；KNN 属性块 **`$HYBRID_POLICY`**（缺值/非法 ERR；standalone 暴力路径）；R4-1 扩至 **296** 条实跑断言（ZMSCORE/ZREVRANGE/SMISMEMBER/HINCRBYFLOAT/PEXPIRETIME/ZDIFFSTORE）；远期仍 7 项，不宣称完整 KNN/DIALECT 或全量 sidecar
 - 第六十一批（远期子集续研）：FT.SEARCH **`@vec:[VECTOR_RANGE r $q]`**（DIALECT≥2；`$YIELD_DISTANCE_AS`/`$EPSILON` 属性块扩半径）；KNN **`BATCH_SIZE`/`EPSILON`**（缺值 ERR；可解析正数；垃圾值 Redis 式接受）+ **`$EF_RUNTIME`** 属性块；R4-1 扩至 **276** 条实跑断言（ZRANGE/HMGET/LRANGE/GETDEL/ZRANK 等有序标量路径）；远期仍 7 项，不宣称完整 KNN/DIALECT 或全量 sidecar

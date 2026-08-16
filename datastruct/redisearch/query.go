@@ -207,6 +207,21 @@ func (n *FuzzyNode) Evaluate(idx *InvertedIndex) []string {
 	return idx.FuzzySearch(n.Term, n.Field, n.MaxDist)
 }
 
+// WeightedNode applies a query-attribute $weight multiplier to a sub-clause.
+// Evaluate is identical to Child; scoring multiplies via CollectQueryWeight.
+type WeightedNode struct {
+	Child  QueryNode
+	Weight float64
+}
+
+// Evaluate delegates to the wrapped clause (weight is a scoring concern).
+func (n *WeightedNode) Evaluate(idx *InvertedIndex) []string {
+	if n == nil || n.Child == nil {
+		return nil
+	}
+	return n.Child.Evaluate(idx)
+}
+
 // PhraseNode represents a quoted multi-term phrase with optional SLOP proximity.
 type PhraseNode struct {
 	Terms   []string
@@ -247,7 +262,52 @@ func ApplyPhraseOpts(node QueryNode, slop int, inOrder bool) {
 		ApplyPhraseOpts(n.Child, slop, inOrder)
 	case *OptionalNode:
 		ApplyPhraseOpts(n.Child, slop, inOrder)
+	case *WeightedNode:
+		ApplyPhraseOpts(n.Child, slop, inOrder)
 	}
+}
+
+// CollectQueryWeight returns the product of all $weight attributes in the AST
+// (default 1). Subset of Redis clause-boost semantics; not byte-level BM25.
+func CollectQueryWeight(node QueryNode) float64 {
+	if node == nil {
+		return 1
+	}
+	switch n := node.(type) {
+	case *WeightedNode:
+		w := n.Weight
+		if w < 0 || math.IsNaN(w) {
+			w = 1
+		}
+		return w * CollectQueryWeight(n.Child)
+	case *AndNode:
+		return CollectQueryWeight(n.Left) * CollectQueryWeight(n.Right)
+	case *OrNode:
+		return CollectQueryWeight(n.Left) * CollectQueryWeight(n.Right)
+	case *NotNode:
+		return CollectQueryWeight(n.Child)
+	case *OptionalNode:
+		return CollectQueryWeight(n.Child)
+	default:
+		return 1
+	}
+}
+
+// isQueryAttrError reports attribute-block parse errors that must not fall
+// through to the legacy QueryParser (would silently drop =>{$weight…}).
+func isQueryAttrError(err error) bool {
+	if err == nil {
+		return false
+	}
+	s := err.Error()
+	return strings.Contains(s, "Invalid value") ||
+		strings.Contains(s, "Invalid attribute") ||
+		strings.Contains(s, "query attribute") ||
+		strings.Contains(s, "near weight") ||
+		strings.Contains(s, "near slop") ||
+		strings.Contains(s, "near inorder") ||
+		strings.Contains(s, "near phonetic") ||
+		strings.Contains(s, "phonetics")
 }
 
 // fuzzyDistance returns the Levenshtein distance encoded by %markers around a
@@ -285,16 +345,18 @@ func CollectOptionalTerms(node QueryNode) []string {
 			return
 		}
 		switch nn := n.(type) {
+		case *NotNode:
+			walk(nn.Child)
 		case *OptionalNode:
 			out = append(out, termTokens(nn.Child)...)
+		case *WeightedNode:
+			walk(nn.Child)
 		case *AndNode:
 			walk(nn.Left)
 			walk(nn.Right)
 		case *OrNode:
 			walk(nn.Left)
 			walk(nn.Right)
-		case *NotNode:
-			walk(nn.Child)
 		}
 	}
 	walk(node)
@@ -344,6 +406,8 @@ func RequiresDialect2(node QueryNode) bool {
 		return RequiresDialect2(n.Child)
 	case *OptionalNode:
 		return RequiresDialect2(n.Child)
+	case *WeightedNode:
+		return RequiresDialect2(n.Child)
 	}
 	return false
 }
@@ -374,6 +438,8 @@ func hasMissingNode(node QueryNode) bool {
 		return hasMissingNode(n.Child)
 	case *OptionalNode:
 		return hasMissingNode(n.Child)
+	case *WeightedNode:
+		return hasMissingNode(n.Child)
 	}
 	return false
 }
@@ -390,6 +456,8 @@ func hasCompareNode(node QueryNode) bool {
 		return hasCompareNode(n.Child)
 	case *OptionalNode:
 		return hasCompareNode(n.Child)
+	case *WeightedNode:
+		return hasCompareNode(n.Child)
 	}
 	return false
 }
@@ -405,6 +473,8 @@ func hasVectorRangeNode(node QueryNode) bool {
 	case *NotNode:
 		return hasVectorRangeNode(n.Child)
 	case *OptionalNode:
+		return hasVectorRangeNode(n.Child)
+	case *WeightedNode:
 		return hasVectorRangeNode(n.Child)
 	}
 	return false
@@ -426,6 +496,8 @@ func RequiresDialect3(node QueryNode) bool {
 	case *NotNode:
 		return RequiresDialect3(n.Child)
 	case *OptionalNode:
+		return RequiresDialect3(n.Child)
+	case *WeightedNode:
 		return RequiresDialect3(n.Child)
 	}
 	return false
@@ -486,6 +558,8 @@ func ValidateExpansions(node QueryNode, idx *InvertedIndex, minPrefix, maxExpans
 	case *NotNode:
 		return ValidateExpansions(n.Child, idx, minPrefix, maxExpansions)
 	case *OptionalNode:
+		return ValidateExpansions(n.Child, idx, minPrefix, maxExpansions)
+	case *WeightedNode:
 		return ValidateExpansions(n.Child, idx, minPrefix, maxExpansions)
 	}
 	return nil
@@ -554,6 +628,8 @@ func ExpandInFields(node QueryNode, fields []string) QueryNode {
 		return &NotNode{Child: ExpandInFields(n.Child, fields)}
 	case *OptionalNode:
 		return &OptionalNode{Child: ExpandInFields(n.Child, fields)}
+	case *WeightedNode:
+		return &WeightedNode{Child: ExpandInFields(n.Child, fields), Weight: n.Weight}
 	default:
 		return node
 	}
@@ -729,6 +805,8 @@ func collectGeoRangeNodes(node QueryNode) []*GeoRangeNode {
 			walk(v.Child)
 		case *OptionalNode:
 			walk(v.Child)
+		case *WeightedNode:
+			walk(v.Child)
 		}
 	}
 	walk(node)
@@ -764,6 +842,8 @@ func ExpandSynonyms(node QueryNode, expand func(string) []string) QueryNode {
 		return &NotNode{Child: ExpandSynonyms(n.Child, expand)}
 	case *OptionalNode:
 		return &OptionalNode{Child: ExpandSynonyms(n.Child, expand)}
+	case *WeightedNode:
+		return &WeightedNode{Child: ExpandSynonyms(n.Child, expand), Weight: n.Weight}
 	case *PhraseNode:
 		return n
 	default:
@@ -1291,7 +1371,7 @@ func (p *ExpressionParser) parsePrimary() (QueryNode, error) {
 		if !p.match(")") {
 			return nil, fmt.Errorf("expected ')'")
 		}
-		return node, nil
+		return p.wrapQueryAttrs(node)
 	}
 	
 	// Parse field specification: @field  or  @f1|f2|f3 (DIALECT 2 multi-field).
@@ -1353,7 +1433,164 @@ func (p *ExpressionParser) parsePrimary() (QueryNode, error) {
 		}
 		atom = &OrNode{Left: atom, Right: cloned}
 	}
-	return atom, nil
+	return p.wrapQueryAttrs(atom)
+}
+
+// wrapQueryAttrs parses an optional "=> { $weight: N; … }" clause attribute
+// block (Redis query attributes). Unknown keys and bad values error out.
+func (p *ExpressionParser) wrapQueryAttrs(node QueryNode) (QueryNode, error) {
+	p.skipWhitespace()
+	if !p.match("=>") {
+		return node, nil
+	}
+	p.skipWhitespace()
+	if !p.match("{") {
+		return nil, fmt.Errorf("expected '{' after query attribute =>")
+	}
+	start := p.pos
+	depth := 1
+	for p.pos < len(p.input) && depth > 0 {
+		switch p.input[p.pos] {
+		case '{':
+			depth++
+		case '}':
+			depth--
+		}
+		if depth > 0 {
+			p.pos++
+		}
+	}
+	if depth != 0 {
+		return nil, fmt.Errorf("Invalid query attribute block")
+	}
+	inner := strings.TrimSpace(p.input[start:p.pos])
+	p.pos++ // consume closing }
+	attrs := make(map[string]string)
+	if inner != "" {
+		for _, part := range strings.Split(inner, ";") {
+			part = strings.TrimSpace(part)
+			if part == "" {
+				continue
+			}
+			colon := strings.Index(part, ":")
+			if colon < 0 {
+				return nil, fmt.Errorf("Invalid query attribute '%s'", part)
+			}
+			key := strings.TrimPrefix(strings.TrimSpace(part[:colon]), "$")
+			val := strings.TrimSpace(part[colon+1:])
+			if key == "" {
+				return nil, fmt.Errorf("Invalid query attribute '%s'", part)
+			}
+			attrs[strings.ToLower(key)] = val
+		}
+	}
+	return applyClauseQueryAttrs(node, attrs)
+}
+
+// applyClauseQueryAttrs applies $weight / $slop / $inorder / $phonetic.
+// Subset: weight multiplies score via WeightedNode; slop/inorder update phrases;
+// phonetic true is rejected at parse (no field context — Redis checks schema).
+func applyClauseQueryAttrs(node QueryNode, attrs map[string]string) (QueryNode, error) {
+	weight := 1.0
+	weightSet := false
+	slop := 0
+	slopSet := false
+	inOrder := false
+	inOrderSet := false
+	for k, val := range attrs {
+		switch k {
+		case "weight":
+			if val == "" {
+				return nil, fmt.Errorf("Syntax error near weight")
+			}
+			w, err := strconv.ParseFloat(val, 64)
+			if err != nil || w < 0 || math.IsNaN(w) || math.IsInf(w, 0) {
+				return nil, fmt.Errorf("Invalid value (%s) for `weight`", val)
+			}
+			weight = w
+			weightSet = true
+		case "slop":
+			if val == "" {
+				return nil, fmt.Errorf("Syntax error near slop")
+			}
+			n, err := strconv.Atoi(val)
+			if err != nil || n < 0 {
+				return nil, fmt.Errorf("Invalid value (%s) for `slop`", val)
+			}
+			slop = n
+			slopSet = true
+		case "inorder":
+			if val == "" {
+				return nil, fmt.Errorf("Syntax error near inorder")
+			}
+			b, ok := parseQueryAttrBool(val)
+			if !ok {
+				return nil, fmt.Errorf("Invalid value (%s) for `inorder`", val)
+			}
+			inOrder = b
+			inOrderSet = true
+		case "phonetic":
+			if val == "" {
+				return nil, fmt.Errorf("Syntax error near phonetic")
+			}
+			b, ok := parseQueryAttrBool(val)
+			if !ok {
+				return nil, fmt.Errorf("Invalid value (%s) for `phonetic`", val)
+			}
+			if b {
+				// Schema-aware check deferred; without PHONETIC fields Redis
+				// rejects — Godis rejects true at parse (honest subset).
+				return nil, fmt.Errorf("field does not support phonetics")
+			}
+		default:
+			return nil, fmt.Errorf("Invalid attribute %s", k)
+		}
+	}
+	if slopSet || inOrderSet {
+		applyPhraseAttr(node, slop, slopSet, inOrder, inOrderSet)
+	}
+	if weightSet {
+		return &WeightedNode{Child: node, Weight: weight}, nil
+	}
+	return node, nil
+}
+
+func parseQueryAttrBool(val string) (bool, bool) {
+	switch strings.ToLower(val) {
+	case "true", "1":
+		return true, true
+	case "false", "0":
+		return false, true
+	default:
+		return false, false
+	}
+}
+
+func applyPhraseAttr(node QueryNode, slop int, slopSet, inOrder, inOrderSet bool) {
+	if node == nil {
+		return
+	}
+	switch n := node.(type) {
+	case *PhraseNode:
+		if slopSet {
+			n.Slop = slop
+		}
+		if inOrderSet {
+			n.InOrder = inOrder
+		}
+	case *AndNode:
+		applyPhraseAttr(n.Left, slop, slopSet, inOrder, inOrderSet)
+		applyPhraseAttr(n.Right, slop, slopSet, inOrder, inOrderSet)
+	case *OrNode:
+		applyPhraseAttr(n.Left, slop, slopSet, inOrder, inOrderSet)
+		applyPhraseAttr(n.Right, slop, slopSet, inOrder, inOrderSet)
+	case *NotNode:
+		applyPhraseAttr(n.Child, slop, slopSet, inOrder, inOrderSet)
+	case *OptionalNode:
+		applyPhraseAttr(n.Child, slop, slopSet, inOrder, inOrderSet)
+	case *WeightedNode:
+		applyPhraseAttr(n.Child, slop, slopSet, inOrder, inOrderSet)
+	}
 }
 
 // matchCompareOp returns the comparison operator at the current position (one
