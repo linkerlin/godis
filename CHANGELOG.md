@@ -6,6 +6,7 @@
 
 ### Fixed
 
+- 第五十六批（远期子集续研）：FT.AGGREGATE APPLY 补齐 Redis 8.10 UTC 时间函数族、常用格式 `timefmt`/`parsetime` 与 `geodistance`；R4-1 sidecar 增至 106 条实跑断言（远期仍 7 项，不宣称完整 BM25/DIALECT 或全量 sidecar）
 - 第五十五批（可关闭扫尽收口）：ACL CAT 列表/查询无 `@` 前缀（带 `@`→Unknown category，对照 Redis 8.10）；ACL/CLIENT/COMMAND/PUBSUB/FUNCTION/XGROUP HELP 布局对齐；**可关闭 ERR/CONFIG/HELP 战役收口**（远期 7 项仍为非目标，不宣称 100% Redis）
 - 第五十四批可关闭：INFO `default` section；AUTH 多余参数→syntax；FUNCTION RESTORE 垃圾载荷 ERR；MIGRATE 空键→NOKEY；XINFO/SCRIPT HELP 布局（对照 Redis 8.10）
 - 第五十三批可关闭：CONFIG `repl-diskless-sync-max-replicas` 桩；RESTORE 坏载荷 ERR 对齐 Redis 短文案；OBJECT/CONFIG/SLOWLOG HELP 布局（对照 Redis 8.10；diskless max-replicas 仅桩）
@@ -76,6 +77,8 @@
 
 ### Added
 
+- FT.AGGREGATE APPLY：UTC `day/hour/minute/month/dayofweek/dayofmonth/dayofyear/year/monthofyear`、常用 strftime 格式的 `timefmt`/`parsetime`、两坐标或四数值 `geodistance`（对照 Redis 8.10）
+- R4-1 allowlist：新增 SETNX/GETDEL/HINCRBY/HSTRLEN/RPUSH/RPOP/SMOVE/ZINCRBY/ZRANK 等稳定路径，Redis 8 sidecar 实跑 106 条断言
 - Gossip 缝（非 bus）：`cluster.join` 本地成功 → `CLUSTER INFO` **`cluster_stats_messages_meet_received`**（与发起侧 `meet_sent` 分计）；`cluster_bus_port` 仍为 **0**
 - 官方模块 RDB/DUMP **边界诚实化**：`RESTORE` 拒绝 `typeModule`/`typeModule2` 标记（明确 ERR）；`LoadRDB` 遇 `ModuleTypeObject` **中止并 ERR**（不再静默丢键）；合成负向测 + `docs/COMPATIBILITY.md`「官方模块 RDB/DUMP 边界」（**不**宣称互通）
 - `FUNCTION RESTORE`：**官方 FUNCTION DUMP 边界**——显式拒绝 Redis `0xF5`/`0xF6` 与 `REDIS####` 头（拒绝先于 FLUSH；负向测+`docs/COMPATIBILITY.md`）；**禁止假互通**

@@ -70,7 +70,7 @@ Redis 8.0 将 Redis Stack 的 RediSearch 模块并入核心(命令面 24 个 FT.
 ### P4 — FT.AGGREGATE 完整化(3 测试)
 
 - **Reducers 补全**:`STDDEV`(总体标准差)、`QUANTILE`(nearest-rank)、`COUNT_DISTINCT`(精确)、`COUNT_DISTINCTISH`(14-bit HyperLogLog)、`FIRST_VALUE`(支持 `BY @f [ASC|DESC]`)、`RANDOM_SAMPLE`(蓄水池采样)。`Reducer` 加 `Args []string` 承载多参数。
-- **APPLY 表达式重写**(`apply.go`):完整递归下降求值器,统一服务 APPLY 和 FILTER。新增 `%`(模)、`^`(幂,右结合)、`**` 别名;15 个内建函数(`log/log2/exp/sqrt/abs/ceil/floor`、`upper/lower/strlen/startswith/contains/substr/format/split`、`exists/case`);单/双引号字符串;裸标识符(非函数调用)作字符串字面量(让 `@cat == active` 生效)。
+- **APPLY 表达式重写**(`apply.go`):完整递归下降求值器,统一服务 APPLY 和 FILTER。新增 `%`(模)、`^`(幂,右结合)、`**` 别名;内建算术/字符串/布尔函数，并按 Redis 8.10 实测补齐 UTC `timefmt/parsetime/day/hour/minute/month/dayofweek/dayofmonth/dayofyear/year/monthofyear` 与 `geodistance`;单/双引号字符串;裸标识符(非函数调用)作字符串字面量(让 `@cat == active` 生效)。
 - **FILTER 布尔组合**:`filterGroups` 重写,复用统一求值器,支持 `&& || !` 嵌套 + 全套比较算符 + 括号分组(替代原单条二元比较)。
 
 ### P5 — 打分函数 + SCORER(3 测试)
@@ -149,7 +149,7 @@ Redis 8.0 将 Redis Stack 的 RediSearch 模块并入核心(命令面 24 个 FT.
 | 查询语法 | 前缀/后缀/中缀/fuzzy 1-3/短语/SLOP/INORDER/标签/数值/geo 半径 | ✅ | |
 | GEOSHAPE | WKT + WITHIN/CONTAINS/INTERSECTS/DISJOINT(DIALECT 3) | ✅ | |
 | AGGREGATE reducers | COUNT/SUM/MIN/MAX/AVG/STDDEV/QUANTILE/COUNT_DISTINCT(ISH)/TOLIST/FIRST_VALUE/RANDOM_SAMPLE/COLLECT | ✅ | |
-| APPLY 表达式 | 算术 + % ^ + 数值/字符串函数 | ✅ | 日期/geo 函数延后 |
+| APPLY 表达式 | 算术 + % ^ + 数值/字符串/日期/geo 函数 | ✅ | `matched_terms` 与多值 `split` 仍简化 |
 | FILTER | 布尔组合 + 比较算符 | ✅ | |
 | 打分 | BM25STD(默认)/TFIDF/DISMAX/DOCSCORE/HAMMING + 变体 | ✅ | .NORM 真 min-max；.TANH=tanh(raw/4) |
 | 可选词 ~ | 打分加成、不过滤 | ✅ | |
@@ -237,7 +237,7 @@ FT.SEARCH idx "hello"  # -> %5 total_results / results / attributes / format / w
 | KNN/DIALECT 错误路径 | ✅ | 非法 DIALECT；缺 PARAMS / 非 VECTOR / dim；`HYBRID_POLICY` 枚举；**`$YIELD_DISTANCE_AS`**；空预过滤；D1 拒 tag 空格/`@f1\|f2`；比较/`ismissing`/GEOSHAPE 具体 ERR（仍非完整方言） |
 | FT.PROFILE 迭代器细分 | 🔶 | 只报诚实总耗时;细分需 instrument 引擎迭代器 |
 | FT.HYBRID RANGE/FILTER/POLICY | 🔶 | 接受但按暴力路径执行 |
-| APPLY 日期/geo 函数 | 🔶 | timefmt/day/hour/geodistance 等未实现(小众) |
+| APPLY 日期/geo 函数 | 🔶 | UTC 时间函数族、常用 strftime 格式的 `timefmt`/`parsetime`、`geodistance` 已按 Redis 8.10 实测；完整 strftime 指令仍缺 |
 | RDB / AOF rewrite 索引定义持久化 | ✅ | 命令 AOF + 纯 AOF rewrite→FT.CREATE + RDB opaque `ft`（非官方模块格式） |
 | ACL @search 类别 | ✅ | `+@search` / ACL CAT `@search` 已生效；非「需重构 ACL」 |
 | LVQ/LeanVec 压缩 | ❌ | Intel 专有,OSS Redis 也没有 |

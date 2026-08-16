@@ -12,7 +12,7 @@
 #   LABEL|<=N|CMD ARG...        assert both sides are integers <= N
 # Placeholder {{ID}} -> process id (unique keys per run).
 #
-# @allowlist PING,ECHO,SET,GET,STRLEN,APPEND,DEL,EXISTS,INCR,DECR,TYPE,HSET,HGET,HLEN,HEXISTS,HDEL,LPUSH,LLEN,LINDEX,LPOP,SADD,SCARD,SISMEMBER,SREM,ZADD,ZSCORE,ZCARD,ZREM,TTL,PTTL,PEXPIRE,EXPIRE,PERSIST,XADD,XLEN,GEOADD,SETBIT,GETBIT,BITCOUNT,BITOP,PFADD,PFCOUNT
+# @allowlist PING,ECHO,SET,SETNX,GET,GETDEL,STRLEN,APPEND,DEL,EXISTS,INCR,DECR,TYPE,HSET,HGET,HINCRBY,HSTRLEN,HLEN,HEXISTS,HDEL,LPUSH,RPUSH,LLEN,LINDEX,LPOP,RPOP,SADD,SCARD,SISMEMBER,SMOVE,SREM,ZADD,ZINCRBY,ZSCORE,ZRANK,ZCARD,ZREM,TTL,PTTL,PEXPIRE,EXPIRE,PERSIST,XADD,XLEN,GEOADD,SETBIT,GETBIT,BITCOUNT,BITOP,PFADD,PFCOUNT
 
 # --- String / ping ---
 PING|PONG|PING
@@ -25,6 +25,11 @@ APPEND|3|APPEND sidecar:allowlist:{{ID}} !
 GET-appended|ok!|GET sidecar:allowlist:{{ID}}
 EXISTS|1|EXISTS sidecar:allowlist:{{ID}}
 TYPE|string|TYPE sidecar:allowlist:{{ID}}
+SETNX-existing|0|SETNX sidecar:allowlist:{{ID}} ignored
+@DEL sidecar:allowlist:getdel:{{ID}}
+SET-getdel|OK|SET sidecar:allowlist:getdel:{{ID}} gone
+GETDEL|gone|GETDEL sidecar:allowlist:getdel:{{ID}}
+EXISTS-after-getdel|0|EXISTS sidecar:allowlist:getdel:{{ID}}
 
 # --- INCR / DECR ---
 @DEL sidecar:allowlist:n:{{ID}}
@@ -37,20 +42,26 @@ GET-n|1|GET sidecar:allowlist:n:{{ID}}
 @DEL sidecar:allowlist:h:{{ID}}
 HSET|1|HSET sidecar:allowlist:h:{{ID}} f v
 HGET|v|HGET sidecar:allowlist:h:{{ID}} f
-HLEN|1|HLEN sidecar:allowlist:h:{{ID}}
+HSTRLEN|1|HSTRLEN sidecar:allowlist:h:{{ID}} f
+HINCRBY|2|HINCRBY sidecar:allowlist:h:{{ID}} n 2
+HGET-incr|2|HGET sidecar:allowlist:h:{{ID}} n
+HLEN|2|HLEN sidecar:allowlist:h:{{ID}}
 HEXISTS|1|HEXISTS sidecar:allowlist:h:{{ID}} f
 TYPE-hash|hash|TYPE sidecar:allowlist:h:{{ID}}
 HDEL|1|HDEL sidecar:allowlist:h:{{ID}} f
 HEXISTS-after|0|HEXISTS sidecar:allowlist:h:{{ID}} f
+HDEL-last|1|HDEL sidecar:allowlist:h:{{ID}} n
 # empty hash key already removed by HDEL of last field
 DEL-h|0|DEL sidecar:allowlist:h:{{ID}}
 
 # --- List ---
 @DEL sidecar:allowlist:l:{{ID}}
 LPUSH|2|LPUSH sidecar:allowlist:l:{{ID}} a b
-LLEN|2|LLEN sidecar:allowlist:l:{{ID}}
+RPUSH|3|RPUSH sidecar:allowlist:l:{{ID}} c
+LLEN|3|LLEN sidecar:allowlist:l:{{ID}}
 LINDEX|b|LINDEX sidecar:allowlist:l:{{ID}} 0
 TYPE-list|list|TYPE sidecar:allowlist:l:{{ID}}
+RPOP|c|RPOP sidecar:allowlist:l:{{ID}}
 LPOP|b|LPOP sidecar:allowlist:l:{{ID}}
 LLEN-after|1|LLEN sidecar:allowlist:l:{{ID}}
 LPOP-last|a|LPOP sidecar:allowlist:l:{{ID}}
@@ -59,21 +70,26 @@ EXISTS-after-lpop|0|EXISTS sidecar:allowlist:l:{{ID}}
 
 # --- Set (no SMEMBERS: unordered) ---
 @DEL sidecar:allowlist:s:{{ID}}
+@DEL sidecar:allowlist:s2:{{ID}}
 SADD|2|SADD sidecar:allowlist:s:{{ID}} m1 m2
 SCARD|2|SCARD sidecar:allowlist:s:{{ID}}
 SISMEMBER|1|SISMEMBER sidecar:allowlist:s:{{ID}} m1
 SISMEMBER-miss|0|SISMEMBER sidecar:allowlist:s:{{ID}} missing
 TYPE-set|set|TYPE sidecar:allowlist:s:{{ID}}
-SREM|1|SREM sidecar:allowlist:s:{{ID}} m1
+SMOVE|1|SMOVE sidecar:allowlist:s:{{ID}} sidecar:allowlist:s2:{{ID}} m1
+SISMEMBER-moved|1|SISMEMBER sidecar:allowlist:s2:{{ID}} m1
 SCARD-after|1|SCARD sidecar:allowlist:s:{{ID}}
 SREM-last|1|SREM sidecar:allowlist:s:{{ID}} m2
 # empty set key removed by SREM of last member (Redis semantics)
 EXISTS-after-srem|0|EXISTS sidecar:allowlist:s:{{ID}}
+DEL-set-dest|1|DEL sidecar:allowlist:s2:{{ID}}
 
 # --- Sorted set ---
 @DEL sidecar:allowlist:z:{{ID}}
 ZADD|1|ZADD sidecar:allowlist:z:{{ID}} 1.5 zm
 ZSCORE|1.5|ZSCORE sidecar:allowlist:z:{{ID}} zm
+ZINCRBY|2|ZINCRBY sidecar:allowlist:z:{{ID}} 0.5 zm
+ZRANK|0|ZRANK sidecar:allowlist:z:{{ID}} zm
 ZCARD|1|ZCARD sidecar:allowlist:z:{{ID}}
 TYPE-zset|zset|TYPE sidecar:allowlist:z:{{ID}}
 ZREM|1|ZREM sidecar:allowlist:z:{{ID}} zm

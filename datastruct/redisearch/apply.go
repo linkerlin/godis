@@ -6,6 +6,7 @@ import (
 	"math"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // ApplyClause represents a minimal FT.AGGREGATE `APPLY <expr> AS <name>`
@@ -28,7 +29,8 @@ type ApplyClause struct {
 //	logical:    && || !           (return bool)
 //	functions:  log log2 exp sqrt abs ceil floor
 //	             upper lower strlen startswith contains substr format split
-//	             exists case
+//	             timefmt parsetime day hour minute month dayofweek
+//	             dayofmonth dayofyear year monthofyear geodistance exists case
 //
 // `+` falls back to string concatenation when either operand is non-numeric.
 func EvalApplyExpr(expr string, fields map[string]interface{}) (interface{}, error) {
@@ -124,8 +126,8 @@ const (
 	applyTokEOF applyTokenKind = iota
 	applyTokNumber
 	applyTokString
-	applyTokIdent  // function name or @field-stripped identifier
-	applyTokField  // @field reference
+	applyTokIdent // function name or @field-stripped identifier
+	applyTokField // @field reference
 	applyTokPlus
 	applyTokMinus
 	applyTokStar
@@ -135,15 +137,15 @@ const (
 	applyTokLParen
 	applyTokRParen
 	applyTokComma
-	applyTokEq    // ==
-	applyTokNe    // !=
-	applyTokLt    // <
-	applyTokLe    // <=
-	applyTokGt    // >
-	applyTokGe    // >=
-	applyTokAnd   // &&
-	applyTokOr    // ||
-	applyTokNot   // !
+	applyTokEq     // ==
+	applyTokNe     // !=
+	applyTokLt     // <
+	applyTokLe     // <=
+	applyTokGt     // >
+	applyTokGe     // >=
+	applyTokAnd    // &&
+	applyTokOr     // ||
+	applyTokNot    // !
 	applyTokAssign // = (single, tolerated as ==)
 )
 
@@ -286,12 +288,12 @@ func isApplyIdentChar(c byte) bool {
 
 // applyValue is a tagged union of numeric, string, or bool intermediate result.
 type applyValue struct {
-	isNum bool
-	isStr bool
+	isNum  bool
+	isStr  bool
 	isBool bool
-	num   float64
-	str   string
-	b     bool
+	num    float64
+	str    string
+	b      bool
 }
 
 type applyParser struct {
@@ -703,6 +705,71 @@ func applyFunction(name string, args []applyValue) (applyValue, error) {
 			return applyValue{}, errors.New("floor() expects one numeric argument")
 		}
 		return applyValue{isNum: true, num: math.Floor(args[0].num)}, nil
+	// Time functions use Unix seconds and UTC, matching Redis Query Engine.
+	case "timefmt":
+		if len(args) < 1 || len(args) > 2 || !args[0].isNum {
+			return applyValue{}, errors.New("timefmt() expects a timestamp and optional format")
+		}
+		layout := "2006-01-02T15:04:05Z"
+		if len(args) == 2 {
+			layout = strftimeToGoLayout(applyValueToString(args[1]))
+		}
+		tm := time.Unix(int64(args[0].num), 0).UTC()
+		return applyValue{isStr: true, str: tm.Format(layout)}, nil
+	case "parsetime":
+		if len(args) != 2 {
+			return applyValue{}, errors.New("parsetime() expects a time string and format")
+		}
+		tm, err := time.ParseInLocation(
+			strftimeToGoLayout(applyValueToString(args[1])),
+			applyValueToString(args[0]),
+			time.UTC,
+		)
+		if err != nil {
+			return applyValue{}, err
+		}
+		return applyValue{isNum: true, num: float64(tm.Unix())}, nil
+	case "day", "hour", "minute", "month", "dayofweek", "dayofmonth", "dayofyear", "year", "monthofyear":
+		if len(args) != 1 || !args[0].isNum {
+			return applyValue{}, fmt.Errorf("%s() expects one numeric timestamp", name)
+		}
+		tm := time.Unix(int64(args[0].num), 0).UTC()
+		switch name {
+		case "day":
+			tm = time.Date(tm.Year(), tm.Month(), tm.Day(), 0, 0, 0, 0, time.UTC)
+			return applyValue{isNum: true, num: float64(tm.Unix())}, nil
+		case "hour":
+			return applyValue{isNum: true, num: float64(tm.Truncate(time.Hour).Unix())}, nil
+		case "minute":
+			return applyValue{isNum: true, num: float64(tm.Truncate(time.Minute).Unix())}, nil
+		case "month":
+			tm = time.Date(tm.Year(), tm.Month(), 1, 0, 0, 0, 0, time.UTC)
+			return applyValue{isNum: true, num: float64(tm.Unix())}, nil
+		case "dayofweek":
+			return applyValue{isNum: true, num: float64(tm.Weekday())}, nil
+		case "dayofmonth":
+			return applyValue{isNum: true, num: float64(tm.Day())}, nil
+		case "dayofyear":
+			return applyValue{isNum: true, num: float64(tm.YearDay() - 1)}, nil
+		case "year":
+			return applyValue{isNum: true, num: float64(tm.Year())}, nil
+		default:
+			return applyValue{isNum: true, num: float64(tm.Month() - 1)}, nil
+		}
+	case "geodistance":
+		lon1, lat1, lon2, lat2, err := applyGeoCoordinates(args)
+		if err != nil {
+			return applyValue{}, err
+		}
+		const earthRadiusMeters = 6372797.560856
+		toRadians := math.Pi / 180
+		lat1 *= toRadians
+		lat2 *= toRadians
+		dLat := lat2 - lat1
+		dLon := (lon2 - lon1) * toRadians
+		a := math.Sin(dLat/2)*math.Sin(dLat/2) +
+			math.Cos(lat1)*math.Cos(lat2)*math.Sin(dLon/2)*math.Sin(dLon/2)
+		return applyValue{isNum: true, num: earthRadiusMeters * 2 * math.Atan2(math.Sqrt(a), math.Sqrt(1-a))}, nil
 	// String functions.
 	case "upper":
 		if len(args) != 1 {
@@ -796,6 +863,49 @@ func applyFunction(name string, args []applyValue) (applyValue, error) {
 		return args[2], nil
 	}
 	return applyValue{}, fmt.Errorf("unknown function %q", name)
+}
+
+func applyGeoCoordinates(args []applyValue) (float64, float64, float64, float64, error) {
+	if len(args) == 4 && args[0].isNum && args[1].isNum && args[2].isNum && args[3].isNum {
+		return args[0].num, args[1].num, args[2].num, args[3].num, nil
+	}
+	if len(args) == 2 {
+		parse := func(v applyValue) (float64, float64, error) {
+			parts := strings.Split(applyValueToString(v), ",")
+			if len(parts) != 2 {
+				return 0, 0, errors.New("geodistance() expects lon,lat coordinates")
+			}
+			lon, err := strconv.ParseFloat(strings.TrimSpace(parts[0]), 64)
+			if err != nil {
+				return 0, 0, errors.New("geodistance() expects numeric longitude")
+			}
+			lat, err := strconv.ParseFloat(strings.TrimSpace(parts[1]), 64)
+			if err != nil {
+				return 0, 0, errors.New("geodistance() expects numeric latitude")
+			}
+			return lon, lat, nil
+		}
+		lon1, lat1, err := parse(args[0])
+		if err != nil {
+			return 0, 0, 0, 0, err
+		}
+		lon2, lat2, err := parse(args[1])
+		return lon1, lat1, lon2, lat2, err
+	}
+	return 0, 0, 0, 0, errors.New("geodistance() expects two coordinates or four numbers")
+}
+
+func strftimeToGoLayout(format string) string {
+	replacer := strings.NewReplacer(
+		"%%", "%",
+		"%Y", "2006",
+		"%m", "01",
+		"%d", "02",
+		"%H", "15",
+		"%M", "04",
+		"%S", "05",
+	)
+	return replacer.Replace(format)
 }
 
 // applySubstr implements substr(s, offset, count) with Redis semantics: a
