@@ -101,6 +101,9 @@ func TestR41SidecarAllowlistScaffold(t *testing.T) {
 		"BITFIELD-set|0|BITFIELD",
 		"HEXPIRE-b64|1|HEXPIRE",
 		"HTTL-b64|>=1|HTTL",
+		"ZREMRANGEBYLEX|2|ZREMRANGEBYLEX",
+		"HPEXPIRE-b65|1|HPEXPIRE",
+		"HPTTL-b65|>=1|HPTTL",
 	} {
 		if !strings.Contains(cases, marker) {
 			t.Fatalf("r4-1-cases.txt missing honesty/assert marker %q", marker)

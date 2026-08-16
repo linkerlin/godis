@@ -871,14 +871,15 @@ func execFTSearch(db *DB, args [][]byte) redis.Reply {
 			opts.InOrder = true
 		case "TIMEOUT":
 			if i+1 >= len(args) {
-				return protocol.MakeSyntaxErrReply()
+				// Redis 8.x: bare TIMEOUT with no value (no ERR prefix).
+				return protocol.MakeErrReply("Need argument for TIMEOUT")
 			}
 			ms, err := strconv.Atoi(string(args[i+1]))
 			if err != nil || ms < 0 {
-				return protocol.MakeErrReply("ERR Invalid TIMEOUT value")
+				return protocol.MakeErrReply("TIMEOUT requires a non negative integer")
 			}
 			opts.TimeoutMs = ms
-			i++ // accept; cancellation not wired
+			i++ // engine Search/KNN honor TimeoutMs soft deadline
 		case "INFIELDS":
 			if i+1 >= len(args) {
 				return protocol.MakeSyntaxErrReply()
@@ -1570,11 +1571,11 @@ func execFTAggregate(db *DB, args [][]byte) redis.Reply {
 
 		case "TIMEOUT":
 			if i+1 >= len(args) {
-				return protocol.MakeSyntaxErrReply()
+				return protocol.MakeErrReply("Need argument for TIMEOUT")
 			}
 			ms, err := strconv.Atoi(string(args[i+1]))
 			if err != nil || ms < 0 {
-				return protocol.MakeErrReply("ERR Invalid TIMEOUT value")
+				return protocol.MakeErrReply("TIMEOUT requires a non negative integer")
 			}
 			req.TimeoutMs = ms
 			i += 2
@@ -1725,20 +1726,25 @@ func execFTAggregate(db *DB, args [][]byte) redis.Reply {
 			continue
 
 		case "SORTBY":
+			// SORTBY nargs property [ASC|DESC] [property ASC|DESC ...] [MAX num]
+			// Consume exactly nargs tokens (Redis); only the first property drives
+			// sort (multi-property SORTBY is accepted but not fully applied).
 			if i+1 >= len(args) {
 				return protocol.MakeSyntaxErrReply()
 			}
 			nargs, err := strconv.Atoi(string(args[i+1]))
-			if err != nil {
+			if err != nil || nargs < 0 {
 				return protocol.MakeErrReply("ERR Invalid sortby nargs")
 			}
 			i += 2
-
-			if nargs > 0 && i < len(args) {
+			end := i + nargs
+			if end > len(args) {
+				return protocol.MakeSyntaxErrReply()
+			}
+			if nargs > 0 {
 				req.SortBy = string(args[i])
 				i++
-
-				if i < len(args) {
+				if i < end {
 					dir := strings.ToUpper(string(args[i]))
 					if dir == "ASC" {
 						req.SortDesc = false
@@ -1748,6 +1754,19 @@ func execFTAggregate(db *DB, args [][]byte) redis.Reply {
 						i++
 					}
 				}
+				// Skip remaining nargs (extra sort keys) for syntax parity.
+				i = end
+			}
+			if i < len(args) && strings.EqualFold(string(args[i]), "MAX") {
+				if i+1 >= len(args) {
+					return protocol.MakeErrReply("Bad arguments for MAX: Could not convert argument to expected type")
+				}
+				maxN, err := strconv.Atoi(string(args[i+1]))
+				if err != nil || maxN < 0 {
+					return protocol.MakeErrReply("Bad arguments for MAX: Could not convert argument to expected type")
+				}
+				req.SortMax = maxN
+				i += 2
 			}
 			continue
 

@@ -1017,16 +1017,24 @@ func (e *RediSearchEngine) Aggregate(req *AggregationRequest) (*AggregationResul
 		groups = e.sortGroups(groups, req.SortBy, req.SortDesc)
 	}
 
-	// Apply LIMIT
+	// Total is the pipeline size before SORTBY MAX / LIMIT (Redis 8.x).
 	total := len(groups)
+
+	// SORTBY … MAX n keeps only the top-n after sort (n<=0 = no truncate).
+	if req.SortMax > 0 && len(groups) > req.SortMax {
+		groups = groups[:req.SortMax]
+	}
+
+	// Apply LIMIT
 	if req.Limit > 0 {
 		start := req.Offset
 		end := req.Offset + req.Limit
-		if start > total {
-			start = total
+		n := len(groups)
+		if start > n {
+			start = n
 		}
-		if end > total {
-			end = total
+		if end > n {
+			end = n
 		}
 		groups = groups[start:end]
 	}
@@ -1051,10 +1059,12 @@ type AggregationRequest struct {
 	Reduce   []Reducer
 	SortBy   string
 	SortDesc bool
-	Offset   int
-	Limit    int
-	Filter   string        // FILTER expression
-	Apply    []ApplyClause // APPLY <expr> AS <name> clauses, in pipeline order
+	// SortMax is SORTBY … MAX n (keep top-n after sort). 0 = unlimited.
+	SortMax int
+	Offset  int
+	Limit   int
+	Filter  string        // FILTER expression
+	Apply   []ApplyClause // APPLY <expr> AS <name> clauses, in pipeline order
 	// AddScores exposes BM25STD (default) score as @__score in the pipeline.
 	AddScores bool
 	// Expansion limits (FT.CONFIG MINPREFIX / MAXEXPANSIONS). Zero = no check.

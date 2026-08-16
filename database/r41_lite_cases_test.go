@@ -142,4 +142,24 @@ func TestR41LiteCaseExpectations(t *testing.T) {
 	asserts.AssertIntReply(t, testDB.Exec(nil, utils.ToCmdLine("ZADD", "b63zr", "1", "a", "2", "b", "3", "c")), 3)
 	asserts.AssertMultiBulkReply(t, testDB.Exec(nil, utils.ToCmdLine("ZRANGEBYSCORE", "b63zr", "1", "1")), []string{"a"})
 	asserts.AssertIntReply(t, testDB.Exec(nil, utils.ToCmdLine("ZCOUNT", "b63zr", "1", "2")), 2)
+
+	asserts.AssertIntReply(t, testDB.Exec(nil, utils.ToCmdLine("ZADD", "b65zl", "0", "a", "0", "b", "0", "c")), 3)
+	asserts.AssertIntReply(t, testDB.Exec(nil, utils.ToCmdLine("ZREMRANGEBYLEX", "b65zl", "[a", "[b")), 2)
+	asserts.AssertMultiBulkReply(t, testDB.Exec(nil, utils.ToCmdLine("ZRANGEBYLEX", "b65zl", "-", "+")), []string{"c"})
+	asserts.AssertIntReply(t, testDB.Exec(nil, utils.ToCmdLine("HSET", "b65h", "f", "v")), 1)
+	hpe := testDB.Exec(nil, utils.ToCmdLine("HPEXPIRE", "b65h", "100000", "FIELDS", "1", "f"))
+	if mr, ok := hpe.(*protocol.MultiRawReply); !ok || len(mr.Replies) != 1 {
+		t.Fatalf("HPEXPIRE type %T %s", hpe, hpe.ToBytes())
+	} else {
+		asserts.AssertIntReply(t, mr.Replies[0], 1)
+	}
+	httl := testDB.Exec(nil, utils.ToCmdLine("HPTTL", "b65h", "FIELDS", "1", "f"))
+	if mr, ok := httl.(*protocol.MultiRawReply); !ok || len(mr.Replies) != 1 {
+		t.Fatalf("HPTTL type %T %s", httl, httl.ToBytes())
+	} else {
+		ir, ok := mr.Replies[0].(*protocol.IntReply)
+		if !ok || ir.Code < 1 || ir.Code > 100000 {
+			t.Fatalf("HPTTL want 1..100000, got %T %s", mr.Replies[0], httl.ToBytes())
+		}
+	}
 }
