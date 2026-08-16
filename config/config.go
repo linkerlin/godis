@@ -202,6 +202,14 @@ type ServerProperties struct {
 	TLSSessionCacheTimeout     int    `cfg:"tls-session-cache-timeout"`
 	TLSPreferServerCiphers     bool   `cfg:"tls-prefer-server-ciphers"`
 	ClusterAnnounceTLSPort     int    `cfg:"cluster-announce-tls-port"`
+	TLSPort                    int    `cfg:"tls-port"`
+	TLSDhParamsFile            string `cfg:"tls-dh-params-file"`
+	TLSCiphersuites            string `cfg:"tls-ciphersuites"`
+	TLSClientCertFile          string `cfg:"tls-client-cert-file"`
+	TLSClientKeyFile           string `cfg:"tls-client-key-file"`
+	TLSKeyFilePass             string `cfg:"tls-key-file-pass"`
+	TLSClientKeyFilePass       string `cfg:"tls-client-key-file-pass"`
+	MaxmemoryClients           string `cfg:"maxmemory-clients"`
 
 	// Encoding / structure size CONFIG stubs (GET/SET only).
 	ListMaxListpackSize    int   `cfg:"list-max-listpack-size"`
@@ -360,6 +368,8 @@ func init() {
 		TLSSessionCacheTimeout:         300,
 		TLSPreferServerCiphers:         false,
 		ClusterAnnounceTLSPort:         0,
+		TLSPort:                        0,
+		MaxmemoryClients:               "0",
 		ListMaxListpackSize:    -2,
 		SetMaxIntsetEntries:    512,
 		ZSetMaxListpackEntries: 128,

@@ -239,6 +239,14 @@ func getConfigMatches(pattern string) []configPair {
 		{"tls-session-cache-timeout", strconv.Itoa(getTLSSessionCacheTimeout())},
 		{"tls-prefer-server-ciphers", boolToString(getTLSPreferServerCiphers())},
 		{"cluster-announce-tls-port", strconv.Itoa(getClusterAnnounceTLSPort())},
+		{"tls-port", strconv.Itoa(getTLSPort())},
+		{"tls-dh-params-file", getTLSDhParamsFile()},
+		{"tls-ciphersuites", getTLSCiphersuites()},
+		{"tls-client-cert-file", getTLSClientCertFile()},
+		{"tls-client-key-file", getTLSClientKeyFile()},
+		{"tls-key-file-pass", getTLSKeyFilePass()},
+		{"tls-client-key-file-pass", getTLSClientKeyFilePass()},
+		{"maxmemory-clients", getMaxmemoryClients()},
 		{"cluster-allow-replica-migration", boolToString(getClusterAllowReplicaMigration())},
 		{"cluster-replica-validity-factor", strconv.Itoa(getClusterReplicaValidityFactor())},
 		{"hash-max-listpack-entries", strconv.Itoa(getHashMaxListpackEntries())},
@@ -1096,6 +1104,32 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'cluster-announce-tls-port') - argument must be between 0 and 65535 inclusive")
 			}
 			config.Properties.ClusterAnnounceTLSPort = n
+		case "tls-port":
+			n, err := strconv.Atoi(value)
+			if err != nil {
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'tls-port') - argument couldn't be parsed into an integer")
+			}
+			if n < 0 || n > 65535 {
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'tls-port') - argument must be between 0 and 65535 inclusive")
+			}
+			config.Properties.TLSPort = n
+		case "tls-dh-params-file":
+			config.Properties.TLSDhParamsFile = value
+		case "tls-ciphersuites":
+			config.Properties.TLSCiphersuites = value
+		case "tls-client-cert-file":
+			config.Properties.TLSClientCertFile = value
+		case "tls-client-key-file":
+			config.Properties.TLSClientKeyFile = value
+		case "tls-key-file-pass":
+			config.Properties.TLSKeyFilePass = value
+		case "tls-client-key-file-pass":
+			config.Properties.TLSClientKeyFilePass = value
+		case "maxmemory-clients":
+			if errMsg := validateMaxmemoryClients(value); errMsg != "" {
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'maxmemory-clients') - " + errMsg)
+			}
+			config.Properties.MaxmemoryClients = value
 		case "cluster-allow-replica-migration":
 			ok, b := config.ParseConfigBool(value)
 			if !ok {
@@ -2028,6 +2062,82 @@ func getClusterAnnounceTLSPort() int {
 		return 0
 	}
 	return config.Properties.ClusterAnnounceTLSPort
+}
+
+func getTLSPort() int {
+	if config.Properties == nil {
+		return 0
+	}
+	return config.Properties.TLSPort
+}
+
+func getTLSDhParamsFile() string {
+	if config.Properties == nil {
+		return ""
+	}
+	return config.Properties.TLSDhParamsFile
+}
+
+func getTLSCiphersuites() string {
+	if config.Properties == nil {
+		return ""
+	}
+	return config.Properties.TLSCiphersuites
+}
+
+func getTLSClientCertFile() string {
+	if config.Properties == nil {
+		return ""
+	}
+	return config.Properties.TLSClientCertFile
+}
+
+func getTLSClientKeyFile() string {
+	if config.Properties == nil {
+		return ""
+	}
+	return config.Properties.TLSClientKeyFile
+}
+
+func getTLSKeyFilePass() string {
+	if config.Properties == nil {
+		return ""
+	}
+	return config.Properties.TLSKeyFilePass
+}
+
+func getTLSClientKeyFilePass() string {
+	if config.Properties == nil {
+		return ""
+	}
+	return config.Properties.TLSClientKeyFilePass
+}
+
+func getMaxmemoryClients() string {
+	if config.Properties == nil || config.Properties.MaxmemoryClients == "" {
+		return "0"
+	}
+	return config.Properties.MaxmemoryClients
+}
+
+// validateMaxmemoryClients accepts a non-negative memory integer or a percent ≤100.
+func validateMaxmemoryClients(value string) string {
+	v := strings.TrimSpace(value)
+	if strings.HasSuffix(v, "%") {
+		n, err := strconv.Atoi(strings.TrimSuffix(v, "%"))
+		if err != nil || n < 0 {
+			return "argument must be a memory or percent value"
+		}
+		if n > 100 {
+			return "percentage argument must be less or equal to 100"
+		}
+		return ""
+	}
+	n, err := strconv.ParseInt(v, 10, 64)
+	if err != nil || n < 0 {
+		return "argument must be a memory or percent value"
+	}
+	return ""
 }
 
 func validateOOMScoreAdjValues(value string) string {
