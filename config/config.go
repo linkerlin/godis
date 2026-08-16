@@ -37,6 +37,7 @@ type ServerProperties struct {
 	Databases         int    `cfg:"databases"`
 	RDBFilename       string `cfg:"dbfilename"`
 	MasterAuth        string `cfg:"masterauth"`
+	MasterUser        string `cfg:"masteruser"`
 	SlaveAnnouncePort int    `cfg:"slave-announce-port"`
 	SlaveAnnounceIP   string `cfg:"slave-announce-ip"`
 	ReplTimeout       int    `cfg:"repl-timeout"`
@@ -227,7 +228,8 @@ type ServerProperties struct {
 	HashMaxListpackValue   int    `cfg:"hash-max-listpack-value"`
 	SetMaxListpackEntries  int    `cfg:"set-max-listpack-entries"`
 	SetMaxListpackValue    int    `cfg:"set-max-listpack-value"`
-	OOMScoreAdj            int    `cfg:"oom-score-adj"`
+	// OOMScoreAdj is Redis CONFIG enum: no|yes|relative|absolute (relative stored/reported as yes).
+	OOMScoreAdj string `cfg:"oom-score-adj"`
 
 	// ReplicaOf is Redis CONFIG replicaof/slaveof string ("host port" or empty when master).
 	ReplicaOf string `cfg:"replicaof"`
@@ -354,6 +356,7 @@ func init() {
 		ActiveDefragCycleMax:           25,
 		ActiveDefragMaxScanFields:      1000,
 		OOMScoreAdjValues:              "0 200 800",
+		OOMScoreAdj:                    "no",
 		PropagationErrorBehavior:       "ignore",
 		HideUserDataFromLog:            false,
 		ClusterReplicaNoFailover:       false,

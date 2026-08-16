@@ -42,9 +42,9 @@ func TestM2ckConfigAnnounceStreamHashSetOOM(t *testing.T) {
 		[]string{"hash-max-listpack-value", "64"})
 	asserts.AssertMultiBulkReply(t, server.Exec(c, utils.ToCmdLine("CONFIG", "GET", "set-max-listpack-entries")),
 		[]string{"set-max-listpack-entries", "128"})
-	asserts.AssertStatusReply(t, server.Exec(c, utils.ToCmdLine("CONFIG", "SET", "oom-score-adj", "1")), "OK")
+	asserts.AssertStatusReply(t, server.Exec(c, utils.ToCmdLine("CONFIG", "SET", "oom-score-adj", "yes")), "OK")
 	asserts.AssertMultiBulkReply(t, server.Exec(c, utils.ToCmdLine("CONFIG", "GET", "oom-score-adj")),
-		[]string{"oom-score-adj", "1"})
+		[]string{"oom-score-adj", "yes"})
 }
 
 func TestM2ckInfoEventloopFields(t *testing.T) {

@@ -2,6 +2,7 @@ package database
 
 import (
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -143,6 +144,7 @@ func getConfigMatches(pattern string) []configPair {
 		{"appendfsync", config.Properties.AppendFsync},
 		{"aof-use-rdb-preamble", boolToString(config.Properties.AofUseRdbPreamble)},
 		{"masterauth", config.Properties.MasterAuth},
+		{"masteruser", getMasterUser()},
 		{"slave-announce-ip", config.Properties.SlaveAnnounceIP},
 		{"slave-announce-port", strconv.Itoa(config.Properties.SlaveAnnouncePort)},
 		{"replica-announce-ip", config.Properties.SlaveAnnounceIP},
@@ -280,7 +282,7 @@ func getConfigMatches(pattern string) []configPair {
 		{"hash-max-listpack-value", strconv.Itoa(getHashMaxListpackValue())},
 		{"hash-max-ziplist-value", strconv.Itoa(getHashMaxListpackValue())},
 		{"set-max-listpack-entries", strconv.Itoa(getSetMaxListpackEntries())},
-		{"oom-score-adj", strconv.Itoa(getOOMScoreAdj())},
+		{"oom-score-adj", getOOMScoreAdj()},
 		{"replicaof", getReplicaOf()},
 		{"slaveof", getReplicaOf()},
 		{"replica-serve-stale-data", boolToString(getReplicaServeStaleData())},
@@ -364,6 +366,24 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 					}
 				}
 			}
+		case "masteruser":
+			config.Properties.MasterUser = value
+		case "port":
+			n, err := strconv.Atoi(value)
+			if err != nil {
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'port') - argument couldn't be parsed into an integer")
+			}
+			if n < 0 || n > 65535 {
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'port') - argument must be between 0 and 65535 inclusive")
+			}
+			// Stub: update reported port only; do not rebind listeners.
+			config.Properties.Port = n
+		case "bind":
+			if errMsg := validateBindAddresses(value); errMsg != "" {
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'bind') - " + errMsg)
+			}
+			// Stub: update reported bind only; do not rebind listeners.
+			config.Properties.Bind = value
 		case "appendonly":
 			ok, b := config.ParseConfigBool(value)
 			if !ok {
@@ -1254,11 +1274,16 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 			}
 			config.Properties.SetMaxListpackEntries = n
 		case "oom-score-adj":
-			n, err := strconv.Atoi(value)
-			if err != nil {
-				return protocol.MakeErrReply(fmt.Sprintf("ERR Invalid value for '%s'", key))
+			v := strings.ToLower(value)
+			switch v {
+			case "no", "yes", "absolute":
+				config.Properties.OOMScoreAdj = v
+			case "relative":
+				// Redis reports relative as yes on CONFIG GET.
+				config.Properties.OOMScoreAdj = "yes"
+			default:
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'oom-score-adj') - argument(s) must be one of the following: no, yes, relative, absolute")
 			}
-			config.Properties.OOMScoreAdj = n
 		case "replicaof", "slaveof":
 			v := strings.TrimSpace(value)
 			if strings.EqualFold(v, "no one") || v == "" {
@@ -2358,11 +2383,38 @@ func getSetMaxListpackValue() int {
 	return config.Properties.SetMaxListpackValue
 }
 
-func getOOMScoreAdj() int {
-	if config.Properties == nil {
-		return 0
+func getOOMScoreAdj() string {
+	if config.Properties == nil || config.Properties.OOMScoreAdj == "" {
+		return "no"
 	}
 	return config.Properties.OOMScoreAdj
+}
+
+func getMasterUser() string {
+	if config.Properties == nil {
+		return ""
+	}
+	return config.Properties.MasterUser
+}
+
+func validateBindAddresses(value string) string {
+	fields := strings.Fields(value)
+	if len(fields) == 0 {
+		return "Failed to bind to specified addresses."
+	}
+	for _, a := range fields {
+		a = strings.TrimPrefix(a, "-")
+		if a == "*" || a == "::*" {
+			continue
+		}
+		if net.ParseIP(a) != nil {
+			continue
+		}
+		if _, err := net.LookupHost(a); err != nil {
+			return "Failed to bind to specified addresses."
+		}
+	}
+	return ""
 }
 
 func getReplicaOf() string {
