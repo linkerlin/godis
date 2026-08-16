@@ -120,6 +120,26 @@ func TestFTExplainScoreMultiTermWeightLine(t *testing.T) {
 	}
 }
 
+func TestFTExplainScoreTFIDF(t *testing.T) {
+	db := makeTestDB()
+	if r := db.Exec(nil, utils.ToCmdLine(
+		"FT.CREATE", "exptf", "ON", "HASH", "PREFIX", "1", "et:", "SCHEMA", "t", "TEXT",
+	)); protocol.IsErrorReply(r) {
+		t.Fatalf("create: %s", r.ToBytes())
+	}
+	_ = db.Exec(nil, utils.ToCmdLine("HSET", "et:1", "t", "hello"))
+	r := db.Exec(nil, utils.ToCmdLine(
+		"FT.SEARCH", "exptf", "hello", "WITHSCORES", "EXPLAINSCORE", "SCORER", "TFIDF", "NOCONTENT",
+	))
+	if protocol.IsErrorReply(r) {
+		t.Fatalf("TFIDF: %s", r.ToBytes())
+	}
+	body := string(r.ToBytes())
+	if !strings.Contains(body, "Final TFIDF") || !strings.Contains(body, "TFIDF") {
+		t.Fatalf("want TFIDF explain, got %s", body)
+	}
+}
+
 func TestFTSortByWithCountAccepted(t *testing.T) {
 	db := makeTestDB()
 	if r := db.Exec(nil, utils.ToCmdLine(

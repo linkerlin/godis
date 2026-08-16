@@ -56,4 +56,11 @@ func TestR41LiteCaseExpectations(t *testing.T) {
 	asserts.AssertIntReply(t, testDB.Exec(nil, utils.ToCmdLine("LPUSHX", "lpx", "x")), 0)
 	asserts.AssertIntReply(t, testDB.Exec(nil, utils.ToCmdLine("LPUSH", "lpx", "a")), 1)
 	asserts.AssertIntReply(t, testDB.Exec(nil, utils.ToCmdLine("LPUSHX", "lpx", "b")), 2)
+	asserts.AssertIntReply(t, testDB.Exec(nil, utils.ToCmdLine("RPUSHX", "rpx", "x")), 0)
+	asserts.AssertIntReply(t, testDB.Exec(nil, utils.ToCmdLine("RPUSH", "rpx", "a")), 1)
+	asserts.AssertIntReply(t, testDB.Exec(nil, utils.ToCmdLine("RPUSHX", "rpx", "b")), 2)
+	asserts.AssertIntReply(t, testDB.Exec(nil, utils.ToCmdLine("ZADD", "zr", "1", "a", "2", "b", "3", "c")), 3)
+	asserts.AssertIntReply(t, testDB.Exec(nil, utils.ToCmdLine("ZREVRANK", "zr", "c")), 0)
+	asserts.AssertIntReply(t, testDB.Exec(nil, utils.ToCmdLine("SETBIT", "bp", "7", "1")), 0)
+	asserts.AssertIntReply(t, testDB.Exec(nil, utils.ToCmdLine("BITPOS", "bp", "1")), 7)
 }

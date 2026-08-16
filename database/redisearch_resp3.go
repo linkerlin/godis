@@ -95,21 +95,23 @@ func (r *FTSearchReply) ToRESP3() []byte {
 // ftDoc is one flattened search result extracted from the RESP2 positional
 // array, carrying only the fields actually present per the request flags.
 type ftDoc struct {
-	id      string
-	score   string // valid when withScores
-	payload []byte // valid when withPayloads
-	sortKey string // valid when withSortKeys
-	fields  []byte // the nested fields array bytes (valid when !noContent)
-	hasScore   bool
-	hasPayload bool
-	hasSortKey bool
-	hasFields  bool
+	id           string
+	score        string // valid when withScores && !explain
+	scoreRESP    []byte // when EXPLAINSCORE: full [score, explain] array bytes
+	payload      []byte // valid when withPayloads
+	sortKey      string // valid when withSortKeys
+	fields       []byte // the nested fields array bytes (valid when !noContent)
+	hasScore     bool
+	hasScoreNest bool
+	hasPayload   bool
+	hasSortKey   bool
+	hasFields    bool
 }
 
 func (d *ftDoc) toRESP3Map() []byte {
 	// Count map entries: id always; then each present extra.
 	n := 1
-	if d.hasScore {
+	if d.hasScore || d.hasScoreNest {
 		n++
 	}
 	if d.hasPayload {
@@ -124,7 +126,10 @@ func (d *ftDoc) toRESP3Map() []byte {
 	out := []byte("%" + strconv.Itoa(n) + "\r\n")
 	out = append(out, protocol.MakeBulkReply([]byte("id")).ToBytes()...)
 	out = append(out, protocol.MakeBulkReply([]byte(d.id)).ToBytes()...)
-	if d.hasScore {
+	if d.hasScoreNest {
+		out = append(out, protocol.MakeBulkReply([]byte("score")).ToBytes()...)
+		out = append(out, d.scoreRESP...)
+	} else if d.hasScore {
 		out = append(out, protocol.MakeBulkReply([]byte("score")).ToBytes()...)
 		out = append(out, protocol.MakeBulkReply([]byte(d.score)).ToBytes()...)
 	}
@@ -187,11 +192,12 @@ func (r *FTSearchReply) extractDocs() []ftDoc {
 				d.score = string(slot.Arg)
 				d.hasScore = true
 			case *protocol.MultiRawReply:
-				// EXPLAINSCORE: [scoreBulk, explain...]
+				// EXPLAINSCORE: [scoreBulk, explain...] — emit nested array in RESP3.
+				d.scoreRESP = slot.ToBytes()
+				d.hasScoreNest = true
 				if len(slot.Replies) > 0 {
 					if s, ok := slot.Replies[0].(*protocol.BulkReply); ok {
 						d.score = string(s.Arg)
-						d.hasScore = true
 					}
 				}
 			}

@@ -240,6 +240,7 @@ FT.SEARCH idx "hello"  # -> %5 total_results / results / attributes / format / w
 | FT.PROFILE 迭代器细分 | 🔶 | 只报诚实总耗时;细分需 instrument 引擎迭代器 |
 | FT.HYBRID RANGE/FILTER/POLICY | 🔶 | 接受但按暴力路径执行 |
 | APPLY 日期/geo 函数 | 🔶 | UTC 时间函数族、常用 strftime 格式的 `timefmt`/`parsetime`、`geodistance` 已按 Redis 8.10 实测；完整 strftime 指令仍缺 |
+| FT.SEARCH EXPLAINSCORE | ✅ | 需 WITHSCORES；BM25STD/TFIDF/DOCSCORE/DISMAX 嵌套线格式子集（Godis b=0.09 自洽，非字节级对齐）；RESP3 score 嵌套 |
 | RDB / AOF rewrite 索引定义持久化 | ✅ | 命令 AOF + 纯 AOF rewrite→FT.CREATE + RDB opaque `ft`（非官方模块格式） |
 | ACL @search 类别 | ✅ | `+@search` / ACL CAT `@search` 已生效；非「需重构 ACL」 |
 | LVQ/LeanVec 压缩 | ❌ | Intel 专有,OSS Redis 也没有 |
