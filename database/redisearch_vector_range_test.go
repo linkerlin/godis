@@ -141,7 +141,70 @@ func TestFTVectorRangeRadiusParam(t *testing.T) {
 		"PARAMS", "2", "q", f32leKNN(0, 0),
 		"DIALECT", "2",
 	))
-	if !protocol.IsErrorReply(badEF) || !strings.Contains(string(badEF.ToBytes()), "EF_RUNTIME") {
+	if !protocol.IsErrorReply(badEF) || !strings.Contains(string(badEF.ToBytes()), "Invalid option") {
 		t.Fatalf("want EF_RUNTIME ERR on VECTOR_RANGE, got %s", badEF.ToBytes())
+	}
+
+	// Hybrid-only attrs on pure VECTOR_RANGE → ERR (Redis SEARCH_HYBRID_ATTR_NON_HYBRID).
+	hy := db.Exec(nil, utils.ToCmdLine(
+		"FT.SEARCH", "vrp", "@vec:[VECTOR_RANGE 1 $q]=>{$HYBRID_POLICY: ADHOC_BF}",
+		"PARAMS", "2", "q", f32leKNN(0, 0),
+		"DIALECT", "2",
+	))
+	if !protocol.IsErrorReply(hy) || !strings.Contains(string(hy.ToBytes()), "hybrid") {
+		t.Fatalf("want HYBRID_POLICY non-hybrid ERR, got %s", hy.ToBytes())
+	}
+	bs := db.Exec(nil, utils.ToCmdLine(
+		"FT.SEARCH", "vrp", "@vec:[VECTOR_RANGE 1 $q]=>{$BATCH_SIZE: 8}",
+		"PARAMS", "2", "q", f32leKNN(0, 0),
+		"DIALECT", "2",
+	))
+	if !protocol.IsErrorReply(bs) || !strings.Contains(string(bs.ToBytes()), "hybrid") {
+		t.Fatalf("want BATCH_SIZE non-hybrid ERR, got %s", bs.ToBytes())
+	}
+
+	unk := db.Exec(nil, utils.ToCmdLine(
+		"FT.SEARCH", "vrp", "@vec:[VECTOR_RANGE 1 $q]=>{$FOO: 1}",
+		"PARAMS", "2", "q", f32leKNN(0, 0),
+		"DIALECT", "2",
+	))
+	if !protocol.IsErrorReply(unk) || !strings.Contains(string(unk.ToBytes()), "Invalid attribute") {
+		t.Fatalf("want Invalid attribute FOO, got %s", unk.ToBytes())
+	}
+
+	// FLAT + $EPSILON → Invalid option (Redis 8.10); EPSILON is HNSW/SVS-only.
+	flatEps := db.Exec(nil, utils.ToCmdLine(
+		"FT.SEARCH", "vrp", "@vec:[VECTOR_RANGE 1 $q]=>{$EPSILON: 0.1}",
+		"PARAMS", "2", "q", f32leKNN(0, 0),
+		"DIALECT", "2",
+	))
+	if !protocol.IsErrorReply(flatEps) || !strings.Contains(string(flatEps.ToBytes()), "Invalid option") {
+		t.Fatalf("want FLAT EPSILON Invalid option, got %s", flatEps.ToBytes())
+	}
+}
+
+// TestFTVectorRangeEpsilonHNSW: $EPSILON accepted on HNSW VECTOR_RANGE (Redis 8.10).
+func TestFTVectorRangeEpsilonHNSW(t *testing.T) {
+	db := makeTestDB()
+	create := db.Exec(nil, utils.ToCmdLine(
+		"FT.CREATE", "vreps", "ON", "HASH", "PREFIX", "1", "ve:",
+		"SCHEMA", "vec", "VECTOR", "HNSW", "6", "TYPE", "FLOAT32", "DIM", "2", "DISTANCE_METRIC", "L2",
+	))
+	if protocol.IsErrorReply(create) {
+		t.Fatalf("FT.CREATE: %s", create.ToBytes())
+	}
+	_ = db.Exec(nil, utils.ToCmdLine("HSET", "ve:a", "vec", f32leKNN(0, 0)))
+
+	r := db.Exec(nil, utils.ToCmdLine(
+		"FT.SEARCH", "vreps", "@vec:[VECTOR_RANGE 1 $q]=>{$EPSILON: 0.1; $YIELD_DISTANCE_AS: dist}",
+		"PARAMS", "2", "q", f32leKNN(0, 0),
+		"DIALECT", "2", "RETURN", "1", "dist",
+	))
+	if protocol.IsErrorReply(r) {
+		t.Fatalf("HNSW EPSILON: %s", r.ToBytes())
+	}
+	s := string(r.ToBytes())
+	if !strings.Contains(s, "ve:a") || !strings.Contains(s, "dist") {
+		t.Fatalf("want hit+dist, got %s", s)
 	}
 }

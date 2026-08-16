@@ -62,6 +62,19 @@ function Test-Want {
     return $Got -eq $Want
 }
 
+function Expand-WantEscapes {
+    param([string]$Want)
+    # Literal \n in cases → real newline (multi-line --raw, e.g. ZPOPMIN).
+    return $Want.Replace('\n', "`n")
+}
+
+function Normalize-CliOut {
+    param([string]$Text)
+    if ($null -eq $Text) { return "" }
+    $s = $Text -replace "`r`n", "`n" -replace "`r", "`n"
+    return $s.Trim()
+}
+
 function Fail-Cmp {
     param([string]$Label, [string]$Want, [string]$Rv, [string]$Gv, [string[]]$Cmd)
     $msg = @"
@@ -106,12 +119,12 @@ foreach ($rawLine in Get-Content -LiteralPath $CasesPath) {
     $bits = $line -split '\|', 3
     if ($bits.Count -ne 3) { throw "bad case line: $rawLine" }
     $label = $bits[0]
-    $want = $bits[1]
+    $want = Expand-WantEscapes $bits[1]
     $cmdParts = $bits[2].Trim() -split '\s+'
     if (-not $label -or -not $want -or $cmdParts.Count -eq 0) { throw "bad case line: $rawLine" }
 
-    $rv = (Invoke-RedisCli $RedisHost $RedisPort @cmdParts | Out-String).Trim()
-    $gv = (Invoke-RedisCli $GodisHost $GodisPort @cmdParts | Out-String).Trim()
+    $rv = Normalize-CliOut ((@(Invoke-RedisCli $RedisHost $RedisPort @cmdParts) -join "`n"))
+    $gv = Normalize-CliOut ((@(Invoke-RedisCli $GodisHost $GodisPort @cmdParts) -join "`n"))
 
     $ok = $false
     if ($want -match '^[<>]=') {

@@ -1174,7 +1174,9 @@ func execFTSearch(db *DB, args [][]byte) redis.Reply {
 			return ftTimeoutReply(err)
 		}
 	} else {
-		// VECTOR_RANGE may carry =>{$YIELD_DISTANCE_AS; $EPSILON} (not KNN).
+		// VECTOR_RANGE attr block (Redis 8.10): $YIELD_DISTANCE_AS always;
+		// $EPSILON only on HNSW/SVS (validated at search); reject $EF_RUNTIME,
+		// hybrid-only attrs, and unknown keys (do not silently ignore).
 		q := query
 		base, attrs, aerr := redisearch.StripTrailingAttrBlock(q)
 		if aerr != nil {
@@ -1182,26 +1184,34 @@ func execFTSearch(db *DB, args [][]byte) redis.Reply {
 		}
 		if attrs != nil {
 			q = base
-			if y, ok := attrs["YIELD_DISTANCE_AS"]; ok {
-				if y == "" {
-					return protocol.MakeErrReply("ERR YIELD_DISTANCE_AS requires a field name")
+			for k, val := range attrs {
+				switch k {
+				case "YIELD_DISTANCE_AS":
+					if val == "" {
+						return protocol.MakeErrReply("ERR YIELD_DISTANCE_AS requires a field name")
+					}
+					opts.VectorRangeYield = val
+				case "EPSILON":
+					if val == "" {
+						return protocol.MakeErrReply("ERR EPSILON requires a value")
+					}
+					eps, perr := strconv.ParseFloat(val, 64)
+					if perr != nil || eps < 0 {
+						return protocol.MakeErrReply("ERR Invalid EPSILON")
+					}
+					opts.VectorRangeEpsilon = eps
+					opts.VectorRangeEpsilonSet = true
+				case "EF_RUNTIME":
+					// Redis rejects $EF_RUNTIME on VECTOR_RANGE (KNN-only hint).
+					return protocol.MakeErrReply("ERR Invalid option EF_RUNTIME for VECTOR_RANGE")
+				case "HYBRID_POLICY", "BATCH_SIZE":
+					if val == "" {
+						return protocol.MakeErrReply("ERR " + k + " requires a value")
+					}
+					return protocol.MakeErrReply("ERR hybrid query attributes were sent for a non-hybrid query")
+				default:
+					return protocol.MakeErrReply("ERR Invalid attribute " + k)
 				}
-				opts.VectorRangeYield = y
-			}
-			if eStr, ok := attrs["EPSILON"]; ok {
-				if eStr == "" {
-					return protocol.MakeErrReply("ERR EPSILON requires a value")
-				}
-				eps, perr := strconv.ParseFloat(eStr, 64)
-				if perr != nil || eps < 0 {
-					return protocol.MakeErrReply("ERR Invalid EPSILON")
-				}
-				opts.VectorRangeEpsilon = eps
-			}
-			// $EF_RUNTIME is a KNN/HNSW attribute. Redis 8.10 rejects it on
-			// VECTOR_RANGE (Invalid option); empty → syntax near EF_RUNTIME.
-			if _, ok := attrs["EF_RUNTIME"]; ok {
-				return protocol.MakeErrReply("ERR Invalid option EF_RUNTIME for VECTOR_RANGE")
 			}
 		}
 		results, err = engine.Search(q, opts)
@@ -1459,6 +1469,12 @@ func execFTAggregate(db *DB, args [][]byte) redis.Reply {
 		switch arg {
 		case "VERBATIM":
 			req.Verbatim = true
+			i++
+			continue
+
+		case "ADDSCORES":
+			// Expose full-text score as @__score for SORTBY/APPLY/FILTER.
+			req.AddScores = true
 			i++
 			continue
 

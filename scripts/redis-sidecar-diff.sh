@@ -58,6 +58,21 @@ subst() {
   printf '%s' "${s}"
 }
 
+# Expand literal \n in WANT to a real newline (multi-line --raw replies).
+expand_want() {
+  local s="$1"
+  s="${s//\\n/$'\n'}"
+  printf '%s' "${s}"
+}
+
+normalize_cli_out() {
+  local s="$1"
+  s="${s//$'\r'/}"
+  # Trim trailing newlines only (keep internal newlines).
+  while [[ "${s}" == *$'\n' ]]; do s="${s%$'\n'}"; done
+  printf '%s' "${s}"
+}
+
 is_int() { [[ "$1" =~ ^-?[0-9]+$ ]]; }
 
 check_want() {
@@ -86,8 +101,9 @@ run_eq() {
   shift 2
   local -a args=("$@")
   local rv gv
-  rv="$(redis_cli "${args[@]}")"
-  gv="$(godis_cli "${args[@]}")"
+  want="$(expand_want "${want}")"
+  rv="$(normalize_cli_out "$(redis_cli "${args[@]}")")"
+  gv="$(normalize_cli_out "$(godis_cli "${args[@]}")")"
   if ! check_want "${want}" "${rv}" || ! check_want "${want}" "${gv}" || [[ "${rv}" != "${gv}" ]]; then
     # For >=/<= , redis and godis must still match each other for honesty when both satisfy.
     if [[ "${want}" == \>=* || "${want}" == \<=* ]]; then

@@ -828,8 +828,10 @@ type SearchOptions struct {
 	// VECTOR_RANGE query (not KNN). Empty = no synthetic distance field.
 	VectorRangeYield string
 	// VectorRangeEpsilon expands the effective radius as radius*(1+ε) for
-	// VECTOR_RANGE (Redis range-query EPSILON). <0 means unset (treat as 0).
-	VectorRangeEpsilon float64
+	// VECTOR_RANGE (Redis range-query EPSILON on HNSW/SVS). Ignored unless
+	// VectorRangeEpsilonSet; Redis rejects EPSILON on FLAT VECTOR fields.
+	VectorRangeEpsilon    float64
+	VectorRangeEpsilonSet bool
 }
 
 // FieldFilter represents a filter on a field
@@ -899,6 +901,7 @@ func (e *RediSearchEngine) Aggregate(req *AggregationRequest) (*AggregationResul
 	deadline := ftDeadline(req.TimeoutMs, req.Deadline)
 
 	var docs []*Document
+	var queryNode QueryNode
 
 	// Handle wildcard query
 	if req.Query == "*" {
@@ -912,6 +915,7 @@ func (e *RediSearchEngine) Aggregate(req *AggregationRequest) (*AggregationResul
 		if err != nil {
 			return nil, err
 		}
+		queryNode = node
 
 		// Enforce FT.CONFIG MINPREFIX / MAXEXPANSIONS for aggregation queries too.
 		if req.MinPrefix > 0 || req.MaxExpansions > 0 {
@@ -936,6 +940,23 @@ func (e *RediSearchEngine) Aggregate(req *AggregationRequest) (*AggregationResul
 	}
 	if ftDeadlineExceeded(deadline) {
 		return nil, ErrTimeout
+	}
+
+	// ADDSCORES: expose full-text score as @__score in the pipeline (Redis 8.x).
+	// Default scorer is BM25STD; not byte-identical to RediSearch.
+	if req != nil && req.AddScores {
+		sc := e.buildScoreContext(req.Query, CollectOptionalTerms(queryNode), nil, req.Verbatim, false)
+		out := make([]*Document, len(docs))
+		for i, doc := range docs {
+			score := e.calculateScore(doc, sc, ScorerBM25STD)
+			fields := make(map[string]interface{}, len(doc.Fields)+1)
+			for k, v := range doc.Fields {
+				fields[k] = v
+			}
+			fields["__score"] = score
+			out[i] = &Document{ID: doc.ID, Fields: fields, Score: score, Payload: doc.Payload}
+		}
+		docs = out
 	}
 
 	// Apply LOAD
@@ -982,7 +1003,7 @@ func (e *RediSearchEngine) Aggregate(req *AggregationRequest) (*AggregationResul
 		groups = e.filterGroups(groups, req.Filter)
 	}
 
-	// Apply SORTBY
+	// Apply SORTBY (@field form; ADDSCORES → @__score)
 	if req.SortBy != "" {
 		groups = e.sortGroups(groups, req.SortBy, req.SortDesc)
 	}
@@ -1025,6 +1046,8 @@ type AggregationRequest struct {
 	Limit    int
 	Filter   string        // FILTER expression
 	Apply    []ApplyClause // APPLY <expr> AS <name> clauses, in pipeline order
+	// AddScores exposes BM25STD (default) score as @__score in the pipeline.
+	AddScores bool
 	// Expansion limits (FT.CONFIG MINPREFIX / MAXEXPANSIONS). Zero = no check.
 	MinPrefix     int
 	MaxExpansions int
@@ -1627,13 +1650,14 @@ func applyRandIntn(n int) int {
 }
 
 func (e *RediSearchEngine) sortGroups(groups []*Group, field string, desc bool) []*Group {
+	field = strings.TrimPrefix(field, "@")
 	sort.Slice(groups, func(i, j int) bool {
 		vi := groups[i].Fields[field]
 		vj := groups[j].Fields[field]
 
-		// Try numeric comparison
-		fi, oki := vi.(float64)
-		fj, okj := vj.(float64)
+		// Prefer numeric compare (covers float64 __score and numeric strings).
+		fi, oki := toFloat64(vi)
+		fj, okj := toFloat64(vj)
 		if oki && okj {
 			if desc {
 				return fi > fj
@@ -2130,7 +2154,7 @@ func (e *RediSearchEngine) filterByVectorRangeNodes(docIDs []string, node QueryN
 		return docIDs, nil, nil
 	}
 	eps := 0.0
-	if opts != nil && opts.VectorRangeEpsilon >= 0 {
+	if opts != nil && opts.VectorRangeEpsilonSet {
 		eps = opts.VectorRangeEpsilon
 	}
 	params := opts.Params
@@ -2143,6 +2167,16 @@ func (e *RediSearchEngine) filterByVectorRangeNodes(docIDs []string, node QueryN
 		vi := e.vectorIndices[vn.Field]
 		if vi == nil {
 			return nil, nil, fmt.Errorf("Vector field '%s' not found in index", vn.Field)
+		}
+		// Redis 8.10: $EPSILON is valid on HNSW/SVS VECTOR_RANGE, not FLAT.
+		if opts != nil && opts.VectorRangeEpsilonSet {
+			algo := ""
+			if vi.Config() != nil {
+				algo = vi.Config().Algorithm
+			}
+			if algo == VectorAlgoFlat || algo == "" {
+				return nil, nil, fmt.Errorf("Invalid option")
+			}
 		}
 		radius := vn.Radius
 		if vn.RadiusParam != "" {

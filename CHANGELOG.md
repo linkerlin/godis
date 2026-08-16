@@ -6,6 +6,9 @@
 
 ### Fixed
 
+### Fixed
+
+- 第六十三批（远期子集续研）：VECTOR_RANGE 属性块对齐 Redis 8.10（`$YIELD_DISTANCE_AS`；`$EPSILON` 仅 HNSW/SVS；拒 `$EF_RUNTIME`/`$HYBRID_POLICY`/`$BATCH_SIZE`/未知键）；FT.AGGREGATE **ADDSCORES**（管道 `@__score`，BM25STD 自洽非字节级）；R4-1 扩至 **314** 条（ZPOPMIN/ZPOPMAX 多行 WANT、`ZLEXCOUNT`/`PFMERGE`/`ZRANGEBYSCORE`；sidecar `\n` 转义）；远期仍 7 项，不宣称完整 KNN/DIALECT 或全量 sidecar
 - 第六十二批（远期子集续研）：FT.SEARCH **VECTOR_RANGE `$radius` PARAM**（对照 Redis 8.10；`($r)` 括号形 Redis 拒→不实现）；VECTOR_RANGE 属性块 **`$EF_RUNTIME`→ERR**（Redis Invalid option；KNN/HNSW 路径仍接受）；KNN 属性块 **`$HYBRID_POLICY`**（缺值/非法 ERR；standalone 暴力路径）；R4-1 扩至 **296** 条实跑断言（ZMSCORE/ZREVRANGE/SMISMEMBER/HINCRBYFLOAT/PEXPIRETIME/ZDIFFSTORE）；远期仍 7 项，不宣称完整 KNN/DIALECT 或全量 sidecar
 - 第六十一批（远期子集续研）：FT.SEARCH **`@vec:[VECTOR_RANGE r $q]`**（DIALECT≥2；`$YIELD_DISTANCE_AS`/`$EPSILON` 属性块扩半径）；KNN **`BATCH_SIZE`/`EPSILON`**（缺值 ERR；可解析正数；垃圾值 Redis 式接受）+ **`$EF_RUNTIME`** 属性块；R4-1 扩至 **276** 条实跑断言（ZRANGE/HMGET/LRANGE/GETDEL/ZRANK 等有序标量路径）；远期仍 7 项，不宣称完整 KNN/DIALECT 或全量 sidecar
 - 第六十批（远期子集续研）：`MEMORY STATS` 对齐 Redis 8.10 常用字段名（`peak.percentage` / `replication.backlog` / `clients.*` / `lua.caches` / `functions.caches` / `allocator.muzzy` / `allocator-fragmentation.*` / `allocator-rss.*` / `rss-overhead.*` 等；数值仍为 Go MemStats/进程估账，**非** jemalloc）；KNN `$SHARD_K_RATIO` 范围校验（standalone 接受后忽略）；`GODISFN1` 多库 DUMP↔RESTORE（FLUSH/REPLACE）自洽 + **APPEND 冲突不再吞 ERR**；R4-1 扩至 **254** 条实跑断言（INCRBYFLOAT/TOUCH/RENAME/EXPIREAT/GETEX/EXPIRETIME/LPOS/LMOVE/ZREMRANGEBYSCORE/PSETEX 等；sidecar `>=`/`<=` 改 int64）；远期仍 7 项，不宣称 jemalloc / 官方 FUNCTION 互通 / 全量 sidecar

@@ -91,6 +91,11 @@ func TestR41SidecarAllowlistScaffold(t *testing.T) {
 		"HINCRBYFLOAT|0.5|HINCRBYFLOAT",
 		"PEXPIRETIME|2000000000000|PEXPIRETIME",
 		"ZDIFFSTORE|1|ZDIFFSTORE",
+		"ZPOPMIN|a\\n1|ZPOPMIN",
+		"ZPOPMAX|b\\n2|ZPOPMAX",
+		"ZLEXCOUNT|3|ZLEXCOUNT",
+		"PFMERGE|OK|PFMERGE",
+		"ZRANGEBYSCORE|a|ZRANGEBYSCORE",
 	} {
 		if !strings.Contains(cases, marker) {
 			t.Fatalf("r4-1-cases.txt missing honesty/assert marker %q", marker)
@@ -125,6 +130,9 @@ func TestR41SidecarAllowlistScaffold(t *testing.T) {
 		}
 		if !strings.Contains(s, "--selfcheck") && !strings.Contains(s, "SelfCheck") {
 			t.Fatalf("%s missing selfcheck mode", p)
+		}
+		if !strings.Contains(s, "expand_want") && !strings.Contains(s, "Expand-WantEscapes") {
+			t.Fatalf("%s must expand WANT \\n escapes for multi-line --raw", p)
 		}
 	}
 }

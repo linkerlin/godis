@@ -126,4 +126,20 @@ func TestR41LiteCaseExpectations(t *testing.T) {
 	asserts.AssertIntReply(t, testDB.Exec(nil, utils.ToCmdLine("ZADD", "b62d2", "3", "b")), 1)
 	asserts.AssertIntReply(t, testDB.Exec(nil, utils.ToCmdLine("ZDIFFSTORE", "b62do", "2", "b62d1", "b62d2")), 1)
 	asserts.AssertBulkReply(t, testDB.Exec(nil, utils.ToCmdLine("ZSCORE", "b62do", "a")), "1")
+
+	asserts.AssertIntReply(t, testDB.Exec(nil, utils.ToCmdLine("ZADD", "b63zp", "1", "a", "2", "b")), 2)
+	asserts.AssertMultiBulkReply(t, testDB.Exec(nil, utils.ToCmdLine("ZPOPMIN", "b63zp")), []string{"a", "1"})
+	// After ZPOPMIN, member b remains → ZADD only counts new member a.
+	asserts.AssertIntReply(t, testDB.Exec(nil, utils.ToCmdLine("ZADD", "b63zp", "1", "a", "2", "b")), 1)
+	asserts.AssertMultiBulkReply(t, testDB.Exec(nil, utils.ToCmdLine("ZPOPMAX", "b63zp")), []string{"b", "2"})
+	asserts.AssertIntReply(t, testDB.Exec(nil, utils.ToCmdLine("ZADD", "b63zl", "0", "a", "0", "b", "0", "c")), 3)
+	asserts.AssertIntReply(t, testDB.Exec(nil, utils.ToCmdLine("ZLEXCOUNT", "b63zl", "-", "+")), 3)
+	asserts.AssertIntReply(t, testDB.Exec(nil, utils.ToCmdLine("ZLEXCOUNT", "b63zl", "[a", "[b")), 2)
+	asserts.AssertIntReply(t, testDB.Exec(nil, utils.ToCmdLine("PFADD", "b63pf1", "a")), 1)
+	asserts.AssertIntReply(t, testDB.Exec(nil, utils.ToCmdLine("PFADD", "b63pf2", "b")), 1)
+	asserts.AssertStatusReply(t, testDB.Exec(nil, utils.ToCmdLine("PFMERGE", "b63pfo", "b63pf1", "b63pf2")), "OK")
+	asserts.AssertIntReply(t, testDB.Exec(nil, utils.ToCmdLine("PFCOUNT", "b63pfo")), 2)
+	asserts.AssertIntReply(t, testDB.Exec(nil, utils.ToCmdLine("ZADD", "b63zr", "1", "a", "2", "b", "3", "c")), 3)
+	asserts.AssertMultiBulkReply(t, testDB.Exec(nil, utils.ToCmdLine("ZRANGEBYSCORE", "b63zr", "1", "1")), []string{"a"})
+	asserts.AssertIntReply(t, testDB.Exec(nil, utils.ToCmdLine("ZCOUNT", "b63zr", "1", "2")), 2)
 }
