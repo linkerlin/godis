@@ -6,6 +6,7 @@
 
 ### Fixed
 
+- 第六十一批（远期子集续研）：FT.SEARCH **`@vec:[VECTOR_RANGE r $q]`**（DIALECT≥2；`$YIELD_DISTANCE_AS`/`$EPSILON` 属性块扩半径）；KNN **`BATCH_SIZE`/`EPSILON`**（缺值 ERR；可解析正数；垃圾值 Redis 式接受）+ **`$EF_RUNTIME`** 属性块；R4-1 扩至 **276** 条实跑断言（ZRANGE/HMGET/LRANGE/GETDEL/ZRANK 等有序标量路径）；远期仍 7 项，不宣称完整 KNN/DIALECT 或全量 sidecar
 - 第六十批（远期子集续研）：`MEMORY STATS` 对齐 Redis 8.10 常用字段名（`peak.percentage` / `replication.backlog` / `clients.*` / `lua.caches` / `functions.caches` / `allocator.muzzy` / `allocator-fragmentation.*` / `allocator-rss.*` / `rss-overhead.*` 等；数值仍为 Go MemStats/进程估账，**非** jemalloc）；KNN `$SHARD_K_RATIO` 范围校验（standalone 接受后忽略）；`GODISFN1` 多库 DUMP↔RESTORE（FLUSH/REPLACE）自洽 + **APPEND 冲突不再吞 ERR**；R4-1 扩至 **254** 条实跑断言（INCRBYFLOAT/TOUCH/RENAME/EXPIREAT/GETEX/EXPIRETIME/LPOS/LMOVE/ZREMRANGEBYSCORE/PSETEX 等；sidecar `>=`/`<=` 改 int64）；远期仍 7 项，不宣称 jemalloc / 官方 FUNCTION 互通 / 全量 sidecar
 - 第五十九批（远期子集续研）：FT.SEARCH `EXPLAINSCORE`（需 WITHSCORES；BM25STD/TFIDF/DOCSCORE/DISMAX 子集嵌套线格式；Godis BM25 b=0.09 自洽非 Redis 字节级）+ `SORTBY … WITHCOUNT` 语法接受；RESP3 `score` 嵌套解释树；R4-1 去重后实跑断言 **218** 条（SETNX/RPUSHX/ZREVRANK/BITPOS 等；远期仍 7 项，不宣称完整 BM25/DIALECT 或全量 sidecar）
 - 第五十八批（远期子集续研）：R4-1 LTRIM 用例独立键隔离（避免与前置 LREM 序列耦合），sidecar 实跑断言 **201** 条（远期仍 7 项，不宣称全量 sidecar / 100% Redis）
@@ -81,6 +82,7 @@
 
 ### Added
 
+- KNN `BATCH_SIZE`/`EPSILON`（缺值 ERR；`EPSILON` 距离过滤；`$BATCH_SIZE`/`$EPSILON`/`$EF_RUNTIME` 属性块）；**VECTOR_RANGE** 最小路径；R4-1 **276** 条（ZRANGE/HMGET/LRANGE/GETDEL/ZRANK）
 - FT.SEARCH `EXPLAINSCORE`（需 WITHSCORES；BM25STD/TFIDF/DOCSCORE/DISMAX 子集；RESP3 score 嵌套）+ `SORTBY … WITHCOUNT`；R4-1 **218** 条（含 SETNX/RPUSHX/ZREVRANK/BITPOS；去重）
 - R4-1：LTRIM 独立键用例；sidecar 实跑断言 **201** 条
 - FT.AGGREGATE APPLY：`matched_terms([max])`（查询词∩文档词，多值；无 stemmer 变体）、`split` 真多值数组（对照 Redis 8.10）

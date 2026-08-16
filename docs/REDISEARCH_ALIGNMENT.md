@@ -234,7 +234,8 @@ FT.SEARCH idx "hello"  # -> %5 total_results / results / attributes / format / w
 | VECTOR 类型解码 | ✅ | FLOAT16/BFLOAT16/INT8/UINT8 均解码为 float32；**VADD Q8** 存储 + **图内 int8 距离**；**VADD BIN** 存储 + **图内 Hamming** |
 | BM25STD.NORM | ✅ | 结果集真 min-max；**TEXT WEIGHT** + **文档长度** + **可测 IDF** + **多字段加权求和**；**BM25STD.TANH** + **`BM25STD_TANH_FACTOR`**；**非**论文级完整 BM25（无 slop 罚分等） |
 | GEOSHAPE DIALECT | ✅ | `@geom:[WITHIN $p]` 等强制 **DIALECT ≥ 3**（DIALECT 2+PARAMS 不再静默成功） |
-| KNN/DIALECT 错误路径 | ✅ | 非法 DIALECT；缺 PARAMS / 非 VECTOR / dim；`HYBRID_POLICY` 枚举；**`$YIELD_DISTANCE_AS`**；**`$SHARD_K_RATIO`∈(0,1]**；空预过滤；D1 拒 tag 空格/`@f1\|f2`；比较/`ismissing`/GEOSHAPE 具体 ERR（仍非完整方言） |
+| KNN/DIALECT 错误路径 | ✅ | 非法 DIALECT；缺 PARAMS / 非 VECTOR / dim；`HYBRID_POLICY` 枚举；**`$YIELD_DISTANCE_AS`**；**`$SHARD_K_RATIO`∈(0,1]**；**`BATCH_SIZE`/`EPSILON`/`$EF_RUNTIME` 缺值 ERR**；空预过滤；D1 拒 tag 空格/`@f1\|f2`；比较/`ismissing`/GEOSHAPE 具体 ERR（仍非完整方言） |
+| VECTOR_RANGE | ✅ 子集 | `@vec:[VECTOR_RANGE r $q]` + DIALECT≥2；`$YIELD_DISTANCE_AS`/`$EPSILON`；FLAT 暴力；**非** HNSW 近似扫描 |
 | FT.SEARCH EXPLAINSCORE | ✅ 子集 | 需 WITHSCORES；BM25STD/DOCSCORE/DISMAX 嵌套线格式；**非**字节级对齐 RediSearch（b=0.09） |
 | SORTBY WITHCOUNT | ✅ 语法 | 接受令牌；准确总数本为默认（WITHOUTCOUNT 除外） |
 | FT.PROFILE 迭代器细分 | 🔶 | 只报诚实总耗时;细分需 instrument 引擎迭代器 |

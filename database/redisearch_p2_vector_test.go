@@ -129,6 +129,69 @@ func TestP2eKNNFlatSearch(t *testing.T) {
 	}
 }
 
+// TestP2eKNNEpsilonAndBatchSize verifies EPSILON distance filter and BATCH_SIZE
+// parse accept (BATCH_SIZE ignored on standalone brute-force path).
+func TestP2eKNNEpsilonAndBatchSize(t *testing.T) {
+	db := makeTestDB()
+	asserts.AssertStatusReply(t, db.Exec(nil, utils.ToCmdLine(
+		"FT.CREATE", "p2eps", "ON", "HASH", "PREFIX", "1", "p2eps:",
+		"SCHEMA", "vec", "VECTOR", "FLAT", "6", "TYPE", "FLOAT32", "DIM", "2", "DISTANCE_METRIC", "L2",
+	)), "OK")
+	if r := db.Exec(nil, utils.ToCmdLine("HSET", "p2eps:near", "vec", string(f32le(0.1, 0.0)))); protocol.IsErrorReply(r) {
+		t.Fatalf("hset near: %s", r.ToBytes())
+	}
+	if r := db.Exec(nil, utils.ToCmdLine("HSET", "p2eps:mid", "vec", string(f32le(1.0, 0.0)))); protocol.IsErrorReply(r) {
+		t.Fatalf("hset mid: %s", r.ToBytes())
+	}
+	qblob := string(f32le(0.0, 0.0))
+	// Without EPSILON, K=2 returns near+mid.
+	r := db.Exec(nil, utils.ToCmdLine(
+		"FT.SEARCH", "p2eps", "*=>[KNN 2 @vec $blob HYBRID_POLICY BATCHES BATCH_SIZE 8]",
+		"PARAMS", "2", "blob", qblob, "DIALECT", "2", "NOCONTENT",
+	))
+	mr := ftSearchMultiRaw(r)
+	total, ok := mr.Replies[0].(*protocol.IntReply)
+	if !ok || total.Code != 2 {
+		t.Fatalf("without EPSILON want 2, got %s", r.ToBytes())
+	}
+	// EPSILON 0.5 keeps only near (L2≈0.1); mid (L2=1) drops.
+	r = db.Exec(nil, utils.ToCmdLine(
+		"FT.SEARCH", "p2eps", "*=>[KNN 2 @vec $blob EPSILON 0.5]",
+		"PARAMS", "2", "blob", qblob, "DIALECT", "2", "NOCONTENT",
+	))
+	mr = ftSearchMultiRaw(r)
+	total, ok = mr.Replies[0].(*protocol.IntReply)
+	if !ok || total.Code != 1 {
+		t.Fatalf("EPSILON 0.5 want 1 hit, got %s", r.ToBytes())
+	}
+	id, ok := mr.Replies[1].(*protocol.BulkReply)
+	if !ok || string(id.Arg) != "p2eps:near" {
+		t.Fatalf("EPSILON keep near, got %s", r.ToBytes())
+	}
+	// Attr-block form + missing-value ERR.
+	r = db.Exec(nil, utils.ToCmdLine(
+		"FT.SEARCH", "p2eps", "*=>[KNN 1 @vec $blob]=>{$EPSILON: 0.5; $BATCH_SIZE: 4}",
+		"PARAMS", "2", "blob", qblob, "DIALECT", "2", "NOCONTENT",
+	))
+	if protocol.IsErrorReply(r) {
+		t.Fatalf("attr EPSILON/BATCH_SIZE should accept: %s", r.ToBytes())
+	}
+	bad := db.Exec(nil, utils.ToCmdLine(
+		"FT.SEARCH", "p2eps", "*=>[KNN 1 @vec $blob EPSILON]",
+		"PARAMS", "2", "blob", qblob, "DIALECT", "2",
+	))
+	if !protocol.IsErrorReply(bad) || !contains(string(bad.ToBytes()), "EPSILON") {
+		t.Fatalf("missing EPSILON value want ERR, got %s", bad.ToBytes())
+	}
+	bad2 := db.Exec(nil, utils.ToCmdLine(
+		"FT.SEARCH", "p2eps", "*=>[KNN 1 @vec $blob]=>{$BATCH_SIZE:}",
+		"PARAMS", "2", "blob", qblob, "DIALECT", "2",
+	))
+	if !protocol.IsErrorReply(bad2) || !contains(string(bad2.ToBytes()), "BATCH_SIZE") {
+		t.Fatalf("empty $BATCH_SIZE want ERR, got %s", bad2.ToBytes())
+	}
+}
+
 // TestP2eKNNRequiresDialect2 verifies KNN without DIALECT 2 errors.
 func TestP2eKNNRequiresDialect2(t *testing.T) {
 	db := makeTestDB()

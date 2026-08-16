@@ -58,6 +58,54 @@ func TestSplitKNNClauseShardKRatioAccepted(t *testing.T) {
 	}
 }
 
+func TestSplitKNNClauseEFRuntimeAttrAndBatchSize(t *testing.T) {
+	_, knn, err := SplitKNNClause("*=>[KNN 1 @vec $q]=>{$EF_RUNTIME: 32}")
+	if err != nil || knn == nil || knn.EFRuntime != 32 {
+		t.Fatalf("want EF_RUNTIME 32 from attr, got %+v err=%v", knn, err)
+	}
+	_, knn2, err := SplitKNNClause("*=>[KNN 2 @vec $q HYBRID_POLICY BATCHES BATCH_SIZE 8]")
+	if err != nil || knn2 == nil || knn2.BatchSize != 8 || knn2.HybridPolicy != "BATCHES" {
+		t.Fatalf("want BATCH_SIZE 8, got %+v err=%v", knn2, err)
+	}
+	_, knn3, err := SplitKNNClause("*=>[KNN 1 @vec $q]=>{$BATCH_SIZE: 16; $EPSILON: 0.25}")
+	if err != nil || knn3 == nil || knn3.BatchSize != 16 || knn3.Epsilon != 0.25 {
+		t.Fatalf("want attr BATCH_SIZE+EPSILON, got %+v err=%v", knn3, err)
+	}
+}
+
+func TestStripTrailingAttrBlock(t *testing.T) {
+	base, attrs, err := StripTrailingAttrBlock("@vec:[VECTOR_RANGE 0.5 $q]=>{$YIELD_DISTANCE_AS: dist; $EPSILON: 0.1}")
+	if err != nil || base != "@vec:[VECTOR_RANGE 0.5 $q]" {
+		t.Fatalf("base=%q err=%v", base, err)
+	}
+	if attrs["YIELD_DISTANCE_AS"] != "dist" || attrs["EPSILON"] != "0.1" {
+		t.Fatalf("attrs=%v", attrs)
+	}
+	base2, attrs2, err := StripTrailingAttrBlock("@price:[0 10]")
+	if err != nil || attrs2 != nil || base2 != "@price:[0 10]" {
+		t.Fatalf("passthrough failed: %q %v %v", base2, attrs2, err)
+	}
+}
+
+func TestSplitKNNClauseBatchSizeAndEpsilon(t *testing.T) {
+	_, knn, err := SplitKNNClause("*=>[KNN 2 @vec $q HYBRID_POLICY BATCHES BATCH_SIZE 16 EPSILON 0.25]")
+	if err != nil || knn == nil {
+		t.Fatalf("parse: %+v err=%v", knn, err)
+	}
+	if knn.BatchSize != 16 || knn.Epsilon != 0.25 || knn.HybridPolicy != "BATCHES" {
+		t.Fatalf("want BatchSize=16 Epsilon=0.25 BATCHES, got %+v", knn)
+	}
+	_, knn2, err := SplitKNNClause("*=>[KNN 1 @vec $q]=>{$BATCH_SIZE: 8; $EPSILON: 0.5}")
+	if err != nil || knn2 == nil || knn2.BatchSize != 8 || knn2.Epsilon != 0.5 {
+		t.Fatalf("attr block: %+v err=%v", knn2, err)
+	}
+	// Garbage values accepted (Redis ponytail); fields stay zero/off.
+	_, knn3, err := SplitKNNClause("*=>[KNN 1 @vec $q BATCH_SIZE abc EPSILON xyz]")
+	if err != nil || knn3 == nil || knn3.BatchSize != 0 || knn3.Epsilon != 0 {
+		t.Fatalf("garbage accept: %+v err=%v", knn3, err)
+	}
+}
+
 func TestSplitKNNClauseNoMarker(t *testing.T) {
 	base, knn, err := SplitKNNClause("@price:[0 10]")
 	if err != nil || knn != nil || base != "@price:[0 10]" {
@@ -85,6 +133,12 @@ func TestSplitKNNClauseErrorPaths(t *testing.T) {
 		{"*=>[KNN 1 @vec $q]=>{$SHARD_K_RATIO: 0}", "Invalid KNN SHARD_K_RATIO"},
 		{"*=>[KNN 1 @vec $q]=>{$SHARD_K_RATIO: 1.5}", "Invalid KNN SHARD_K_RATIO"},
 		{"*=>[KNN 1 @vec $q]=>{$SHARD_K_RATIO: abc}", "Invalid KNN SHARD_K_RATIO"},
+		{"*=>[KNN 1 @vec $q BATCH_SIZE]", "BATCH_SIZE requires"},
+		{"*=>[KNN 1 @vec $q EPSILON]", "EPSILON requires"},
+		{"*=>[KNN 1 @vec $q]=>{$BATCH_SIZE:}", "BATCH_SIZE requires"},
+		{"*=>[KNN 1 @vec $q]=>{$EPSILON:}", "EPSILON requires"},
+		{"*=>[KNN 1 @vec $q]=>{$EF_RUNTIME:}", "EF_RUNTIME requires"},
+		{"*=>[KNN 1 @vec $q]=>{$EF_RUNTIME: 0}", "Invalid KNN EF_RUNTIME"},
 		{"*=>[KNN 1 @vec $q] leftover", "Unexpected token after KNN"},
 	}
 	for _, tc := range cases {

@@ -326,15 +326,15 @@ func termTokens(n QueryNode) []string {
 }
 
 // RequiresDialect2 reports whether the AST contains any DIALECT-2-only construct
-// (comparison operators or ismissing). The engine uses this to reject such
-// queries when the declared dialect is < 2, matching Redis behavior.
+// (comparison operators, ismissing, or VECTOR_RANGE). The engine uses this to
+// reject such queries when the declared dialect is < 2, matching Redis behavior.
 // Multi-field modifiers and spaced tags are rejected earlier at parse time.
 func RequiresDialect2(node QueryNode) bool {
 	if node == nil {
 		return false
 	}
 	switch n := node.(type) {
-	case *NumericCompareNode, *MissingNode:
+	case *NumericCompareNode, *MissingNode, *VectorRangeNode:
 		return true
 	case *AndNode:
 		return RequiresDialect2(n.Left) || RequiresDialect2(n.Right)
@@ -355,6 +355,9 @@ func Dialect2Reason(node QueryNode) string {
 	}
 	if hasCompareNode(node) {
 		return "comparison operators require DIALECT 2 or higher"
+	}
+	if hasVectorRangeNode(node) {
+		return "VECTOR_RANGE queries require DIALECT 2 or higher"
 	}
 	return "DIALECT 2+ required for this query"
 }
@@ -387,6 +390,22 @@ func hasCompareNode(node QueryNode) bool {
 		return hasCompareNode(n.Child)
 	case *OptionalNode:
 		return hasCompareNode(n.Child)
+	}
+	return false
+}
+
+func hasVectorRangeNode(node QueryNode) bool {
+	switch n := node.(type) {
+	case *VectorRangeNode:
+		return true
+	case *AndNode:
+		return hasVectorRangeNode(n.Left) || hasVectorRangeNode(n.Right)
+	case *OrNode:
+		return hasVectorRangeNode(n.Left) || hasVectorRangeNode(n.Right)
+	case *NotNode:
+		return hasVectorRangeNode(n.Child)
+	case *OptionalNode:
+		return hasVectorRangeNode(n.Child)
 	}
 	return false
 }
@@ -753,11 +772,19 @@ func ExpandSynonyms(node QueryNode, expand func(string) []string) QueryNode {
 }
 
 // parseRangeOrGeo turns the contents of "@field:[ ... ]" into:
+//   - a VectorRangeNode when it looks like "VECTOR_RANGE radius $param" (DIALECT 2+)
 //   - a GeoShapeNode when it looks like "WITHIN|CONTAINS|INTERSECTS|DISJOINT $param"
 //   - a GeoRangeNode when it looks like "lon lat radius unit"
 //   - a numeric range otherwise.
 func parseRangeOrGeo(field, raw string) QueryNode {
 	parts := strings.Fields(raw)
+	// VECTOR_RANGE: "VECTOR_RANGE <radius> $param" (DIALECT 2+).
+	if len(parts) == 3 && strings.EqualFold(parts[0], "VECTOR_RANGE") {
+		radius, err := strconv.ParseFloat(parts[1], 64)
+		if err == nil && radius >= 0 && strings.HasPrefix(parts[2], "$") {
+			return &VectorRangeNode{Field: field, Radius: radius, Param: parts[2]}
+		}
+	}
 	// GEOSHAPE predicate: "<op> $param" (DIALECT 3+).
 	if len(parts) == 2 {
 		switch strings.ToUpper(parts[0]) {
@@ -779,6 +806,20 @@ func parseRangeOrGeo(field, raw string) QueryNode {
 		}
 	}
 	return parseNumericRange(field, raw)
+}
+
+// VectorRangeNode is @field:[VECTOR_RANGE radius $param] (DIALECT 2+).
+// Evaluate narrows to docs that have a vector for the field; the engine's
+// filterByVectorRangeNodes applies the real distance ≤ radius*(1+ε) test.
+type VectorRangeNode struct {
+	Field  string
+	Radius float64
+	Param  string // $-parameter name carrying the query vector blob
+}
+
+// Evaluate returns doc IDs that have a value for the vector field.
+func (n *VectorRangeNode) Evaluate(idx *InvertedIndex) []string {
+	return idx.FieldPresentDocIDs(n.Field)
 }
 
 // GeoShapeNode evaluates a GEOSHAPE spatial predicate @field:[OP $param]. The
@@ -1535,6 +1576,8 @@ func explainNode(b *strings.Builder, node QueryNode, depth int) {
 		b.WriteString(indent + "GEORANGE{" + n.Field + " " + strconv.FormatFloat(n.Lon, 'f', -1, 64) + " " + strconv.FormatFloat(n.Lat, 'f', -1, 64) + " " + strconv.FormatFloat(n.Radius, 'f', -1, 64) + " " + n.Unit + "}\n")
 	case *GeoShapeNode:
 		b.WriteString(indent + "GEOSHAPE{" + n.Field + " " + n.Op + " " + n.Param + "}\n")
+	case *VectorRangeNode:
+		b.WriteString(indent + "VECTOR_RANGE{" + n.Field + " " + strconv.FormatFloat(n.Radius, 'f', -1, 64) + " " + n.Param + "}\n")
 	case *MissingNode:
 		b.WriteString(indent + "MISSING{" + n.Field + "}\n")
 	case *AndNode:

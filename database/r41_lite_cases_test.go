@@ -89,4 +89,17 @@ func TestR41LiteCaseExpectations(t *testing.T) {
 	asserts.AssertBulkReply(t, testDB.Exec(nil, utils.ToCmdLine("LINDEX", "lm2", "0")), "a")
 	asserts.AssertStatusReply(t, testDB.Exec(nil, utils.ToCmdLine("PSETEX", "ps", "120000", "val")), "OK")
 	asserts.AssertBulkReply(t, testDB.Exec(nil, utils.ToCmdLine("GET", "ps")), "val")
+
+	asserts.AssertIntReply(t, testDB.Exec(nil, utils.ToCmdLine("ZADD", "b61z", "1", "a", "2", "b", "3", "c")), 3)
+	asserts.AssertMultiBulkReply(t, testDB.Exec(nil, utils.ToCmdLine("ZRANGE", "b61z", "0", "0")), []string{"a"})
+	asserts.AssertBulkReply(t, testDB.Exec(nil, utils.ToCmdLine("ZSCORE", "b61z", "b")), "2")
+	asserts.AssertIntReply(t, testDB.Exec(nil, utils.ToCmdLine("ZRANK", "b61z", "a")), 0)
+	asserts.AssertIntReply(t, testDB.Exec(nil, utils.ToCmdLine("HSET", "b61h", "f1", "v1", "f2", "v2")), 2)
+	asserts.AssertMultiBulkReply(t, testDB.Exec(nil, utils.ToCmdLine("HMGET", "b61h", "f1")), []string{"v1"})
+	asserts.AssertIntReply(t, testDB.Exec(nil, utils.ToCmdLine("HSTRLEN", "b61h", "f1")), 2)
+	asserts.AssertIntReply(t, testDB.Exec(nil, utils.ToCmdLine("RPUSH", "b61l", "x", "y", "z")), 3)
+	asserts.AssertMultiBulkReply(t, testDB.Exec(nil, utils.ToCmdLine("LRANGE", "b61l", "0", "0")), []string{"x"})
+	asserts.AssertStatusReply(t, testDB.Exec(nil, utils.ToCmdLine("SET", "b61gd", "bye")), "OK")
+	asserts.AssertBulkReply(t, testDB.Exec(nil, utils.ToCmdLine("GETDEL", "b61gd")), "bye")
+	asserts.AssertIntReply(t, testDB.Exec(nil, utils.ToCmdLine("EXISTS", "b61gd")), 0)
 }

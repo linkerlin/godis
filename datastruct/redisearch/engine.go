@@ -442,6 +442,16 @@ func (e *RediSearchEngine) SearchKNN(baseQuery string, opts *SearchOptions, knn 
 
 	// Run KNN restricted to the candidate set.
 	hits := vi.SearchKNNFiltered(queryVec, candidates, knn.K, knn.EFRuntime)
+	// EPSILON: keep only hits with distance < threshold (same spirit as VSIM).
+	if knn.Epsilon > 0 {
+		filtered := hits[:0]
+		for _, hit := range hits {
+			if float64(hit.Distance) < knn.Epsilon {
+				filtered = append(filtered, hit)
+			}
+		}
+		hits = filtered
+	}
 	if len(hits) == 0 {
 		return &SearchResults{Total: 0}, nil
 	}
@@ -532,6 +542,7 @@ func (e *RediSearchEngine) Search(query string, opts *SearchOptions) (*SearchRes
 
 	// Execute query (* = all documents, same as AGGREGATE)
 	var docIDs []string
+	var vrDistances map[string]float32 // set when VECTOR_RANGE filters by distance
 	if query == "*" {
 		for _, doc := range e.index.GetAllDocuments() {
 			docIDs = append(docIDs, doc.ID)
@@ -544,6 +555,14 @@ func (e *RediSearchEngine) Search(query string, opts *SearchOptions) (*SearchRes
 		// resolved from opts.Params.
 		if opts != nil && len(opts.Params) > 0 {
 			docIDs = e.filterByGeoshapeNodes(docIDs, node, opts.Params)
+		}
+		// VECTOR_RANGE: distance ≤ radius*(1+ε); ids ordered by ascending distance.
+		if opts != nil && len(opts.Params) > 0 && hasVectorRangeNode(node) {
+			var vrErr error
+			docIDs, vrDistances, vrErr = e.filterByVectorRangeNodes(docIDs, node, opts)
+			if vrErr != nil {
+				return nil, vrErr
+			}
 		}
 	}
 
@@ -586,11 +605,27 @@ func (e *RediSearchEngine) Search(query string, opts *SearchOptions) (*SearchRes
 		}
 
 		score := e.calculateScore(doc, sc, scorerName)
+		fields := doc.Fields
+		if d, ok := vrDistances[docID]; ok {
+			score = float64(d)
+			if opts != nil && opts.VectorRangeYield != "" {
+				if fields == nil {
+					fields = make(map[string]interface{}, 1)
+				} else {
+					cp := make(map[string]interface{}, len(fields)+1)
+					for k, v := range fields {
+						cp[k] = v
+					}
+					fields = cp
+				}
+				fields[opts.VectorRangeYield] = fmt.Sprintf("%g", d)
+			}
+		}
 
 		result := &SearchResult{
 			Document: doc,
 			Score:    score,
-			Fields:   doc.Fields,
+			Fields:   fields,
 		}
 		if opts != nil && opts.ExplainScore {
 			result.ScoreExplain = explainScore(doc, sc, scorerName)
@@ -786,8 +821,15 @@ type SearchOptions struct {
 	// Payload carries the FT.SEARCH PAYLOAD value used by the HAMMING scorer.
 	Payload []byte
 	// Params carries FT.SEARCH PARAMS name→value bindings, used by GEOSHAPE
-	// spatial predicates (@geom:[WITHIN $poly]) to resolve the query WKT.
+	// spatial predicates (@geom:[WITHIN $poly]) to resolve the query WKT,
+	// and by VECTOR_RANGE (@vec:[VECTOR_RANGE r $q]) for the query blob.
 	Params map[string][]byte
+	// VectorRangeYield is $YIELD_DISTANCE_AS from a trailing attr block on a
+	// VECTOR_RANGE query (not KNN). Empty = no synthetic distance field.
+	VectorRangeYield string
+	// VectorRangeEpsilon expands the effective radius as radius*(1+ε) for
+	// VECTOR_RANGE (Redis range-query EPSILON). <0 means unset (treat as 0).
+	VectorRangeEpsilon float64
 }
 
 // FieldFilter represents a filter on a field
@@ -2074,6 +2116,78 @@ func collectGeoshapeNodes(node QueryNode, out *[]*GeoShapeNode) {
 		collectGeoshapeNodes(n.Child, out)
 	case *OptionalNode:
 		collectGeoshapeNodes(n.Child, out)
+	}
+}
+
+// filterByVectorRangeNodes applies @field:[VECTOR_RANGE radius $param] predicates.
+// Effective radius is radius*(1+ε) when opts.VectorRangeEpsilon ≥ 0 (ε=0 if unset).
+// Returns ids ordered by ascending distance of the last range node; distances map
+// is non-nil when at least one range node was applied.
+func (e *RediSearchEngine) filterByVectorRangeNodes(docIDs []string, node QueryNode, opts *SearchOptions) ([]string, map[string]float32, error) {
+	var nodes []*VectorRangeNode
+	collectVectorRangeNodes(node, &nodes)
+	if len(nodes) == 0 {
+		return docIDs, nil, nil
+	}
+	eps := 0.0
+	if opts != nil && opts.VectorRangeEpsilon >= 0 {
+		eps = opts.VectorRangeEpsilon
+	}
+	params := opts.Params
+	keep := make(map[string]bool, len(docIDs))
+	for _, id := range docIDs {
+		keep[id] = true
+	}
+	var lastDist map[string]float32
+	for _, vn := range nodes {
+		vi := e.vectorIndices[vn.Field]
+		if vi == nil {
+			return nil, nil, fmt.Errorf("Vector field '%s' not found in index", vn.Field)
+		}
+		blob, ok := params[strings.TrimPrefix(vn.Param, "$")]
+		if !ok {
+			return nil, nil, fmt.Errorf("No such parameter '%s'", strings.TrimPrefix(vn.Param, "$"))
+		}
+		queryVec, err := vi.DecodeVector(blob)
+		if err != nil {
+			return nil, nil, err
+		}
+		eff := float32(vn.Radius * (1 + eps))
+		allowed := make([]string, 0, len(keep))
+		for id := range keep {
+			allowed = append(allowed, id)
+		}
+		hits := vi.SearchRangeFiltered(queryVec, allowed, eff)
+		keep = make(map[string]bool, len(hits))
+		lastDist = make(map[string]float32, len(hits))
+		ordered := make([]string, 0, len(hits))
+		for _, h := range hits {
+			keep[h.DocID] = true
+			lastDist[h.DocID] = h.Distance
+			ordered = append(ordered, h.DocID)
+		}
+		docIDs = ordered
+	}
+	return docIDs, lastDist, nil
+}
+
+func collectVectorRangeNodes(node QueryNode, out *[]*VectorRangeNode) {
+	if node == nil {
+		return
+	}
+	switch n := node.(type) {
+	case *VectorRangeNode:
+		*out = append(*out, n)
+	case *AndNode:
+		collectVectorRangeNodes(n.Left, out)
+		collectVectorRangeNodes(n.Right, out)
+	case *OrNode:
+		collectVectorRangeNodes(n.Left, out)
+		collectVectorRangeNodes(n.Right, out)
+	case *NotNode:
+		collectVectorRangeNodes(n.Child, out)
+	case *OptionalNode:
+		collectVectorRangeNodes(n.Child, out)
 	}
 }
 

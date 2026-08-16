@@ -1174,8 +1174,32 @@ func execFTSearch(db *DB, args [][]byte) redis.Reply {
 			return ftTimeoutReply(err)
 		}
 	} else {
-		// Search
-		results, err = engine.Search(query, opts)
+		// VECTOR_RANGE may carry =>{$YIELD_DISTANCE_AS; $EPSILON} (not KNN).
+		q := query
+		base, attrs, aerr := redisearch.StripTrailingAttrBlock(q)
+		if aerr != nil {
+			return protocol.MakeErrReply("ERR " + aerr.Error())
+		}
+		if attrs != nil {
+			q = base
+			if y, ok := attrs["YIELD_DISTANCE_AS"]; ok {
+				if y == "" {
+					return protocol.MakeErrReply("ERR YIELD_DISTANCE_AS requires a field name")
+				}
+				opts.VectorRangeYield = y
+			}
+			if eStr, ok := attrs["EPSILON"]; ok {
+				if eStr == "" {
+					return protocol.MakeErrReply("ERR EPSILON requires a value")
+				}
+				eps, perr := strconv.ParseFloat(eStr, 64)
+				if perr != nil || eps < 0 {
+					return protocol.MakeErrReply("ERR Invalid EPSILON")
+				}
+				opts.VectorRangeEpsilon = eps
+			}
+		}
+		results, err = engine.Search(q, opts)
 		if err != nil {
 			return ftTimeoutReply(err)
 		}

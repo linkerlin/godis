@@ -488,16 +488,19 @@ func parseInt(s string) (int, error) {
 }
 
 // KNNClause captures a parsed "=>[KNN K @field $param [AS score] [EF_RUNTIME n]
-// [HYBRID_POLICY policy]]" suffix from a FT.SEARCH/FT.AGGREGATE query, optionally
-// followed by "=>{$YIELD_DISTANCE_AS: alias}". A nil return from SplitKNNClause
-// means the query has no KNN clause.
+// [HYBRID_POLICY policy] [BATCH_SIZE n] [EPSILON e]]" suffix from a
+// FT.SEARCH/FT.AGGREGATE query, optionally followed by
+// "=>{$YIELD_DISTANCE_AS: alias; $SHARD_K_RATIO: r; $BATCH_SIZE: n; $EPSILON: e}".
+// A nil return from SplitKNNClause means the query has no KNN clause.
 type KNNClause struct {
-	K             int
-	Field         string // vector field name (without leading @)
-	Param         string // $-parameter name carrying the query blob
-	ScoreAs       string // AS / $YIELD_DISTANCE_AS alias ("" = no alias)
-	EFRuntime     int    // 0 = use index default
-	HybridPolicy  string // ADHOC_BF or BATCHES (both resolve to filtered brute-force)
+	K            int
+	Field        string  // vector field name (without leading @)
+	Param        string  // $-parameter name carrying the query blob
+	ScoreAs      string  // AS / $YIELD_DISTANCE_AS alias ("" = no alias)
+	EFRuntime    int     // 0 = use index default
+	HybridPolicy string  // ADHOC_BF or BATCHES (both resolve to filtered brute-force)
+	BatchSize    int     // >0 when parsed; BATCHES hint — standalone brute-force ignores
+	Epsilon      float64 // >0 keeps hits with distance < Epsilon (VSIM-like); 0 = off
 }
 
 // SplitKNNClause separates a query of the form "<base>=>[KNN ...]" into the
@@ -556,6 +559,26 @@ func SplitKNNClause(query string) (base string, knn *KNNClause, err error) {
 			// Both policies currently resolve to brute-force over the filtered set.
 			clause.HybridPolicy = policy
 			ti += 2
+		case "BATCH_SIZE":
+			// Redis requires a following token; non-numeric values are accepted
+			// (ponytail). Standalone Godis ignores the hint after parse.
+			if ti+1 >= len(tokens) {
+				return query, nil, fmt.Errorf("KNN BATCH_SIZE requires a value")
+			}
+			if n, perr := parseInt(tokens[ti+1]); perr == nil && n > 0 {
+				clause.BatchSize = n
+			}
+			ti += 2
+		case "EPSILON":
+			// Missing value → ERR (Redis). Parseable float>0 filters distances;
+			// garbage tokens accepted and ignored (Redis ponytail).
+			if ti+1 >= len(tokens) {
+				return query, nil, fmt.Errorf("KNN EPSILON requires a value")
+			}
+			if e, perr := strconv.ParseFloat(tokens[ti+1], 64); perr == nil && e > 0 {
+				clause.Epsilon = e
+			}
+			ti += 2
 		default:
 			// Positional args: K, @field, $param — in order.
 			if clause.K == 0 {
@@ -594,8 +617,9 @@ func SplitKNNClause(query string) (base string, knn *KNNClause, err error) {
 	return base, clause, nil
 }
 
-// applyKNNAttrBlock parses "=>{$YIELD_DISTANCE_AS: dist; $SHARD_K_RATIO: 0.5}"
-// after a KNN clause. Unknown $-keys are ignored; malformed blocks error.
+// applyKNNAttrBlock parses "=>{$YIELD_DISTANCE_AS: dist; $SHARD_K_RATIO: 0.5;
+// $BATCH_SIZE: 10; $EPSILON: 0.5}" after a KNN clause. Unknown $-keys are
+// ignored; empty values for known keys error (Redis syntax).
 func applyKNNAttrBlock(clause *KNNClause, rest string) error {
 	rest = strings.TrimSpace(rest)
 	if !strings.HasPrefix(rest, "=>") {
@@ -652,11 +676,101 @@ func applyKNNAttrBlock(clause *KNNClause, rest string) error {
 			if perr != nil || r <= 0 || r > 1 {
 				return fmt.Errorf("Invalid KNN SHARD_K_RATIO")
 			}
+		case "EF_RUNTIME":
+			if val == "" {
+				return fmt.Errorf("EF_RUNTIME requires a value")
+			}
+			n, perr := parseInt(val)
+			if perr != nil || n <= 0 {
+				return fmt.Errorf("Invalid KNN EF_RUNTIME")
+			}
+			clause.EFRuntime = n
+		case "BATCH_SIZE":
+			if val == "" {
+				return fmt.Errorf("BATCH_SIZE requires a value")
+			}
+			if n, perr := parseInt(val); perr == nil && n > 0 {
+				clause.BatchSize = n
+			}
+		case "EPSILON":
+			if val == "" {
+				return fmt.Errorf("EPSILON requires a value")
+			}
+			if e, perr := strconv.ParseFloat(val, 64); perr == nil && e > 0 {
+				clause.Epsilon = e
+			}
 		default:
 			// Accept unknown keys for forward-compat (ponytail).
 		}
 	}
 	return nil
+}
+
+// StripTrailingAttrBlock removes a trailing "=>{$KEY: val; ...}" query attribute
+// block (VECTOR_RANGE … =>{$YIELD_DISTANCE_AS; $EPSILON}). Returns the base
+// query and UPPER-case key→value map. No `{…}` block after `=>` → unchanged.
+// Callers should run SplitKNNClause first so "=>[KNN …]" is not mistaken.
+func StripTrailingAttrBlock(query string) (base string, attrs map[string]string, err error) {
+	q := strings.TrimSpace(query)
+	idx := strings.LastIndex(q, "=>")
+	if idx < 0 {
+		return query, nil, nil
+	}
+	rest := strings.TrimSpace(q[idx+2:])
+	if !strings.HasPrefix(rest, "{") {
+		return query, nil, nil
+	}
+	end := strings.LastIndex(rest, "}")
+	if end < 0 {
+		return query, nil, fmt.Errorf("Invalid query attribute block")
+	}
+	if trailing := strings.TrimSpace(rest[end+1:]); trailing != "" {
+		return query, nil, fmt.Errorf("Unexpected token after query attribute block")
+	}
+	inner := strings.TrimSpace(rest[1:end])
+	attrs = make(map[string]string)
+	if inner != "" {
+		for _, part := range strings.Split(inner, ";") {
+			part = strings.TrimSpace(part)
+			if part == "" {
+				continue
+			}
+			colon := strings.Index(part, ":")
+			if colon < 0 {
+				return query, nil, fmt.Errorf("Invalid query attribute '%s'", part)
+			}
+			key := strings.TrimPrefix(strings.TrimSpace(part[:colon]), "$")
+			val := strings.TrimSpace(part[colon+1:])
+			if key == "" {
+				return query, nil, fmt.Errorf("Invalid query attribute '%s'", part)
+			}
+			attrs[strings.ToUpper(key)] = val
+		}
+	}
+	return strings.TrimSpace(q[:idx]), attrs, nil
+}
+
+// SearchRangeFiltered returns vectors among allowed whose distance to query is
+// ≤ radius (inclusive). Results are sorted by ascending distance.
+func (vi *FTVectorIndex) SearchRangeFiltered(query []float32, allowed []string, radius float32) []VectorScore {
+	vi.mu.RLock()
+	defer vi.mu.RUnlock()
+	if len(allowed) == 0 || radius < 0 {
+		return nil
+	}
+	out := make([]VectorScore, 0)
+	for _, id := range allowed {
+		v, ok := vi.vectors[id]
+		if !ok {
+			continue
+		}
+		d := vectorDistance(query, v, vi.cfg.DistanceMetric)
+		if d <= radius {
+			out = append(out, VectorScore{DocID: id, Distance: d, Score: 1.0 / (1.0 + d)})
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Distance < out[j].Distance })
+	return out
 }
 
 // indexOfKNNMarker finds the start of "=>[KNN" in the query, or -1. It avoids
