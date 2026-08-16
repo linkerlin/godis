@@ -140,9 +140,15 @@ type ServerProperties struct {
 	ReplBacklogTTL               int  `cfg:"repl-backlog-ttl"`
 	ReplicaIgnoreMaxmemory       bool `cfg:"replica-ignore-maxmemory"`
 	AofRewriteIncrementalFsync   bool `cfg:"aof-rewrite-incremental-fsync"`
+	RdbSaveIncrementalFsync      bool `cfg:"rdb-save-incremental-fsync"`
 	ClusterAllowReplicaMigration bool `cfg:"cluster-allow-replica-migration"`
 	ClusterReplicaValidityFactor int  `cfg:"cluster-replica-validity-factor"`
 	HashMaxListpackEntries       int  `cfg:"hash-max-listpack-entries"`
+
+	// Latency / ACL pubsub / replica ping CONFIG stubs (GET/SET only).
+	LatencyMonitorThreshold int64  `cfg:"latency-monitor-threshold"`
+	AclPubsubDefault        string `cfg:"acl-pubsub-default"`
+	ReplPingReplicaPeriod   int    `cfg:"repl-ping-replica-period"`
 
 	// Encoding / structure size CONFIG stubs (GET/SET only).
 	ListMaxListpackSize    int   `cfg:"list-max-listpack-size"`
@@ -254,9 +260,13 @@ func init() {
 		ReplBacklogTTL:               3600,
 		ReplicaIgnoreMaxmemory:       true,
 		AofRewriteIncrementalFsync:   true,
+		RdbSaveIncrementalFsync:      true,
 		ClusterAllowReplicaMigration: true,
 		ClusterReplicaValidityFactor: 10,
 		HashMaxListpackEntries:       512,
+		LatencyMonitorThreshold:      0,
+		AclPubsubDefault:             "resetchannels",
+		ReplPingReplicaPeriod:        10,
 		ListMaxListpackSize:    -2,
 		SetMaxIntsetEntries:    512,
 		ZSetMaxListpackEntries: 128,

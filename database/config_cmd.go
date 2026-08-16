@@ -190,6 +190,10 @@ func getConfigMatches(pattern string) []configPair {
 		{"repl-backlog-ttl", strconv.Itoa(getReplBacklogTTL())},
 		{"replica-ignore-maxmemory", boolToString(getReplicaIgnoreMaxmemory())},
 		{"aof-rewrite-incremental-fsync", boolToString(getAofRewriteIncrementalFsync())},
+		{"rdb-save-incremental-fsync", boolToString(getRdbSaveIncrementalFsync())},
+		{"latency-monitor-threshold", strconv.FormatInt(getLatencyMonitorThreshold(), 10)},
+		{"acl-pubsub-default", getAclPubsubDefault()},
+		{"repl-ping-replica-period", strconv.Itoa(getReplPingReplicaPeriod())},
 		{"cluster-allow-replica-migration", boolToString(getClusterAllowReplicaMigration())},
 		{"cluster-replica-validity-factor", strconv.Itoa(getClusterReplicaValidityFactor())},
 		{"hash-max-listpack-entries", strconv.Itoa(getHashMaxListpackEntries())},
@@ -721,6 +725,36 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'aof-rewrite-incremental-fsync') - argument must be 'yes' or 'no'")
 			}
 			config.Properties.AofRewriteIncrementalFsync = b
+		case "rdb-save-incremental-fsync":
+			ok, b := config.ParseConfigBool(value)
+			if !ok {
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'rdb-save-incremental-fsync') - argument must be 'yes' or 'no'")
+			}
+			config.Properties.RdbSaveIncrementalFsync = b
+		case "latency-monitor-threshold":
+			n, err := strconv.ParseInt(value, 10, 64)
+			if err != nil {
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'latency-monitor-threshold') - argument couldn't be parsed into an integer")
+			}
+			if n < 0 {
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'latency-monitor-threshold') - argument must be between 0 and 9223372036854775807 inclusive")
+			}
+			config.Properties.LatencyMonitorThreshold = n
+		case "acl-pubsub-default":
+			v := strings.ToLower(value)
+			if v != "allchannels" && v != "resetchannels" {
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'acl-pubsub-default') - argument(s) must be one of the following: allchannels, resetchannels")
+			}
+			config.Properties.AclPubsubDefault = v
+		case "repl-ping-replica-period":
+			n, err := strconv.Atoi(value)
+			if err != nil {
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'repl-ping-replica-period') - argument couldn't be parsed into an integer")
+			}
+			if n < 1 || n > 2147483647 {
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'repl-ping-replica-period') - argument must be between 1 and 2147483647 inclusive")
+			}
+			config.Properties.ReplPingReplicaPeriod = n
 		case "cluster-allow-replica-migration":
 			ok, b := config.ParseConfigBool(value)
 			if !ok {
@@ -1310,6 +1344,34 @@ func getAofRewriteIncrementalFsync() bool {
 		return true
 	}
 	return config.Properties.AofRewriteIncrementalFsync
+}
+
+func getRdbSaveIncrementalFsync() bool {
+	if config.Properties == nil {
+		return true
+	}
+	return config.Properties.RdbSaveIncrementalFsync
+}
+
+func getLatencyMonitorThreshold() int64 {
+	if config.Properties == nil {
+		return 0
+	}
+	return config.Properties.LatencyMonitorThreshold
+}
+
+func getAclPubsubDefault() string {
+	if config.Properties == nil || config.Properties.AclPubsubDefault == "" {
+		return "resetchannels"
+	}
+	return config.Properties.AclPubsubDefault
+}
+
+func getReplPingReplicaPeriod() int {
+	if config.Properties == nil || config.Properties.ReplPingReplicaPeriod == 0 {
+		return 10
+	}
+	return config.Properties.ReplPingReplicaPeriod
 }
 
 func getClusterAllowReplicaMigration() bool {

@@ -17,12 +17,16 @@ var (
 )
 
 // arityErrCmdName returns the command name Redis uses in wrong-arity ERRs.
-// Vector Set commands are reported in uppercase (Redis 8.x module style).
+// Vector Set (V*) and RediSearch (FT.*) use uppercase; JSON/BF/TS stay lowercase.
 func arityErrCmdName(cmdName string) string {
 	switch cmdName {
-	case "vadd", "vsim":
+	case "vadd", "vsim", "vrem", "vcard", "vdim", "vemb", "vinfo",
+		"vismember", "vrandmember", "vsetattr", "vgetattr", "vlinks", "vrange":
 		return strings.ToUpper(cmdName)
 	default:
+		if strings.HasPrefix(cmdName, "ft.") {
+			return strings.ToUpper(cmdName)
+		}
 		return cmdName
 	}
 }

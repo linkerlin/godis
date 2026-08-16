@@ -6,6 +6,7 @@
 
 ### Fixed
 
+- 第四十批可关闭：Vector/FT.* arity 大小写（VCARD/VDIM/…、FT.CREATE 等）；CONFIG latency-monitor-threshold / acl-pubsub-default / rdb-save-incremental-fsync / repl-ping-replica-period 校验与 GET/SET 桩（对照 Redis 8.10）
 - 第三十九批可关闭：CONFIG slave-* 别名文案与 set-max-listpack-value；standalone ASKING/READONLY/READWRITE→cluster disabled；XTRIM MAXLEN/MINID 裸 `~`；VADD/VSIM arity 大小写（对照 Redis 8.10）
 - 第三十八批可关闭：FUNCTION LIST LIBRARYNAME 缺名；COMMAND GETKEYS/GETKEYSANDFLAGS arity 文案；LOLWUT 裸 VERSION；CONFIG hash/zset/list `*-ziplist-*` 别名（对照 Redis 8.10）
 - 第三十七批可关闭：CONFIG cluster-node-timeout/repl-backlog-ttl/auto-aof-rewrite-min-size/announce-port(s) 范围文案；CONFIG RESETSTAT/REWRITE arity；XDEL 非法 ID 文案；XRANGE/XREVRANGE COUNT≤0→空（对照 Redis 8.10）

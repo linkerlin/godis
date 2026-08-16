@@ -425,7 +425,7 @@ func execVCard(db *DB, args [][]byte) redis.Reply {
 
 func execVDim(db *DB, args [][]byte) redis.Reply {
 	if len(args) != 1 {
-		return protocol.MakeErrReply("ERR wrong number of arguments for 'vdim' command")
+		return protocol.MakeErrReply("ERR wrong number of arguments for 'VDIM' command")
 	}
 	entity, exists := db.GetEntity(string(args[0]))
 	if !exists {
@@ -444,7 +444,7 @@ func execVEmb(db *DB, args [][]byte) redis.Reply {
 
 func execVInfo(db *DB, args [][]byte) redis.Reply {
 	if len(args) != 1 {
-		return protocol.MakeErrReply("ERR wrong number of arguments for 'vinfo' command")
+		return protocol.MakeErrReply("ERR wrong number of arguments for 'VINFO' command")
 	}
 	entity, exists := db.GetEntity(string(args[0]))
 	if !exists {
@@ -475,7 +475,7 @@ func execVInfo(db *DB, args [][]byte) redis.Reply {
 
 func execVIsMember(db *DB, args [][]byte) redis.Reply {
 	if len(args) != 2 {
-		return protocol.MakeErrReply("ERR wrong number of arguments for 'vismember' command")
+		return protocol.MakeErrReply("ERR wrong number of arguments for 'VISMEMBER' command")
 	}
 	entity, exists := db.GetEntity(string(args[0]))
 	if !exists {
@@ -496,7 +496,7 @@ func execVIsMember(db *DB, args [][]byte) redis.Reply {
 // VRANDMEMBER key [count]
 func execVRandMember(db *DB, args [][]byte) redis.Reply {
 	if len(args) != 1 && len(args) != 2 {
-		return protocol.MakeErrReply("ERR wrong number of arguments for 'vrandmember' command")
+		return protocol.MakeErrReply("ERR wrong number of arguments for 'VRANDMEMBER' command")
 	}
 	entity, exists := db.GetEntity(string(args[0]))
 	if !exists {
@@ -557,7 +557,7 @@ func execVRandMember(db *DB, args [][]byte) redis.Reply {
 // VSETATTR key element json
 func execVSetAttr(db *DB, args [][]byte) redis.Reply {
 	if len(args) != 3 {
-		return protocol.MakeErrReply("ERR wrong number of arguments for 'vsetattr' command")
+		return protocol.MakeErrReply("ERR wrong number of arguments for 'VSETATTR' command")
 	}
 	entity, exists := db.GetEntity(string(args[0]))
 	if !exists {
@@ -585,7 +585,7 @@ func execVSetAttr(db *DB, args [][]byte) redis.Reply {
 // VGETATTR key element
 func execVGetAttr(db *DB, args [][]byte) redis.Reply {
 	if len(args) != 2 {
-		return protocol.MakeErrReply("ERR wrong number of arguments for 'vgetattr' command")
+		return protocol.MakeErrReply("ERR wrong number of arguments for 'VGETATTR' command")
 	}
 	entity, exists := db.GetEntity(string(args[0]))
 	if !exists {
@@ -606,7 +606,7 @@ func execVGetAttr(db *DB, args [][]byte) redis.Reply {
 // VLINKS key element [WITHSCORES]
 func execVLinks(db *DB, args [][]byte) redis.Reply {
 	if len(args) < 2 || len(args) > 3 {
-		return protocol.MakeErrReply("ERR wrong number of arguments for 'vlinks' command")
+		return protocol.MakeErrReply("ERR wrong number of arguments for 'VLINKS' command")
 	}
 	withScores := false
 	if len(args) == 3 {
@@ -665,7 +665,7 @@ func execVLinks(db *DB, args [][]byte) redis.Reply {
 // VRANGE key start end [count]
 func execVRange(db *DB, args [][]byte) redis.Reply {
 	if len(args) < 3 || len(args) > 4 {
-		return protocol.MakeErrReply("ERR wrong number of arguments for 'vrange' command")
+		return protocol.MakeErrReply("ERR wrong number of arguments for 'VRANGE' command")
 	}
 	entity, exists := db.GetEntity(string(args[0]))
 	if !exists {

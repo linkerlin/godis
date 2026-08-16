@@ -285,4 +285,4 @@ UNWATCH、WAIT（简版）、BITOP、BITFIELD、SMOVE、LPOS、XCLAIM、SHUTDOWN
 
 ---
 
-**最后更新：** 2026-08-16（第三十九批可关闭：CONFIG slave-* / set-max-listpack-value；ASKING/READONLY/READWRITE；XTRIM 裸 `~`；VADD/VSIM；对照 Redis **8.10.0**；远期仍 **7**）
+**最后更新：** 2026-08-16（第四十批可关闭：V*/FT.* arity 大小写；CONFIG latency-monitor-threshold / acl-pubsub-default / rdb-save-incremental-fsync / repl-ping-replica-period；对照 Redis **8.10.0**；远期仍 **7**）
