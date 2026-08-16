@@ -13,7 +13,7 @@
 # Placeholder {{ID}} -> process id (unique keys per run).
 #
 # WANT may embed \n for multi-line --raw (unused this batch; reserved).
-# @allowlist PING,ECHO,SET,SETNX,GET,GETDEL,GETSET,STRLEN,APPEND,DEL,EXISTS,INCR,DECR,INCRBY,DECRBY,TYPE,MSET,MSETNX,SETRANGE,GETRANGE,SETEX,UNLINK,HSET,HGET,HSETNX,HINCRBY,HSTRLEN,HLEN,HEXISTS,HDEL,LPUSH,LPUSHX,RPUSH,LLEN,LINDEX,LPOP,RPOP,LSET,LINSERT,LREM,LTRIM,SADD,SCARD,SISMEMBER,SMOVE,SREM,SUNIONSTORE,SINTERSTORE,SDIFFSTORE,ZADD,ZINCRBY,ZSCORE,ZRANK,ZCARD,ZREM,ZCOUNT,ZREMRANGEBYRANK,ZUNIONSTORE,ZINTERSTORE,TTL,PTTL,PEXPIRE,EXPIRE,PERSIST,XADD,XLEN,XDEL,GEOADD,SETBIT,GETBIT,BITCOUNT,BITOP,PFADD,PFCOUNT,COPY,RENAMENX,LCS
+# @allowlist PING,ECHO,SET,SETNX,GET,GETDEL,GETSET,STRLEN,APPEND,DEL,EXISTS,INCR,DECR,INCRBY,DECRBY,TYPE,MSET,MSETNX,SETRANGE,GETRANGE,SETEX,UNLINK,HSET,HGET,HSETNX,HINCRBY,HSTRLEN,HLEN,HEXISTS,HDEL,LPUSH,LPUSHX,RPUSH,RPUSHX,LLEN,LINDEX,LPOP,RPOP,LSET,LINSERT,LREM,LTRIM,SADD,SCARD,SISMEMBER,SMOVE,SREM,SUNIONSTORE,SINTERSTORE,SDIFFSTORE,ZADD,ZINCRBY,ZSCORE,ZRANK,ZREVRANK,ZCARD,ZREM,ZCOUNT,ZREMRANGEBYRANK,ZUNIONSTORE,ZINTERSTORE,TTL,PTTL,PEXPIRE,EXPIRE,PERSIST,XADD,XLEN,XDEL,GEOADD,SETBIT,GETBIT,BITCOUNT,BITPOS,BITOP,PFADD,PFCOUNT,COPY,RENAMENX,LCS
 
 # --- String / ping ---
 PING|PONG|PING
@@ -308,6 +308,50 @@ PFCOUNT|3|PFCOUNT sidecar:hll:{{ID}}
 TYPE-hll|string|TYPE sidecar:hll:{{ID}}
 @todo large PFCOUNT approx card may drift across implementations — not asserted here
 DEL-hll|1|DEL sidecar:hll:{{ID}}
+
+# --- batch 58 extras (stable scalar paths) ---
+@DEL sidecar:b58:gs:{{ID}}
+SET-gs|OK|SET sidecar:b58:gs:{{ID}} old
+GETSET|old|GETSET sidecar:b58:gs:{{ID}} new
+GET-gs|new|GET sidecar:b58:gs:{{ID}}
+DEL-gs|1|DEL sidecar:b58:gs:{{ID}}
+@DEL sidecar:b58:sn:{{ID}}
+SETNX-miss|1|SETNX sidecar:b58:sn:{{ID}} v
+SETNX-hit|0|SETNX sidecar:b58:sn:{{ID}} w
+GET-sn|v|GET sidecar:b58:sn:{{ID}}
+DEL-sn|1|DEL sidecar:b58:sn:{{ID}}
+@DEL sidecar:b58:rpx:{{ID}}
+RPUSHX-miss|0|RPUSHX sidecar:b58:rpx:{{ID}} x
+RPUSH-rpx|1|RPUSH sidecar:b58:rpx:{{ID}} a
+RPUSHX-hit|2|RPUSHX sidecar:b58:rpx:{{ID}} b
+LINDEX-rpx|b|LINDEX sidecar:b58:rpx:{{ID}} -1
+DEL-rpx|1|DEL sidecar:b58:rpx:{{ID}}
+@DEL sidecar:b58:zr:{{ID}}
+ZADD-zr|3|ZADD sidecar:b58:zr:{{ID}} 1 a 2 b 3 c
+ZREVRANK|0|ZREVRANK sidecar:b58:zr:{{ID}} c
+ZREVRANK-mid|1|ZREVRANK sidecar:b58:zr:{{ID}} b
+DEL-zr|1|DEL sidecar:b58:zr:{{ID}}
+@DEL sidecar:b58:bp:{{ID}}
+SETBIT-bp|0|SETBIT sidecar:b58:bp:{{ID}} 7 1
+BITPOS|7|BITPOS sidecar:b58:bp:{{ID}} 1
+GETBIT-bp|1|GETBIT sidecar:b58:bp:{{ID}} 7
+DEL-bp|1|DEL sidecar:b58:bp:{{ID}}
+@DEL sidecar:b58:sr:{{ID}}
+SET-sr|OK|SET sidecar:b58:sr:{{ID}} hello
+SETRANGE|5|SETRANGE sidecar:b58:sr:{{ID}} 0 HELLO
+GET-sr|HELLO|GET sidecar:b58:sr:{{ID}}
+GETRANGE|ELL|GETRANGE sidecar:b58:sr:{{ID}} 1 3
+DEL-sr|1|DEL sidecar:b58:sr:{{ID}}
+@DEL sidecar:b58:db:{{ID}}
+SET-db|OK|SET sidecar:b58:db:{{ID}} 10
+DECRBY|7|DECRBY sidecar:b58:db:{{ID}} 3
+INCRBY|12|INCRBY sidecar:b58:db:{{ID}} 5
+DEL-db|1|DEL sidecar:b58:db:{{ID}}
+@DEL sidecar:b58:hn:{{ID}}
+HSETNX|1|HSETNX sidecar:b58:hn:{{ID}} f v
+HSETNX-dup|0|HSETNX sidecar:b58:hn:{{ID}} f w
+HGET-hn|v|HGET sidecar:b58:hn:{{ID}} f
+DEL-hn|1|DEL sidecar:b58:hn:{{ID}}
 
 # --- cleanup string / incr keys ---
 DEL|1|DEL sidecar:allowlist:{{ID}}

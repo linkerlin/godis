@@ -6,6 +6,7 @@
 
 ### Fixed
 
+- 第五十九批（远期子集续研）：FT.SEARCH `EXPLAINSCORE`（需 WITHSCORES；BM25STD/DOCSCORE/DISMAX 子集嵌套线格式；Godis BM25 b=0.09 自洽非 Redis 字节级）+ `SORTBY … WITHCOUNT` 语法接受；R4-1 扩至 **235** 条实跑断言（GETSET/SETNX/RPUSHX/ZREVRANK/BITPOS/SETRANGE/DECRBY/HSETNX 等）；远期仍 7 项，不宣称完整 BM25/DIALECT 或全量 sidecar
 - 第五十八批（远期子集续研）：R4-1 LTRIM 用例独立键隔离（避免与前置 LREM 序列耦合），sidecar 实跑断言 **201** 条（远期仍 7 项，不宣称全量 sidecar / 100% Redis）
 - 第五十七批（远期子集续研）：FT.AGGREGATE APPLY `matched_terms([max])` 与 `split` 真多值数组；FT.SEARCH `WITHOUTCOUNT`；R4-1 晋升 BITOP DIFF/DIFF1/ANDOR/ONE 并扩 COPY/LCS/MSETNX/LPUSHX 等至 198 条实跑断言（远期仍 7 项，不宣称完整 BM25/DIALECT 或全量 sidecar）
 - 第五十六批（远期子集续研）：FT.AGGREGATE APPLY 补齐 Redis 8.10 UTC 时间函数族、常用格式 `timefmt`/`parsetime` 与 `geodistance`；R4-1 sidecar 增至 106 条实跑断言（远期仍 7 项，不宣称完整 BM25/DIALECT 或全量 sidecar）

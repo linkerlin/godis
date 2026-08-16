@@ -1,9 +1,21 @@
 package redisearch
 
 import (
+	"fmt"
 	"math"
 	"strings"
 )
+
+// ScoreExplanation is the EXPLAINSCORE payload for one hit. Wire encoding
+// happens in database/ (simple-string leaves + nested arrays matching Redis
+// 8.x shape). Numbers use Godis BM25 params (k1/b); self-consistent with our
+// scorer, not byte-identical to RediSearch (which defaults b=0.75).
+type ScoreExplanation struct {
+	Leaf       string   // DOCSCORE / DISMAX / fallback: single simple string
+	Header     string   // BM25: "Final BM25 : words BM25 …"
+	WeightLine string   // BM25 multi-term: "(Weight 1.00 * children BM25 …)"
+	TermLines  []string // BM25 per-term breakdown lines
+}
 
 // Scorer names recognized by FT.SEARCH SCORER. BM25STD is the Redis 8.x
 // default (renamed from BM25 in 8.4; BM25 is a deprecated alias).
@@ -207,4 +219,149 @@ func scorerHAMMING(doc *Document, sc *scoreContext) float64 {
 		}
 	}
 	return 1.0 / (1.0 + float64(dist))
+}
+
+// explainScore builds an EXPLAINSCORE tree for the named scorer. Subset of
+// Redis shapes: BM25STD(/BM25), DOCSCORE, DISMAX; other scorers get a leaf.
+func explainScore(doc *Document, sc *scoreContext, scorerName string) *ScoreExplanation {
+	finalScore := float64(0)
+	if sc != nil {
+		// Match computeScore dispatch without needing the engine receiver.
+		switch strings.ToUpper(scorerName) {
+		case ScorerBM25, ScorerBM25STD, "":
+			finalScore = scorerBM25STD(doc, sc, bm25K1, bm25B) * doc.Score
+		case ScorerBM25STDTanh:
+			raw := scorerBM25STD(doc, sc, bm25K1, bm25B)
+			factor := sc.tanhFactor
+			if factor <= 0 {
+				factor = 4
+			}
+			finalScore = math.Tanh(raw/factor) * doc.Score
+		case ScorerBM25STDNorm:
+			finalScore = scorerBM25STD(doc, sc, bm25K1, bm25B) * doc.Score
+		case ScorerDISMAX:
+			finalScore = scorerDISMAX(doc, sc) * doc.Score
+		case ScorerDOCSCORE:
+			finalScore = doc.Score
+		default:
+			finalScore = scorerBM25STD(doc, sc, bm25K1, bm25B) * doc.Score
+		}
+	}
+	switch strings.ToUpper(scorerName) {
+	case "", ScorerBM25, ScorerBM25STD, ScorerBM25STDNorm, ScorerBM25STDTanh:
+		return explainBM25STD(doc, sc)
+	case ScorerTFIDF, ScorerTFIDFDocNorm:
+		return explainTFIDF(doc, sc, strings.EqualFold(scorerName, ScorerTFIDFDocNorm))
+	case ScorerDOCSCORE:
+		return &ScoreExplanation{Leaf: fmt.Sprintf("Document's score is %.2f", doc.Score)}
+	case ScorerDISMAX:
+		freq := scorerDISMAX(doc, sc)
+		return &ScoreExplanation{Leaf: fmt.Sprintf("DISMAX %.2f = Weight 1.00 * Frequency %.0f", finalScore, freq)}
+	default:
+		return &ScoreExplanation{Leaf: fmt.Sprintf("Score %.2f", finalScore)}
+	}
+}
+
+func explainTFIDF(doc *Document, sc *scoreContext, docNorm bool) *ScoreExplanation {
+	words := scorerTFIDF(doc, sc, docNorm)
+	norm := 1
+	if docNorm && sc != nil && sc.idx != nil {
+		dl := sc.idx.docLengths[doc.ID]
+		if dl > 0 {
+			norm = dl
+		}
+	}
+	docScore := 1.0
+	if doc != nil {
+		docScore = doc.Score
+	}
+	header := fmt.Sprintf(
+		"Final TFIDF : words TFIDF %.2f * document score %.2f / norm %d / slop 1",
+		words, docScore, norm,
+	)
+	var termLines []string
+	if sc != nil && sc.docCount > 0 {
+		for _, term := range sc.queryTerms {
+			tf := float64(len(sc.idx.terms[term][doc.ID]))
+			if tf == 0 {
+				continue
+			}
+			df := float64(len(sc.idx.terms[term]))
+			idf := math.Log((sc.docCount-df+0.5)/(df+0.5) + 1)
+			contrib := tf * idf
+			if docNorm {
+				dl := float64(sc.idx.docLengths[doc.ID])
+				if dl > 0 {
+					contrib /= dl
+				}
+			}
+			termLines = append(termLines, fmt.Sprintf(
+				"(TFIDF %.2f = Weight 1.00 * TF %.0f * IDF %.2f)", contrib, tf, idf,
+			))
+		}
+	}
+	return &ScoreExplanation{Header: header, TermLines: termLines}
+}
+
+func explainBM25STD(doc *Document, sc *scoreContext) *ScoreExplanation {
+	if sc == nil || sc.docCount == 0 {
+		return &ScoreExplanation{Leaf: "Final BM25 : words BM25 0.00 * document score 1.00"}
+	}
+	words := scorerBM25STD(doc, sc, bm25K1, bm25B)
+	header := fmt.Sprintf("Final BM25 : words BM25 %.2f * document score %.2f", words, doc.Score)
+	dl := float64(sc.idx.docLengths[doc.ID])
+	avgdl := sc.avgdl
+	if avgdl <= 0 {
+		avgdl = 1
+	}
+	denomBase := bm25K1 * (1 - bm25B + bm25B*dl/avgdl)
+	var termLines []string
+	for _, term := range sc.queryTerms {
+		idfDenom := float64(len(sc.idx.terms[term]))
+		if idfDenom == 0 {
+			continue
+		}
+		idf := math.Log((sc.docCount-idfDenom+0.5)/(idfDenom+0.5) + 1)
+		var contrib, tf, weight float64
+		weight = 1
+		usedField := false
+		if !sc.idx.noFields {
+			for _, field := range sc.idx.fields {
+				if field == nil || field.Type != FieldTypeText || field.NoIndex {
+					continue
+				}
+				ftf := float64(len(sc.idx.terms[field.Name+":"+term][doc.ID]))
+				if ftf == 0 {
+					continue
+				}
+				w := field.Weight
+				if w <= 0 {
+					w = 1
+				}
+				c := w * idf * (ftf * (bm25K1 + 1)) / (ftf + denomBase)
+				contrib += c
+				if !usedField || ftf*w > tf*weight {
+					tf, weight = ftf, w
+				}
+				usedField = true
+			}
+		}
+		if !usedField {
+			tf = float64(len(sc.idx.terms[term][doc.ID]))
+			if tf == 0 {
+				continue
+			}
+			contrib = idf * (tf * (bm25K1 + 1)) / (tf + denomBase)
+			weight = 1
+		}
+		termLines = append(termLines, fmt.Sprintf(
+			"%s: (%.2f = Weight %.2f * IDF %.2f * (F %.2f * (k1 %.1f + 1)) / (F %.2f + k1 %.1f * (1 - b %g + b %g * Doc Len %.0f / Average Doc Len %.2f)))",
+			term, contrib, weight, idf, tf, bm25K1, tf, bm25K1, bm25B, bm25B, dl, avgdl,
+		))
+	}
+	ex := &ScoreExplanation{Header: header, TermLines: termLines}
+	if len(termLines) > 1 {
+		ex.WeightLine = fmt.Sprintf("(Weight 1.00 * children BM25 %.2f)", words)
+	}
+	return ex
 }

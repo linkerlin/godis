@@ -384,6 +384,8 @@ type SearchResult struct {
 	Score      float64
 	Fields     map[string]interface{}
 	Highlights map[string]string // field -> highlighted value
+	// ScoreExplain is set when SearchOptions.ExplainScore is true (FT.SEARCH EXPLAINSCORE).
+	ScoreExplain *ScoreExplanation
 }
 
 // SearchKNN runs a hybrid vector KNN query: it evaluates baseQuery to obtain
@@ -590,6 +592,9 @@ func (e *RediSearchEngine) Search(query string, opts *SearchOptions) (*SearchRes
 			Score:    score,
 			Fields:   doc.Fields,
 		}
+		if opts != nil && opts.ExplainScore {
+			result.ScoreExplain = explainScore(doc, sc, scorerName)
+		}
 
 		// Apply highlighting if requested
 		if opts != nil && opts.Highlight {
@@ -745,6 +750,8 @@ type SearchOptions struct {
 	WithScores   bool
 	WithPayloads bool
 	WithSortKeys bool
+	// ExplainScore requests a textual score breakdown (requires WithScores at command layer).
+	ExplainScore bool
 	Verbatim     bool
 	NoStopWords  bool
 	Slop         int

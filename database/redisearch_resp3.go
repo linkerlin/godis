@@ -21,13 +21,14 @@ import (
 // It wraps the already-built RESP2 reply plus the option flags needed to walk
 // the positional array and rebuild it as a map.
 type FTSearchReply struct {
-	resp2        redis.Reply // the positional RESP2 array (MultiRawReply or cursor form)
-	total        int64
-	withScores   bool
-	withPayloads bool
-	withSortKeys bool
-	noContent    bool
-	attributes   []string // RETURN field names (nil = all fields)
+	resp2            redis.Reply // the positional RESP2 array (MultiRawReply or cursor form)
+	total            int64
+	withScores       bool
+	withPayloads     bool
+	withSortKeys     bool
+	withExplainScore bool // score slot is [score, explain] nested array
+	noContent        bool
+	attributes       []string // RETURN field names (nil = all fields)
 }
 
 // MakeFTSearchReply wraps a RESP2 FT.SEARCH reply with the flags ToRESP3 needs.
@@ -41,6 +42,14 @@ func MakeFTSearchReply(resp2 redis.Reply, total int64, withScores, withPayloads,
 		noContent:    noContent,
 		attributes:   attributes,
 	}
+}
+
+// setExplainScore marks that WITHSCORES+EXPLAINSCORE nested the score slot.
+func (r *FTSearchReply) setExplainScore(v bool) *FTSearchReply {
+	if r != nil {
+		r.withExplainScore = v
+	}
+	return r
 }
 
 // ToBytes returns the RESP2 positional array — identical to pre-RESP3 behavior.
@@ -173,9 +182,18 @@ func (r *FTSearchReply) extractDocs() []ftDoc {
 		}
 		idx++
 		if r.withScores && idx < len(mr.Replies) {
-			if s, ok := mr.Replies[idx].(*protocol.BulkReply); ok {
-				d.score = string(s.Arg)
+			switch slot := mr.Replies[idx].(type) {
+			case *protocol.BulkReply:
+				d.score = string(slot.Arg)
 				d.hasScore = true
+			case *protocol.MultiRawReply:
+				// EXPLAINSCORE: [scoreBulk, explain...]
+				if len(slot.Replies) > 0 {
+					if s, ok := slot.Replies[0].(*protocol.BulkReply); ok {
+						d.score = string(s.Arg)
+						d.hasScore = true
+					}
+				}
 			}
 			idx++
 		}

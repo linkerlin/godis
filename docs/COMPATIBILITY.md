@@ -198,11 +198,11 @@ UNWATCH、WAIT（简版）、BITOP、BITFIELD、SMOVE、LPOS、XCLAIM、SHUTDOWN
 | 完整 Redis gossip bus | MEET→Raft/FSM join；**REPLICATE/FORGET 接 FSM**（非 gossip）；BUMPEPOCH=`BUMPED 0`；无 CLUSTERMSG 二进制 bus | **`cluster_bus_port:0`**；ping/pong + **meet_sent（MEET 发起）/meet_received（`cluster.join` 本地 apply）** 映射内部 RPC（非宣称已有 gossip bus）；RESET/SAVECONFIG/CLUSTER FAILOVER/真 epoch/`fail` 传播仍延期 |
 | 官方模块原生 RDB·DUMP 互通 | Stream/JSON/Vector/TS/概率结构/FT 走 Godis opaque `GODIS1`；见「官方模块 RDB/DUMP 边界」 | RESTORE / LoadRDB **明确 ERR**（模块 type 标记 / ModuleTypeObject；兼拒绝矩阵）；**不**与 Redis 模块 RDB 互通；远期仍开放 |
 | FUNCTION DUMP 官方互通 | Godis `GODISFN1` 自洽；**显式拒绝**官方 `0xF5`/`0xF6`/`REDIS####`；截断/异己二进制明确 ERR；兼旧文本 | 见「官方 FUNCTION DUMP 边界」；**禁止假互通** |
-| 完整 BM25 / 完整 KNN 方言 / 完整 DIALECT | BM25STD：WEIGHT + 文档长度 + **可测 IDF** + **多字段加权求和**；NORM min-max；**TANH + BM25STD_TANH_FACTOR**；KNN：`AS`/`$YIELD_DISTANCE_AS`、**HYBRID_POLICY** 校验、空预过滤；DIALECT 1/2/3 子集（GEOSHAPE≥3；**tag 空格/多字段 `@f1\|f2` 强制 ≥2**）；AGGREGATE APPLY：UTC 时间族、`parsetime`/`geodistance`、**`matched_terms([max])` 多值**、**`split` 真多值**；**FT.SEARCH WITHOUTCOUNT**（领先总数=本页文档数） | **非**论文级完整 BM25（无 slop 罚分进打分、无全局 NORM over collection、无 stemmer 变体进 `matched_terms`）；非完整 KNN/DIALECT 4；见 REDISEARCH_ALIGNMENT |
+| 完整 BM25 / 完整 KNN 方言 / 完整 DIALECT | BM25STD：WEIGHT + 文档长度 + **可测 IDF** + **多字段加权求和**；NORM min-max；**TANH + BM25STD_TANH_FACTOR**；KNN：`AS`/`$YIELD_DISTANCE_AS`、**HYBRID_POLICY** 校验、空预过滤；DIALECT 1/2/3 子集（GEOSHAPE≥3；**tag 空格/多字段 `@f1\|f2` 强制 ≥2**）；AGGREGATE APPLY：UTC 时间族、`parsetime`/`geodistance`、**`matched_terms([max])` 多值**、**`split` 真多值**；**FT.SEARCH WITHOUTCOUNT**；**EXPLAINSCORE**（需 WITHSCORES；BM25/DOCSCORE/DISMAX 子集；b 与 Redis 默认不同）+ **SORTBY WITHCOUNT** 接受 | **非**论文级完整 BM25（无 slop 罚分进打分、无全局 NORM over collection、无 stemmer 变体进 `matched_terms`）；非完整 KNN/DIALECT 4；EXPLAINSCORE 非字节级对齐 RediSearch；见 REDISEARCH_ALIGNMENT |
 | ~~Vector 图内真 int8 距离~~ | **VADD Q8/BIN 真存储**；**BIN→图内 Hamming**；**Q8→图内 int8 距离**（无搜索态 f32 缓冲）；FT VECTOR 窄类型解码已有 | ✅ 2026-08-11 deep6；VEMB 仍可显示反量化近似 |
 | ~~AOF rewrite / RDB 写出 FT 索引定义~~ | 命令 AOF + **纯 AOF rewrite→FT.CREATE** + **RDB Godis opaque `ft`**（Load 后回填） | ✅ 2026-08-11；**非**官方 RediSearch 模块 RDB |
 | ~~HLL sparse 读取~~ | dense 互通；**sparse 安全解码→内存 dense**（写回仍 dense） | ✅ 2026-08-11：corrupt/非 dense·sparse 编码→`INVALIDOBJ`；已移出远期清单 |
-| CI Redis sidecar 全量输出 diff（R4-1） | 未做全量 | **扩大 allowlist**（`scripts/r4-1-cases.txt`）：String/Hash/List/Set/ZSet/TTL + Stream/Geo/Bitops/HLL lite + **BITOP DIFF/DIFF1/ANDOR/ONE** + COPY/RENAMENX/LCS/MSETNX/LPUSHX 等稳定路径；Redis 8.10 对照实跑 **201** 条断言；`@skip`/`@todo` 诚实标注已知洞；**仍非** FT/模块/DUMP/集群/无序回复全量套件 |
+| CI Redis sidecar 全量输出 diff（R4-1） | 未做全量 | **扩大 allowlist**（`scripts/r4-1-cases.txt`）：String/Hash/List/Set/ZSet/TTL + Stream/Geo/Bitops/HLL lite + **BITOP DIFF/DIFF1/ANDOR/ONE** + COPY/RENAMENX/LCS/MSETNX/LPUSHX + **GETSET/SETNX/RPUSHX/ZREVRANK/BITPOS/SETRANGE/DECRBY/HSETNX** 等稳定路径；Redis 8.10 对照实跑 **235** 条断言；`@skip`/`@todo` 诚实标注已知洞；**仍非** FT/模块/DUMP/集群/无序回复全量套件 |
 | 覆盖率专项冲高（R4-2） | 未做 | 书面远期；**观察式门槛**见 `.github/workflows/coverall.yml` 注释（Coveralls 趋势、无私有 % 门禁、不因覆盖率 fail） |
 
 ### R4-1 套件边界
@@ -226,9 +226,10 @@ UNWATCH、WAIT（简版）、BITOP、BITFIELD、SMOVE、LPOS、XCLAIM、SHUTDOWN
 | BM25STD 核心 | IDF `ln((N−df+0.5)/(df+0.5)+1)`；`b` 文档长度归一；按 TEXT 字段 WEIGHT 求和；k1=1.2 / b=0.09 | BM25 slop 罚分进分数；与 Redis 二进制级分数对齐；全局 collection 统计变体细枝 |
 | BM25STD.NORM / .TANH | 结果集真 min-max；`tanh(raw/factor)`，默认 factor 4；**`BM25STD_TANH_FACTOR Y`** | —.NORM 依赖全 hit 集非全集强制扫描 |
 | KNN | `*=>[KNN …]` / 预过滤；`AS` 与 **`=>{$YIELD_DISTANCE_AS}`**；`EF_RUNTIME`；`HYBRID_POLICY`∈{ADHOC_BF,BATCHES}（均暴力）；空候选→0 | 真 BATCHES 迭代；`$SHARD_K_RATIO` 集群语义；HNSW 近似保证≠暴力 |
-| DIALECT | 1/2 优先级；2：PARAMS/KNN/比较/`ismissing`/tag 空格/`@f1\|f2`；3：GEOSHAPE；**WITHOUTCOUNT** 领先总数=本页文档数；非法值与具体 ERR | DIALECT 3 多值 JSON 全量返回；DIALECT 4 排序优化 |
+| DIALECT | 1/2 优先级；2：PARAMS/KNN/比较/`ismissing`/tag 空格/`@f1\|f2`；3：GEOSHAPE；**WITHOUTCOUNT** 领先总数=本页文档数；**EXPLAINSCORE**（需 WITHSCORES）；**SORTBY WITHCOUNT** 接受；非法值与具体 ERR | DIALECT 3 多值 JSON 全量返回；DIALECT 4 排序优化；EXPLAINSCORE 非字节级对齐 |
 | AGGREGATE APPLY | 算术/字符串/布尔函数；UTC `day/hour/minute/month/dayof*`、`year/monthofyear`；常用 strftime 格式 `timefmt`/`parsetime`；两坐标或四数值 `geodistance`；**`matched_terms([max])` 多值**（无 stemmer 变体）；**`split` 真多值数组** | 完整 strftime 指令；stemmer 形态进 matched_terms；DIALECT 4 排序优化仍未完整 |
 | FT.SEARCH WITHOUTCOUNT | 领先整数=本页返回文档数（LIMIT 截断时可验） | 非完整 DIALECT 4 其它语义 |
+| FT.SEARCH EXPLAINSCORE | BM25STD/DOCSCORE/DISMAX 嵌套 simple-string 线格式（自洽 b=0.09） | 非 RediSearch 字节级；TFIDF/HAMMING 仅简叶 |
 
 ### Godis opaque / FUNCTION 信封边界（非 Redis 互通）
 
@@ -287,5 +288,5 @@ UNWATCH、WAIT（简版）、BITOP、BITFIELD、SMOVE、LPOS、XCLAIM、SHUTDOWN
 
 ---
 
-**最后更新：** 2026-08-17（第五十八批：R4-1 LTRIM 独立键隔离，sidecar 实跑 **201** 条；第五十七批已含 matched_terms/split/WITHOUTCOUNT；对照 Redis **8.10.0**；远期仍 **7**：jemalloc / gossip / 模块 RDB·DUMP / FUNCTION DUMP 互通 / 完整 BM25·KNN·DIALECT / R4-1 全量 / R4-2）
+**最后更新：** 2026-08-17（第五十九批：FT.SEARCH EXPLAINSCORE 子集 + SORTBY WITHCOUNT + R4-1 扩至 **235**；对照 Redis **8.10.0**；远期仍 **7**：jemalloc / gossip / 模块 RDB·DUMP / FUNCTION DUMP 互通 / 完整 BM25·KNN·DIALECT / R4-1 全量 / R4-2）
 

@@ -760,6 +760,9 @@ func execFTSearch(db *DB, args [][]byte) redis.Reply {
 		case "WITHSCORES":
 			withScores = true
 			opts.WithScores = true
+		case "EXPLAINSCORE":
+			// Requires WITHSCORES (validated after the option loop).
+			opts.ExplainScore = true
 		case "WITHPAYLOADS":
 			withPayloads = true
 			opts.WithPayloads = true
@@ -1026,6 +1029,11 @@ func execFTSearch(db *DB, args [][]byte) redis.Reply {
 					i++
 				}
 			}
+			// WITHCOUNT: ask for accurate total (Godis already returns full hit
+			// count unless WITHOUTCOUNT). Accept for Redis 8.x syntax parity.
+			if i+1 < len(args) && strings.EqualFold(string(args[i+1]), "WITHCOUNT") {
+				i++
+			}
 		case "RETURN":
 			if i+1 >= len(args) {
 				return protocol.MakeSyntaxErrReply()
@@ -1089,6 +1097,11 @@ func execFTSearch(db *DB, args [][]byte) redis.Reply {
 		default:
 			return protocol.MakeSyntaxErrReply()
 		}
+	}
+
+	if opts.ExplainScore && !withScores {
+		// Redis 8.x: SEARCH_PARSE_ARGS prefix (no ERR).
+		return protocol.MakeErrReply("SEARCH_PARSE_ARGS EXPLAINSCORE must be accompanied with WITHSCORES")
 	}
 
 	// Apply FT.CONFIG defaults / caps (MAXSEARCHRESULTS, TIMEOUT, DEFAULT_DIALECT).
@@ -1228,7 +1241,16 @@ func execFTSearch(db *DB, args [][]byte) redis.Reply {
 		replies = append(replies, protocol.MakeBulkReply([]byte(result.Document.ID)))
 
 		if withScores {
-			replies = append(replies, protocol.MakeBulkReply([]byte(fmt.Sprintf("%.6f", result.Score))))
+			scoreBulk := protocol.MakeBulkReply([]byte(fmt.Sprintf("%.6f", result.Score)))
+			if opts.ExplainScore && result.ScoreExplain != nil {
+				// Redis: score slot becomes [score, explain] when EXPLAINSCORE.
+				replies = append(replies, protocol.MakeMultiRawReply([]redis.Reply{
+					scoreBulk,
+					encodeScoreExplain(result.ScoreExplain),
+				}))
+			} else {
+				replies = append(replies, scoreBulk)
+			}
 		}
 
 		if withPayloads && result.Document.Payload != nil {
@@ -1317,7 +1339,39 @@ func execFTSearch(db *DB, args [][]byte) redis.Reply {
 			attrNames = append(attrNames, rf.name)
 		}
 	}
-	return MakeFTSearchReply(protocol.MakeMultiRawReply(replies), replyTotal, withScores, withPayloads, withSortKeys, noContent, attrNames)
+	return MakeFTSearchReply(protocol.MakeMultiRawReply(replies), replyTotal, withScores, withPayloads, withSortKeys, noContent, attrNames).
+		setExplainScore(opts.ExplainScore)
+}
+
+// encodeScoreExplain maps a ScoreExplanation to Redis 8.x nested RESP
+// (simple-string leaves). BM25 single-term vs multi-term shapes differ.
+func encodeScoreExplain(ex *redisearch.ScoreExplanation) redis.Reply {
+	if ex == nil {
+		return protocol.MakeStatusReply("")
+	}
+	if ex.Leaf != "" {
+		return protocol.MakeStatusReply(ex.Leaf)
+	}
+	header := protocol.MakeStatusReply(ex.Header)
+	termReplies := make([]redis.Reply, len(ex.TermLines))
+	for i, line := range ex.TermLines {
+		termReplies[i] = protocol.MakeStatusReply(line)
+	}
+	terms := protocol.MakeMultiRawReply(termReplies)
+	if ex.WeightLine != "" {
+		// Multi-term: [header, [[weightLine, [terms...]]]]
+		return protocol.MakeMultiRawReply([]redis.Reply{
+			header,
+			protocol.MakeMultiRawReply([]redis.Reply{
+				protocol.MakeMultiRawReply([]redis.Reply{
+					protocol.MakeStatusReply(ex.WeightLine),
+					terms,
+				}),
+			}),
+		})
+	}
+	// Single-term: [header, [termLine...]]
+	return protocol.MakeMultiRawReply([]redis.Reply{header, terms})
 }
 
 // summarizeFTText truncates field text for FT.SEARCH SUMMARIZE (minimal single fragment).

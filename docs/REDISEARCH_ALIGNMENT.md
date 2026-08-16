@@ -235,6 +235,8 @@ FT.SEARCH idx "hello"  # -> %5 total_results / results / attributes / format / w
 | BM25STD.NORM | ✅ | 结果集真 min-max；**TEXT WEIGHT** + **文档长度** + **可测 IDF** + **多字段加权求和**；**BM25STD.TANH** + **`BM25STD_TANH_FACTOR`**；**非**论文级完整 BM25（无 slop 罚分等） |
 | GEOSHAPE DIALECT | ✅ | `@geom:[WITHIN $p]` 等强制 **DIALECT ≥ 3**（DIALECT 2+PARAMS 不再静默成功） |
 | KNN/DIALECT 错误路径 | ✅ | 非法 DIALECT；缺 PARAMS / 非 VECTOR / dim；`HYBRID_POLICY` 枚举；**`$YIELD_DISTANCE_AS`**；空预过滤；D1 拒 tag 空格/`@f1\|f2`；比较/`ismissing`/GEOSHAPE 具体 ERR（仍非完整方言） |
+| FT.SEARCH EXPLAINSCORE | ✅ 子集 | 需 WITHSCORES；BM25STD/DOCSCORE/DISMAX 嵌套线格式；**非**字节级对齐 RediSearch（b=0.09） |
+| SORTBY WITHCOUNT | ✅ 语法 | 接受令牌；准确总数本为默认（WITHOUTCOUNT 除外） |
 | FT.PROFILE 迭代器细分 | 🔶 | 只报诚实总耗时;细分需 instrument 引擎迭代器 |
 | FT.HYBRID RANGE/FILTER/POLICY | 🔶 | 接受但按暴力路径执行 |
 | APPLY 日期/geo 函数 | 🔶 | UTC 时间函数族、常用 strftime 格式的 `timefmt`/`parsetime`、`geodistance` 已按 Redis 8.10 实测；完整 strftime 指令仍缺 |
