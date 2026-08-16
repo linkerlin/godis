@@ -223,9 +223,13 @@ LINDEX-lset|x|LINDEX sidecar:extra:l:{{ID}} 0
 LINSERT|3|LINSERT sidecar:extra:l:{{ID}} BEFORE b y
 LREM|1|LREM sidecar:extra:l:{{ID}} 1 y
 LLEN-l|2|LLEN sidecar:extra:l:{{ID}}
-LTRIM|OK|LTRIM sidecar:extra:l:{{ID}} 0 0
-LLEN-trim|1|LLEN sidecar:extra:l:{{ID}}
 DEL-xl|1|DEL sidecar:extra:l:{{ID}}
+@DEL sidecar:extra:lt:{{ID}}
+RPUSH-lt|3|RPUSH sidecar:extra:lt:{{ID}} a b c
+LTRIM|OK|LTRIM sidecar:extra:lt:{{ID}} 0 0
+LLEN-trim|1|LLEN sidecar:extra:lt:{{ID}}
+LINDEX-trim|a|LINDEX sidecar:extra:lt:{{ID}} 0
+DEL-lt|1|DEL sidecar:extra:lt:{{ID}}
 @DEL sidecar:extra:s1:{{ID}}
 @DEL sidecar:extra:s2:{{ID}}
 @DEL sidecar:extra:su:{{ID}}

@@ -202,7 +202,7 @@ UNWATCH、WAIT（简版）、BITOP、BITFIELD、SMOVE、LPOS、XCLAIM、SHUTDOWN
 | ~~Vector 图内真 int8 距离~~ | **VADD Q8/BIN 真存储**；**BIN→图内 Hamming**；**Q8→图内 int8 距离**（无搜索态 f32 缓冲）；FT VECTOR 窄类型解码已有 | ✅ 2026-08-11 deep6；VEMB 仍可显示反量化近似 |
 | ~~AOF rewrite / RDB 写出 FT 索引定义~~ | 命令 AOF + **纯 AOF rewrite→FT.CREATE** + **RDB Godis opaque `ft`**（Load 后回填） | ✅ 2026-08-11；**非**官方 RediSearch 模块 RDB |
 | ~~HLL sparse 读取~~ | dense 互通；**sparse 安全解码→内存 dense**（写回仍 dense） | ✅ 2026-08-11：corrupt/非 dense·sparse 编码→`INVALIDOBJ`；已移出远期清单 |
-| CI Redis sidecar 全量输出 diff（R4-1） | 未做全量 | **扩大 allowlist**（`scripts/r4-1-cases.txt`）：String/Hash/List/Set/ZSet/TTL + Stream/Geo/Bitops/HLL lite + **BITOP DIFF/DIFF1/ANDOR/ONE** + COPY/RENAMENX/LCS/MSETNX/LPUSHX 等稳定路径；Redis 8.10 对照实跑 **198** 条断言；`@skip`/`@todo` 诚实标注已知洞；**仍非** FT/模块/DUMP/集群/无序回复全量套件 |
+| CI Redis sidecar 全量输出 diff（R4-1） | 未做全量 | **扩大 allowlist**（`scripts/r4-1-cases.txt`）：String/Hash/List/Set/ZSet/TTL + Stream/Geo/Bitops/HLL lite + **BITOP DIFF/DIFF1/ANDOR/ONE** + COPY/RENAMENX/LCS/MSETNX/LPUSHX 等稳定路径；Redis 8.10 对照实跑 **201** 条断言；`@skip`/`@todo` 诚实标注已知洞；**仍非** FT/模块/DUMP/集群/无序回复全量套件 |
 | 覆盖率专项冲高（R4-2） | 未做 | 书面远期；**观察式门槛**见 `.github/workflows/coverall.yml` 注释（Coveralls 趋势、无私有 % 门禁、不因覆盖率 fail） |
 
 ### R4-1 套件边界
@@ -287,5 +287,5 @@ UNWATCH、WAIT（简版）、BITOP、BITFIELD、SMOVE、LPOS、XCLAIM、SHUTDOWN
 
 ---
 
-**最后更新：** 2026-08-17（第五十七批：APPLY `matched_terms`/`split` 多值 + FT.SEARCH WITHOUTCOUNT + R4-1 扩至 198 条实跑断言含 BITOP DIFF*；对照 Redis **8.10.0**；远期仍 **7**：jemalloc / gossip / 模块 RDB·DUMP / FUNCTION DUMP 互通 / 完整 BM25·KNN·DIALECT / R4-1 全量 / R4-2）
+**最后更新：** 2026-08-17（第五十八批：R4-1 LTRIM 独立键隔离，sidecar 实跑 **201** 条；第五十七批已含 matched_terms/split/WITHOUTCOUNT；对照 Redis **8.10.0**；远期仍 **7**：jemalloc / gossip / 模块 RDB·DUMP / FUNCTION DUMP 互通 / 完整 BM25·KNN·DIALECT / R4-1 全量 / R4-2）
 

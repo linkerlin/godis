@@ -6,6 +6,7 @@
 
 ### Fixed
 
+- 第五十八批（远期子集续研）：R4-1 LTRIM 用例独立键隔离（避免与前置 LREM 序列耦合），sidecar 实跑断言 **201** 条（远期仍 7 项，不宣称全量 sidecar / 100% Redis）
 - 第五十七批（远期子集续研）：FT.AGGREGATE APPLY `matched_terms([max])` 与 `split` 真多值数组；FT.SEARCH `WITHOUTCOUNT`；R4-1 晋升 BITOP DIFF/DIFF1/ANDOR/ONE 并扩 COPY/LCS/MSETNX/LPUSHX 等至 198 条实跑断言（远期仍 7 项，不宣称完整 BM25/DIALECT 或全量 sidecar）
 - 第五十六批（远期子集续研）：FT.AGGREGATE APPLY 补齐 Redis 8.10 UTC 时间函数族、常用格式 `timefmt`/`parsetime` 与 `geodistance`；R4-1 sidecar 增至 106 条实跑断言（远期仍 7 项，不宣称完整 BM25/DIALECT 或全量 sidecar）
 - 第五十五批（可关闭扫尽收口）：ACL CAT 列表/查询无 `@` 前缀（带 `@`→Unknown category，对照 Redis 8.10）；ACL/CLIENT/COMMAND/PUBSUB/FUNCTION/XGROUP HELP 布局对齐；**可关闭 ERR/CONFIG/HELP 战役收口**（远期 7 项仍为非目标，不宣称 100% Redis）
@@ -78,6 +79,7 @@
 
 ### Added
 
+- R4-1：LTRIM 独立键用例；sidecar 实跑断言 **201** 条
 - FT.AGGREGATE APPLY：`matched_terms([max])`（查询词∩文档词，多值；无 stemmer 变体）、`split` 真多值数组（对照 Redis 8.10）
 - FT.SEARCH `WITHOUTCOUNT`：领先总数=本页返回文档数（LIMIT 截断可验）
 - R4-1：BITOP DIFF/DIFF1/ANDOR/ONE 实跑断言；COPY/RENAMENX/LCS/MSETNX/LPUSHX 及 INCRBY/GETSET/MSET/SETRANGE/… 等稳定路径；断言 **198** 条
