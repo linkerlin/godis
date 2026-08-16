@@ -46,7 +46,7 @@ func execMemory(server *Server, c redis.Connection, args [][]byte) redis.Reply {
 		if len(args) != 1 {
 			return protocol.MakeErrReply("ERR wrong number of arguments for 'memory|doctor' command")
 		}
-		return protocol.MakeBulkReply([]byte("Hi Sam, I can't find any memory issue in your instance. I can only account for what occurs on this base."))
+		return execMemoryDoctor(server)
 	case "MALLOC-STATS":
 		if len(args) != 1 {
 			return protocol.MakeErrReply("ERR wrong number of arguments for 'memory|malloc-stats' command")
@@ -62,19 +62,45 @@ func execMemory(server *Server, c redis.Connection, args [][]byte) redis.Reply {
 	}
 }
 
+// execMemoryDoctor mirrors Redis Sam texts. Redis uses zmalloc total_allocated < 5MiB for the
+// "empty / very little memory" branch; Godis Alloc is Go-runtime and usually already >>5MiB, so
+// we use dataset.bytes (keys × estimate) as the closable proxy — no jemalloc/fragmentation forgery.
+func execMemoryDoctor(server *Server) redis.Reply {
+	keyCount := int64(0)
+	if server != nil {
+		for _, holder := range server.dbSet {
+			db := holder.Load().(*DB)
+			keyCount += int64(db.data.Len())
+		}
+	}
+	const littleMemory = 5 * 1024 * 1024
+	if keyCount*bytesPerKeyEstimate < littleMemory {
+		return protocol.MakeBulkReply([]byte(
+			"Hi Sam, this instance is empty or is using very little memory, " +
+				"my issues detector can't be used in these conditions. " +
+				"Please, leave for your mission on Earth and fill it with some data. " +
+				"The new Sam and I will be back to our programming as soon as I finished rebooting.",
+		))
+	}
+	return protocol.MakeBulkReply([]byte(
+		"Hi Sam, I can't find any memory issue in your instance. I can only account for what occurs on this base.",
+	))
+}
+
 func execMemoryHelp() redis.Reply {
 	lines := []string{
 		"MEMORY <subcommand> [<arg> [value] [opt] ...]. Subcommands are:",
 		"DOCTOR",
-		"    Return memory problems report.",
+		"    Return memory problems reports.",
 		"MALLOC-STATS",
-		"    Return internal statistics (Go runtime limited).",
+		"    Return internal statistics report from the memory allocator.",
 		"PURGE",
-		"    Attempt to purge dirty pages (triggers GC).",
+		"    Attempt to purge dirty pages for reclamation by the allocator.",
 		"STATS",
-		"    Return memory usage statistics.",
+		"    Return information about the memory usage of the server.",
 		"USAGE <key> [SAMPLES <count>]",
-		"    Estimate memory usage of a key in bytes.",
+		"    Return memory in bytes used by <key> and its value. Nested values are",
+		"    sampled up to <count> times (default: 5, 0 means sample all).",
 		"HELP",
 		"    Print this help.",
 	}

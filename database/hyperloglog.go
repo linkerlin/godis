@@ -185,7 +185,7 @@ func execPFDebug(db *DB, args [][]byte) redis.Reply {
 			return errReply
 		}
 		if h == nil {
-			return protocol.MakeErrReply("ERR key does not exist")
+			return protocol.MakeErrReply("ERR The specified key does not exist")
 		}
 		regs := make([][]byte, hll.Registers)
 		for i, v := range h.Registers() {
@@ -198,7 +198,7 @@ func execPFDebug(db *DB, args [][]byte) redis.Reply {
 			return errReply
 		}
 		if h == nil {
-			return protocol.MakeErrReply("ERR key does not exist")
+			return protocol.MakeErrReply("ERR The specified key does not exist")
 		}
 		msg := fmt.Sprintf("encoding:dense registers:%d", hll.Registers)
 		return protocol.MakeBulkReply([]byte(msg))

@@ -285,4 +285,4 @@ UNWATCH、WAIT（简版）、BITOP、BITFIELD、SMOVE、LPOS、XCLAIM、SHUTDOWN
 
 ---
 
-**最后更新：** 2026-08-16（第五十批可关闭：LATENCY DOCTOR 文案；LOLWUT IT / 非可视 VERSION；对照 Redis **8.10.0**；远期仍 **7**）
+**最后更新：** 2026-08-16（第五十一批可关闭：MEMORY DOCTOR 空实例文案；MEMORY/MODULE HELP；PFDEBUG 缺键；CONFIG SET 未知项文案；对照 Redis **8.10.0**；远期仍 **7**）

@@ -1475,7 +1475,7 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 				}
 				continue
 			}
-			return protocol.MakeErrReply(fmt.Sprintf("ERR Unsupported CONFIG parameter: %s", key))
+			return protocol.MakeErrReply(fmt.Sprintf("ERR Unknown option or number of arguments for CONFIG SET - '%s'", key))
 		}
 	}
 	return protocol.MakeOkReply()

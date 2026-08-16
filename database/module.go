@@ -77,14 +77,20 @@ func execModuleUnload(args [][]byte) redis.Reply {
 	return protocol.MakeErrReply("ERR Godis does not support module unloading.")
 }
 
-// execModuleHelp 获取帮助信息
+// execModuleHelp matches Redis MODULE HELP wording. LOAD/LOADEX/UNLOAD still reject at exec time.
 func execModuleHelp() redis.Reply {
 	help := []string{
-		"MODULE LIST - Return all loaded modules.",
-		"MODULE LOAD <path> [arg ...] - Load a module (not supported in Godis).",
-		"MODULE LOADEX <path> [CONFIG name value ...] [ARGS ...] - Load a module with configs (not supported in Godis).",
-		"MODULE UNLOAD <name> - Unload a module (not supported in Godis).",
-		"MODULE HELP - Display this help text.",
+		"MODULE <subcommand> [<arg> [value] [opt] ...]. Subcommands are:",
+		"LIST",
+		"    Return a list of loaded modules.",
+		"LOAD <path> [<arg> ...]",
+		"    Load a module library from <path>, passing to it any optional arguments.",
+		"LOADEX <path> [[CONFIG NAME VALUE] [CONFIG NAME VALUE]] [ARGS ...]",
+		"    Load a module library from <path>, while passing it module configurations and optional arguments.",
+		"UNLOAD <name>",
+		"    Unload a module.",
+		"HELP",
+		"    Print this help.",
 	}
 
 	result := make([]redis.Reply, len(help))

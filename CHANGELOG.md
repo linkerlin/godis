@@ -6,6 +6,7 @@
 
 ### Fixed
 
+- 第五十一批可关闭：MEMORY DOCTOR 空/小数据集 Sam 文案（dataset.bytes&lt;5MiB 代理，不伪造 jemalloc）；MEMORY/MODULE HELP 对齐 Redis 布局；PFDEBUG 缺键文案；CONFIG SET 未知项 → `Unknown option…`（对照 Redis 8.10）
 - 第五十批可关闭：LATENCY DOCTOR（threshold=0 禁用文案 / 启用无尖峰 Dave 文案）；LOLWUT IT 意大利语模式；非可视 VERSION（如 -1/0/100）仅输出版本行（对照 Redis 8.10；不伪造 Nees/schotter 完整图形）
 - 第四十九批可关闭：LATENCY RESET 返回重置事件数（整数）；COMMAND DOCS 省略未知命令名（对照 Redis 8.10）
 - 第四十八批可关闭：CONFIG `cluster-slave-*` / `slave-ignore-maxmemory` / `slave-lazy-flush` 别名；INFO 多 section 与未知 section→空；PFSELFTEST 桩（对照 Redis 8.10；不伪造 jemalloc/HLL 自检实现）
