@@ -18,9 +18,10 @@ func TestConnectionCommandsViaServer(t *testing.T) {
 	asserts.AssertBulkReply(t, server.Exec(c, utils.ToCmdLine("PING", "hello")), "hello")
 	asserts.AssertBulkReply(t, server.Exec(c, utils.ToCmdLine("ECHO", "world")), "world")
 	asserts.AssertStatusReply(t, server.Exec(c, utils.ToCmdLine("QUIT")), "OK")
-	asserts.AssertStatusReply(t, server.Exec(c, utils.ToCmdLine("READONLY")), "OK")
-	asserts.AssertStatusReply(t, server.Exec(c, utils.ToCmdLine("READWRITE")), "OK")
-	asserts.AssertStatusReply(t, server.Exec(c, utils.ToCmdLine("ASKING")), "OK")
+	msg := "ERR This instance has cluster support disabled"
+	asserts.AssertErrReply(t, server.Exec(c, utils.ToCmdLine("READONLY")), msg)
+	asserts.AssertErrReply(t, server.Exec(c, utils.ToCmdLine("READWRITE")), msg)
+	asserts.AssertErrReply(t, server.Exec(c, utils.ToCmdLine("ASKING")), msg)
 }
 
 func TestConnectionCommandsViaDB(t *testing.T) {
@@ -31,8 +32,9 @@ func TestConnectionCommandsViaDB(t *testing.T) {
 	asserts.AssertBulkReply(t, db.Exec(c, utils.ToCmdLine("PING", "db")), "db")
 	asserts.AssertBulkReply(t, db.Exec(c, utils.ToCmdLine("ECHO", "echoed")), "echoed")
 	asserts.AssertStatusReply(t, db.Exec(c, utils.ToCmdLine("QUIT")), "OK")
-	asserts.AssertStatusReply(t, db.Exec(c, utils.ToCmdLine("READONLY")), "OK")
-	asserts.AssertStatusReply(t, db.Exec(c, utils.ToCmdLine("READWRITE")), "OK")
+	msg := "ERR This instance has cluster support disabled"
+	asserts.AssertErrReply(t, db.Exec(c, utils.ToCmdLine("READONLY")), msg)
+	asserts.AssertErrReply(t, db.Exec(c, utils.ToCmdLine("READWRITE")), msg)
 
 	list := db.Exec(c, utils.ToCmdLine("CLIENT", "LIST"))
 	if _, ok := list.(*protocol.BulkReply); !ok {

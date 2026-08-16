@@ -329,6 +329,9 @@ func (server *Server) Exec(c redis.Connection, cmdLine [][]byte) (result redis.R
 		if len(cmdLine) != 1 {
 			return protocol.MakeArgNumErrReply("readonly")
 		}
+		if config.Properties == nil || !config.Properties.ClusterEnable {
+			return protocol.MakeErrReply("ERR This instance has cluster support disabled")
+		}
 		if cc, ok := c.(interface{ SetClusterReadOnly(bool) }); ok {
 			cc.SetClusterReadOnly(true)
 		}
@@ -337,6 +340,9 @@ func (server *Server) Exec(c redis.Connection, cmdLine [][]byte) (result redis.R
 		if len(cmdLine) != 1 {
 			return protocol.MakeArgNumErrReply("readwrite")
 		}
+		if config.Properties == nil || !config.Properties.ClusterEnable {
+			return protocol.MakeErrReply("ERR This instance has cluster support disabled")
+		}
 		if cc, ok := c.(interface{ SetClusterReadOnly(bool) }); ok {
 			cc.SetClusterReadOnly(false)
 		}
@@ -344,6 +350,9 @@ func (server *Server) Exec(c redis.Connection, cmdLine [][]byte) (result redis.R
 	} else if cmdName == "asking" {
 		if len(cmdLine) != 1 {
 			return protocol.MakeArgNumErrReply("asking")
+		}
+		if config.Properties == nil || !config.Properties.ClusterEnable {
+			return protocol.MakeErrReply("ERR This instance has cluster support disabled")
 		}
 		if cc, ok := c.(interface{ SetAsking(bool) }); ok {
 			cc.SetAsking(true)

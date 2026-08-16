@@ -30,7 +30,7 @@ import (
 
 func execVAdd(db *DB, args [][]byte) redis.Reply {
 	if len(args) < 2 {
-		return protocol.MakeErrReply("ERR wrong number of arguments for 'vadd' command")
+		return protocol.MakeErrReply("ERR wrong number of arguments for 'VADD' command")
 	}
 	key := string(args[0])
 	var ele string
@@ -182,7 +182,7 @@ func execVAdd(db *DB, args [][]byte) redis.Reply {
 
 func execVSim(db *DB, args [][]byte) redis.Reply {
 	if len(args) < 2 {
-		return protocol.MakeErrReply("ERR wrong number of arguments for 'vsim' command")
+		return protocol.MakeErrReply("ERR wrong number of arguments for 'VSIM' command")
 	}
 	key := string(args[0])
 	count := 10
@@ -208,7 +208,7 @@ func execVSim(db *DB, args [][]byte) redis.Reply {
 				return protocol.MakeErrReply("ERR invalid vector dimension")
 			}
 			if i+1+dim >= len(args) {
-				return protocol.MakeErrReply("ERR wrong number of arguments for 'vsim' command")
+				return protocol.MakeErrReply("ERR wrong number of arguments for 'VSIM' command")
 			}
 			floats = make([]float64, dim)
 			for d := 0; d < dim; d++ {

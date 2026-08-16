@@ -4,6 +4,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/linkerlin/godis/config"
 	"github.com/linkerlin/godis/interface/redis"
 	"github.com/linkerlin/godis/redis/protocol"
 )
@@ -432,7 +433,9 @@ func execReadonly(db *DB, args [][]byte) redis.Reply {
 	if len(args) != 0 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'readonly' command")
 	}
-	// Connection flag is set when available; always OK (Redis / standalone).
+	if config.Properties == nil || !config.Properties.ClusterEnable {
+		return protocol.MakeErrReply("ERR This instance has cluster support disabled")
+	}
 	return protocol.MakeOkReply()
 }
 
@@ -442,6 +445,9 @@ func execReadwrite(db *DB, args [][]byte) redis.Reply {
 	if len(args) != 0 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'readwrite' command")
 	}
+	if config.Properties == nil || !config.Properties.ClusterEnable {
+		return protocol.MakeErrReply("ERR This instance has cluster support disabled")
+	}
 	return protocol.MakeOkReply()
 }
 
@@ -450,6 +456,9 @@ func execReadwrite(db *DB, args [][]byte) redis.Reply {
 func execAsking(db *DB, args [][]byte) redis.Reply {
 	if len(args) != 0 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'asking' command")
+	}
+	if config.Properties == nil || !config.Properties.ClusterEnable {
+		return protocol.MakeErrReply("ERR This instance has cluster support disabled")
 	}
 	return protocol.MakeOkReply()
 }

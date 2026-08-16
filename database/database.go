@@ -194,7 +194,7 @@ func (db *DB) execNormalCommand(c redis.Connection, cmdLine [][]byte) redis.Repl
 		return reply
 	}
 	if !validateArity(cmd.arity, cmdLine) {
-		return protocol.MakeArgNumErrReply(cmdName)
+		return protocol.MakeArgNumErrReply(arityErrCmdName(cmdName))
 	}
 
 	start := time.Now()
@@ -255,7 +255,7 @@ func (db *DB) execWithLock(c redis.Connection, cmdLine [][]byte) redis.Reply {
 		return reply
 	}
 	if !validateArity(cmd.arity, cmdLine) {
-		return protocol.MakeArgNumErrReply(cmdName)
+		return protocol.MakeArgNumErrReply(arityErrCmdName(cmdName))
 	}
 	if cmd.prepare != nil {
 		write, read := cmd.prepare(cmdLine[1:])

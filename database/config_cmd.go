@@ -214,7 +214,10 @@ func getConfigMatches(pattern string) []configPair {
 		{"replicaof", getReplicaOf()},
 		{"slaveof", getReplicaOf()},
 		{"replica-serve-stale-data", boolToString(getReplicaServeStaleData())},
+		{"slave-serve-stale-data", boolToString(getReplicaServeStaleData())},
 		{"replica-priority", strconv.Itoa(getReplicaPriority())},
+		{"slave-priority", strconv.Itoa(getReplicaPriority())},
+		{"set-max-listpack-value", strconv.Itoa(getSetMaxListpackValue())},
 		{"proto-max-bulk-len", strconv.FormatInt(config.Properties.ProtoMaxBulkLen, 10)},
 		{"save", config.Properties.Save},
 		{"tcp-backlog", strconv.Itoa(config.Properties.TCPBacklog)},
@@ -443,7 +446,7 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 		case "replica-read-only", "slave-read-only":
 			ok, b := config.ParseConfigBool(value)
 			if !ok {
-				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'replica-read-only') - argument must be 'yes' or 'no'")
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument '" + key + "') - argument must be 'yes' or 'no'")
 			}
 			config.Properties.ReplicaReadOnly = b
 		case "dir":
@@ -848,21 +851,30 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 				}
 				config.Properties.ReplicaOf = parts[0] + " " + parts[1]
 			}
-		case "replica-serve-stale-data":
+		case "replica-serve-stale-data", "slave-serve-stale-data":
 			ok, b := config.ParseConfigBool(value)
 			if !ok {
-				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'replica-serve-stale-data') - argument must be 'yes' or 'no'")
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument '" + key + "') - argument must be 'yes' or 'no'")
 			}
 			config.Properties.ReplicaServeStaleData = b
-		case "replica-priority":
+		case "replica-priority", "slave-priority":
 			n, err := strconv.Atoi(value)
 			if err != nil {
-				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'replica-priority') - argument couldn't be parsed into an integer")
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument '" + key + "') - argument couldn't be parsed into an integer")
 			}
 			if n < 0 || n > 2147483647 {
-				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'replica-priority') - argument must be between 0 and 2147483647 inclusive")
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument '" + key + "') - argument must be between 0 and 2147483647 inclusive")
 			}
 			config.Properties.ReplicaPriority = n
+		case "set-max-listpack-value":
+			n, err := strconv.Atoi(value)
+			if err != nil {
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'set-max-listpack-value') - argument couldn't be parsed into an integer")
+			}
+			if n < 0 {
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'set-max-listpack-value') - argument must be between 0 and 9223372036854775807 inclusive")
+			}
+			config.Properties.SetMaxListpackValue = n
 		case "proto-max-bulk-len":
 			n, err := strconv.ParseInt(value, 10, 64)
 			if err != nil || n < 0 {
@@ -1403,6 +1415,13 @@ func getSetMaxListpackEntries() int {
 		return 128
 	}
 	return config.Properties.SetMaxListpackEntries
+}
+
+func getSetMaxListpackValue() int {
+	if config.Properties == nil || config.Properties.SetMaxListpackValue <= 0 {
+		return 64
+	}
+	return config.Properties.SetMaxListpackValue
 }
 
 func getOOMScoreAdj() int {

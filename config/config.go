@@ -159,6 +159,7 @@ type ServerProperties struct {
 	StreamNodeMaxEntries   int64  `cfg:"stream-node-max-entries"`
 	HashMaxListpackValue   int    `cfg:"hash-max-listpack-value"`
 	SetMaxListpackEntries  int    `cfg:"set-max-listpack-entries"`
+	SetMaxListpackValue    int    `cfg:"set-max-listpack-value"`
 	OOMScoreAdj            int    `cfg:"oom-score-adj"`
 
 	// ReplicaOf is Redis CONFIG replicaof/slaveof string ("host port" or empty when master).
@@ -265,6 +266,7 @@ func init() {
 		StreamNodeMaxEntries:  100,
 		HashMaxListpackValue:  64,
 		SetMaxListpackEntries: 128,
+		SetMaxListpackValue:   64,
 		ReplicaServeStaleData:      true,
 		ReplicaPriority:            100,
 		LuaTimeLimit:               5000,

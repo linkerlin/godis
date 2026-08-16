@@ -73,7 +73,7 @@ func execXAdd(db *DB, args [][]byte) redis.Reply {
 				i++
 			}
 			if i >= len(args) {
-				return protocol.MakeSyntaxErrReply()
+				return protocol.MakeErrReply("ERR wrong number of arguments for 'xadd' command")
 			}
 			maxlen, err := strconv.ParseInt(string(args[i]), 10, 64)
 			if err != nil {
@@ -806,7 +806,7 @@ func execXTrim(db *DB, args [][]byte) redis.Reply {
 			idx++
 		}
 		if idx >= len(args) {
-			return protocol.MakeSyntaxErrReply()
+			return protocol.MakeErrReply("ERR value is not an integer or out of range")
 		}
 		maxlen, err := strconv.ParseInt(string(args[idx]), 10, 64)
 		if err != nil {
@@ -835,14 +835,14 @@ func execXTrim(db *DB, args [][]byte) redis.Reply {
 		}
 	case "MINID":
 		idx := 2
-		if strings.ToUpper(string(args[2])) == "~" {
+		if len(args) > 2 && strings.ToUpper(string(args[2])) == "~" {
 			opts.MinIDApprox = true
 			idx++
-		} else if strings.ToUpper(string(args[2])) == "=" {
+		} else if len(args) > 2 && strings.ToUpper(string(args[2])) == "=" {
 			idx++
 		}
 		if idx >= len(args) {
-			return protocol.MakeSyntaxErrReply()
+			return protocol.MakeErrReply("ERR Invalid stream ID specified as stream command argument")
 		}
 		minID, err := stream.ParseStreamID(string(args[idx]), stream.StreamID{})
 		if err != nil {

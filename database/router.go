@@ -16,6 +16,17 @@ var (
 	cmdAliases     map[string]string
 )
 
+// arityErrCmdName returns the command name Redis uses in wrong-arity ERRs.
+// Vector Set commands are reported in uppercase (Redis 8.x module style).
+func arityErrCmdName(cmdName string) string {
+	switch cmdName {
+	case "vadd", "vsim":
+		return strings.ToUpper(cmdName)
+	default:
+		return cmdName
+	}
+}
+
 // buildCommandAliases creates mappings from multi-word command names (as standard
 // Redis clients send them) to the single-token names used in cmdTable.
 func buildCommandAliases() {
