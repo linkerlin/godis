@@ -285,4 +285,4 @@ UNWATCH、WAIT（简版）、BITOP、BITFIELD、SMOVE、LPOS、XCLAIM、SHUTDOWN
 
 ---
 
-**最后更新：** 2026-08-16（第四十九批可关闭：LATENCY RESET 整数计数；COMMAND DOCS 跳过未知命令；对照 Redis **8.10.0**；远期仍 **7**）
+**最后更新：** 2026-08-16（第五十批可关闭：LATENCY DOCTOR 文案；LOLWUT IT / 非可视 VERSION；对照 Redis **8.10.0**；远期仍 **7**）

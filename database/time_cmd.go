@@ -23,34 +23,65 @@ func execTime(args [][]byte) redis.Reply {
 	return protocol.MakeMultiBulkReply(result)
 }
 
-// execLolwut returns a short Redis-compatible easter-egg banner.
-// LOLWUT [VERSION [version]]
+// execLolwut returns a Redis-compatible LOLWUT easter egg.
+// LOLWUT [IT] [VERSION [ver]] — IT selects Italian poem mode; unsupported
+// VERSION numbers print only a short version line (like Redis 8.10).
 func execLolwut(args [][]byte) redis.Reply {
+	italian := false
+	verSet := false
 	ver := 0
-	if len(args) > 0 {
-		if !strings.EqualFold(string(args[0]), "VERSION") {
-			return protocol.MakeSyntaxErrReply()
-		}
-		if len(args) == 1 {
-			// Redis: bare VERSION uses the default style.
-		} else if len(args) == 2 {
-			n, err := strconv.Atoi(string(args[1]))
+	for i := 0; i < len(args); {
+		tok := strings.ToUpper(string(args[i]))
+		switch tok {
+		case "IT":
+			italian = true
+			i++
+		case "VERSION":
+			if i+1 >= len(args) {
+				// Bare VERSION keeps the default visual/banner style.
+				i++
+				continue
+			}
+			n, err := strconv.Atoi(string(args[i+1]))
 			if err != nil {
 				return protocol.MakeErrReply("ERR value is not an integer or out of range")
 			}
 			ver = n
-		} else {
+			verSet = true
+			i += 2
+		default:
 			return protocol.MakeSyntaxErrReply()
 		}
 	}
+
+	if italian {
+		return protocol.MakeBulkReply([]byte(lolwutItalianPoem()))
+	}
+
+	// Redis only renders dedicated visuals for a few styles; others are version-only.
+	if verSet && ver != 5 && ver != 6 {
+		return protocol.MakeBulkReply([]byte("Godis ver. redis-compat"))
+	}
+
 	msg := "Godis ver. redis-compat"
-	if ver > 0 {
+	if verSet && ver > 0 {
 		msg += " (LOLWUT style " + strconv.Itoa(ver) + ")"
 	}
 	msg += "\n" +
 		"A Go Redis-compatible server.\n" +
 		"For more information visit https://github.com/linkerlin/godis\n"
 	return protocol.MakeBulkReply([]byte(msg))
+}
+
+func lolwutItalianPoem() string {
+	// Static IT-mode stub (Redis generates verses via Balestrini's algorithm).
+	return " I  CAPELLI      TRA LE LABBRA\n" +
+		"  SI ESPANDE      RAPIDAMENTE\n" +
+		"  LA TESTA   PREMUTA    SULLA SPALLA\n" +
+		"  ASSUME     LA BEN NOTA FORMA    DI FUNGO\n" +
+		"\n" +
+		"In 1961, Nanni Balestrini created one of the first computer-generated poems, TAPE MARK I.\n" +
+		"Use: LOLWUT IT for the original Italian output. Godis ver. redis-compat\n"
 }
 
 func init() {

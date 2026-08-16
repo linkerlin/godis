@@ -260,8 +260,17 @@ func execLatencyLatest() redis.Reply {
 	return protocol.MakeMultiRawReply(result)
 }
 
-// execLatencyDoctor 获取延迟诊断信息
+// execLatencyDoctor returns a Redis-style human-readable latency report.
 func execLatencyDoctor() redis.Reply {
+	if getLatencyMonitorThreshold() == 0 {
+		return protocol.MakeBulkReply([]byte(
+			"I'm sorry, Dave, I can't do that. Latency monitoring is disabled in this Redis instance. " +
+				"You may use \"CONFIG SET latency-monitor-threshold <milliseconds>.\" in order to enable it. " +
+				"If we weren't in a deep space mission I'd suggest to take a look at " +
+				"https://redis.io/docs/latest/operate/oss_and_stack/management/optimization/latency-monitor.",
+		))
+	}
+
 	allEvents := latencyMonitor.GetAllEvents()
 
 	var issues []string
@@ -280,7 +289,10 @@ func execLatencyDoctor() redis.Reply {
 	}
 
 	if len(issues) == 0 {
-		return protocol.MakeBulkReply([]byte("No latency issues detected."))
+		return protocol.MakeBulkReply([]byte(
+			"Dave, no latency spike was observed during the lifetime of this Redis instance, not in the slightest bit. " +
+				"I honestly think you ought to sit down calmly, take a stress pill, and think things over.",
+		))
 	}
 
 	doctorReport := "Latency issues detected:\n"
