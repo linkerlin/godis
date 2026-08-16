@@ -6,6 +6,7 @@
 
 ### Fixed
 
+- 第六十批（远期子集续研）：`MEMORY STATS` 对齐 Redis 8.10 常用字段名（`peak.percentage` / `replication.backlog` / `clients.*` / `lua.caches` / `functions.caches` / `allocator.muzzy` / `allocator-fragmentation.*` / `allocator-rss.*` / `rss-overhead.*` 等；数值仍为 Go MemStats/进程估账，**非** jemalloc）；KNN `$SHARD_K_RATIO` 范围校验（standalone 接受后忽略）；`GODISFN1` 多库 DUMP↔RESTORE（FLUSH/REPLACE）自洽 + **APPEND 冲突不再吞 ERR**；R4-1 扩至 **254** 条实跑断言（INCRBYFLOAT/TOUCH/RENAME/EXPIREAT/GETEX/EXPIRETIME/LPOS/LMOVE/ZREMRANGEBYSCORE/PSETEX 等；sidecar `>=`/`<=` 改 int64）；远期仍 7 项，不宣称 jemalloc / 官方 FUNCTION 互通 / 全量 sidecar
 - 第五十九批（远期子集续研）：FT.SEARCH `EXPLAINSCORE`（需 WITHSCORES；BM25STD/TFIDF/DOCSCORE/DISMAX 子集嵌套线格式；Godis BM25 b=0.09 自洽非 Redis 字节级）+ `SORTBY … WITHCOUNT` 语法接受；RESP3 `score` 嵌套解释树；R4-1 去重后实跑断言 **218** 条（SETNX/RPUSHX/ZREVRANK/BITPOS 等；远期仍 7 项，不宣称完整 BM25/DIALECT 或全量 sidecar）
 - 第五十八批（远期子集续研）：R4-1 LTRIM 用例独立键隔离（避免与前置 LREM 序列耦合），sidecar 实跑断言 **201** 条（远期仍 7 项，不宣称全量 sidecar / 100% Redis）
 - 第五十七批（远期子集续研）：FT.AGGREGATE APPLY `matched_terms([max])` 与 `split` 真多值数组；FT.SEARCH `WITHOUTCOUNT`；R4-1 晋升 BITOP DIFF/DIFF1/ANDOR/ONE 并扩 COPY/LCS/MSETNX/LPUSHX 等至 198 条实跑断言（远期仍 7 项，不宣称完整 BM25/DIALECT 或全量 sidecar）

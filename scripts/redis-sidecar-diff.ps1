@@ -50,14 +50,14 @@ function Expand-CaseTokens {
 function Test-Want {
     param([string]$Want, [string]$Got)
     if ($Want -match '^>=(-?\d+)$') {
-        $n = 0
-        if (-not [int]::TryParse($Got, [ref]$n)) { return $false }
-        return $n -ge [int]$Matches[1]
+        $n = [int64]0
+        if (-not [int64]::TryParse($Got, [ref]$n)) { return $false }
+        return $n -ge [int64]$Matches[1]
     }
     if ($Want -match '^<=(-?\d+)$') {
-        $n = 0
-        if (-not [int]::TryParse($Got, [ref]$n)) { return $false }
-        return $n -le [int]$Matches[1]
+        $n = [int64]0
+        if (-not [int64]::TryParse($Got, [ref]$n)) { return $false }
+        return $n -le [int64]$Matches[1]
     }
     return $Got -eq $Want
 }

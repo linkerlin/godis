@@ -477,7 +477,8 @@ func execFunctionRestore(db *DB, args [][]byte) redis.Reply {
 	for name, code := range libs {
 		replace := policy == "REPLACE" || policy == "FLUSH"
 		_, err := funcEngine.LoadLibrary(name, code, replace)
-		if err != nil && policy != "APPEND" {
+		if err != nil {
+			// APPEND must fail on name collision (do not swallow); REPLACE/FLUSH replace=true.
 			return protocol.MakeErrReply(fmt.Sprintf("ERR %v", err))
 		}
 	}

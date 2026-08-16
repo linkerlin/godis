@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -643,8 +644,13 @@ func applyKNNAttrBlock(clause *KNNClause, rest string) error {
 			}
 		case "SHARD_K_RATIO":
 			// Cluster-only hint; accept and ignore in standalone.
+			// Redis requires a float in (0, 1]; reject empty / non-float / out-of-range.
 			if val == "" {
 				return fmt.Errorf("SHARD_K_RATIO requires a value")
+			}
+			r, perr := strconv.ParseFloat(val, 64)
+			if perr != nil || r <= 0 || r > 1 {
+				return fmt.Errorf("Invalid KNN SHARD_K_RATIO")
 			}
 		default:
 			// Accept unknown keys for forward-compat (ponytail).

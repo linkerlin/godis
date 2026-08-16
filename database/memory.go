@@ -17,6 +17,7 @@ import (
 	"github.com/linkerlin/godis/datastruct/vector"
 	"github.com/linkerlin/godis/interface/redis"
 	"github.com/linkerlin/godis/redis/protocol"
+	"github.com/linkerlin/godis/scripting"
 )
 
 // execMemory 处理 MEMORY 命令
@@ -352,27 +353,87 @@ func execMemoryStats(server *Server) redis.Reply {
 		fragBytes = 0
 	}
 	peak := noteUsedMemoryPeak(m.Alloc)
+	peakPct := 0.0
+	if peak > 0 {
+		peakPct = float64(m.Alloc) * 100.0 / float64(peak)
+	}
+	bytesPerKey := int64(bytesPerKeyEstimate)
+	if keyCount > 0 {
+		bytesPerKey = dataset / keyCount
+	}
+
+	// Redis MEMORY STATS field names; values are Go/process estimates (not jemalloc).
+	replBacklog := int64(0)
+	if server != nil && server.masterStatus != nil {
+		server.masterStatus.mu.RLock()
+		if server.masterStatus.backlog != nil {
+			replBacklog = server.masterStatus.backlog.histLen()
+		}
+		server.masterStatus.mu.RUnlock()
+	}
+	luaCaches := int64(scripting.GetGlobalLuaMemory())
+	fnCaches := approxFunctionsCachesBytes()
+
+	heapAlloc := int64(m.HeapAlloc)
+	if heapAlloc <= 0 {
+		heapAlloc = 1
+	}
+	allocFragRatio := float64(m.HeapSys) / float64(heapAlloc)
+	allocFragBytes := int64(m.HeapSys) - int64(m.HeapAlloc)
+	if allocFragBytes < 0 {
+		allocFragBytes = 0
+	}
+	rss := getProcessRSSBytes()
+	if rss == 0 {
+		rss = m.Sys
+	}
+	allocRSSRatio := float64(rss) / float64(heapAlloc)
+	allocRSSBytes := int64(rss) - int64(m.HeapAlloc)
+	if allocRSSBytes < 0 {
+		allocRSSBytes = 0
+	}
+	rssOverRatio := float64(rss) / float64(maxU64(m.Sys, 1))
+	rssOverBytes := int64(rss) - int64(m.Sys)
+	if rssOverBytes < 0 {
+		rssOverBytes = 0
+	}
 
 	stats := protocol.MakeMapReply()
 	stats.Put("peak.allocated", protocol.MakeIntReply(int64(peak)))
 	stats.Put("total.allocated", protocol.MakeIntReply(int64(m.Alloc)))
 	stats.Put("startup.allocated", protocol.MakeIntReply(int64(memoryStartupBytes)))
+	stats.Put("replication.backlog", protocol.MakeIntReply(replBacklog))
+	stats.Put("replica.fullsync.buffer", protocol.MakeIntReply(0))
+	// Client buffer bytes are not tracked; keep 0 (same honesty as INFO mem_clients_*).
+	stats.Put("clients.slaves", protocol.MakeIntReply(0))
+	stats.Put("clients.normal", protocol.MakeIntReply(0))
+	stats.Put("cluster.links", protocol.MakeIntReply(0))
+	stats.Put("aof.buffer", protocol.MakeIntReply(0))
+	stats.Put("lua.caches", protocol.MakeIntReply(luaCaches))
+	stats.Put("functions.caches", protocol.MakeIntReply(fnCaches))
+	stats.Put("script.VMs", protocol.MakeIntReply(luaCaches))
+	stats.Put("hash.templates", protocol.MakeIntReply(0))
 	stats.Put("keys.count", protocol.MakeIntReply(keyCount))
 	stats.Put("dataset.bytes", protocol.MakeIntReply(dataset))
-	stats.Put("keys.bytes-per-key", protocol.MakeIntReply(bytesPerKeyEstimate))
+	stats.Put("keys.bytes-per-key", protocol.MakeIntReply(bytesPerKey))
 	stats.Put("dataset.percentage", protocol.MakeDoubleReply(datasetPct))
+	stats.Put("peak.percentage", protocol.MakeDoubleReply(peakPct))
 	stats.Put("overhead.total", protocol.MakeIntReply(overhead))
 	stats.Put("overhead.hashtable.main", protocol.MakeIntReply(overhead))
 	stats.Put("overhead.hashtable.expires", protocol.MakeIntReply(overheadExpires))
+	stats.Put("db.dict.rehashing.count", protocol.MakeIntReply(0))
 	// allocator.* = Go MemStats mirrors (not jemalloc). Honest label for clients.
 	stats.Put("allocator", protocol.MakeBulkReply([]byte("go")))
 	stats.Put("allocator.allocated", protocol.MakeIntReply(int64(m.HeapAlloc)))
 	stats.Put("allocator.active", protocol.MakeIntReply(int64(m.HeapSys)))
 	stats.Put("allocator.resident", protocol.MakeIntReply(int64(m.Sys)))
-	rss := getProcessRSSBytes()
-	if rss == 0 {
-		rss = m.Sys
-	}
+	stats.Put("allocator.muzzy", protocol.MakeIntReply(0)) // Go has no jemalloc muzzy pages
+	stats.Put("allocator-fragmentation.ratio", protocol.MakeDoubleReply(allocFragRatio))
+	stats.Put("allocator-fragmentation.bytes", protocol.MakeIntReply(allocFragBytes))
+	stats.Put("allocator-rss.ratio", protocol.MakeDoubleReply(allocRSSRatio))
+	stats.Put("allocator-rss.bytes", protocol.MakeIntReply(allocRSSBytes))
+	stats.Put("rss-overhead.ratio", protocol.MakeDoubleReply(rssOverRatio))
+	stats.Put("rss-overhead.bytes", protocol.MakeIntReply(rssOverBytes))
 	stats.Put("process.rss", protocol.MakeIntReply(int64(rss)))
 	stats.Put("fragmentation", protocol.MakeDoubleReply(frag))
 	stats.Put("fragmentation.bytes", protocol.MakeIntReply(fragBytes))
@@ -380,6 +441,29 @@ func execMemoryStats(server *Server) redis.Reply {
 	stats.Put("heap.allocated", protocol.MakeIntReply(int64(m.HeapAlloc)))
 	stats.Put("gc.runs", protocol.MakeIntReply(int64(m.NumGC)))
 	return stats
+}
+
+// approxFunctionsCachesBytes sums loaded FUNCTION library source sizes (Godis estimate).
+func approxFunctionsCachesBytes() int64 {
+	if funcEngine == nil {
+		return 0
+	}
+	var n int64
+	for _, name := range funcEngine.ListLibraries() {
+		lib, ok := funcEngine.GetLibrary(name)
+		if !ok || lib == nil {
+			continue
+		}
+		n += int64(len(lib.Code) + len(lib.Name) + 64)
+	}
+	return n
+}
+
+func maxU64(a, b uint64) uint64 {
+	if a > b {
+		return a
+	}
+	return b
 }
 
 func init() {

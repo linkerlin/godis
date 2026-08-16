@@ -47,6 +47,17 @@ func TestSplitKNNClauseHybridPolicy(t *testing.T) {
 	}
 }
 
+func TestSplitKNNClauseShardKRatioAccepted(t *testing.T) {
+	_, knn, err := SplitKNNClause("*=>[KNN 1 @vec $q]=>{$SHARD_K_RATIO: 0.5}")
+	if err != nil || knn == nil || knn.K != 1 {
+		t.Fatalf("want accept SHARD_K_RATIO 0.5, got %+v err=%v", knn, err)
+	}
+	_, knn2, err := SplitKNNClause("*=>[KNN 2 @vec $q]=>{$SHARD_K_RATIO: 1}")
+	if err != nil || knn2 == nil || knn2.K != 2 {
+		t.Fatalf("want accept SHARD_K_RATIO 1, got %+v err=%v", knn2, err)
+	}
+}
+
 func TestSplitKNNClauseNoMarker(t *testing.T) {
 	base, knn, err := SplitKNNClause("@price:[0 10]")
 	if err != nil || knn != nil || base != "@price:[0 10]" {
@@ -70,6 +81,10 @@ func TestSplitKNNClauseErrorPaths(t *testing.T) {
 		{"*=>[KNN 1 @vec $q HYBRID_POLICY]", "HYBRID_POLICY requires"},
 		{"*=>[KNN 1 @vec $q HYBRID_POLICY FOO]", "Invalid KNN HYBRID_POLICY"},
 		{"*=>[KNN 1 @vec $q]=>{$YIELD_DISTANCE_AS:}", "YIELD_DISTANCE_AS requires"},
+		{"*=>[KNN 1 @vec $q]=>{$SHARD_K_RATIO:}", "SHARD_K_RATIO requires"},
+		{"*=>[KNN 1 @vec $q]=>{$SHARD_K_RATIO: 0}", "Invalid KNN SHARD_K_RATIO"},
+		{"*=>[KNN 1 @vec $q]=>{$SHARD_K_RATIO: 1.5}", "Invalid KNN SHARD_K_RATIO"},
+		{"*=>[KNN 1 @vec $q]=>{$SHARD_K_RATIO: abc}", "Invalid KNN SHARD_K_RATIO"},
 		{"*=>[KNN 1 @vec $q] leftover", "Unexpected token after KNN"},
 	}
 	for _, tc := range cases {
