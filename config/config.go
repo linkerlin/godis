@@ -179,6 +179,14 @@ type ServerProperties struct {
 	ActiveDefragCycleMax             int    `cfg:"active-defrag-cycle-max"`
 	ActiveDefragMaxScanFields        int64  `cfg:"active-defrag-max-scan-fields"`
 
+	// OOM / propagation / cluster / process title CONFIG stubs (GET/SET only).
+	OOMScoreAdjValues               string `cfg:"oom-score-adj-values"`
+	PropagationErrorBehavior        string `cfg:"propagation-error-behavior"`
+	HideUserDataFromLog             bool   `cfg:"hide-user-data-from-log"`
+	ClusterReplicaNoFailover        bool   `cfg:"cluster-replica-no-failover"`
+	ClusterAllowPubsubshardWhenDown bool   `cfg:"cluster-allow-pubsubshard-when-down"`
+	ProcTitleTemplate               string `cfg:"proc-title-template"`
+
 	// Encoding / structure size CONFIG stubs (GET/SET only).
 	ListMaxListpackSize    int   `cfg:"list-max-listpack-size"`
 	SetMaxIntsetEntries    int   `cfg:"set-max-intset-entries"`
@@ -321,6 +329,12 @@ func init() {
 		ActiveDefragCycleMin:           1,
 		ActiveDefragCycleMax:           25,
 		ActiveDefragMaxScanFields:      1000,
+		OOMScoreAdjValues:              "0 200 800",
+		PropagationErrorBehavior:       "ignore",
+		HideUserDataFromLog:            false,
+		ClusterReplicaNoFailover:       false,
+		ClusterAllowPubsubshardWhenDown: false,
+		ProcTitleTemplate:              "{title} {listen-addr} {server-mode}",
 		ListMaxListpackSize:    -2,
 		SetMaxIntsetEntries:    512,
 		ZSetMaxListpackEntries: 128,

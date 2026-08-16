@@ -219,6 +219,12 @@ func getConfigMatches(pattern string) []configPair {
 		{"active-defrag-cycle-min", strconv.Itoa(getActiveDefragCycleMin())},
 		{"active-defrag-cycle-max", strconv.Itoa(getActiveDefragCycleMax())},
 		{"active-defrag-max-scan-fields", strconv.FormatInt(getActiveDefragMaxScanFields(), 10)},
+		{"oom-score-adj-values", getOOMScoreAdjValues()},
+		{"propagation-error-behavior", getPropagationErrorBehavior()},
+		{"hide-user-data-from-log", boolToString(getHideUserDataFromLog())},
+		{"cluster-replica-no-failover", boolToString(getClusterReplicaNoFailover())},
+		{"cluster-allow-pubsubshard-when-down", boolToString(getClusterAllowPubsubshardWhenDown())},
+		{"proc-title-template", getProcTitleTemplate()},
 		{"cluster-allow-replica-migration", boolToString(getClusterAllowReplicaMigration())},
 		{"cluster-replica-validity-factor", strconv.Itoa(getClusterReplicaValidityFactor())},
 		{"hash-max-listpack-entries", strconv.Itoa(getHashMaxListpackEntries())},
@@ -962,6 +968,42 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'active-defrag-max-scan-fields') - argument must be between 1 and 9223372036854775807 inclusive")
 			}
 			config.Properties.ActiveDefragMaxScanFields = n
+		case "oom-score-adj-values":
+			if errMsg := validateOOMScoreAdjValues(value); errMsg != "" {
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'oom-score-adj-values') - " + errMsg)
+			}
+			config.Properties.OOMScoreAdjValues = strings.Join(strings.Fields(value), " ")
+		case "propagation-error-behavior":
+			v := strings.ToLower(value)
+			switch v {
+			case "ignore", "panic", "panic-on-replicas":
+				config.Properties.PropagationErrorBehavior = v
+			default:
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'propagation-error-behavior') - argument(s) must be one of the following: ignore, panic, panic-on-replicas")
+			}
+		case "hide-user-data-from-log":
+			ok, b := config.ParseConfigBool(value)
+			if !ok {
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'hide-user-data-from-log') - argument must be 'yes' or 'no'")
+			}
+			config.Properties.HideUserDataFromLog = b
+		case "cluster-replica-no-failover":
+			ok, b := config.ParseConfigBool(value)
+			if !ok {
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'cluster-replica-no-failover') - argument must be 'yes' or 'no'")
+			}
+			config.Properties.ClusterReplicaNoFailover = b
+		case "cluster-allow-pubsubshard-when-down":
+			ok, b := config.ParseConfigBool(value)
+			if !ok {
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'cluster-allow-pubsubshard-when-down') - argument must be 'yes' or 'no'")
+			}
+			config.Properties.ClusterAllowPubsubshardWhenDown = b
+		case "proc-title-template":
+			if errMsg := validateProcTitleTemplate(value); errMsg != "" {
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'proc-title-template') - " + errMsg)
+			}
+			config.Properties.ProcTitleTemplate = value
 		case "cluster-allow-replica-migration":
 			ok, b := config.ParseConfigBool(value)
 			if !ok {
@@ -1754,6 +1796,91 @@ func getActiveDefragMaxScanFields() int64 {
 		return 1000
 	}
 	return config.Properties.ActiveDefragMaxScanFields
+}
+
+func getOOMScoreAdjValues() string {
+	if config.Properties == nil || config.Properties.OOMScoreAdjValues == "" {
+		return "0 200 800"
+	}
+	return config.Properties.OOMScoreAdjValues
+}
+
+func getPropagationErrorBehavior() string {
+	if config.Properties == nil || config.Properties.PropagationErrorBehavior == "" {
+		return "ignore"
+	}
+	return config.Properties.PropagationErrorBehavior
+}
+
+func getHideUserDataFromLog() bool {
+	if config.Properties == nil {
+		return false
+	}
+	return config.Properties.HideUserDataFromLog
+}
+
+func getClusterReplicaNoFailover() bool {
+	if config.Properties == nil {
+		return false
+	}
+	return config.Properties.ClusterReplicaNoFailover
+}
+
+func getClusterAllowPubsubshardWhenDown() bool {
+	if config.Properties == nil {
+		return false
+	}
+	return config.Properties.ClusterAllowPubsubshardWhenDown
+}
+
+func getProcTitleTemplate() string {
+	if config.Properties == nil || config.Properties.ProcTitleTemplate == "" {
+		return "{title} {listen-addr} {server-mode}"
+	}
+	return config.Properties.ProcTitleTemplate
+}
+
+func validateOOMScoreAdjValues(value string) string {
+	fields := strings.Fields(value)
+	if len(fields) != 3 {
+		return "wrong number of arguments"
+	}
+	for _, f := range fields {
+		n, err := strconv.Atoi(f)
+		if err != nil || n < -2000 || n > 2000 {
+			return "Invalid oom-score-adj-values, elements must be between -2000 and 2000."
+		}
+	}
+	return ""
+}
+
+func validateProcTitleTemplate(value string) string {
+	if strings.TrimSpace(value) == "" || strings.TrimSpace(value) == "{title}" {
+		return "template format is invalid or contains unknown variables"
+	}
+	known := map[string]struct{}{
+		"title": {}, "listen-addr": {}, "server-mode": {},
+		"port": {}, "tls-port": {}, "unixsocket": {},
+		"config-file": {}, "exec-path": {},
+	}
+	s := value
+	for {
+		start := strings.IndexByte(s, '{')
+		if start < 0 {
+			break
+		}
+		end := strings.IndexByte(s[start:], '}')
+		if end < 0 {
+			return "template format is invalid or contains unknown variables"
+		}
+		end += start
+		name := s[start+1 : end]
+		if _, ok := known[name]; !ok {
+			return "template format is invalid or contains unknown variables"
+		}
+		s = s[end+1:]
+	}
+	return ""
 }
 
 // validateClientOutputBufferLimit returns Redis-style error suffix, or "" if OK.

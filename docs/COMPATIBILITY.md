@@ -285,4 +285,4 @@ UNWATCH、WAIT（简版）、BITOP、BITFIELD、SMOVE、LPOS、XCLAIM、SHUTDOWN
 
 ---
 
-**最后更新：** 2026-08-16（第四十二批可关闭：FCALL_RO；LOLWUT 负 VERSION；CONFIG cob/shutdown/locale/human-nodename/latency-percentiles/active-defrag-*；对照 Redis **8.10.0**；远期仍 **7**）
+**最后更新：** 2026-08-16（第四十三批可关闭：CONFIG oom-score-adj-values / propagation-error-behavior / hide-user-data-from-log / cluster-replica-no-failover / pubsubshard-when-down / proc-title-template；对照 Redis **8.10.0**；远期仍 **7**）
