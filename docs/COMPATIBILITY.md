@@ -285,4 +285,4 @@ UNWATCH、WAIT（简版）、BITOP、BITFIELD、SMOVE、LPOS、XCLAIM、SHUTDOWN
 
 ---
 
-**最后更新：** 2026-08-16（第四十七批可关闭：CONFIG port/bind/masteruser；oom-score-adj 枚举；对照 Redis **8.10.0**；远期仍 **7**）
+**最后更新：** 2026-08-16（第四十八批可关闭：CONFIG slave-* 别名；INFO 多 section；PFSELFTEST；对照 Redis **8.10.0**；远期仍 **7**）

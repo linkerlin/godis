@@ -173,6 +173,7 @@ func getConfigMatches(pattern string) []configPair {
 		{"lazyfree-lazy-user-del", boolToString(getLazyfreeLazyUserDel())},
 		{"lazyfree-lazy-user-flush", boolToString(getLazyfreeLazyUserFlush())},
 		{"replica-lazy-flush", boolToString(getReplicaLazyFlush())},
+		{"slave-lazy-flush", boolToString(getReplicaLazyFlush())},
 		{"aof-load-truncated", boolToString(getAofLoadTruncated())},
 		{"jemalloc-bg-thread", boolToString(getJemallocBgThread())},
 		{"activerehashing", boolToString(getActiveRehashing())},
@@ -204,6 +205,7 @@ func getConfigMatches(pattern string) []configPair {
 		{"tracking-table-max-keys", strconv.FormatInt(getTrackingTableMaxKeys(), 10)},
 		{"repl-backlog-ttl", strconv.Itoa(getReplBacklogTTL())},
 		{"replica-ignore-maxmemory", boolToString(getReplicaIgnoreMaxmemory())},
+		{"slave-ignore-maxmemory", boolToString(getReplicaIgnoreMaxmemory())},
 		{"aof-rewrite-incremental-fsync", boolToString(getAofRewriteIncrementalFsync())},
 		{"rdb-save-incremental-fsync", boolToString(getRdbSaveIncrementalFsync())},
 		{"latency-monitor-threshold", strconv.FormatInt(getLatencyMonitorThreshold(), 10)},
@@ -238,6 +240,7 @@ func getConfigMatches(pattern string) []configPair {
 		{"propagation-error-behavior", getPropagationErrorBehavior()},
 		{"hide-user-data-from-log", boolToString(getHideUserDataFromLog())},
 		{"cluster-replica-no-failover", boolToString(getClusterReplicaNoFailover())},
+		{"cluster-slave-no-failover", boolToString(getClusterReplicaNoFailover())},
 		{"cluster-allow-pubsubshard-when-down", boolToString(getClusterAllowPubsubshardWhenDown())},
 		{"proc-title-template", getProcTitleTemplate()},
 		{"active-expire-effort", strconv.Itoa(getActiveExpireEffort())},
@@ -264,6 +267,7 @@ func getConfigMatches(pattern string) []configPair {
 		{"maxmemory-clients", getMaxmemoryClients()},
 		{"cluster-allow-replica-migration", boolToString(getClusterAllowReplicaMigration())},
 		{"cluster-replica-validity-factor", strconv.Itoa(getClusterReplicaValidityFactor())},
+		{"cluster-slave-validity-factor", strconv.Itoa(getClusterReplicaValidityFactor())},
 		{"hash-max-listpack-entries", strconv.Itoa(getHashMaxListpackEntries())},
 		{"hash-max-ziplist-entries", strconv.Itoa(getHashMaxListpackEntries())},
 		{"list-max-listpack-size", strconv.Itoa(getListMaxListpackSize())},
@@ -591,10 +595,10 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'lazyfree-lazy-user-flush') - argument must be 'yes' or 'no'")
 			}
 			config.Properties.LazyfreeLazyUserFlush = b
-		case "replica-lazy-flush":
+		case "replica-lazy-flush", "slave-lazy-flush":
 			ok, b := config.ParseConfigBool(value)
 			if !ok {
-				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'replica-lazy-flush') - argument must be 'yes' or 'no'")
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument '" + key + "') - argument must be 'yes' or 'no'")
 			}
 			config.Properties.ReplicaLazyFlush = b
 		case "aof-load-truncated":
@@ -802,10 +806,10 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'repl-backlog-ttl') - argument must be between 0 and 9223372036854775807 inclusive")
 			}
 			config.Properties.ReplBacklogTTL = n
-		case "replica-ignore-maxmemory":
+		case "replica-ignore-maxmemory", "slave-ignore-maxmemory":
 			ok, b := config.ParseConfigBool(value)
 			if !ok {
-				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'replica-ignore-maxmemory') - argument must be 'yes' or 'no'")
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument '" + key + "') - argument must be 'yes' or 'no'")
 			}
 			config.Properties.ReplicaIgnoreMaxmemory = b
 		case "aof-rewrite-incremental-fsync":
@@ -1042,10 +1046,10 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'hide-user-data-from-log') - argument must be 'yes' or 'no'")
 			}
 			config.Properties.HideUserDataFromLog = b
-		case "cluster-replica-no-failover":
+		case "cluster-replica-no-failover", "cluster-slave-no-failover":
 			ok, b := config.ParseConfigBool(value)
 			if !ok {
-				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'cluster-replica-no-failover') - argument must be 'yes' or 'no'")
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument '" + key + "') - argument must be 'yes' or 'no'")
 			}
 			config.Properties.ClusterReplicaNoFailover = b
 		case "cluster-allow-pubsubshard-when-down":
@@ -1169,13 +1173,13 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'cluster-allow-replica-migration') - argument must be 'yes' or 'no'")
 			}
 			config.Properties.ClusterAllowReplicaMigration = b
-		case "cluster-replica-validity-factor":
+		case "cluster-replica-validity-factor", "cluster-slave-validity-factor":
 			n, err := strconv.Atoi(value)
 			if err != nil {
-				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'cluster-replica-validity-factor') - argument couldn't be parsed into an integer")
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument '" + key + "') - argument couldn't be parsed into an integer")
 			}
 			if n < 0 || n > 2147483647 {
-				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'cluster-replica-validity-factor') - argument must be between 0 and 2147483647 inclusive")
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument '" + key + "') - argument must be between 0 and 2147483647 inclusive")
 			}
 			config.Properties.ClusterReplicaValidityFactor = n
 		case "hash-max-listpack-entries", "hash-max-ziplist-entries":

@@ -36,9 +36,11 @@ func TestInfo(t *testing.T) {
 	ret = testServer.Exec(c, utils.ToCmdLine("INFO", "Keyspace"))
 	asserts.AssertNotError(t, ret)
 	ret = testServer.Exec(c, utils.ToCmdLine("iNFO", "abc", "bde"))
-	asserts.AssertErrReply(t, ret, "ERR wrong number of arguments for 'info' command")
+	asserts.AssertNotError(t, ret)
 	ret = testServer.Exec(c, utils.ToCmdLine("INFO", "abc"))
-	asserts.AssertErrReply(t, ret, "ERR Invalid section for 'info' command")
+	asserts.AssertNotError(t, ret)
+	ret = testServer.Exec(c, utils.ToCmdLine("INFO", "server", "clients"))
+	asserts.AssertNotError(t, ret)
 }
 
 func TestDbSize(t *testing.T) {

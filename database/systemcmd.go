@@ -195,7 +195,8 @@ func Ping(c redis.Connection, args [][]byte) redis.Reply {
 	}
 }
 
-// Info the information of the godis server returned by the INFO command
+// Info the information of the godis server returned by the INFO command.
+// Redis accepts zero or more section names; unknown sections contribute nothing.
 func Info(db *Server, args [][]byte) redis.Reply {
 	defaultSections := [...]string{"server", "client", "memory", "persistence", "stats", "replication", "cpu", "commandstats", "errorstats", "cluster", "keyspace"}
 	allSections := [...]string{"server", "client", "memory", "persistence", "stats", "replication", "cpu", "commandstats", "errorstats", "cluster", "modules", "latency", "keyspace"}
@@ -205,48 +206,54 @@ func Info(db *Server, args [][]byte) redis.Reply {
 			allSection = append(allSection, GenGodisInfoString(s, db)...)
 		}
 		return protocol.MakeBulkReply(allSection)
-	} else if len(args) == 1 {
-		section := strings.ToLower(string(args[0]))
+	}
+	var buf []byte
+	for _, a := range args {
+		section := strings.ToLower(string(a))
 		if section == "everything" || section == "all" {
-			var buf []byte
 			for _, s := range allSections {
 				buf = append(buf, GenGodisInfoString(s, db)...)
 			}
-			return protocol.MakeBulkReply(buf)
+			continue
 		}
-		switch section {
-		case "server":
-			reply := GenGodisInfoString("server", db)
-			return protocol.MakeBulkReply(reply)
-		case "client", "clients":
-			return protocol.MakeBulkReply(GenGodisInfoString("client", db))
-		case "memory":
-			return protocol.MakeBulkReply(GenGodisInfoString("memory", db))
-		case "persistence":
-			return protocol.MakeBulkReply(GenGodisInfoString("persistence", db))
-		case "stats":
-			return protocol.MakeBulkReply(GenGodisInfoString("stats", db))
-		case "replication":
-			return protocol.MakeBulkReply(GenGodisInfoString("replication", db))
-		case "cpu":
-			return protocol.MakeBulkReply(GenGodisInfoString("cpu", db))
-		case "commandstats":
-			return protocol.MakeBulkReply(GenGodisInfoString("commandstats", db))
-		case "errorstats":
-			return protocol.MakeBulkReply(GenGodisInfoString("errorstats", db))
-		case "cluster":
-			return protocol.MakeBulkReply(GenGodisInfoString("cluster", db))
-		case "modules":
-			return protocol.MakeBulkReply(GenGodisInfoString("modules", db))
-		case "latency":
-			return protocol.MakeBulkReply(GenGodisInfoString("latency", db))
-		case "keyspace":
-			return protocol.MakeBulkReply(GenGodisInfoString("keyspace", db))
-		default:
-			return protocol.MakeErrReply("ERR Invalid section for 'info' command")
+		if part := infoSectionBytes(section, db); len(part) > 0 {
+			buf = append(buf, part...)
 		}
 	}
-	return protocol.MakeArgNumErrReply("info")
+	return protocol.MakeBulkReply(buf)
+}
+
+func infoSectionBytes(section string, db *Server) []byte {
+	switch section {
+	case "server":
+		return GenGodisInfoString("server", db)
+	case "client", "clients":
+		return GenGodisInfoString("client", db)
+	case "memory":
+		return GenGodisInfoString("memory", db)
+	case "persistence":
+		return GenGodisInfoString("persistence", db)
+	case "stats":
+		return GenGodisInfoString("stats", db)
+	case "replication":
+		return GenGodisInfoString("replication", db)
+	case "cpu":
+		return GenGodisInfoString("cpu", db)
+	case "commandstats":
+		return GenGodisInfoString("commandstats", db)
+	case "errorstats":
+		return GenGodisInfoString("errorstats", db)
+	case "cluster":
+		return GenGodisInfoString("cluster", db)
+	case "modules":
+		return GenGodisInfoString("modules", db)
+	case "latency":
+		return GenGodisInfoString("latency", db)
+	case "keyspace":
+		return GenGodisInfoString("keyspace", db)
+	default:
+		return nil
+	}
 }
 
 // Auth validate client's password — implemented in auth.go

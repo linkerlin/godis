@@ -154,6 +154,13 @@ func init() {
 		attachCommandExtra([]string{redisFlagWrite, redisFlagDenyOOM}, 1, -1, 1)
 	registerCommand("PFDebug", execPFDebug, preparePFDebug, nil, -3, flagReadOnly).
 		attachCommandExtra([]string{redisFlagReadonly, redisFlagAdmin}, 2, 1, 1)
+	registerCommand("PFSelfTest", execPFSelfTest, noPrepare, nil, 1, flagReadOnly).
+		attachCommandExtra([]string{redisFlagReadonly, redisFlagAdmin}, 0, 0, 0)
+}
+
+// execPFSelfTest is a Redis-compatible HyperLogLog self-test stub (always OK).
+func execPFSelfTest(db *DB, args [][]byte) redis.Reply {
+	return protocol.MakeStatusReply("OK")
 }
 
 func preparePFDebug(args [][]byte) ([]string, []string) {

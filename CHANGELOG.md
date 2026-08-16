@@ -6,6 +6,7 @@
 
 ### Fixed
 
+- 第四十八批可关闭：CONFIG `cluster-slave-*` / `slave-ignore-maxmemory` / `slave-lazy-flush` 别名；INFO 多 section 与未知 section→空；PFSELFTEST 桩（对照 Redis 8.10；不伪造 jemalloc/HLL 自检实现）
 - 第四十七批可关闭：CONFIG port / bind / masteruser GET/SET 桩；oom-score-adj 对齐 Redis 枚举 no|yes|relative|absolute（relative→GET yes）（对照 Redis 8.10；port/bind 仅更新配置值，不重绑监听；不伪造 OOM score 真实副作用）
 - 第四十六批可关闭：QUIT 多余参数仍 OK；CONFIG databases / disable-thp / enable-*-command / enable-protected-configs / socket-mark-id / unixsocket* / syslog-* / cluster-port / cluster-config-file / supervised 的 GET 默认值与 SET immutable 文案（对照 Redis 8.10；不伪造 THP/unix socket/syslog 真实副作用）
 - 第四十五批可关闭：CONFIG tls-port / tls-dh-params-file / tls-ciphersuites / tls-client-*-file / tls-*-pass / maxmemory-clients（内存或百分比）GET/SET 桩（对照 Redis 8.10；TLS 仅桩，不伪造真实握手）
