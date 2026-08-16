@@ -6,6 +6,7 @@
 
 ### Fixed
 
+- 第五十七批（远期子集续研）：FT.AGGREGATE APPLY `matched_terms([max])` 与 `split` 真多值数组；FT.SEARCH `WITHOUTCOUNT`；R4-1 晋升 BITOP DIFF/DIFF1/ANDOR/ONE 并扩 COPY/LCS/MSETNX/LPUSHX 等至 198 条实跑断言（远期仍 7 项，不宣称完整 BM25/DIALECT 或全量 sidecar）
 - 第五十六批（远期子集续研）：FT.AGGREGATE APPLY 补齐 Redis 8.10 UTC 时间函数族、常用格式 `timefmt`/`parsetime` 与 `geodistance`；R4-1 sidecar 增至 106 条实跑断言（远期仍 7 项，不宣称完整 BM25/DIALECT 或全量 sidecar）
 - 第五十五批（可关闭扫尽收口）：ACL CAT 列表/查询无 `@` 前缀（带 `@`→Unknown category，对照 Redis 8.10）；ACL/CLIENT/COMMAND/PUBSUB/FUNCTION/XGROUP HELP 布局对齐；**可关闭 ERR/CONFIG/HELP 战役收口**（远期 7 项仍为非目标，不宣称 100% Redis）
 - 第五十四批可关闭：INFO `default` section；AUTH 多余参数→syntax；FUNCTION RESTORE 垃圾载荷 ERR；MIGRATE 空键→NOKEY；XINFO/SCRIPT HELP 布局（对照 Redis 8.10）
@@ -77,6 +78,9 @@
 
 ### Added
 
+- FT.AGGREGATE APPLY：`matched_terms([max])`（查询词∩文档词，多值；无 stemmer 变体）、`split` 真多值数组（对照 Redis 8.10）
+- FT.SEARCH `WITHOUTCOUNT`：领先总数=本页返回文档数（LIMIT 截断可验）
+- R4-1：BITOP DIFF/DIFF1/ANDOR/ONE 实跑断言；COPY/RENAMENX/LCS/MSETNX/LPUSHX 及 INCRBY/GETSET/MSET/SETRANGE/… 等稳定路径；断言 **198** 条
 - FT.AGGREGATE APPLY：UTC `day/hour/minute/month/dayofweek/dayofmonth/dayofyear/year/monthofyear`、常用 strftime 格式的 `timefmt`/`parsetime`、两坐标或四数值 `geodistance`（对照 Redis 8.10）
 - R4-1 allowlist：新增 SETNX/GETDEL/HINCRBY/HSTRLEN/RPUSH/RPOP/SMOVE/ZINCRBY/ZRANK 等稳定路径，Redis 8 sidecar 实跑 106 条断言
 - Gossip 缝（非 bus）：`cluster.join` 本地成功 → `CLUSTER INFO` **`cluster_stats_messages_meet_received`**（与发起侧 `meet_sent` 分计）；`cluster_bus_port` 仍为 **0**
@@ -196,3 +200,4 @@
 ## 更早版本
 
 详见 `docs/history/` 中的 2026-04/2026-06 审阅与兼容性报告，以及 [`改进意见_2026-06.md`](改进意见_2026-06.md) 实施索引。
+

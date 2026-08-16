@@ -909,7 +909,7 @@ func (e *RediSearchEngine) Aggregate(req *AggregationRequest) (*AggregationResul
 			postApply = append(postApply, ac)
 		}
 	}
-	docs = applyPreGroupClauses(docs, preApply)
+	docs = applyPreGroupClauses(docs, preApply, extractQueryTerms(req.Query))
 
 	// Apply GROUPBY. When neither GROUPBY nor REDUCE is given, RediSearch
 	// returns one row per matching document instead of collapsing them.
@@ -921,7 +921,7 @@ func (e *RediSearchEngine) Aggregate(req *AggregationRequest) (*AggregationResul
 	}
 
 	// Apply APPLY clauses that appeared after GROUPBY, against each result row.
-	applyPostGroupClauses(groups, postApply)
+	applyPostGroupClauses(groups, postApply, extractQueryTerms(req.Query))
 
 	// Apply HAVING clause
 	if req.Having != nil {
@@ -2169,15 +2169,20 @@ func (e *RediSearchEngine) highlightFields(doc *Document, query string, opts *Se
 
 // extractQueryTerms extracts search terms from query string
 func extractQueryTerms(query string) []string {
-	// Simplified: split by space and remove special characters
-	terms := strings.Fields(query)
+	// Use the standard tokenizer so operators like | and punctuation split
+	// cleanly (needed by HIGHLIGHT and matched_terms()).
+	tok := &StandardTokenizer{}
 	var result []string
-	for _, term := range terms {
-		// Remove common punctuation
-		term = strings.Trim(term, ".,!?;:\"'()[]{}*@")
-		if term != "" && !strings.HasPrefix(term, "@") {
-			result = append(result, strings.ToLower(term))
+	seen := make(map[string]struct{})
+	for _, term := range tok.Tokenize(query) {
+		if term == "" || strings.HasPrefix(term, "@") {
+			continue
 		}
+		if _, ok := seen[term]; ok {
+			continue
+		}
+		seen[term] = struct{}{}
+		result = append(result, term)
 	}
 	return result
 }

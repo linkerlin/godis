@@ -12,7 +12,8 @@
 #   LABEL|<=N|CMD ARG...        assert both sides are integers <= N
 # Placeholder {{ID}} -> process id (unique keys per run).
 #
-# @allowlist PING,ECHO,SET,SETNX,GET,GETDEL,STRLEN,APPEND,DEL,EXISTS,INCR,DECR,TYPE,HSET,HGET,HINCRBY,HSTRLEN,HLEN,HEXISTS,HDEL,LPUSH,RPUSH,LLEN,LINDEX,LPOP,RPOP,SADD,SCARD,SISMEMBER,SMOVE,SREM,ZADD,ZINCRBY,ZSCORE,ZRANK,ZCARD,ZREM,TTL,PTTL,PEXPIRE,EXPIRE,PERSIST,XADD,XLEN,GEOADD,SETBIT,GETBIT,BITCOUNT,BITOP,PFADD,PFCOUNT
+# WANT may embed \n for multi-line --raw (unused this batch; reserved).
+# @allowlist PING,ECHO,SET,SETNX,GET,GETDEL,GETSET,STRLEN,APPEND,DEL,EXISTS,INCR,DECR,INCRBY,DECRBY,TYPE,MSET,MSETNX,SETRANGE,GETRANGE,SETEX,UNLINK,HSET,HGET,HSETNX,HINCRBY,HSTRLEN,HLEN,HEXISTS,HDEL,LPUSH,LPUSHX,RPUSH,LLEN,LINDEX,LPOP,RPOP,LSET,LINSERT,LREM,LTRIM,SADD,SCARD,SISMEMBER,SMOVE,SREM,SUNIONSTORE,SINTERSTORE,SDIFFSTORE,ZADD,ZINCRBY,ZSCORE,ZRANK,ZCARD,ZREM,ZCOUNT,ZREMRANGEBYRANK,ZUNIONSTORE,ZINTERSTORE,TTL,PTTL,PEXPIRE,EXPIRE,PERSIST,XADD,XLEN,XDEL,GEOADD,SETBIT,GETBIT,BITCOUNT,BITOP,PFADD,PFCOUNT,COPY,RENAMENX,LCS
 
 # --- String / ping ---
 PING|PONG|PING
@@ -154,13 +155,145 @@ BITCOUNT-XOR|1|BITCOUNT sidecar:bit:xor:{{ID}}
 BITOP-NOT|1|BITOP NOT sidecar:bit:not:{{ID}} sidecar:bit:b:{{ID}}
 BITCOUNT-NOT|7|BITCOUNT sidecar:bit:not:{{ID}}
 TYPE-bit|string|TYPE sidecar:bit:{{ID}}
-@todo BITOP DIFF/DIFF1/ANDOR/ONE: Godis implements (unit-tested); CI sidecar redis version:'8' may be <8.2 — do not assert until sidecar ≥8.2
+# Redis 8.2+ bitwise ops (sidecar is Redis 8.10)
+@DEL sidecar:bit:diff:{{ID}}
+@DEL sidecar:bit:d1:{{ID}}
+@DEL sidecar:bit:ao:{{ID}}
+@DEL sidecar:bit:one:{{ID}}
+BITOP-DIFF|1|BITOP DIFF sidecar:bit:diff:{{ID}} sidecar:bit:{{ID}} sidecar:bit:b:{{ID}}
+BITCOUNT-DIFF|1|BITCOUNT sidecar:bit:diff:{{ID}}
+BITOP-DIFF1|1|BITOP DIFF1 sidecar:bit:d1:{{ID}} sidecar:bit:{{ID}} sidecar:bit:b:{{ID}}
+BITCOUNT-DIFF1|0|BITCOUNT sidecar:bit:d1:{{ID}}
+BITOP-ANDOR|1|BITOP ANDOR sidecar:bit:ao:{{ID}} sidecar:bit:{{ID}} sidecar:bit:b:{{ID}}
+BITCOUNT-ANDOR|1|BITCOUNT sidecar:bit:ao:{{ID}}
+BITOP-ONE|1|BITOP ONE sidecar:bit:one:{{ID}} sidecar:bit:{{ID}} sidecar:bit:b:{{ID}}
+BITCOUNT-ONE|1|BITCOUNT sidecar:bit:one:{{ID}}
 @DEL sidecar:bit:{{ID}}
 @DEL sidecar:bit:b:{{ID}}
 @DEL sidecar:bit:and:{{ID}}
 @DEL sidecar:bit:or:{{ID}}
 @DEL sidecar:bit:xor:{{ID}}
 @DEL sidecar:bit:not:{{ID}}
+@DEL sidecar:bit:diff:{{ID}}
+@DEL sidecar:bit:d1:{{ID}}
+@DEL sidecar:bit:ao:{{ID}}
+@DEL sidecar:bit:one:{{ID}}
+
+# --- Extra stable String / Hash / List / Set / ZSet / Stream ---
+@DEL sidecar:extra:s:{{ID}}
+INCRBY|5|INCRBY sidecar:extra:s:{{ID}} 5
+DECRBY|3|DECRBY sidecar:extra:s:{{ID}} 2
+GET-incrby|3|GET sidecar:extra:s:{{ID}}
+DEL-extra-s|1|DEL sidecar:extra:s:{{ID}}
+@DEL sidecar:extra:gs:{{ID}}
+SET-gs|OK|SET sidecar:extra:gs:{{ID}} old
+GETSET|old|GETSET sidecar:extra:gs:{{ID}} newer
+GET-gs|newer|GET sidecar:extra:gs:{{ID}}
+DEL-gs|1|DEL sidecar:extra:gs:{{ID}}
+@DEL sidecar:extra:m1:{{ID}}
+@DEL sidecar:extra:m2:{{ID}}
+MSET|OK|MSET sidecar:extra:m1:{{ID}} a sidecar:extra:m2:{{ID}} b
+GET-m1|a|GET sidecar:extra:m1:{{ID}}
+GET-m2|b|GET sidecar:extra:m2:{{ID}}
+DEL-m1|1|DEL sidecar:extra:m1:{{ID}}
+DEL-m2|1|DEL sidecar:extra:m2:{{ID}}
+@DEL sidecar:extra:sr:{{ID}}
+SETRANGE|5|SETRANGE sidecar:extra:sr:{{ID}} 0 hello
+GETRANGE|hel|GETRANGE sidecar:extra:sr:{{ID}} 0 2
+DEL-sr|1|DEL sidecar:extra:sr:{{ID}}
+@DEL sidecar:extra:se:{{ID}}
+SETEX|OK|SETEX sidecar:extra:se:{{ID}} 120 val
+GET-se|val|GET sidecar:extra:se:{{ID}}
+TTL-se|>=1|TTL sidecar:extra:se:{{ID}}
+DEL-se|1|DEL sidecar:extra:se:{{ID}}
+@DEL sidecar:extra:ul:{{ID}}
+SET-ul|OK|SET sidecar:extra:ul:{{ID}} v
+UNLINK|1|UNLINK sidecar:extra:ul:{{ID}}
+EXISTS-ul|0|EXISTS sidecar:extra:ul:{{ID}}
+@DEL sidecar:extra:h:{{ID}}
+HSETNX|1|HSETNX sidecar:extra:h:{{ID}} f v
+HSETNX-dup|0|HSETNX sidecar:extra:h:{{ID}} f v2
+HGET-nx|v|HGET sidecar:extra:h:{{ID}} f
+HEXISTS-miss|0|HEXISTS sidecar:extra:h:{{ID}} missing
+DEL-xh|1|DEL sidecar:extra:h:{{ID}}
+@DEL sidecar:extra:l:{{ID}}
+RPUSH-l|2|RPUSH sidecar:extra:l:{{ID}} a b
+LSET|OK|LSET sidecar:extra:l:{{ID}} 0 x
+LINDEX-lset|x|LINDEX sidecar:extra:l:{{ID}} 0
+LINSERT|3|LINSERT sidecar:extra:l:{{ID}} BEFORE b y
+LREM|1|LREM sidecar:extra:l:{{ID}} 1 y
+LLEN-l|2|LLEN sidecar:extra:l:{{ID}}
+LTRIM|OK|LTRIM sidecar:extra:l:{{ID}} 0 0
+LLEN-trim|1|LLEN sidecar:extra:l:{{ID}}
+DEL-xl|1|DEL sidecar:extra:l:{{ID}}
+@DEL sidecar:extra:s1:{{ID}}
+@DEL sidecar:extra:s2:{{ID}}
+@DEL sidecar:extra:su:{{ID}}
+@DEL sidecar:extra:si:{{ID}}
+@DEL sidecar:extra:sd:{{ID}}
+SADD-s1|2|SADD sidecar:extra:s1:{{ID}} a b
+SADD-s2|2|SADD sidecar:extra:s2:{{ID}} b c
+SUNIONSTORE|3|SUNIONSTORE sidecar:extra:su:{{ID}} sidecar:extra:s1:{{ID}} sidecar:extra:s2:{{ID}}
+SCARD-su|3|SCARD sidecar:extra:su:{{ID}}
+SINTERSTORE|1|SINTERSTORE sidecar:extra:si:{{ID}} sidecar:extra:s1:{{ID}} sidecar:extra:s2:{{ID}}
+SCARD-si|1|SCARD sidecar:extra:si:{{ID}}
+SDIFFSTORE|1|SDIFFSTORE sidecar:extra:sd:{{ID}} sidecar:extra:s1:{{ID}} sidecar:extra:s2:{{ID}}
+SCARD-sd|1|SCARD sidecar:extra:sd:{{ID}}
+DEL-ssets|5|DEL sidecar:extra:s1:{{ID}} sidecar:extra:s2:{{ID}} sidecar:extra:su:{{ID}} sidecar:extra:si:{{ID}} sidecar:extra:sd:{{ID}}
+@DEL sidecar:extra:z:{{ID}}
+ZADD-z|3|ZADD sidecar:extra:z:{{ID}} 1 a 2 b 3 c
+ZCOUNT|2|ZCOUNT sidecar:extra:z:{{ID}} 2 3
+ZREMRANGEBYRANK|1|ZREMRANGEBYRANK sidecar:extra:z:{{ID}} 0 0
+ZCARD-z|2|ZCARD sidecar:extra:z:{{ID}}
+DEL-xz|1|DEL sidecar:extra:z:{{ID}}
+@DEL sidecar:extra:z1:{{ID}}
+@DEL sidecar:extra:z2:{{ID}}
+@DEL sidecar:extra:zu:{{ID}}
+@DEL sidecar:extra:zi:{{ID}}
+ZADD-z1|2|ZADD sidecar:extra:z1:{{ID}} 1 a 2 b
+ZADD-z2|2|ZADD sidecar:extra:z2:{{ID}} 3 b 4 c
+ZUNIONSTORE|3|ZUNIONSTORE sidecar:extra:zu:{{ID}} 2 sidecar:extra:z1:{{ID}} sidecar:extra:z2:{{ID}}
+ZCARD-zu|3|ZCARD sidecar:extra:zu:{{ID}}
+ZINTERSTORE|1|ZINTERSTORE sidecar:extra:zi:{{ID}} 2 sidecar:extra:z1:{{ID}} sidecar:extra:z2:{{ID}}
+ZCARD-zi|1|ZCARD sidecar:extra:zi:{{ID}}
+DEL-zst|4|DEL sidecar:extra:z1:{{ID}} sidecar:extra:z2:{{ID}} sidecar:extra:zu:{{ID}} sidecar:extra:zi:{{ID}}
+@DEL sidecar:extra:xs:{{ID}}
+XADD-x|1-0|XADD sidecar:extra:xs:{{ID}} 1-0 f v
+XDEL|1|XDEL sidecar:extra:xs:{{ID}} 1-0
+XLEN-after-xdel|0|XLEN sidecar:extra:xs:{{ID}}
+DEL-xs|1|DEL sidecar:extra:xs:{{ID}}
+@DEL sidecar:extra:cp1:{{ID}}
+@DEL sidecar:extra:cp2:{{ID}}
+SET-cp|OK|SET sidecar:extra:cp1:{{ID}} v
+COPY|1|COPY sidecar:extra:cp1:{{ID}} sidecar:extra:cp2:{{ID}}
+GET-cp2|v|GET sidecar:extra:cp2:{{ID}}
+DEL-cp|2|DEL sidecar:extra:cp1:{{ID}} sidecar:extra:cp2:{{ID}}
+@DEL sidecar:extra:rn1:{{ID}}
+@DEL sidecar:extra:rn2:{{ID}}
+SET-rn|OK|SET sidecar:extra:rn1:{{ID}} a
+RENAMENX|1|RENAMENX sidecar:extra:rn1:{{ID}} sidecar:extra:rn2:{{ID}}
+GET-rn2|a|GET sidecar:extra:rn2:{{ID}}
+EXISTS-rn1|0|EXISTS sidecar:extra:rn1:{{ID}}
+DEL-rn2|1|DEL sidecar:extra:rn2:{{ID}}
+@DEL sidecar:extra:lcs1:{{ID}}
+@DEL sidecar:extra:lcs2:{{ID}}
+SET-lcs1|OK|SET sidecar:extra:lcs1:{{ID}} ohmytext
+SET-lcs2|OK|SET sidecar:extra:lcs2:{{ID}} mynewtext
+LCS|mytext|LCS sidecar:extra:lcs1:{{ID}} sidecar:extra:lcs2:{{ID}}
+DEL-lcs|2|DEL sidecar:extra:lcs1:{{ID}} sidecar:extra:lcs2:{{ID}}
+@DEL sidecar:extra:mn1:{{ID}}
+@DEL sidecar:extra:mn2:{{ID}}
+@DEL sidecar:extra:mn3:{{ID}}
+MSETNX|1|MSETNX sidecar:extra:mn1:{{ID}} 1 sidecar:extra:mn2:{{ID}} 2
+MSETNX-conflict|0|MSETNX sidecar:extra:mn1:{{ID}} 3 sidecar:extra:mn3:{{ID}} 4
+EXISTS-mn3|0|EXISTS sidecar:extra:mn3:{{ID}}
+DEL-mn|2|DEL sidecar:extra:mn1:{{ID}} sidecar:extra:mn2:{{ID}}
+@DEL sidecar:extra:lpx:{{ID}}
+LPUSHX-miss|0|LPUSHX sidecar:extra:lpx:{{ID}} x
+LPUSH-lpx|1|LPUSH sidecar:extra:lpx:{{ID}} a
+LPUSHX-hit|2|LPUSHX sidecar:extra:lpx:{{ID}} b
+LINDEX-lpx|b|LINDEX sidecar:extra:lpx:{{ID}} 0
+DEL-lpx|1|DEL sidecar:extra:lpx:{{ID}}
 
 # --- HyperLogLog lite (small card; PFADD codes + PFCOUNT miss/3) ---
 @DEL sidecar:hll:{{ID}}

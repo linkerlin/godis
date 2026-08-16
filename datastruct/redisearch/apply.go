@@ -29,16 +29,22 @@ type ApplyClause struct {
 //	logical:    && || !           (return bool)
 //	functions:  log log2 exp sqrt abs ceil floor
 //	             upper lower strlen startswith contains substr format split
-//	             timefmt parsetime day hour minute month dayofweek
+//	             matched_terms timefmt parsetime day hour minute month dayofweek
 //	             dayofmonth dayofyear year monthofyear geodistance exists case
 //
 // `+` falls back to string concatenation when either operand is non-numeric.
 func EvalApplyExpr(expr string, fields map[string]interface{}) (interface{}, error) {
+	return EvalApplyExprWithQuery(expr, fields, nil)
+}
+
+// EvalApplyExprWithQuery is EvalApplyExpr plus optional query terms for
+// matched_terms() (terms that appear both in the query and the row's fields).
+func EvalApplyExprWithQuery(expr string, fields map[string]interface{}, queryTerms []string) (interface{}, error) {
 	tokens, err := applyTokenize(strings.TrimSpace(expr))
 	if err != nil {
 		return nil, err
 	}
-	p := &applyParser{tokens: tokens, fields: fields}
+	p := &applyParser{tokens: tokens, fields: fields, queryTerms: queryTerms}
 	v, err := p.parseBoolOr()
 	if err != nil {
 		return nil, err
@@ -85,8 +91,8 @@ func passthroughGroups(docs []*Document) []*Group {
 }
 
 // applyPreGroupClauses evaluates APPLY clauses that appeared before GROUPBY
-// against each document's own fields.
-func applyPreGroupClauses(docs []*Document, applies []ApplyClause) []*Document {
+// against each document's own fields. queryTerms feeds matched_terms().
+func applyPreGroupClauses(docs []*Document, applies []ApplyClause, queryTerms []string) []*Document {
 	if len(applies) == 0 {
 		return docs
 	}
@@ -97,7 +103,7 @@ func applyPreGroupClauses(docs []*Document, applies []ApplyClause) []*Document {
 			fields[k] = v
 		}
 		for _, ac := range applies {
-			if val, err := EvalApplyExpr(ac.Expr, fields); err == nil {
+			if val, err := EvalApplyExprWithQuery(ac.Expr, fields, queryTerms); err == nil {
 				fields[ac.As] = val
 			}
 		}
@@ -108,10 +114,10 @@ func applyPreGroupClauses(docs []*Document, applies []ApplyClause) []*Document {
 
 // applyPostGroupClauses evaluates APPLY clauses that appeared after GROUPBY
 // against each result row (group), adding the computed field in place.
-func applyPostGroupClauses(groups []*Group, applies []ApplyClause) {
+func applyPostGroupClauses(groups []*Group, applies []ApplyClause, queryTerms []string) {
 	for _, g := range groups {
 		for _, ac := range applies {
-			if val, err := EvalApplyExpr(ac.Expr, g.Fields); err == nil {
+			if val, err := EvalApplyExprWithQuery(ac.Expr, g.Fields, queryTerms); err == nil {
 				g.Fields[ac.As] = val
 			}
 		}
@@ -286,20 +292,23 @@ func isApplyIdentChar(c byte) bool {
 
 // ---- value ----
 
-// applyValue is a tagged union of numeric, string, or bool intermediate result.
+// applyValue is a tagged union of numeric, string, bool, or string-list result.
 type applyValue struct {
-	isNum  bool
-	isStr  bool
-	isBool bool
-	num    float64
-	str    string
-	b      bool
+	isNum   bool
+	isStr   bool
+	isBool  bool
+	isMulti bool
+	num     float64
+	str     string
+	b       bool
+	multi   []string
 }
 
 type applyParser struct {
-	tokens []applyToken
-	pos    int
-	fields map[string]interface{}
+	tokens     []applyToken
+	pos        int
+	fields     map[string]interface{}
+	queryTerms []string // for matched_terms(); may be nil
 }
 
 func (p *applyParser) peek() applyToken { return p.tokens[p.pos] }
@@ -522,7 +531,7 @@ func (p *applyParser) parsePrimary() (applyValue, error) {
 			return applyValue{}, fmt.Errorf("expected ')' to close function %q", tok.text)
 		}
 		p.next()
-		return applyFunction(name, args)
+		return applyFunction(p, name, args)
 	default:
 		return applyValue{}, errors.New("unexpected token in expression")
 	}
@@ -546,6 +555,8 @@ func applyValueFromInterface(raw interface{}) applyValue {
 			return applyValue{isNum: true, num: f}
 		}
 		return applyValue{isStr: true, str: v}
+	case []string:
+		return applyValue{isMulti: true, multi: append([]string(nil), v...)}
 	default:
 		s := fmt.Sprintf("%v", v)
 		if f, err := strconv.ParseFloat(s, 64); err == nil {
@@ -565,6 +576,9 @@ func applyValueToInterface(v applyValue) interface{} {
 	if v.isNum {
 		return v.num
 	}
+	if v.isMulti {
+		return append([]string(nil), v.multi...)
+	}
 	if v.isStr {
 		return v.str
 	}
@@ -578,6 +592,9 @@ func applyTruthy(v applyValue) (bool, error) {
 	}
 	if v.isNum {
 		return v.num != 0, nil
+	}
+	if v.isMulti {
+		return len(v.multi) > 0, nil
 	}
 	if v.isStr {
 		return v.str != "", nil
@@ -663,12 +680,61 @@ func applyValueToString(v applyValue) string {
 	if v.isNum {
 		return strconv.FormatFloat(v.num, 'f', -1, 64)
 	}
+	if v.isMulti {
+		return strings.Join(v.multi, ",")
+	}
 	return v.str
 }
 
 // applyFunction dispatches a built-in function call.
-func applyFunction(name string, args []applyValue) (applyValue, error) {
+func applyFunction(p *applyParser, name string, args []applyValue) (applyValue, error) {
 	switch name {
+	case "matched_terms":
+		// Redis returns query terms that also appear in the row's text fields
+		// (order preserved; multi-value array on the wire). Optional max_terms
+		// defaults to 100. Stemmer variants (+redi…) are intentionally omitted.
+		if len(args) > 1 {
+			return applyValue{}, errors.New("matched_terms() expects at most one numeric argument")
+		}
+		maxTerms := 100
+		if len(args) == 1 {
+			if !args[0].isNum || args[0].num < 0 {
+				return applyValue{}, errors.New("matched_terms() max_terms must be a non-negative number")
+			}
+			maxTerms = int(args[0].num)
+		}
+		if p == nil || len(p.queryTerms) == 0 || maxTerms == 0 {
+			return applyValue{isMulti: true, multi: nil}, nil
+		}
+		tok := &StandardTokenizer{}
+		fieldBlob := strings.Builder{}
+		for _, v := range p.fields {
+			fieldBlob.WriteString(fmt.Sprintf("%v ", v))
+		}
+		present := make(map[string]struct{})
+		for _, t := range tok.Tokenize(fieldBlob.String()) {
+			present[t] = struct{}{}
+		}
+		var matched []string
+		seen := make(map[string]struct{})
+		for _, term := range p.queryTerms {
+			if len(matched) >= maxTerms {
+				break
+			}
+			term = strings.ToLower(strings.TrimSpace(term))
+			if term == "" {
+				continue
+			}
+			if _, ok := present[term]; !ok {
+				continue
+			}
+			if _, dup := seen[term]; dup {
+				continue
+			}
+			seen[term] = struct{}{}
+			matched = append(matched, term)
+		}
+		return applyValue{isMulti: true, multi: matched}, nil
 	// Numeric functions.
 	case "log":
 		if len(args) != 1 || !args[0].isNum {
@@ -827,19 +893,18 @@ func applyFunction(name string, args []applyValue) (applyValue, error) {
 		if len(args) < 1 {
 			return applyValue{}, errors.New("split() expects a string argument")
 		}
-		// Returns the first token (single-value approximation). Redis returns an
-		// array; our APPLY model is scalar, so the first token is returned.
-		// ponytail: full array support awaits multi-value pipeline rows.
+		// Multi-value array on the wire (same shape as Redis APPLY split).
 		s := applyValueToString(args[0])
 		sep := ","
 		if len(args) >= 2 {
 			sep = applyValueToString(args[1])
 		}
-		parts := strings.Split(s, sep)
-		if len(parts) > 0 {
-			return applyValue{isStr: true, str: strings.TrimSpace(parts[0])}, nil
+		raw := strings.Split(s, sep)
+		parts := make([]string, 0, len(raw))
+		for _, p := range raw {
+			parts = append(parts, strings.TrimSpace(p))
 		}
-		return applyValue{isStr: true, str: ""}, nil
+		return applyValue{isMulti: true, multi: parts}, nil
 	// Boolean / control.
 	case "exists":
 		if len(args) != 1 {

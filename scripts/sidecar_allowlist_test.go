@@ -61,7 +61,11 @@ func TestR41SidecarAllowlistScaffold(t *testing.T) {
 		"@skip GEODIST/GEOPOS:",
 		"@todo XRANGE",
 		"@todo large PFCOUNT",
-		"@todo BITOP DIFF",
+		"BITOP-DIFF|1|BITOP DIFF",
+		"BITOP-ONE|1|BITOP ONE",
+		"LCS|mytext|LCS",
+		"COPY|1|COPY",
+		"MSETNX|1|MSETNX",
 	} {
 		if !strings.Contains(cases, marker) {
 			t.Fatalf("r4-1-cases.txt missing honesty/assert marker %q", marker)

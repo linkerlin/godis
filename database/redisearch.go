@@ -732,6 +732,7 @@ func execFTSearch(db *DB, args [][]byte) redis.Reply {
 	}
 	opts.Dialect = dialect
 	noContent := false
+	withoutCount := false
 	withScores := false
 	withPayloads := false
 	withSortKeys := false
@@ -753,6 +754,9 @@ func execFTSearch(db *DB, args [][]byte) redis.Reply {
 		switch arg {
 		case "NOCONTENT":
 			noContent = true
+		case "WITHOUTCOUNT":
+			// Redis: leading total = docs returned in this reply (not full hit count).
+			withoutCount = true
 		case "WITHSCORES":
 			withScores = true
 			opts.WithScores = true
@@ -1183,8 +1187,13 @@ func execFTSearch(db *DB, args [][]byte) redis.Reply {
 	// The total must be an integer (not a bulk string) and each document's
 	// fields must be a nested array, otherwise clients like go-redis reject the
 	// reply ("invalid total results format").
+	// WITHOUTCOUNT: leading int is the number of docs in this reply (Redis 8.x).
+	replyTotal := int64(results.Total)
+	if withoutCount {
+		replyTotal = int64(len(results.Results))
+	}
 	replies := make([]redis.Reply, 0, 1+3*len(results.Results))
-	replies = append(replies, protocol.MakeIntReply(int64(results.Total)))
+	replies = append(replies, protocol.MakeIntReply(replyTotal))
 
 	var cursorRows [][]byte
 	for _, result := range results.Results {
@@ -1308,7 +1317,7 @@ func execFTSearch(db *DB, args [][]byte) redis.Reply {
 			attrNames = append(attrNames, rf.name)
 		}
 	}
-	return MakeFTSearchReply(protocol.MakeMultiRawReply(replies), int64(results.Total), withScores, withPayloads, withSortKeys, noContent, attrNames)
+	return MakeFTSearchReply(protocol.MakeMultiRawReply(replies), replyTotal, withScores, withPayloads, withSortKeys, noContent, attrNames)
 }
 
 // summarizeFTText truncates field text for FT.SEARCH SUMMARIZE (minimal single fragment).
@@ -1675,7 +1684,8 @@ func aggRowBytes(group *redisearch.Group) []byte {
 }
 
 // collectValueBytes renders a GROUPBY field value for the wire. []CollectEntry
-// becomes a nested array of k/v maps; everything else keeps %v formatting.
+// becomes a nested array of k/v maps; []string (matched_terms / multi-value)
+// becomes a nested bulk array; everything else keeps %v formatting.
 func collectValueBytes(v interface{}) []byte {
 	switch entries := v.(type) {
 	case []redisearch.CollectEntry:
@@ -1687,6 +1697,12 @@ func collectValueBytes(v interface{}) []byte {
 				kv = append(kv, []byte(fmt.Sprintf("%v", fv)))
 			}
 			elems = append(elems, protocol.MakeMultiBulkReply(kv).ToBytes())
+		}
+		return protocol.MakeMultiBulkReply(elems).ToBytes()
+	case []string:
+		elems := make([][]byte, len(entries))
+		for i, s := range entries {
+			elems[i] = []byte(s)
 		}
 		return protocol.MakeMultiBulkReply(elems).ToBytes()
 	default:
