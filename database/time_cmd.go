@@ -35,7 +35,7 @@ func execLolwut(args [][]byte) redis.Reply {
 			// Redis: bare VERSION uses the default style.
 		} else if len(args) == 2 {
 			n, err := strconv.Atoi(string(args[1]))
-			if err != nil || n < 0 {
+			if err != nil {
 				return protocol.MakeErrReply("ERR value is not an integer or out of range")
 			}
 			ver = n

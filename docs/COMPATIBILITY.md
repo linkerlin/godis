@@ -285,4 +285,4 @@ UNWATCH、WAIT（简版）、BITOP、BITFIELD、SMOVE、LPOS、XCLAIM、SHUTDOWN
 
 ---
 
-**最后更新：** 2026-08-16（第四十一批可关闭：SCRIPT/FUNCTION 未知子命令；CONFIG lfu/tenacity/list-compress/aof-timestamp/repl-nodelay/latency-tracking/crash*/diskless-load/endpoint/sendbuf/hostname；对照 Redis **8.10.0**；远期仍 **7**）
+**最后更新：** 2026-08-16（第四十二批可关闭：FCALL_RO；LOLWUT 负 VERSION；CONFIG cob/shutdown/locale/human-nodename/latency-percentiles/active-defrag-*；对照 Redis **8.10.0**；远期仍 **7**）

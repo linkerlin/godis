@@ -164,6 +164,20 @@ type ServerProperties struct {
 	ClusterPreferredEndpointType  string `cfg:"cluster-preferred-endpoint-type"`
 	ClusterLinkSendbufLimit       int64  `cfg:"cluster-link-sendbuf-limit"`
 	ClusterAnnounceHostname       string `cfg:"cluster-announce-hostname"`
+	ClusterAnnounceHumanNodename  string `cfg:"cluster-announce-human-nodename"`
+
+	// Shutdown / locale / latency percentiles / active-defrag CONFIG stubs (GET/SET only).
+	ShutdownTimeout                  int    `cfg:"shutdown-timeout"`
+	ShutdownOnSigint                 string `cfg:"shutdown-on-sigint"`
+	ShutdownOnSigterm                string `cfg:"shutdown-on-sigterm"`
+	LocaleCollate                    string `cfg:"locale-collate"`
+	LatencyTrackingInfoPercentiles   string `cfg:"latency-tracking-info-percentiles"`
+	ActiveDefragIgnoreBytes          int64  `cfg:"active-defrag-ignore-bytes"`
+	ActiveDefragThresholdLower       int    `cfg:"active-defrag-threshold-lower"`
+	ActiveDefragThresholdUpper       int    `cfg:"active-defrag-threshold-upper"`
+	ActiveDefragCycleMin             int    `cfg:"active-defrag-cycle-min"`
+	ActiveDefragCycleMax             int    `cfg:"active-defrag-cycle-max"`
+	ActiveDefragMaxScanFields        int64  `cfg:"active-defrag-max-scan-fields"`
 
 	// Encoding / structure size CONFIG stubs (GET/SET only).
 	ListMaxListpackSize    int   `cfg:"list-max-listpack-size"`
@@ -295,6 +309,18 @@ func init() {
 		ClusterPreferredEndpointType: "ip",
 		ClusterLinkSendbufLimit:      0,
 		ClusterAnnounceHostname:      "",
+		ClusterAnnounceHumanNodename: "",
+		ShutdownTimeout:              0,
+		ShutdownOnSigint:             "default",
+		ShutdownOnSigterm:            "default",
+		LocaleCollate:                "",
+		LatencyTrackingInfoPercentiles: "50 99 99.9",
+		ActiveDefragIgnoreBytes:        104857600,
+		ActiveDefragThresholdLower:     10,
+		ActiveDefragThresholdUpper:     100,
+		ActiveDefragCycleMin:           1,
+		ActiveDefragCycleMax:           25,
+		ActiveDefragMaxScanFields:      1000,
 		ListMaxListpackSize:    -2,
 		SetMaxIntsetEntries:    512,
 		ZSetMaxListpackEntries: 128,

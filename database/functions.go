@@ -793,6 +793,6 @@ func init() {
 		attachCommandExtra([]string{redisFlagReadonly}, 0, 0, 0)
 	registerCommand("FCall", execFCall, prepareFirstKey, nil, -3, flagWrite).
 		attachCommandExtra([]string{redisFlagWrite}, 1, 1, 1)
-	registerCommand("FCall|RO", execFCallRO, prepareFirstKey, nil, -3, flagReadOnly).
+	registerCommand("FCall_RO", execFCallRO, prepareFirstKey, nil, -3, flagReadOnly).
 		attachCommandExtra([]string{redisFlagReadonly}, 1, 1, 1)
 }

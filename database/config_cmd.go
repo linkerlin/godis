@@ -207,6 +207,18 @@ func getConfigMatches(pattern string) []configPair {
 		{"cluster-preferred-endpoint-type", getClusterPreferredEndpointType()},
 		{"cluster-link-sendbuf-limit", strconv.FormatInt(getClusterLinkSendbufLimit(), 10)},
 		{"cluster-announce-hostname", getClusterAnnounceHostname()},
+		{"cluster-announce-human-nodename", getClusterAnnounceHumanNodename()},
+		{"shutdown-timeout", strconv.Itoa(getShutdownTimeout())},
+		{"shutdown-on-sigint", getShutdownOnSigint()},
+		{"shutdown-on-sigterm", getShutdownOnSigterm()},
+		{"locale-collate", getLocaleCollate()},
+		{"latency-tracking-info-percentiles", getLatencyTrackingInfoPercentiles()},
+		{"active-defrag-ignore-bytes", strconv.FormatInt(getActiveDefragIgnoreBytes(), 10)},
+		{"active-defrag-threshold-lower", strconv.Itoa(getActiveDefragThresholdLower())},
+		{"active-defrag-threshold-upper", strconv.Itoa(getActiveDefragThresholdUpper())},
+		{"active-defrag-cycle-min", strconv.Itoa(getActiveDefragCycleMin())},
+		{"active-defrag-cycle-max", strconv.Itoa(getActiveDefragCycleMax())},
+		{"active-defrag-max-scan-fields", strconv.FormatInt(getActiveDefragMaxScanFields(), 10)},
 		{"cluster-allow-replica-migration", boolToString(getClusterAllowReplicaMigration())},
 		{"cluster-replica-validity-factor", strconv.Itoa(getClusterReplicaValidityFactor())},
 		{"hash-max-listpack-entries", strconv.Itoa(getHashMaxListpackEntries())},
@@ -584,6 +596,9 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 			}
 			config.Properties.ClientQueryBufferLimit = n
 		case "client-output-buffer-limit":
+			if errMsg := validateClientOutputBufferLimit(value); errMsg != "" {
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'client-output-buffer-limit') - " + errMsg)
+			}
 			config.Properties.ClientOutputBufferLimit = value
 		case "min-replicas-to-write":
 			n, err := strconv.Atoi(value)
@@ -858,6 +873,95 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 			config.Properties.ClusterLinkSendbufLimit = n
 		case "cluster-announce-hostname":
 			config.Properties.ClusterAnnounceHostname = value
+		case "cluster-announce-human-nodename":
+			config.Properties.ClusterAnnounceHumanNodename = value
+		case "shutdown-timeout":
+			n, err := strconv.Atoi(value)
+			if err != nil {
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'shutdown-timeout') - argument couldn't be parsed into an integer")
+			}
+			if n < 0 || n > 2147483647 {
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'shutdown-timeout') - argument must be between 0 and 2147483647 inclusive")
+			}
+			config.Properties.ShutdownTimeout = n
+		case "shutdown-on-sigint":
+			v := strings.ToLower(value)
+			switch v {
+			case "default", "save", "nosave", "now", "force":
+				config.Properties.ShutdownOnSigint = v
+			default:
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'shutdown-on-sigint') - argument(s) must be one of the following: default, save, nosave, now, force")
+			}
+		case "shutdown-on-sigterm":
+			v := strings.ToLower(value)
+			switch v {
+			case "default", "save", "nosave", "now", "force":
+				config.Properties.ShutdownOnSigterm = v
+			default:
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'shutdown-on-sigterm') - argument(s) must be one of the following: default, save, nosave, now, force")
+			}
+		case "locale-collate":
+			config.Properties.LocaleCollate = value
+		case "latency-tracking-info-percentiles":
+			normalized, errMsg := validateLatencyTrackingInfoPercentiles(value)
+			if errMsg != "" {
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'latency-tracking-info-percentiles') - " + errMsg)
+			}
+			config.Properties.LatencyTrackingInfoPercentiles = normalized
+		case "active-defrag-ignore-bytes":
+			n, err := strconv.ParseInt(value, 10, 64)
+			if err != nil || n < 0 {
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'active-defrag-ignore-bytes') - argument must be a memory value")
+			}
+			if n < 1 {
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'active-defrag-ignore-bytes') - argument must be between 1 and 9223372036854775807 inclusive")
+			}
+			config.Properties.ActiveDefragIgnoreBytes = n
+		case "active-defrag-threshold-lower":
+			n, err := strconv.Atoi(value)
+			if err != nil {
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'active-defrag-threshold-lower') - argument couldn't be parsed into an integer")
+			}
+			if n < 0 || n > 1000 {
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'active-defrag-threshold-lower') - argument must be between 0 and 1000 inclusive")
+			}
+			config.Properties.ActiveDefragThresholdLower = n
+		case "active-defrag-threshold-upper":
+			n, err := strconv.Atoi(value)
+			if err != nil {
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'active-defrag-threshold-upper') - argument couldn't be parsed into an integer")
+			}
+			if n < 0 || n > 1000 {
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'active-defrag-threshold-upper') - argument must be between 0 and 1000 inclusive")
+			}
+			config.Properties.ActiveDefragThresholdUpper = n
+		case "active-defrag-cycle-min":
+			n, err := strconv.Atoi(value)
+			if err != nil {
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'active-defrag-cycle-min') - argument couldn't be parsed into an integer")
+			}
+			if n < 1 || n > 99 {
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'active-defrag-cycle-min') - argument must be between 1 and 99 inclusive")
+			}
+			config.Properties.ActiveDefragCycleMin = n
+		case "active-defrag-cycle-max":
+			n, err := strconv.Atoi(value)
+			if err != nil {
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'active-defrag-cycle-max') - argument couldn't be parsed into an integer")
+			}
+			if n < 1 || n > 99 {
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'active-defrag-cycle-max') - argument must be between 1 and 99 inclusive")
+			}
+			config.Properties.ActiveDefragCycleMax = n
+		case "active-defrag-max-scan-fields":
+			n, err := strconv.ParseInt(value, 10, 64)
+			if err != nil {
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'active-defrag-max-scan-fields') - argument couldn't be parsed into an integer")
+			}
+			if n < 1 {
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'active-defrag-max-scan-fields') - argument must be between 1 and 9223372036854775807 inclusive")
+			}
+			config.Properties.ActiveDefragMaxScanFields = n
 		case "cluster-allow-replica-migration":
 			ok, b := config.ParseConfigBool(value)
 			if !ok {
@@ -1566,6 +1670,131 @@ func getClusterAnnounceHostname() string {
 		return ""
 	}
 	return config.Properties.ClusterAnnounceHostname
+}
+
+func getClusterAnnounceHumanNodename() string {
+	if config.Properties == nil {
+		return ""
+	}
+	return config.Properties.ClusterAnnounceHumanNodename
+}
+
+func getShutdownTimeout() int {
+	if config.Properties == nil {
+		return 0
+	}
+	return config.Properties.ShutdownTimeout
+}
+
+func getShutdownOnSigint() string {
+	if config.Properties == nil || config.Properties.ShutdownOnSigint == "" {
+		return "default"
+	}
+	return config.Properties.ShutdownOnSigint
+}
+
+func getShutdownOnSigterm() string {
+	if config.Properties == nil || config.Properties.ShutdownOnSigterm == "" {
+		return "default"
+	}
+	return config.Properties.ShutdownOnSigterm
+}
+
+func getLocaleCollate() string {
+	if config.Properties == nil {
+		return ""
+	}
+	return config.Properties.LocaleCollate
+}
+
+func getLatencyTrackingInfoPercentiles() string {
+	if config.Properties == nil || config.Properties.LatencyTrackingInfoPercentiles == "" {
+		return "50 99 99.9"
+	}
+	return config.Properties.LatencyTrackingInfoPercentiles
+}
+
+func getActiveDefragIgnoreBytes() int64 {
+	if config.Properties == nil {
+		return 104857600
+	}
+	return config.Properties.ActiveDefragIgnoreBytes
+}
+
+func getActiveDefragThresholdLower() int {
+	if config.Properties == nil {
+		return 10
+	}
+	return config.Properties.ActiveDefragThresholdLower
+}
+
+func getActiveDefragThresholdUpper() int {
+	if config.Properties == nil {
+		return 100
+	}
+	return config.Properties.ActiveDefragThresholdUpper
+}
+
+func getActiveDefragCycleMin() int {
+	if config.Properties == nil {
+		return 1
+	}
+	return config.Properties.ActiveDefragCycleMin
+}
+
+func getActiveDefragCycleMax() int {
+	if config.Properties == nil {
+		return 25
+	}
+	return config.Properties.ActiveDefragCycleMax
+}
+
+func getActiveDefragMaxScanFields() int64 {
+	if config.Properties == nil {
+		return 1000
+	}
+	return config.Properties.ActiveDefragMaxScanFields
+}
+
+// validateClientOutputBufferLimit returns Redis-style error suffix, or "" if OK.
+func validateClientOutputBufferLimit(value string) string {
+	fields := strings.Fields(value)
+	if len(fields) == 0 || len(fields)%4 != 0 {
+		return "Wrong number of arguments in buffer limit configuration."
+	}
+	for i := 0; i < len(fields); i += 4 {
+		class := strings.ToLower(fields[i])
+		if class != "normal" && class != "slave" && class != "replica" && class != "pubsub" {
+			return "Invalid client class specified in buffer limit configuration."
+		}
+		for _, part := range fields[i+1 : i+4] {
+			n, err := strconv.ParseInt(part, 10, 64)
+			if err != nil || n < 0 {
+				return "Error in hard, soft or soft_seconds setting in buffer limit configuration."
+			}
+		}
+	}
+	return ""
+}
+
+// validateLatencyTrackingInfoPercentiles normalizes space-separated percentiles in [0,100].
+func validateLatencyTrackingInfoPercentiles(value string) (string, string) {
+	fields := strings.Fields(value)
+	if len(fields) == 0 {
+		return "", ""
+	}
+	out := make([]string, 0, len(fields))
+	for _, f := range fields {
+		n, err := strconv.ParseFloat(f, 64)
+		if err != nil {
+			return "", "Invalid latency-tracking-info-percentiles parameters"
+		}
+		if n < 0 || n > 100 {
+			return "", "latency-tracking-info-percentiles parameters should sit between [0.0,100.0]"
+		}
+		out = append(out, f)
+	}
+	return strings.Join(out, " "), ""
 }
 
 func getClusterAllowReplicaMigration() bool {
