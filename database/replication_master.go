@@ -698,22 +698,27 @@ func (server *Server) execWaitAOF(args [][]byte) redis.Reply {
 		return protocol.MakeErrReply("ERR timeout is negative")
 	}
 
+	aofOn := config.Properties != nil && config.Properties.AppendOnly
+	// Redis 8.10: numlocal>0 with appendonly disabled is an hard error.
+	if numLocal > 0 && !aofOn {
+		return protocol.MakeErrReply("ERR WAITAOF cannot be used when numlocal is set but appendonly is disabled.")
+	}
+
 	deadline := time.Now().Add(time.Duration(timeoutMs) * time.Millisecond)
 	for {
 		localOK := int64(0)
-		if numLocal <= 0 {
-			localOK = 1
-		} else if config.Properties != nil && config.Properties.AppendOnly {
-			if server.persister != nil {
+		if aofOn {
+			if numLocal > 0 && server.persister != nil {
 				server.persister.Fsync()
 			}
+			// Redis reports local=1 whenever AOF is enabled (even if numlocal=0).
 			localOK = 1
 		}
 
 		server.nudgeSlavesForWait()
 		replicasOK := server.countSyncedSlaves()
 
-		satisfied := localOK == 1 && (numReplicas <= 0 || replicasOK >= numReplicas)
+		satisfied := (numLocal <= 0 || localOK == 1) && (numReplicas <= 0 || replicasOK >= numReplicas)
 		if satisfied || timeoutMs == 0 || time.Now().After(deadline) {
 			return protocol.MakeMultiRawReply([]redis.Reply{
 				protocol.MakeIntReply(localOK),

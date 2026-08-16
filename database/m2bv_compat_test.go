@@ -79,10 +79,13 @@ func TestM2bvWaitAOF(t *testing.T) {
 	defer server.Close()
 	c := connection.NewFakeConn()
 
-	r := server.Exec(c, utils.ToCmdLine("WAITAOF", "1", "0", "0"))
+	asserts.AssertErrReply(t, server.Exec(c, utils.ToCmdLine("WAITAOF", "1", "0", "0")),
+		"ERR WAITAOF cannot be used when numlocal is set but appendonly is disabled.")
+
+	r := server.Exec(c, utils.ToCmdLine("WAITAOF", "0", "0", "0"))
 	raw, ok := r.(*protocol.MultiRawReply)
 	if !ok || len(raw.Replies) != 2 {
-		t.Fatalf("WAITAOF: %T %s", r, r.ToBytes())
+		t.Fatalf("WAITAOF numlocal=0 AOF=off: %T %s", r, r.ToBytes())
 	}
 	asserts.AssertIntReply(t, raw.Replies[0], 0)
 	asserts.AssertIntReply(t, raw.Replies[1], 0)

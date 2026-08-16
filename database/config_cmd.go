@@ -141,8 +141,11 @@ func getConfigMatches(pattern string) []configPair {
 		{"requirepass", config.Properties.RequirePass},
 		{"appendonly", boolToString(config.Properties.AppendOnly)},
 		{"appendfilename", config.Properties.AppendFilename},
+		{"appenddirname", getAppendDirname()},
 		{"appendfsync", config.Properties.AppendFsync},
 		{"aof-use-rdb-preamble", boolToString(config.Properties.AofUseRdbPreamble)},
+		{"aof-disable-auto-gc", boolToString(getAofDisableAutoGC())},
+		{"rdb-del-sync-files", boolToString(getRdbDelSyncFiles())},
 		{"masterauth", config.Properties.MasterAuth},
 		{"masteruser", getMasterUser()},
 		{"slave-announce-ip", config.Properties.SlaveAnnounceIP},
@@ -607,6 +610,18 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'aof-load-truncated') - argument must be 'yes' or 'no'")
 			}
 			config.Properties.AofLoadTruncated = b
+		case "rdb-del-sync-files":
+			ok, b := config.ParseConfigBool(value)
+			if !ok {
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'rdb-del-sync-files') - argument must be 'yes' or 'no'")
+			}
+			config.Properties.RdbDelSyncFiles = b
+		case "aof-disable-auto-gc":
+			ok, b := config.ParseConfigBool(value)
+			if !ok {
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'aof-disable-auto-gc') - argument must be 'yes' or 'no'")
+			}
+			config.Properties.AofDisableAutoGC = b
 		case "activerehashing":
 			ok, b := config.ParseConfigBool(value)
 			if !ok {
@@ -1465,7 +1480,7 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 		case "databases", "disable-thp", "enable-debug-command", "enable-module-command",
 			"enable-protected-configs", "socket-mark-id", "unixsocket", "unixsocketperm",
 			"syslog-enabled", "syslog-ident", "syslog-facility", "cluster-port",
-			"cluster-config-file", "supervised":
+			"cluster-config-file", "supervised", "appenddirname":
 			return immutableConfigSetErr(key)
 		default:
 			// Redis 8.0 search-* config namespace (replaces FT.CONFIG).
@@ -1770,6 +1785,27 @@ func getAofRewriteIncrementalFsync() bool {
 		return true
 	}
 	return config.Properties.AofRewriteIncrementalFsync
+}
+
+func getRdbDelSyncFiles() bool {
+	if config.Properties == nil {
+		return false
+	}
+	return config.Properties.RdbDelSyncFiles
+}
+
+func getAofDisableAutoGC() bool {
+	if config.Properties == nil {
+		return false
+	}
+	return config.Properties.AofDisableAutoGC
+}
+
+func getAppendDirname() string {
+	if config.Properties == nil || config.Properties.AppendDirname == "" {
+		return "appendonlydir"
+	}
+	return config.Properties.AppendDirname
 }
 
 func getRdbSaveIncrementalFsync() bool {

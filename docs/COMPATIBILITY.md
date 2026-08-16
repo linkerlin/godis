@@ -285,4 +285,4 @@ UNWATCH、WAIT（简版）、BITOP、BITFIELD、SMOVE、LPOS、XCLAIM、SHUTDOWN
 
 ---
 
-**最后更新：** 2026-08-16（第五十一批可关闭：MEMORY DOCTOR 空实例文案；MEMORY/MODULE HELP；PFDEBUG 缺键；CONFIG SET 未知项文案；对照 Redis **8.10.0**；远期仍 **7**）
+**最后更新：** 2026-08-16（第五十二批可关闭：WAITAOF AOF 门禁；CONFIG rdb-del-sync-files/aof-disable-auto-gc/appenddirname；LATENCY HELP；对照 Redis **8.10.0**；远期仍 **7**）

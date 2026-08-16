@@ -396,16 +396,26 @@ func execLatencyHistogram(args [][]byte) redis.Reply {
 	return outer
 }
 
-// execLatencyHelp 获取帮助信息
+// execLatencyHelp matches Redis LATENCY HELP layout.
 func execLatencyHelp() redis.Reply {
 	help := []string{
-		"LATENCY HISTORY <event> - Return time-latency samples for the specified event.",
-		"LATENCY LATEST - Return the latest latency samples for all events.",
-		"LATENCY DOCTOR - Return a human readable latency analysis report.",
-		"LATENCY GRAPH <event> - Return an ASCII latency graph for the specified event.",
-		"LATENCY RESET [event ...] - Reset latency data of one or more events.",
-		"LATENCY HISTOGRAM [command ...] - Return latency histogram for sampled commands.",
-		"LATENCY HELP - Display this help text.",
+		"LATENCY <subcommand> [<arg> [value] [opt] ...]. Subcommands are:",
+		"DOCTOR",
+		"    Return a human readable latency analysis report.",
+		"GRAPH <event>",
+		"    Return an ASCII latency graph for the <event> class.",
+		"HISTORY <event>",
+		"    Return time-latency samples for the <event> class.",
+		"LATEST",
+		"    Return the latest latency samples for all events.",
+		"RESET [<event> ...]",
+		"    Reset latency data of one or more <event> classes.",
+		"    (default: reset all data for all event classes)",
+		"HISTOGRAM [COMMAND ...]",
+		"    Return a cumulative distribution of latencies in the format of a histogram for the specified command names.",
+		"    If no commands are specified then all histograms are replied.",
+		"HELP",
+		"    Print this help.",
 	}
 
 	result := make([]redis.Reply, len(help))

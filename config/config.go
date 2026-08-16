@@ -99,6 +99,10 @@ type ServerProperties struct {
 	LazyfreeLazyUserFlush bool `cfg:"lazyfree-lazy-user-flush"`
 	ReplicaLazyFlush      bool `cfg:"replica-lazy-flush"`
 	AofLoadTruncated      bool `cfg:"aof-load-truncated"`
+	// RdbDelSyncFiles / AofDisableAutoGC / AppendDirname are Redis CONFIG stubs.
+	RdbDelSyncFiles  bool   `cfg:"rdb-del-sync-files"`
+	AofDisableAutoGC bool   `cfg:"aof-disable-auto-gc"`
+	AppendDirname    string `cfg:"appenddirname"`
 
 	// ActiveRehashing / SanitizeDumpPayload / IgnoreWarnings are Redis CONFIG stubs.
 	ActiveRehashing     bool   `cfg:"activerehashing"`
@@ -324,6 +328,9 @@ func init() {
 		ReplicaIgnoreMaxmemory:       true,
 		AofRewriteIncrementalFsync:   true,
 		RdbSaveIncrementalFsync:      true,
+		RdbDelSyncFiles:              false,
+		AofDisableAutoGC:             false,
+		AppendDirname:                "appendonlydir",
 		ClusterAllowReplicaMigration: true,
 		ClusterReplicaValidityFactor: 10,
 		HashMaxListpackEntries:       512,
