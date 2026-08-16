@@ -1198,16 +1198,10 @@ func execFTSearch(db *DB, args [][]byte) redis.Reply {
 				}
 				opts.VectorRangeEpsilon = eps
 			}
-			// $EF_RUNTIME: HNSW candidate-window hint. Accept positive ints (FLAT
-			// ignores); empty / non-positive → ERR for dialect parity.
-			if efStr, ok := attrs["EF_RUNTIME"]; ok {
-				if efStr == "" {
-					return protocol.MakeErrReply("ERR EF_RUNTIME requires a value")
-				}
-				n, perr := strconv.ParseInt(efStr, 10, 64)
-				if perr != nil || n <= 0 {
-					return protocol.MakeErrReply("ERR Invalid VECTOR_RANGE EF_RUNTIME")
-				}
+			// $EF_RUNTIME is a KNN/HNSW attribute. Redis 8.10 rejects it on
+			// VECTOR_RANGE (Invalid option); empty → syntax near EF_RUNTIME.
+			if _, ok := attrs["EF_RUNTIME"]; ok {
+				return protocol.MakeErrReply("ERR Invalid option EF_RUNTIME for VECTOR_RANGE")
 			}
 		}
 		results, err = engine.Search(q, opts)

@@ -779,12 +779,9 @@ func ExpandSynonyms(node QueryNode, expand func(string) []string) QueryNode {
 func parseRangeOrGeo(field, raw string) QueryNode {
 	parts := strings.Fields(raw)
 	// VECTOR_RANGE: "VECTOR_RANGE <radius|$radius> $param" (DIALECT 2+).
-	// Redis docs allow optional parentheses around the radius token.
+	// Redis 8.10 accepts bare `$r` / float; parenthesized `(2)` / `($r)` → syntax ERR.
 	if len(parts) == 3 && strings.EqualFold(parts[0], "VECTOR_RANGE") && strings.HasPrefix(parts[2], "$") {
 		radTok := strings.TrimSpace(parts[1])
-		if len(radTok) >= 2 && radTok[0] == '(' && radTok[len(radTok)-1] == ')' {
-			radTok = strings.TrimSpace(radTok[1 : len(radTok)-1])
-		}
 		if strings.HasPrefix(radTok, "$") {
 			return &VectorRangeNode{Field: field, RadiusParam: radTok, Param: parts[2]}
 		}

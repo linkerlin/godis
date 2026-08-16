@@ -112,18 +112,18 @@ func TestFTVectorRangeRadiusParam(t *testing.T) {
 		t.Fatalf("far should be outside $r=1, got %s", s)
 	}
 
-	// Parenthesized radius param (Redis docs form).
-	paren := db.Exec(nil, utils.ToCmdLine(
-		"FT.SEARCH", "vrp", "@vec:[VECTOR_RANGE ($r) $q]",
+	// Narrower $r keeps only near (Redis 8.10: bare $r, not ($r)).
+	narrow := db.Exec(nil, utils.ToCmdLine(
+		"FT.SEARCH", "vrp", "@vec:[VECTOR_RANGE $r $q]",
 		"PARAMS", "4", "r", "0.2", "q", f32leKNN(0, 0),
 		"DIALECT", "2", "NOCONTENT",
 	))
-	if protocol.IsErrorReply(paren) {
-		t.Fatalf("VECTOR_RANGE ($r): %s", paren.ToBytes())
+	if protocol.IsErrorReply(narrow) {
+		t.Fatalf("VECTOR_RANGE $r=0.2: %s", narrow.ToBytes())
 	}
-	ps := string(paren.ToBytes())
-	if !strings.Contains(ps, "vp:near") || strings.Contains(ps, "vp:mid") || strings.Contains(ps, "vp:far") {
-		t.Fatalf("want only near within $r=0.2, got %s", ps)
+	ns := string(narrow.ToBytes())
+	if !strings.Contains(ns, "vp:near") || strings.Contains(ns, "vp:mid") || strings.Contains(ns, "vp:far") {
+		t.Fatalf("want only near within $r=0.2, got %s", ns)
 	}
 
 	miss := db.Exec(nil, utils.ToCmdLine(
@@ -135,21 +135,13 @@ func TestFTVectorRangeRadiusParam(t *testing.T) {
 		t.Fatalf("want missing radius param ERR, got %s", miss.ToBytes())
 	}
 
+	// Redis 8.10: $EF_RUNTIME on VECTOR_RANGE → Invalid option (KNN/HNSW only).
 	badEF := db.Exec(nil, utils.ToCmdLine(
-		"FT.SEARCH", "vrp", "@vec:[VECTOR_RANGE 1 $q]=>{$EF_RUNTIME:}",
+		"FT.SEARCH", "vrp", "@vec:[VECTOR_RANGE 1 $q]=>{$EF_RUNTIME: 32}",
 		"PARAMS", "2", "q", f32leKNN(0, 0),
 		"DIALECT", "2",
 	))
 	if !protocol.IsErrorReply(badEF) || !strings.Contains(string(badEF.ToBytes()), "EF_RUNTIME") {
-		t.Fatalf("want EF_RUNTIME ERR, got %s", badEF.ToBytes())
-	}
-
-	okEF := db.Exec(nil, utils.ToCmdLine(
-		"FT.SEARCH", "vrp", "@vec:[VECTOR_RANGE 1 $q]=>{$EF_RUNTIME: 32}",
-		"PARAMS", "2", "q", f32leKNN(0, 0),
-		"DIALECT", "2", "NOCONTENT",
-	))
-	if protocol.IsErrorReply(okEF) {
-		t.Fatalf("EF_RUNTIME accept: %s", okEF.ToBytes())
+		t.Fatalf("want EF_RUNTIME ERR on VECTOR_RANGE, got %s", badEF.ToBytes())
 	}
 }
