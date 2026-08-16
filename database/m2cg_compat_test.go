@@ -85,16 +85,16 @@ func TestM2cgACLCatJSONSearchVector(t *testing.T) {
 	for _, a := range mb.Args {
 		joined += string(a) + " "
 	}
-	for _, want := range []string{"@json", "@search", "@vector"} {
+	for _, want := range []string{"json", "search", "vector"} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("ACL CAT missing %s: %s", want, joined)
 		}
 	}
 
-	r := db.Exec(nil, utils.ToCmdLine("ACL", "CAT", "@json"))
+	r := db.Exec(nil, utils.ToCmdLine("ACL", "CAT", "json"))
 	jsonCmds, ok := r.(*protocol.MultiBulkReply)
 	if !ok || len(jsonCmds.Args) == 0 {
-		t.Fatalf("ACL CAT @json: %T %s", r, r.ToBytes())
+		t.Fatalf("ACL CAT json: %T %s", r, r.ToBytes())
 	}
 	foundSet := false
 	for _, a := range jsonCmds.Args {
@@ -104,19 +104,19 @@ func TestM2cgACLCatJSONSearchVector(t *testing.T) {
 		}
 	}
 	if !foundSet {
-		t.Fatalf("ACL CAT @json missing json.set: %s", r.ToBytes())
+		t.Fatalf("ACL CAT json missing json.set: %s", r.ToBytes())
 	}
 
-	r = db.Exec(nil, utils.ToCmdLine("ACL", "CAT", "@search"))
+	r = db.Exec(nil, utils.ToCmdLine("ACL", "CAT", "search"))
 	searchCmds, ok := r.(*protocol.MultiBulkReply)
 	if !ok || len(searchCmds.Args) == 0 {
-		t.Fatalf("ACL CAT @search: %T %s", r, r.ToBytes())
+		t.Fatalf("ACL CAT search: %T %s", r, r.ToBytes())
 	}
 
-	r = db.Exec(nil, utils.ToCmdLine("ACL", "CAT", "@vector"))
+	r = db.Exec(nil, utils.ToCmdLine("ACL", "CAT", "vector"))
 	vecCmds, ok := r.(*protocol.MultiBulkReply)
 	if !ok || len(vecCmds.Args) == 0 {
-		t.Fatalf("ACL CAT @vector: %T %s", r, r.ToBytes())
+		t.Fatalf("ACL CAT vector: %T %s", r, r.ToBytes())
 	}
 	foundVAdd := false
 	for _, a := range vecCmds.Args {
@@ -126,7 +126,7 @@ func TestM2cgACLCatJSONSearchVector(t *testing.T) {
 		}
 	}
 	if !foundVAdd {
-		t.Fatalf("ACL CAT @vector missing vadd: %s", r.ToBytes())
+		t.Fatalf("ACL CAT vector missing vadd: %s", r.ToBytes())
 	}
 }
 

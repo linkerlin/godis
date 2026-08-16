@@ -100,16 +100,16 @@ func TestM2ciACLCatBloomCuckooTimeseries(t *testing.T) {
 	for _, a := range mb.Args {
 		joined += string(a) + " "
 	}
-	for _, want := range []string{"@bloom", "@cuckoo", "@timeseries"} {
+	for _, want := range []string{"bloom", "cuckoo", "timeseries"} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("ACL CAT missing %s: %s", want, joined)
 		}
 	}
 
-	r := db.Exec(nil, utils.ToCmdLine("ACL", "CAT", "@bloom"))
+	r := db.Exec(nil, utils.ToCmdLine("ACL", "CAT", "bloom"))
 	bloom, ok := r.(*protocol.MultiBulkReply)
 	if !ok || len(bloom.Args) == 0 {
-		t.Fatalf("ACL CAT @bloom: %T %s", r, r.ToBytes())
+		t.Fatalf("ACL CAT bloom: %T %s", r, r.ToBytes())
 	}
 	found := false
 	for _, a := range bloom.Args {
@@ -119,18 +119,18 @@ func TestM2ciACLCatBloomCuckooTimeseries(t *testing.T) {
 		}
 	}
 	if !found {
-		t.Fatalf("ACL CAT @bloom missing bf.add: %s", r.ToBytes())
+		t.Fatalf("ACL CAT bloom missing bf.add: %s", r.ToBytes())
 	}
 
-	r = db.Exec(nil, utils.ToCmdLine("ACL", "CAT", "@cuckoo"))
+	r = db.Exec(nil, utils.ToCmdLine("ACL", "CAT", "cuckoo"))
 	if cf, ok := r.(*protocol.MultiBulkReply); !ok || len(cf.Args) == 0 {
-		t.Fatalf("ACL CAT @cuckoo: %T %s", r, r.ToBytes())
+		t.Fatalf("ACL CAT cuckoo: %T %s", r, r.ToBytes())
 	}
 
-	r = db.Exec(nil, utils.ToCmdLine("ACL", "CAT", "@timeseries"))
+	r = db.Exec(nil, utils.ToCmdLine("ACL", "CAT", "timeseries"))
 	ts, ok := r.(*protocol.MultiBulkReply)
 	if !ok || len(ts.Args) == 0 {
-		t.Fatalf("ACL CAT @timeseries: %T %s", r, r.ToBytes())
+		t.Fatalf("ACL CAT timeseries: %T %s", r, r.ToBytes())
 	}
 	foundTS := false
 	for _, a := range ts.Args {
@@ -140,6 +140,6 @@ func TestM2ciACLCatBloomCuckooTimeseries(t *testing.T) {
 		}
 	}
 	if !foundTS {
-		t.Fatalf("ACL CAT @timeseries missing ts.create: %s", r.ToBytes())
+		t.Fatalf("ACL CAT timeseries missing ts.create: %s", r.ToBytes())
 	}
 }

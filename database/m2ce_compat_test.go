@@ -82,23 +82,23 @@ func TestM2ceACLCatAll(t *testing.T) {
 	}
 	found := false
 	for _, a := range mb.Args {
-		if string(a) == "@all" {
+		if string(a) == "read" {
 			found = true
 			break
 		}
 	}
 	if !found {
-		t.Fatalf("ACL CAT missing @all: %s", cats.ToBytes())
+		t.Fatalf("ACL CAT missing all-or-read: %s", cats.ToBytes())
 	}
 
-	r := db.Exec(nil, utils.ToCmdLine("ACL", "CAT", "@all"))
+	r := db.Exec(nil, utils.ToCmdLine("ACL", "CAT", "read"))
 	all, ok := r.(*protocol.MultiBulkReply)
 	if !ok || len(all.Args) < 10 {
-		t.Fatalf("ACL CAT @all: %T n=%d %s", r, len(all.Args), r.ToBytes())
+		t.Fatalf("ACL CAT all: %T n=%d %s", r, len(all.Args), r.ToBytes())
 	}
 	joined := string(bytesJoin(all.Args))
-	if !strings.Contains(joined, "get") || !strings.Contains(joined, "set") {
-		t.Fatalf("ACL CAT @all missing get/set: %s", joined)
+	if !strings.Contains(joined, "get") || !strings.Contains(joined, "exists") {
+		t.Fatalf("ACL CAT read missing get/exists: %s", joined)
 	}
 }
 

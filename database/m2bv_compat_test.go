@@ -53,19 +53,21 @@ func TestM2bvACLCatFastSlowBlocking(t *testing.T) {
 	defer server.Close()
 	c := connection.NewFakeConn()
 
-	for _, cat := range []string{"@fast", "fast", "@blocking", "@slow"} {
+	for _, cat := range []string{"fast", "blocking", "slow"} {
 		r := server.Exec(c, utils.ToCmdLine("ACL", "CAT", cat))
 		mb, ok := r.(*protocol.MultiBulkReply)
 		if !ok || len(mb.Args) == 0 {
 			t.Fatalf("ACL CAT %s: %T %s", cat, r, r.ToBytes())
 		}
 	}
-	fast := server.Exec(c, utils.ToCmdLine("ACL", "CAT", "@fast"))
+	asserts.AssertErrReply(t, server.Exec(c, utils.ToCmdLine("ACL", "CAT", "@fast")),
+		"ERR Unknown category '@fast'")
+	fast := server.Exec(c, utils.ToCmdLine("ACL", "CAT", "fast"))
 	joined := string(bytesJoin(fast.(*protocol.MultiBulkReply).Args))
 	if !strings.Contains(joined, "ping") && !strings.Contains(joined, "get") {
 		// ping/get may or may not both be marked fast; at least one known fast cmd
 		if !strings.Contains(joined, "auth") && !strings.Contains(joined, "echo") {
-			t.Fatalf("@fast empty of known cmds: %s", joined)
+			t.Fatalf("fast empty of known cmds: %s", joined)
 		}
 	}
 }

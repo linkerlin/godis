@@ -77,9 +77,9 @@ func TestACLUsersCatDelUserDryRun(t *testing.T) {
 		t.Fatalf("ACL CAT: got %s", cat.ToBytes())
 	}
 
-	readCat := server.Exec(c, utils.ToCmdLine("ACL", "CAT", "@read"))
+	readCat := server.Exec(c, utils.ToCmdLine("ACL", "CAT", "read"))
 	if _, ok := readCat.(*protocol.MultiBulkReply); !ok {
-		t.Fatalf("ACL CAT @read: got %s", readCat.ToBytes())
+		t.Fatalf("ACL CAT read: got %s", readCat.ToBytes())
 	}
 
 	asserts.AssertStatusReply(t, server.Exec(c, utils.ToCmdLine(

@@ -190,7 +190,7 @@ UNWATCH、WAIT（简版）、BITOP、BITFIELD、SMOVE、LPOS、XCLAIM、SHUTDOWN
 
 ## 兼容里程碑关闭（2026-08-10）
 
-> **关闭口径：** 可独立完成的正确性/兼容小项已扫尽；**不宣称 100% Redis 兼容**。进行中的兼容清单清空到仅剩下列远期非目标（写明「不是假装已实现」）。
+> **关闭口径：** 可独立完成的正确性/兼容小项与 **ERR/CONFIG/HELP 可关闭战役（至第五十五批）** 已扫尽；**不宣称 100% Redis 兼容**。进行中的兼容清单清空到仅剩下列远期非目标（写明「不是假装已实现」）。
 
 | 远期非目标 | 现状（诚实） | 本轮小步（非宣称完成） |
 |------------|--------------|------------------------|
@@ -285,4 +285,4 @@ UNWATCH、WAIT（简版）、BITOP、BITFIELD、SMOVE、LPOS、XCLAIM、SHUTDOWN
 
 ---
 
-**最后更新：** 2026-08-17（第五十四批可关闭：INFO default；AUTH syntax；FUNCTION RESTORE 垃圾；MIGRATE 空键 NOKEY；XINFO/SCRIPT HELP；对照 Redis **8.10.0**；远期仍 **7**）
+**最后更新：** 2026-08-17（第五十五批：ACL CAT 无 `@` + 多命令 HELP 收口；**可关闭缺口战役结束**；对照 Redis **8.10.0**；远期仍 **7**：jemalloc / gossip / 模块 RDB·DUMP / FUNCTION DUMP 互通 / 完整 BM25·KNN·DIALECT / R4-1 全量 / R4-2）

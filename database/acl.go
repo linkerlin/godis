@@ -334,14 +334,14 @@ func execACLCat(args [][]byte) redis.Reply {
 	}
 
 	if len(args) == 0 {
-		// List all categories
+		// Redis 8.10 lists categories without '@'; Godis keeps extension cats (vector).
 		categories := []string{
-			"@keyspace", "@read", "@write", "@set", "@sortedset", "@list", "@hash",
-			"@string", "@bitmap", "@hyperloglog", "@geo", "@stream", "@pubsub",
-			"@admin", "@fast", "@slow", "@blocking", "@dangerous", "@connection",
-			"@transaction", "@scripting", "@all",
-			"@json", "@search", "@vector", "@bloom", "@cuckoo", "@timeseries",
-			"@cms", "@topk", "@tdigest",
+			"keyspace", "read", "write", "set", "sortedset", "list", "hash",
+			"string", "array", "bitmap", "hyperloglog", "geo", "stream", "pubsub",
+			"admin", "fast", "slow", "blocking", "dangerous", "connection",
+			"transaction", "scripting",
+			"bloom", "cuckoo", "cms", "topk", "tdigest", "search", "timeseries", "json",
+			"vector",
 		}
 		result := make([][]byte, len(categories))
 		for i, cat := range categories {
@@ -350,14 +350,16 @@ func execACLCat(args [][]byte) redis.Reply {
 		return protocol.MakeMultiBulkReply(result)
 	}
 
-	// List commands in a category
-	category := strings.ToLower(string(args[0]))
-	if !strings.HasPrefix(category, "@") {
-		category = "@" + category
+	// List commands in a category. Redis 8.10 rejects an explicit '@' prefix here
+	// (Unknown category '@read'); SETUSER rules still use @read.
+	raw := string(args[0])
+	if strings.HasPrefix(raw, "@") {
+		return protocol.MakeErrReply("ERR Unknown category '" + raw + "'")
 	}
+	category := "@" + strings.ToLower(raw)
 	cmds := commandsForACLCategory(category)
 	if cmds == nil {
-		return protocol.MakeErrReply("ERR Unknown category '" + string(args[0]) + "'")
+		return protocol.MakeErrReply("ERR Unknown category '" + raw + "'")
 	}
 
 	result := make([][]byte, len(cmds))
@@ -495,38 +497,39 @@ func execACLLog(args [][]byte) redis.Reply {
 	return getACLLogEntries(count)
 }
 
-// execACLHelp returns help information
+// execACLHelp matches Redis ACL HELP layout.
 func execACLHelp(args [][]byte) redis.Reply {
 	if len(args) != 0 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'acl|help' command")
 	}
 	help := []string{
-		"ACL (<subcommand> [<arg> [value] [opt] ...])",
-		"Subcommands:",
+		"ACL <subcommand> [<arg> [value] [opt] ...]. Subcommands are:",
 		"CAT [<category>]",
-		"    Return the categories or commands within a category.",
+		"    List all commands that belong to <category>, or all command categories",
+		"    when no category is specified.",
 		"DELUSER <username> [<username> ...]",
-		"    Delete the specified ACL users and terminate their connections.",
+		"    Delete a list of users.",
 		"DRYRUN <username> <command> [<arg> ...]",
-		"    Returns whether the user can execute the given command without executing it.",
+		"    Returns whether the user can execute the given command without executing the command.",
 		"GETUSER <username>",
-		"    Return the rules defined for an ACL user.",
+		"    Get the user's details.",
 		"GENPASS [<bits>]",
-		"    Generate a secure pseudorandom password.",
+		"    Generate a secure 256-bit user password. The optional `bits` argument can",
+		"    be used to specify a different size.",
 		"LIST",
-		"    Return the currently active ACL rules.",
-		"LOG [<count> | RESET]",
-		"    Return the latest ACL log entries or reset the log.",
-		"SETUSER <username> <rule> [<rule> ...]",
-		"    Modify or create the rules for a specific ACL user.",
-		"SAVE",
-		"    Save the current ACL rules to the configured aclfile.",
+		"    Show users details in config file format.",
 		"LOAD",
-		"    Reload ACL rules from the configured aclfile.",
+		"    Reload users from the ACL file.",
+		"LOG [<count> | RESET]",
+		"    Show the ACL log entries.",
+		"SAVE",
+		"    Save the current config to the ACL file.",
+		"SETUSER <username> <attribute> [<attribute> ...]",
+		"    Create or modify a user with the specified attributes.",
 		"USERS",
-		"    Return the currently active usernames.",
+		"    List all the registered usernames.",
 		"WHOAMI",
-		"    Return the username the current connection is authenticated with.",
+		"    Return the current connection username.",
 		"HELP",
 		"    Print this help.",
 	}

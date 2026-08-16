@@ -6,6 +6,7 @@
 
 ### Fixed
 
+- 第五十五批（可关闭扫尽收口）：ACL CAT 列表/查询无 `@` 前缀（带 `@`→Unknown category，对照 Redis 8.10）；ACL/CLIENT/COMMAND/PUBSUB/FUNCTION/XGROUP HELP 布局对齐；**可关闭 ERR/CONFIG/HELP 战役收口**（远期 7 项仍为非目标，不宣称 100% Redis）
 - 第五十四批可关闭：INFO `default` section；AUTH 多余参数→syntax；FUNCTION RESTORE 垃圾载荷 ERR；MIGRATE 空键→NOKEY；XINFO/SCRIPT HELP 布局（对照 Redis 8.10）
 - 第五十三批可关闭：CONFIG `repl-diskless-sync-max-replicas` 桩；RESTORE 坏载荷 ERR 对齐 Redis 短文案；OBJECT/CONFIG/SLOWLOG HELP 布局（对照 Redis 8.10；diskless max-replicas 仅桩）
 - 第五十二批可关闭：WAITAOF（appendonly 关且 numlocal>0→ERR；numlocal=0 返回 local=0）；CONFIG `rdb-del-sync-files`/`aof-disable-auto-gc` 桩与 `appenddirname` immutable；LATENCY HELP 对齐 Redis 布局（对照 Redis 8.10；AOF GC/RDB del-sync 仅桩）

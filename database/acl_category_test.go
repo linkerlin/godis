@@ -51,11 +51,11 @@ func TestACLCategoryEnforcement(t *testing.T) {
 func TestACLCatListsNewCommands(t *testing.T) {
 	server := getTestServer()
 	c := connection.NewFakeConn()
-	r := server.Exec(c, utils.ToCmdLine("ACL", "CAT", "@string"))
+	r := server.Exec(c, utils.ToCmdLine("ACL", "CAT", "string"))
 	body := string(r.ToBytes())
 	for _, cmd := range []string{"getdel", "getex", "lcs"} {
 		if !strings.Contains(strings.ToLower(body), cmd) {
-			t.Fatalf("ACL CAT @string should list %s: %s", cmd, body)
+			t.Fatalf("ACL CAT string should list %s: %s", cmd, body)
 		}
 	}
 }

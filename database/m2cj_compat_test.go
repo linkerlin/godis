@@ -98,28 +98,28 @@ func TestM2cjACLCatCMSTopKTdigest(t *testing.T) {
 	for _, a := range mb.Args {
 		joined += string(a) + " "
 	}
-	for _, want := range []string{"@cms", "@topk", "@tdigest"} {
+	for _, want := range []string{"cms", "topk", "tdigest"} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("ACL CAT missing %s: %s", want, joined)
 		}
 	}
 
-	r := db.Exec(nil, utils.ToCmdLine("ACL", "CAT", "@cms"))
+	r := db.Exec(nil, utils.ToCmdLine("ACL", "CAT", "cms"))
 	cms, ok := r.(*protocol.MultiBulkReply)
 	if !ok || len(cms.Args) == 0 {
-		t.Fatalf("ACL CAT @cms: %T %s", r, r.ToBytes())
+		t.Fatalf("ACL CAT cms: %T %s", r, r.ToBytes())
 	}
 
-	r = db.Exec(nil, utils.ToCmdLine("ACL", "CAT", "@topk"))
+	r = db.Exec(nil, utils.ToCmdLine("ACL", "CAT", "topk"))
 	topk, ok := r.(*protocol.MultiBulkReply)
 	if !ok || len(topk.Args) == 0 {
-		t.Fatalf("ACL CAT @topk: %T %s", r, r.ToBytes())
+		t.Fatalf("ACL CAT topk: %T %s", r, r.ToBytes())
 	}
 
-	r = db.Exec(nil, utils.ToCmdLine("ACL", "CAT", "@tdigest"))
+	r = db.Exec(nil, utils.ToCmdLine("ACL", "CAT", "tdigest"))
 	td, ok := r.(*protocol.MultiBulkReply)
 	if !ok || len(td.Args) == 0 {
-		t.Fatalf("ACL CAT @tdigest: %T %s", r, r.ToBytes())
+		t.Fatalf("ACL CAT tdigest: %T %s", r, r.ToBytes())
 	}
 	found := false
 	for _, a := range td.Args {
@@ -129,6 +129,6 @@ func TestM2cjACLCatCMSTopKTdigest(t *testing.T) {
 		}
 	}
 	if !found {
-		t.Fatalf("ACL CAT @tdigest missing tdigest.create: %s", r.ToBytes())
+		t.Fatalf("ACL CAT tdigest missing tdigest.create: %s", r.ToBytes())
 	}
 }
