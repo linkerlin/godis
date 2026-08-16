@@ -1120,11 +1120,15 @@ func execXInfo(db *DB, args [][]byte) redis.Reply {
 
 func execXInfoHelp() redis.Reply {
 	help := []string{
-		"XINFO <subcommand> ... . Subcommands are:",
+		"XINFO <subcommand> [<arg> [value] [opt] ...]. Subcommands are:",
 		"CONSUMERS <key> <groupname>",
+		"    Show consumers of <groupname>.",
 		"GROUPS <key>",
-		"STREAM <key> [FULL [COUNT <count>]]",
+		"    Show the stream consumer groups.",
+		"STREAM <key> [FULL [COUNT <count>]",
+		"    Show information about the stream.",
 		"HELP",
+		"    Print this help.",
 	}
 	result := make([]redis.Reply, len(help))
 	for i, h := range help {

@@ -101,9 +101,11 @@ func parseMigrateArgs(args [][]byte) (*migrateOpts, redis.Reply) {
 		}
 	} else {
 		if keyArg == "" {
-			return nil, protocol.MakeSyntaxErrReply()
+			// Redis: empty key without KEYS → NOKEY (no keys to migrate).
+			opts.keys = nil
+		} else {
+			opts.keys = []string{keyArg}
 		}
-		opts.keys = []string{keyArg}
 	}
 	return opts, nil
 }

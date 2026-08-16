@@ -216,6 +216,12 @@ func Info(db *Server, args [][]byte) redis.Reply {
 			}
 			continue
 		}
+		if section == "default" {
+			for _, s := range defaultSections {
+				buf = append(buf, GenGodisInfoString(s, db)...)
+			}
+			continue
+		}
 		if part := infoSectionBytes(section, db); len(part) > 0 {
 			buf = append(buf, part...)
 		}

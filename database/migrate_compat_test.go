@@ -115,9 +115,7 @@ func TestMigrateParseErrors(t *testing.T) {
 	}
 
 	r = db.Exec(nil, utils.ToCmdLine("MIGRATE", "127.0.0.1", "6399", "", "0", "1000"))
-	if !protocol.IsErrorReply(r) {
-		t.Fatalf("expected empty-key without KEYS error, got %s", r.ToBytes())
-	}
+	asserts.AssertStatusReply(t, r, "NOKEY")
 
 	r = db.Exec(nil, utils.ToCmdLine("MIGRATE", "127.0.0.1", "6399", "k", "0", "1000", "KEYS", "a"))
 	if !protocol.IsErrorReply(r) || !strings.Contains(string(r.ToBytes()), "empty string") {

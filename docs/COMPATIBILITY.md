@@ -285,4 +285,4 @@ UNWATCH、WAIT（简版）、BITOP、BITFIELD、SMOVE、LPOS、XCLAIM、SHUTDOWN
 
 ---
 
-**最后更新：** 2026-08-17（第五十三批可关闭：repl-diskless-sync-max-replicas；RESTORE ERR；OBJECT/CONFIG/SLOWLOG HELP；对照 Redis **8.10.0**；远期仍 **7**）
+**最后更新：** 2026-08-17（第五十四批可关闭：INFO default；AUTH syntax；FUNCTION RESTORE 垃圾；MIGRATE 空键 NOKEY；XINFO/SCRIPT HELP；对照 Redis **8.10.0**；远期仍 **7**）

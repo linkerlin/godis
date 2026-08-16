@@ -236,8 +236,11 @@ func bindAuthToConnection(c redis.Connection, username, password string) {
 // Auth validates credentials and updates connection authentication state.
 // AUTH [username] password
 func Auth(c redis.Connection, args [][]byte) redis.Reply {
-	if len(args) < 1 || len(args) > 2 {
+	if len(args) < 1 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'auth' command")
+	}
+	if len(args) > 2 {
+		return protocol.MakeErrReply("ERR syntax error")
 	}
 	username := "default"
 	password := string(args[0])
@@ -258,8 +261,11 @@ func Auth(c redis.Connection, args [][]byte) redis.Reply {
 
 // execAuth is the DB.Exec path for AUTH (e.g. redis.call("AUTH")).
 func execAuth(db *DB, args [][]byte) redis.Reply {
-	if len(args) < 1 || len(args) > 2 {
+	if len(args) < 1 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'auth' command")
+	}
+	if len(args) > 2 {
+		return protocol.MakeErrReply("ERR syntax error")
 	}
 	username := "default"
 	password := string(args[0])

@@ -464,6 +464,10 @@ func execFunctionRestore(db *DB, args [][]byte) redis.Reply {
 		return protocol.MakeErrReply(errFunctionRestoreForeignBinary)
 	default:
 		libs = parseLibraryDump(string(payload))
+		if len(libs) == 0 {
+			// Redis rejects non-dump garbage with the DUMP checksum ERR (not silent OK).
+			return protocol.MakeErrReply("ERR DUMP payload version or checksum are wrong")
+		}
 	}
 
 	if policy == "FLUSH" {
