@@ -45,6 +45,10 @@ func TestSplitKNNClauseHybridPolicy(t *testing.T) {
 	if err != nil || knn2 == nil || knn2.HybridPolicy != "BATCHES" {
 		t.Fatalf("want BATCHES, got %+v err=%v", knn2, err)
 	}
+	_, knn3, err := SplitKNNClause("*=>[KNN 2 @vec $q]=>{$HYBRID_POLICY: BATCHES; $BATCH_SIZE: 8}")
+	if err != nil || knn3 == nil || knn3.HybridPolicy != "BATCHES" || knn3.BatchSize != 8 {
+		t.Fatalf("want attr HYBRID_POLICY BATCHES + BATCH_SIZE 8, got %+v err=%v", knn3, err)
+	}
 }
 
 func TestSplitKNNClauseShardKRatioAccepted(t *testing.T) {
@@ -139,6 +143,8 @@ func TestSplitKNNClauseErrorPaths(t *testing.T) {
 		{"*=>[KNN 1 @vec $q]=>{$EPSILON:}", "EPSILON requires"},
 		{"*=>[KNN 1 @vec $q]=>{$EF_RUNTIME:}", "EF_RUNTIME requires"},
 		{"*=>[KNN 1 @vec $q]=>{$EF_RUNTIME: 0}", "Invalid KNN EF_RUNTIME"},
+		{"*=>[KNN 1 @vec $q]=>{$HYBRID_POLICY:}", "HYBRID_POLICY requires"},
+		{"*=>[KNN 1 @vec $q]=>{$HYBRID_POLICY: FOO}", "Invalid KNN HYBRID_POLICY"},
 		{"*=>[KNN 1 @vec $q] leftover", "Unexpected token after KNN"},
 	}
 	for _, tc := range cases {

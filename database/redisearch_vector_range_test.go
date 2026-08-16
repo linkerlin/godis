@@ -81,3 +81,75 @@ func TestFTVectorRangeYieldAndDialectGate(t *testing.T) {
 		t.Fatalf("want EPSILON ERR, got %s", bad.ToBytes())
 	}
 }
+
+// TestFTVectorRangeRadiusParam: @vec:[VECTOR_RANGE $r $q] resolves radius from PARAMS.
+func TestFTVectorRangeRadiusParam(t *testing.T) {
+	db := makeTestDB()
+	create := db.Exec(nil, utils.ToCmdLine(
+		"FT.CREATE", "vrp", "ON", "HASH", "PREFIX", "1", "vp:",
+		"SCHEMA", "vec", "VECTOR", "FLAT", "6", "TYPE", "FLOAT32", "DIM", "2", "DISTANCE_METRIC", "L2",
+	))
+	if protocol.IsErrorReply(create) {
+		t.Fatalf("FT.CREATE: %s", create.ToBytes())
+	}
+	_ = db.Exec(nil, utils.ToCmdLine("HSET", "vp:near", "vec", f32leKNN(0.1, 0)))
+	_ = db.Exec(nil, utils.ToCmdLine("HSET", "vp:mid", "vec", f32leKNN(0.5, 0)))
+	_ = db.Exec(nil, utils.ToCmdLine("HSET", "vp:far", "vec", f32leKNN(5, 5)))
+
+	r := db.Exec(nil, utils.ToCmdLine(
+		"FT.SEARCH", "vrp", "@vec:[VECTOR_RANGE $r $q]",
+		"PARAMS", "4", "r", "1", "q", f32leKNN(0, 0),
+		"DIALECT", "2", "NOCONTENT",
+	))
+	if protocol.IsErrorReply(r) {
+		t.Fatalf("VECTOR_RANGE $r: %s", r.ToBytes())
+	}
+	s := string(r.ToBytes())
+	if !strings.Contains(s, "vp:near") || !strings.Contains(s, "vp:mid") {
+		t.Fatalf("want near+mid within $r=1, got %s", s)
+	}
+	if strings.Contains(s, "vp:far") {
+		t.Fatalf("far should be outside $r=1, got %s", s)
+	}
+
+	// Parenthesized radius param (Redis docs form).
+	paren := db.Exec(nil, utils.ToCmdLine(
+		"FT.SEARCH", "vrp", "@vec:[VECTOR_RANGE ($r) $q]",
+		"PARAMS", "4", "r", "0.2", "q", f32leKNN(0, 0),
+		"DIALECT", "2", "NOCONTENT",
+	))
+	if protocol.IsErrorReply(paren) {
+		t.Fatalf("VECTOR_RANGE ($r): %s", paren.ToBytes())
+	}
+	ps := string(paren.ToBytes())
+	if !strings.Contains(ps, "vp:near") || strings.Contains(ps, "vp:mid") || strings.Contains(ps, "vp:far") {
+		t.Fatalf("want only near within $r=0.2, got %s", ps)
+	}
+
+	miss := db.Exec(nil, utils.ToCmdLine(
+		"FT.SEARCH", "vrp", "@vec:[VECTOR_RANGE $missing $q]",
+		"PARAMS", "2", "q", f32leKNN(0, 0),
+		"DIALECT", "2",
+	))
+	if !protocol.IsErrorReply(miss) || !strings.Contains(string(miss.ToBytes()), "No such parameter") {
+		t.Fatalf("want missing radius param ERR, got %s", miss.ToBytes())
+	}
+
+	badEF := db.Exec(nil, utils.ToCmdLine(
+		"FT.SEARCH", "vrp", "@vec:[VECTOR_RANGE 1 $q]=>{$EF_RUNTIME:}",
+		"PARAMS", "2", "q", f32leKNN(0, 0),
+		"DIALECT", "2",
+	))
+	if !protocol.IsErrorReply(badEF) || !strings.Contains(string(badEF.ToBytes()), "EF_RUNTIME") {
+		t.Fatalf("want EF_RUNTIME ERR, got %s", badEF.ToBytes())
+	}
+
+	okEF := db.Exec(nil, utils.ToCmdLine(
+		"FT.SEARCH", "vrp", "@vec:[VECTOR_RANGE 1 $q]=>{$EF_RUNTIME: 32}",
+		"PARAMS", "2", "q", f32leKNN(0, 0),
+		"DIALECT", "2", "NOCONTENT",
+	))
+	if protocol.IsErrorReply(okEF) {
+		t.Fatalf("EF_RUNTIME accept: %s", okEF.ToBytes())
+	}
+}

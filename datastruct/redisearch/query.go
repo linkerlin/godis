@@ -778,10 +778,18 @@ func ExpandSynonyms(node QueryNode, expand func(string) []string) QueryNode {
 //   - a numeric range otherwise.
 func parseRangeOrGeo(field, raw string) QueryNode {
 	parts := strings.Fields(raw)
-	// VECTOR_RANGE: "VECTOR_RANGE <radius> $param" (DIALECT 2+).
-	if len(parts) == 3 && strings.EqualFold(parts[0], "VECTOR_RANGE") {
-		radius, err := strconv.ParseFloat(parts[1], 64)
-		if err == nil && radius >= 0 && strings.HasPrefix(parts[2], "$") {
+	// VECTOR_RANGE: "VECTOR_RANGE <radius|$radius> $param" (DIALECT 2+).
+	// Redis docs allow optional parentheses around the radius token.
+	if len(parts) == 3 && strings.EqualFold(parts[0], "VECTOR_RANGE") && strings.HasPrefix(parts[2], "$") {
+		radTok := strings.TrimSpace(parts[1])
+		if len(radTok) >= 2 && radTok[0] == '(' && radTok[len(radTok)-1] == ')' {
+			radTok = strings.TrimSpace(radTok[1 : len(radTok)-1])
+		}
+		if strings.HasPrefix(radTok, "$") {
+			return &VectorRangeNode{Field: field, RadiusParam: radTok, Param: parts[2]}
+		}
+		radius, err := strconv.ParseFloat(radTok, 64)
+		if err == nil && radius >= 0 {
 			return &VectorRangeNode{Field: field, Radius: radius, Param: parts[2]}
 		}
 	}
@@ -808,13 +816,15 @@ func parseRangeOrGeo(field, raw string) QueryNode {
 	return parseNumericRange(field, raw)
 }
 
-// VectorRangeNode is @field:[VECTOR_RANGE radius $param] (DIALECT 2+).
+// VectorRangeNode is @field:[VECTOR_RANGE radius|$radius $param] (DIALECT 2+).
 // Evaluate narrows to docs that have a vector for the field; the engine's
 // filterByVectorRangeNodes applies the real distance ≤ radius*(1+ε) test.
+// When RadiusParam is set, radius is resolved from SearchOptions.Params.
 type VectorRangeNode struct {
-	Field  string
-	Radius float64
-	Param  string // $-parameter name carrying the query vector blob
+	Field       string
+	Radius      float64 // literal radius when RadiusParam == ""
+	RadiusParam string  // $-parameter for radius ("" = use Radius)
+	Param       string  // $-parameter name carrying the query vector blob
 }
 
 // Evaluate returns doc IDs that have a value for the vector field.
@@ -1577,7 +1587,11 @@ func explainNode(b *strings.Builder, node QueryNode, depth int) {
 	case *GeoShapeNode:
 		b.WriteString(indent + "GEOSHAPE{" + n.Field + " " + n.Op + " " + n.Param + "}\n")
 	case *VectorRangeNode:
-		b.WriteString(indent + "VECTOR_RANGE{" + n.Field + " " + strconv.FormatFloat(n.Radius, 'f', -1, 64) + " " + n.Param + "}\n")
+		rad := strconv.FormatFloat(n.Radius, 'f', -1, 64)
+		if n.RadiusParam != "" {
+			rad = n.RadiusParam
+		}
+		b.WriteString(indent + "VECTOR_RANGE{" + n.Field + " " + rad + " " + n.Param + "}\n")
 	case *MissingNode:
 		b.WriteString(indent + "MISSING{" + n.Field + "}\n")
 	case *AndNode:

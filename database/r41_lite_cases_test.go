@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/linkerlin/godis/lib/utils"
+	"github.com/linkerlin/godis/redis/protocol"
 	"github.com/linkerlin/godis/redis/protocol/asserts"
 )
 
@@ -102,4 +103,27 @@ func TestR41LiteCaseExpectations(t *testing.T) {
 	asserts.AssertStatusReply(t, testDB.Exec(nil, utils.ToCmdLine("SET", "b61gd", "bye")), "OK")
 	asserts.AssertBulkReply(t, testDB.Exec(nil, utils.ToCmdLine("GETDEL", "b61gd")), "bye")
 	asserts.AssertIntReply(t, testDB.Exec(nil, utils.ToCmdLine("EXISTS", "b61gd")), 0)
+
+	asserts.AssertIntReply(t, testDB.Exec(nil, utils.ToCmdLine("ZADD", "b62z", "1", "a", "2", "b")), 2)
+	zm := testDB.Exec(nil, utils.ToCmdLine("ZMSCORE", "b62z", "a"))
+	if mr, ok := zm.(*protocol.MultiRawReply); !ok || len(mr.Replies) != 1 {
+		t.Fatalf("ZMSCORE type %T %s", zm, zm.ToBytes())
+	} else if d, ok := mr.Replies[0].(*protocol.DoubleReply); !ok || d.Value != 1 {
+		t.Fatalf("ZMSCORE[0] want Double 1, got %T %s", mr.Replies[0], zm.ToBytes())
+	}
+	asserts.AssertMultiBulkReply(t, testDB.Exec(nil, utils.ToCmdLine("ZREVRANGE", "b62z", "0", "0")), []string{"b"})
+	asserts.AssertIntReply(t, testDB.Exec(nil, utils.ToCmdLine("SADD", "b62s", "a", "b")), 2)
+	sm := testDB.Exec(nil, utils.ToCmdLine("SMISMEMBER", "b62s", "a"))
+	if mr, ok := sm.(*protocol.MultiRawReply); !ok || len(mr.Replies) != 1 {
+		t.Fatalf("SMISMEMBER type %T %s", sm, sm.ToBytes())
+	} else {
+		asserts.AssertIntReply(t, mr.Replies[0], 1)
+	}
+	asserts.AssertBulkReply(t, testDB.Exec(nil, utils.ToCmdLine("HINCRBYFLOAT", "b62h", "f", "0.5")), "0.5")
+	asserts.AssertStatusReply(t, testDB.Exec(nil, utils.ToCmdLine("SET", "b62pe", "v", "PXAT", "2000000000000")), "OK")
+	asserts.AssertIntReply(t, testDB.Exec(nil, utils.ToCmdLine("PEXPIRETIME", "b62pe")), 2000000000000)
+	asserts.AssertIntReply(t, testDB.Exec(nil, utils.ToCmdLine("ZADD", "b62d1", "1", "a", "2", "b")), 2)
+	asserts.AssertIntReply(t, testDB.Exec(nil, utils.ToCmdLine("ZADD", "b62d2", "3", "b")), 1)
+	asserts.AssertIntReply(t, testDB.Exec(nil, utils.ToCmdLine("ZDIFFSTORE", "b62do", "2", "b62d1", "b62d2")), 1)
+	asserts.AssertBulkReply(t, testDB.Exec(nil, utils.ToCmdLine("ZSCORE", "b62do", "a")), "1")
 }

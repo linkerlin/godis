@@ -490,7 +490,7 @@ func parseInt(s string) (int, error) {
 // KNNClause captures a parsed "=>[KNN K @field $param [AS score] [EF_RUNTIME n]
 // [HYBRID_POLICY policy] [BATCH_SIZE n] [EPSILON e]]" suffix from a
 // FT.SEARCH/FT.AGGREGATE query, optionally followed by
-// "=>{$YIELD_DISTANCE_AS: alias; $SHARD_K_RATIO: r; $BATCH_SIZE: n; $EPSILON: e}".
+// "=>{$YIELD_DISTANCE_AS: alias; $SHARD_K_RATIO: r; $BATCH_SIZE: n; $EPSILON: e; $HYBRID_POLICY: p}".
 // A nil return from SplitKNNClause means the query has no KNN clause.
 type KNNClause struct {
 	K            int
@@ -618,8 +618,8 @@ func SplitKNNClause(query string) (base string, knn *KNNClause, err error) {
 }
 
 // applyKNNAttrBlock parses "=>{$YIELD_DISTANCE_AS: dist; $SHARD_K_RATIO: 0.5;
-// $BATCH_SIZE: 10; $EPSILON: 0.5}" after a KNN clause. Unknown $-keys are
-// ignored; empty values for known keys error (Redis syntax).
+// $BATCH_SIZE: 10; $EPSILON: 0.5; $HYBRID_POLICY: BATCHES}" after a KNN clause.
+// Unknown $-keys are ignored; empty values for known keys error (Redis syntax).
 func applyKNNAttrBlock(clause *KNNClause, rest string) error {
 	rest = strings.TrimSpace(rest)
 	if !strings.HasPrefix(rest, "=>") {
@@ -699,6 +699,15 @@ func applyKNNAttrBlock(clause *KNNClause, rest string) error {
 			if e, perr := strconv.ParseFloat(val, 64); perr == nil && e > 0 {
 				clause.Epsilon = e
 			}
+		case "HYBRID_POLICY":
+			if val == "" {
+				return fmt.Errorf("HYBRID_POLICY requires a value")
+			}
+			policy := strings.ToUpper(val)
+			if policy != "ADHOC_BF" && policy != "BATCHES" {
+				return fmt.Errorf("Invalid KNN HYBRID_POLICY '%s'", val)
+			}
+			clause.HybridPolicy = policy
 		default:
 			// Accept unknown keys for forward-compat (ponytail).
 		}

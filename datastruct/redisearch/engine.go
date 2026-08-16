@@ -2144,6 +2144,19 @@ func (e *RediSearchEngine) filterByVectorRangeNodes(docIDs []string, node QueryN
 		if vi == nil {
 			return nil, nil, fmt.Errorf("Vector field '%s' not found in index", vn.Field)
 		}
+		radius := vn.Radius
+		if vn.RadiusParam != "" {
+			rName := strings.TrimPrefix(vn.RadiusParam, "$")
+			rBlob, ok := params[rName]
+			if !ok {
+				return nil, nil, fmt.Errorf("No such parameter '%s'", rName)
+			}
+			r, perr := strconv.ParseFloat(string(rBlob), 64)
+			if perr != nil || r < 0 {
+				return nil, nil, fmt.Errorf("Invalid VECTOR_RANGE radius parameter '%s'", rName)
+			}
+			radius = r
+		}
 		blob, ok := params[strings.TrimPrefix(vn.Param, "$")]
 		if !ok {
 			return nil, nil, fmt.Errorf("No such parameter '%s'", strings.TrimPrefix(vn.Param, "$"))
@@ -2152,7 +2165,7 @@ func (e *RediSearchEngine) filterByVectorRangeNodes(docIDs []string, node QueryN
 		if err != nil {
 			return nil, nil, err
 		}
-		eff := float32(vn.Radius * (1 + eps))
+		eff := float32(radius * (1 + eps))
 		allowed := make([]string, 0, len(keep))
 		for id := range keep {
 			allowed = append(allowed, id)
