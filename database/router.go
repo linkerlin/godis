@@ -31,6 +31,29 @@ func arityErrCmdName(cmdName string) string {
 	}
 }
 
+// unknownParentSubcommandReply matches Redis when a multi-word parent (SCRIPT/
+// FUNCTION) is sent with a missing or unknown subcommand that is not registered
+// via Script|*/Function|* aliases.
+func unknownParentSubcommandReply(cmdLine [][]byte) redis.Reply {
+	if len(cmdLine) == 0 {
+		return nil
+	}
+	parent := strings.ToLower(string(cmdLine[0]))
+	help := ""
+	switch parent {
+	case "script":
+		help = "SCRIPT"
+	case "function":
+		help = "FUNCTION"
+	default:
+		return nil
+	}
+	if len(cmdLine) == 1 {
+		return protocol.MakeArgNumErrReply(parent)
+	}
+	return protocol.MakeErrReply("ERR unknown subcommand '" + string(cmdLine[1]) + "'. Try " + help + " HELP.")
+}
+
 // buildCommandAliases creates mappings from multi-word command names (as standard
 // Redis clients send them) to the single-token names used in cmdTable.
 func buildCommandAliases() {
@@ -95,7 +118,7 @@ func ResolveCommandLine(cmdLine [][]byte) (newCmdLine [][]byte, cmdName string, 
 		}
 	}
 
-	return nil, cmdName, false
+	return cmdLine, cmdName, false
 }
 
 type command struct {

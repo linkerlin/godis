@@ -194,6 +194,19 @@ func getConfigMatches(pattern string) []configPair {
 		{"latency-monitor-threshold", strconv.FormatInt(getLatencyMonitorThreshold(), 10)},
 		{"acl-pubsub-default", getAclPubsubDefault()},
 		{"repl-ping-replica-period", strconv.Itoa(getReplPingReplicaPeriod())},
+		{"lfu-log-factor", strconv.Itoa(getLFULogFactor())},
+		{"lfu-decay-time", strconv.Itoa(getLFUDecayTime())},
+		{"maxmemory-eviction-tenacity", strconv.Itoa(getMaxmemoryEvictionTenacity())},
+		{"list-compress-depth", strconv.Itoa(getListCompressDepth())},
+		{"aof-timestamp-enabled", boolToString(getAofTimestampEnabled())},
+		{"repl-disable-tcp-nodelay", boolToString(getReplDisableTCPNodelay())},
+		{"latency-tracking", boolToString(getLatencyTracking())},
+		{"crash-log-enabled", boolToString(getCrashLogEnabled())},
+		{"crash-memcheck-enabled", boolToString(getCrashMemcheckEnabled())},
+		{"repl-diskless-load", getReplDisklessLoad()},
+		{"cluster-preferred-endpoint-type", getClusterPreferredEndpointType()},
+		{"cluster-link-sendbuf-limit", strconv.FormatInt(getClusterLinkSendbufLimit(), 10)},
+		{"cluster-announce-hostname", getClusterAnnounceHostname()},
 		{"cluster-allow-replica-migration", boolToString(getClusterAllowReplicaMigration())},
 		{"cluster-replica-validity-factor", strconv.Itoa(getClusterReplicaValidityFactor())},
 		{"hash-max-listpack-entries", strconv.Itoa(getHashMaxListpackEntries())},
@@ -755,6 +768,96 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'repl-ping-replica-period') - argument must be between 1 and 2147483647 inclusive")
 			}
 			config.Properties.ReplPingReplicaPeriod = n
+		case "lfu-log-factor":
+			n, err := strconv.Atoi(value)
+			if err != nil {
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'lfu-log-factor') - argument couldn't be parsed into an integer")
+			}
+			if n < 0 || n > 2147483647 {
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'lfu-log-factor') - argument must be between 0 and 2147483647 inclusive")
+			}
+			config.Properties.LFULogFactor = n
+		case "lfu-decay-time":
+			n, err := strconv.Atoi(value)
+			if err != nil {
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'lfu-decay-time') - argument couldn't be parsed into an integer")
+			}
+			if n < 0 || n > 2147483647 {
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'lfu-decay-time') - argument must be between 0 and 2147483647 inclusive")
+			}
+			config.Properties.LFUDecayTime = n
+		case "maxmemory-eviction-tenacity":
+			n, err := strconv.Atoi(value)
+			if err != nil {
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'maxmemory-eviction-tenacity') - argument couldn't be parsed into an integer")
+			}
+			if n < 0 || n > 100 {
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'maxmemory-eviction-tenacity') - argument must be between 0 and 100 inclusive")
+			}
+			config.Properties.MaxmemoryEvictionTenacity = n
+		case "list-compress-depth":
+			n, err := strconv.Atoi(value)
+			if err != nil {
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'list-compress-depth') - argument couldn't be parsed into an integer")
+			}
+			if n < 0 || n > 2147483647 {
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'list-compress-depth') - argument must be between 0 and 2147483647 inclusive")
+			}
+			config.Properties.ListCompressDepth = n
+		case "aof-timestamp-enabled":
+			ok, b := config.ParseConfigBool(value)
+			if !ok {
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'aof-timestamp-enabled') - argument must be 'yes' or 'no'")
+			}
+			config.Properties.AofTimestampEnabled = b
+		case "repl-disable-tcp-nodelay":
+			ok, b := config.ParseConfigBool(value)
+			if !ok {
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'repl-disable-tcp-nodelay') - argument must be 'yes' or 'no'")
+			}
+			config.Properties.ReplDisableTCPNodelay = b
+		case "latency-tracking":
+			ok, b := config.ParseConfigBool(value)
+			if !ok {
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'latency-tracking') - argument must be 'yes' or 'no'")
+			}
+			config.Properties.LatencyTracking = b
+		case "crash-log-enabled":
+			ok, b := config.ParseConfigBool(value)
+			if !ok {
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'crash-log-enabled') - argument must be 'yes' or 'no'")
+			}
+			config.Properties.CrashLogEnabled = b
+		case "crash-memcheck-enabled":
+			ok, b := config.ParseConfigBool(value)
+			if !ok {
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'crash-memcheck-enabled') - argument must be 'yes' or 'no'")
+			}
+			config.Properties.CrashMemcheckEnabled = b
+		case "repl-diskless-load":
+			v := strings.ToLower(value)
+			switch v {
+			case "disabled", "on-empty-db", "swapdb", "flushdb":
+				config.Properties.ReplDisklessLoad = v
+			default:
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'repl-diskless-load') - argument(s) must be one of the following: disabled, on-empty-db, swapdb, flushdb")
+			}
+		case "cluster-preferred-endpoint-type":
+			v := strings.ToLower(value)
+			switch v {
+			case "ip", "hostname", "unknown-endpoint":
+				config.Properties.ClusterPreferredEndpointType = v
+			default:
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'cluster-preferred-endpoint-type') - argument(s) must be one of the following: ip, hostname, unknown-endpoint")
+			}
+		case "cluster-link-sendbuf-limit":
+			n, err := strconv.ParseInt(value, 10, 64)
+			if err != nil || n < 0 {
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'cluster-link-sendbuf-limit') - argument must be a memory value")
+			}
+			config.Properties.ClusterLinkSendbufLimit = n
+		case "cluster-announce-hostname":
+			config.Properties.ClusterAnnounceHostname = value
 		case "cluster-allow-replica-migration":
 			ok, b := config.ParseConfigBool(value)
 			if !ok {
@@ -1372,6 +1475,97 @@ func getReplPingReplicaPeriod() int {
 		return 10
 	}
 	return config.Properties.ReplPingReplicaPeriod
+}
+
+func getLFULogFactor() int {
+	if config.Properties == nil {
+		return 10
+	}
+	return config.Properties.LFULogFactor
+}
+
+func getLFUDecayTime() int {
+	if config.Properties == nil {
+		return 1
+	}
+	return config.Properties.LFUDecayTime
+}
+
+func getMaxmemoryEvictionTenacity() int {
+	if config.Properties == nil {
+		return 10
+	}
+	return config.Properties.MaxmemoryEvictionTenacity
+}
+
+func getListCompressDepth() int {
+	if config.Properties == nil {
+		return 0
+	}
+	return config.Properties.ListCompressDepth
+}
+
+func getAofTimestampEnabled() bool {
+	if config.Properties == nil {
+		return false
+	}
+	return config.Properties.AofTimestampEnabled
+}
+
+func getReplDisableTCPNodelay() bool {
+	if config.Properties == nil {
+		return false
+	}
+	return config.Properties.ReplDisableTCPNodelay
+}
+
+func getLatencyTracking() bool {
+	if config.Properties == nil {
+		return true
+	}
+	return config.Properties.LatencyTracking
+}
+
+func getCrashLogEnabled() bool {
+	if config.Properties == nil {
+		return true
+	}
+	return config.Properties.CrashLogEnabled
+}
+
+func getCrashMemcheckEnabled() bool {
+	if config.Properties == nil {
+		return true
+	}
+	return config.Properties.CrashMemcheckEnabled
+}
+
+func getReplDisklessLoad() string {
+	if config.Properties == nil || config.Properties.ReplDisklessLoad == "" {
+		return "disabled"
+	}
+	return config.Properties.ReplDisklessLoad
+}
+
+func getClusterPreferredEndpointType() string {
+	if config.Properties == nil || config.Properties.ClusterPreferredEndpointType == "" {
+		return "ip"
+	}
+	return config.Properties.ClusterPreferredEndpointType
+}
+
+func getClusterLinkSendbufLimit() int64 {
+	if config.Properties == nil {
+		return 0
+	}
+	return config.Properties.ClusterLinkSendbufLimit
+}
+
+func getClusterAnnounceHostname() string {
+	if config.Properties == nil {
+		return ""
+	}
+	return config.Properties.ClusterAnnounceHostname
 }
 
 func getClusterAllowReplicaMigration() bool {

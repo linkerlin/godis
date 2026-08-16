@@ -55,6 +55,12 @@ func StartMulti(conn redis.Connection) redis.Reply {
 func EnqueueCmd(conn redis.Connection, cmdLine [][]byte) redis.Reply {
 	cmdLine, cmdName, ok := ResolveCommandLine(cmdLine)
 	if !ok {
+		if reply := unknownParentSubcommandReply(cmdLine); reply != nil {
+			if er, ok := reply.(error); ok {
+				conn.AddTxError(er)
+			}
+			return reply
+		}
 		err := protocol.MakeErrReply("ERR unknown command '" + cmdName + "'")
 		conn.AddTxError(err)
 		return err

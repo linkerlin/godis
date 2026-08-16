@@ -187,6 +187,9 @@ func (db *DB) Exec(c redis.Connection, cmdLine [][]byte) redis.Reply {
 func (db *DB) execNormalCommand(c redis.Connection, cmdLine [][]byte) redis.Reply {
 	cmdLine, cmdName, ok := ResolveCommandLine(cmdLine)
 	if !ok {
+		if reply := unknownParentSubcommandReply(cmdLine); reply != nil {
+			return reply
+		}
 		return protocol.MakeErrReply("ERR unknown command '" + cmdName + "'")
 	}
 	cmd := cmdTable[cmdName]
@@ -248,6 +251,9 @@ func (db *DB) execNormalCommand(c redis.Connection, cmdLine [][]byte) redis.Repl
 func (db *DB) execWithLock(c redis.Connection, cmdLine [][]byte) redis.Reply {
 	cmdLine, cmdName, ok := ResolveCommandLine(cmdLine)
 	if !ok {
+		if reply := unknownParentSubcommandReply(cmdLine); reply != nil {
+			return reply
+		}
 		return protocol.MakeErrReply("ERR unknown command '" + cmdName + "'")
 	}
 	cmd := cmdTable[cmdName]

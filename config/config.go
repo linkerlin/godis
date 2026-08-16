@@ -150,6 +150,21 @@ type ServerProperties struct {
 	AclPubsubDefault        string `cfg:"acl-pubsub-default"`
 	ReplPingReplicaPeriod   int    `cfg:"repl-ping-replica-period"`
 
+	// Eviction / list / AOF / crash / latency / cluster CONFIG stubs (GET/SET only).
+	LFULogFactor                  int    `cfg:"lfu-log-factor"`
+	LFUDecayTime                  int    `cfg:"lfu-decay-time"`
+	MaxmemoryEvictionTenacity     int    `cfg:"maxmemory-eviction-tenacity"`
+	ListCompressDepth             int    `cfg:"list-compress-depth"`
+	AofTimestampEnabled           bool   `cfg:"aof-timestamp-enabled"`
+	ReplDisableTCPNodelay         bool   `cfg:"repl-disable-tcp-nodelay"`
+	LatencyTracking               bool   `cfg:"latency-tracking"`
+	CrashLogEnabled               bool   `cfg:"crash-log-enabled"`
+	CrashMemcheckEnabled          bool   `cfg:"crash-memcheck-enabled"`
+	ReplDisklessLoad              string `cfg:"repl-diskless-load"`
+	ClusterPreferredEndpointType  string `cfg:"cluster-preferred-endpoint-type"`
+	ClusterLinkSendbufLimit       int64  `cfg:"cluster-link-sendbuf-limit"`
+	ClusterAnnounceHostname       string `cfg:"cluster-announce-hostname"`
+
 	// Encoding / structure size CONFIG stubs (GET/SET only).
 	ListMaxListpackSize    int   `cfg:"list-max-listpack-size"`
 	SetMaxIntsetEntries    int   `cfg:"set-max-intset-entries"`
@@ -267,6 +282,19 @@ func init() {
 		LatencyMonitorThreshold:      0,
 		AclPubsubDefault:             "resetchannels",
 		ReplPingReplicaPeriod:        10,
+		LFULogFactor:                 10,
+		LFUDecayTime:                 1,
+		MaxmemoryEvictionTenacity:    10,
+		ListCompressDepth:            0,
+		AofTimestampEnabled:          false,
+		ReplDisableTCPNodelay:        false,
+		LatencyTracking:              true,
+		CrashLogEnabled:              true,
+		CrashMemcheckEnabled:         true,
+		ReplDisklessLoad:             "disabled",
+		ClusterPreferredEndpointType: "ip",
+		ClusterLinkSendbufLimit:      0,
+		ClusterAnnounceHostname:      "",
 		ListMaxListpackSize:    -2,
 		SetMaxIntsetEntries:    512,
 		ZSetMaxListpackEntries: 128,
