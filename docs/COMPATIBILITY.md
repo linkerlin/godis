@@ -241,7 +241,7 @@ UNWATCH、WAIT（简版）、BITOP、BITFIELD、SMOVE、LPOS、XCLAIM、SHUTDOWN
 
 | 路径 | 行为（诚实） |
 |------|----------------|
-| `RESTORE` | 识别 RDB `typeModule`/`typeModule2` 标记 → 明确 `ERR … module type …`；截断/坏版本/坏 CRC/异己样载荷 → `ERR DUMP payload version or checksum…`（文案标明非模块 RDB） |
+| `RESTORE` | 识别 RDB `typeModule`/`typeModule2` 标记 → 明确 `ERR … module type …`；截断/坏版本/坏 CRC/异己样载荷 → `ERR DUMP payload version or checksum are wrong`（与 Redis 文案一致；模块边界见上表，不在 ERR 后缀声明） |
 | `LoadRDB` / 启动读 `dump.rdb` | 解析到 `ModuleTypeObject` → **返回 error 中止加载**（不再静默丢弃该键） |
 | Godis 自写入 | 扩展类型编码为 string 载体上的 `GODIS1` opaque；**不是**官方模块 RDB type |
 
@@ -285,4 +285,4 @@ UNWATCH、WAIT（简版）、BITOP、BITFIELD、SMOVE、LPOS、XCLAIM、SHUTDOWN
 
 ---
 
-**最后更新：** 2026-08-16（第五十二批可关闭：WAITAOF AOF 门禁；CONFIG rdb-del-sync-files/aof-disable-auto-gc/appenddirname；LATENCY HELP；对照 Redis **8.10.0**；远期仍 **7**）
+**最后更新：** 2026-08-17（第五十三批可关闭：repl-diskless-sync-max-replicas；RESTORE ERR；OBJECT/CONFIG/SLOWLOG HELP；对照 Redis **8.10.0**；远期仍 **7**）

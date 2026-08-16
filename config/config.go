@@ -138,6 +138,8 @@ type ServerProperties struct {
 	IOThreadsDoReads      bool  `cfg:"io-threads-do-reads"`
 	ReplDisklessSync      bool  `cfg:"repl-diskless-sync"`
 	ReplDisklessSyncDelay int   `cfg:"repl-diskless-sync-delay"`
+	// ReplDisklessSyncMaxReplicas is a Redis CONFIG stub (GET/SET only).
+	ReplDisklessSyncMaxReplicas int `cfg:"repl-diskless-sync-max-replicas"`
 	MaxmemorySamples      int   `cfg:"maxmemory-samples"`
 	TrackingTableMaxKeys  int64 `cfg:"tracking-table-max-keys"`
 
@@ -322,6 +324,7 @@ func init() {
 		AutoAofRewriteMinSize:    67108864,
 		IOThreads:                1,
 		ReplDisklessSyncDelay:    5,
+		ReplDisklessSyncMaxReplicas: 0,
 		MaxmemorySamples:         5,
 		TrackingTableMaxKeys:     1000000,
 		ReplBacklogTTL:               3600,

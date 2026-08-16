@@ -206,7 +206,10 @@ func (sl *SlowLogger) HandleSlowlogCommand(args [][]byte) redis.Reply {
 		return protocol.MakeMultiBulkReply([][]byte{
 			[]byte("SLOWLOG <subcommand> [<arg> [value] [opt] ...]. Subcommands are:"),
 			[]byte("GET [<count>]"),
-			[]byte("    Return top <count> entries from the slowlog (default: 10)."),
+			[]byte("    Return top <count> entries from the slowlog (default: 10, -1 mean all)."),
+			[]byte("    Entries are made of:"),
+			[]byte("    id, timestamp, time in microseconds, arguments array, client IP and port,"),
+			[]byte("    client name"),
 			[]byte("LEN"),
 			[]byte("    Return the length of the slowlog."),
 			[]byte("RESET"),

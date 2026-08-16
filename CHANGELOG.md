@@ -6,6 +6,7 @@
 
 ### Fixed
 
+- 第五十三批可关闭：CONFIG `repl-diskless-sync-max-replicas` 桩；RESTORE 坏载荷 ERR 对齐 Redis 短文案；OBJECT/CONFIG/SLOWLOG HELP 布局（对照 Redis 8.10；diskless max-replicas 仅桩）
 - 第五十二批可关闭：WAITAOF（appendonly 关且 numlocal>0→ERR；numlocal=0 返回 local=0）；CONFIG `rdb-del-sync-files`/`aof-disable-auto-gc` 桩与 `appenddirname` immutable；LATENCY HELP 对齐 Redis 布局（对照 Redis 8.10；AOF GC/RDB del-sync 仅桩）
 - 第五十一批可关闭：MEMORY DOCTOR 空/小数据集 Sam 文案（dataset.bytes&lt;5MiB 代理，不伪造 jemalloc）；MEMORY/MODULE HELP 对齐 Redis 布局；PFDEBUG 缺键文案；CONFIG SET 未知项 → `Unknown option…`（对照 Redis 8.10）
 - 第五十批可关闭：LATENCY DOCTOR（threshold=0 禁用文案 / 启用无尖峰 Dave 文案）；LOLWUT IT 意大利语模式；非可视 VERSION（如 -1/0/100）仅输出版本行（对照 Redis 8.10；不伪造 Nees/schotter 完整图形）

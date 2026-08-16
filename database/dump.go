@@ -118,7 +118,7 @@ func execRestore(db *DB, args [][]byte) redis.Reply {
 		if err == errDumpModuleRDB {
 			return protocol.MakeErrReply("ERR " + err.Error())
 		}
-		return protocol.MakeErrReply("ERR DUMP payload version or checksum are wrong (Godis accepts Redis core types + Godis GODIS1 opaque; not Redis module RDB)")
+		return protocol.MakeErrReply("ERR DUMP payload version or checksum are wrong")
 	}
 
 	db.PutEntity(key, entity)

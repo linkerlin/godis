@@ -87,13 +87,13 @@ func execConfigHelp(args [][]byte) redis.Reply {
 	return protocol.MakeMultiBulkReply([][]byte{
 		[]byte("CONFIG <subcommand> [<arg> [value] [opt] ...]. Subcommands are:"),
 		[]byte("GET <pattern>"),
-		[]byte("    Return parameters matching the pattern."),
-		[]byte("SET <parameter> <value> [<parameter> <value> ...]"),
-		[]byte("    Set configuration parameters."),
+		[]byte("    Return parameters matching the glob-like <pattern> and their values."),
+		[]byte("SET <directive> <value>"),
+		[]byte("    Set the configuration <directive> to <value>."),
 		[]byte("RESETSTAT"),
-		[]byte("    Reset statistics reported by INFO."),
+		[]byte("    Reset statistics reported by the INFO command."),
 		[]byte("REWRITE"),
-		[]byte("    Rewrite the configuration file with the current configuration."),
+		[]byte("    Rewrite the configuration file."),
 		[]byte("HELP"),
 		[]byte("    Print this help."),
 	})
@@ -204,6 +204,7 @@ func getConfigMatches(pattern string) []configPair {
 		{"io-threads-do-reads", boolToString(getIOThreadsDoReads())},
 		{"repl-diskless-sync", boolToString(getReplDisklessSync())},
 		{"repl-diskless-sync-delay", strconv.Itoa(getReplDisklessSyncDelay())},
+		{"repl-diskless-sync-max-replicas", strconv.Itoa(getReplDisklessSyncMaxReplicas())},
 		{"maxmemory-samples", strconv.Itoa(getMaxmemorySamples())},
 		{"tracking-table-max-keys", strconv.FormatInt(getTrackingTableMaxKeys(), 10)},
 		{"repl-backlog-ttl", strconv.Itoa(getReplBacklogTTL())},
@@ -794,6 +795,15 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'repl-diskless-sync-delay') - argument must be between 0 and 2147483647 inclusive")
 			}
 			config.Properties.ReplDisklessSyncDelay = n
+		case "repl-diskless-sync-max-replicas":
+			n, err := strconv.Atoi(value)
+			if err != nil {
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'repl-diskless-sync-max-replicas') - argument couldn't be parsed into an integer")
+			}
+			if n < 0 || n > 2147483647 {
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'repl-diskless-sync-max-replicas') - argument must be between 0 and 2147483647 inclusive")
+			}
+			config.Properties.ReplDisklessSyncMaxReplicas = n
 		case "maxmemory-samples":
 			n, err := strconv.Atoi(value)
 			if err != nil {
@@ -1750,6 +1760,13 @@ func getReplDisklessSyncDelay() int {
 		return 5
 	}
 	return config.Properties.ReplDisklessSyncDelay
+}
+
+func getReplDisklessSyncMaxReplicas() int {
+	if config.Properties == nil {
+		return 0
+	}
+	return config.Properties.ReplDisklessSyncMaxReplicas
 }
 
 func getMaxmemorySamples() int {
