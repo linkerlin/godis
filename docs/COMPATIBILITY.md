@@ -285,4 +285,4 @@ UNWATCH、WAIT（简版）、BITOP、BITFIELD、SMOVE、LPOS、XCLAIM、SHUTDOWN
 
 ---
 
-**最后更新：** 2026-08-16（第四十五批可关闭：CONFIG tls-port / tls-client-* / tls-dh / ciphersuites / maxmemory-clients；对照 Redis **8.10.0**；远期仍 **7**）
+**最后更新：** 2026-08-16（第四十六批可关闭：QUIT 多余参数；CONFIG databases/disable-thp/enable-*/unixsocket*/syslog-*/cluster-port/supervised immutable；对照 Redis **8.10.0**；远期仍 **7**）

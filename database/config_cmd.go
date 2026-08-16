@@ -122,6 +122,19 @@ func getConfigMatches(pattern string) []configPair {
 
 	configs := []configPair{
 		{"databases", strconv.Itoa(config.Properties.Databases)},
+		{"disable-thp", "yes"},
+		{"enable-debug-command", "no"},
+		{"enable-module-command", "no"},
+		{"enable-protected-configs", "no"},
+		{"socket-mark-id", "0"},
+		{"unixsocket", ""},
+		{"unixsocketperm", "0"},
+		{"syslog-enabled", "no"},
+		{"syslog-ident", "redis"},
+		{"syslog-facility", "local0"},
+		{"cluster-port", "0"},
+		{"cluster-config-file", "nodes.conf"},
+		{"supervised", "no"},
 		{"port", strconv.Itoa(config.Properties.Port)},
 		{"bind", config.Properties.Bind},
 		{"requirepass", config.Properties.RequirePass},
@@ -1420,6 +1433,11 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'repl-backlog-size') - argument must be between 1 and 9223372036854775807 inclusive")
 			}
 			config.Properties.ReplBacklogSize = n
+		case "databases", "disable-thp", "enable-debug-command", "enable-module-command",
+			"enable-protected-configs", "socket-mark-id", "unixsocket", "unixsocketperm",
+			"syslog-enabled", "syslog-ident", "syslog-facility", "cluster-port",
+			"cluster-config-file", "supervised":
+			return immutableConfigSetErr(key)
 		default:
 			// Redis 8.0 search-* config namespace (replaces FT.CONFIG).
 			if strings.HasPrefix(key, "search-") {
@@ -1432,6 +1450,10 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 		}
 	}
 	return protocol.MakeOkReply()
+}
+
+func immutableConfigSetErr(key string) redis.Reply {
+	return protocol.MakeErrReply(fmt.Sprintf("ERR CONFIG SET failed (possibly related to argument '%s') - can't set immutable config", key))
 }
 
 func boolToString(b bool) string {

@@ -30,13 +30,9 @@ func execEcho(db *DB, args [][]byte) redis.Reply {
 	return protocol.MakeBulkReply(args[0])
 }
 
-// execQuit closes the connection
-// QUIT
+// execQuit closes the connection.
+// Redis accepts trailing arguments (arity -1) and still returns OK.
 func execQuit(db *DB, args [][]byte) redis.Reply {
-	if len(args) != 0 {
-		return protocol.MakeErrReply("ERR wrong number of arguments for 'quit' command")
-	}
-	// Signal connection to close
 	return protocol.MakeStatusReply("OK")
 }
 
@@ -472,7 +468,7 @@ func init() {
 		attachCommandExtra([]string{redisFlagNoScript, redisFlagLoading, redisFlagStale, redisFlagFast}, 0, 0, 0)
 	registerCommand("Echo", execEcho, noPrepare, nil, 2, flagFast).
 		attachCommandExtra([]string{redisFlagNoScript, redisFlagLoading, redisFlagFast}, 0, 0, 0)
-	registerCommand("Quit", execQuit, noPrepare, nil, 1, flagFast).
+	registerCommand("Quit", execQuit, noPrepare, nil, -1, flagFast).
 		attachCommandExtra([]string{redisFlagNoScript, redisFlagLoading, redisFlagStale, redisFlagFast}, 0, 0, 0)
 	// Note: Select and SwapDB are special commands handled by Server.Exec
 	registerCommand("Client", execClient, noPrepare, nil, -2, flagAdmin).
