@@ -34,7 +34,7 @@ func TestM2buLatencyHistogram(t *testing.T) {
 
 	// Seed a sample so RESET emptiness is meaningful even on a cold process.
 	RecordCommandLatency("set", 2*time.Millisecond)
-	asserts.AssertStatusReply(t, server.Exec(c, utils.ToCmdLine("LATENCY", "RESET")), "OK")
+	asserts.AssertIntReply(t, server.Exec(c, utils.ToCmdLine("LATENCY", "RESET")), 0)
 
 	r := server.Exec(c, utils.ToCmdLine("LATENCY", "HISTOGRAM"))
 	m, ok := r.(*protocol.MapReply)

@@ -127,10 +127,27 @@ func (lm *LatencyMonitor) GetAllEvents() map[string][]*LatencyEvent {
 }
 
 // Reset 重置延迟监控
-func (lm *LatencyMonitor) Reset() {
+// Reset clears all latency events and returns how many event series were removed.
+func (lm *LatencyMonitor) Reset() int64 {
 	lm.mu.Lock()
 	defer lm.mu.Unlock()
+	n := int64(len(lm.events))
 	lm.events = make(map[string][]*LatencyEvent)
+	return n
+}
+
+// ResetNamed removes the named event series and returns how many existed.
+func (lm *LatencyMonitor) ResetNamed(eventNames []string) int64 {
+	lm.mu.Lock()
+	defer lm.mu.Unlock()
+	var n int64
+	for _, name := range eventNames {
+		if _, ok := lm.events[name]; ok {
+			delete(lm.events, name)
+			n++
+		}
+	}
+	return n
 }
 
 // execLatency 处理 LATENCY 命令
@@ -169,12 +186,7 @@ func execLatency(args [][]byte) redis.Reply {
 		}
 		return execLatencyGraph(string(args[1]))
 	case "RESET":
-		if len(args) > 1 {
-			return execLatencyReset(args[1:])
-		}
-		latencyMonitor.Reset()
-		ResetCommandLatency(nil)
-		return protocol.MakeOkReply()
+		return execLatencyReset(args[1:])
 	case "HISTOGRAM":
 		return execLatencyHistogram(args[1:])
 	case "HELP":
@@ -314,21 +326,26 @@ func execLatencyGraph(eventName string) redis.Reply {
 	return protocol.MakeBulkReply([]byte(graph))
 }
 
-// execLatencyReset 重置指定事件
+// execLatencyReset resets latency monitor events (and command histograms).
+// Redis returns the number of latency-monitor event series that were removed.
 func execLatencyReset(eventNames [][]byte) redis.Reply {
-	latencyMonitor.mu.Lock()
-	for _, name := range eventNames {
-		delete(latencyMonitor.events, string(name))
+	var n int64
+	if len(eventNames) == 0 {
+		n = latencyMonitor.Reset()
+		ResetCommandLatency(nil)
+	} else {
+		names := make([]string, len(eventNames))
+		for i, name := range eventNames {
+			names[i] = string(name)
+		}
+		n = latencyMonitor.ResetNamed(names)
+		lower := make([]string, len(names))
+		for i, name := range names {
+			lower[i] = strings.ToLower(name)
+		}
+		ResetCommandLatency(lower)
 	}
-	latencyMonitor.mu.Unlock()
-
-	names := make([]string, 0, len(eventNames))
-	for _, name := range eventNames {
-		names = append(names, strings.ToLower(string(name)))
-	}
-	ResetCommandLatency(names)
-
-	return protocol.MakeOkReply()
+	return protocol.MakeIntReply(n)
 }
 
 // execLatencyHistogram LATENCY HISTOGRAM [command ...] — per-command latency samples.

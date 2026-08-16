@@ -38,7 +38,7 @@ func TestMiscServerCommands(t *testing.T) {
 	if _, ok := lat.(*protocol.MultiRawReply); !ok {
 		t.Fatalf("LATENCY LATEST: got %T", lat)
 	}
-	asserts.AssertStatusReply(t, server.Exec(c, utils.ToCmdLine("LATENCY", "RESET")), "OK")
+	asserts.AssertIntReply(t, server.Exec(c, utils.ToCmdLine("LATENCY", "RESET")), 1)
 
 	for _, cmd := range []struct {
 		name string

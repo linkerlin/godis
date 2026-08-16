@@ -101,10 +101,8 @@ func getCommandDocs(args [][]byte) redis.Reply {
 		cmdName := strings.ToLower(string(v))
 		if cmd, ok := cmdTable[cmdName]; ok {
 			outer.Put(cmdName, cmd.toDocsReply())
-		} else {
-			// Unknown command: empty map (Redis still lists the name with empty docs).
-			outer.Put(cmdName, protocol.MakeMapReply())
 		}
+		// Redis omits unknown command names from COMMAND DOCS.
 	}
 	return outer
 }
