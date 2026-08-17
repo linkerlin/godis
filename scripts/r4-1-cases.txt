@@ -2955,6 +2955,154 @@ TYPE-b99miss|none|TYPE sidecar:b99:miss:{{ID}}
 EXISTS-b99miss|0|EXISTS sidecar:b99:miss:{{ID}}
 DBSIZE-b99|>=0|DBSIZE
 
+# --- batch 100 extras (LPOP/RPOP COUNT; ZRANGE WS; ZREVRANGEBYSCORE LIMIT; ZMSCORE; HMGET/HINCRBY; SMISMEMBER; GETRANGE/SETRANGE; SET NX GET; GETEX PX; BITFIELD i8; XREVRANGE; ZUNION/ZINTER/ZDIFF WS; SDIFF/SINTER; LMPOP/ZMPOP; LPOS COUNT 0; COPY/RENAME; MGET; INCRBYFLOAT; GEOSEARCH; SORT LIMIT; EXPIRE NX/LT; TOUCH/UNLINK; MEMORY) ---
+@DEL sidecar:b100:l:{{ID}}
+RPUSH-b100l|5|RPUSH sidecar:b100:l:{{ID}} a b c d e
+LPOP-COUNT-b100|a\nb|LPOP sidecar:b100:l:{{ID}} 2
+RPOP-b100|e|RPOP sidecar:b100:l:{{ID}}
+LRANGE-b100|c\nd|LRANGE sidecar:b100:l:{{ID}} 0 -1
+LSET-b100|OK|LSET sidecar:b100:l:{{ID}} 0 A
+LINDEX-b100|A|LINDEX sidecar:b100:l:{{ID}} 0
+DEL-b100l|1|DEL sidecar:b100:l:{{ID}}
+@DEL sidecar:b100:z:{{ID}}
+ZADD-b100z|5|ZADD sidecar:b100:z:{{ID}} 1 a 2 b 3 c 4 d 5 e
+ZRANGE-WS-b100|c\n3\nd\n4\ne\n5|ZRANGE sidecar:b100:z:{{ID}} 2 4 WITHSCORES
+ZREVRANGEBYSCORE-b100|d\nc|ZREVRANGEBYSCORE sidecar:b100:z:{{ID}} 4 2 LIMIT 0 2
+ZCOUNT-b100|3|ZCOUNT sidecar:b100:z:{{ID}} 2 4
+ZREM-b100|2|ZREM sidecar:b100:z:{{ID}} b d
+ZCARD-b100|3|ZCARD sidecar:b100:z:{{ID}}
+ZMSCORE-b100|1\n3\n$-1|ZMSCORE sidecar:b100:z:{{ID}} a c missing
+DEL-b100z|1|DEL sidecar:b100:z:{{ID}}
+@DEL sidecar:b100:h:{{ID}}
+HSET-b100|3|HSET sidecar:b100:h:{{ID}} a 1 b 2 c 3
+HDEL-b100|1|HDEL sidecar:b100:h:{{ID}} b
+HMGET-b100|1\n3\n$-1|HMGET sidecar:b100:h:{{ID}} a c miss
+HINCRBY-b100|5|HINCRBY sidecar:b100:h:{{ID}} a 4
+HSTRLEN-b100|1|HSTRLEN sidecar:b100:h:{{ID}} a
+HEXISTS-b100|1|HEXISTS sidecar:b100:h:{{ID}} c
+DEL-b100h|1|DEL sidecar:b100:h:{{ID}}
+@DEL sidecar:b100:s:{{ID}}
+SADD-b100|3|SADD sidecar:b100:s:{{ID}} 1 2 3
+SREM-b100|1|SREM sidecar:b100:s:{{ID}} 2
+SMISMEMBER-b100|1\n0\n1|SMISMEMBER sidecar:b100:s:{{ID}} 1 2 3
+SCARD-b100|2|SCARD sidecar:b100:s:{{ID}}
+DEL-b100s|1|DEL sidecar:b100:s:{{ID}}
+@DEL sidecar:b100:st:{{ID}}
+SET-b100st|OK|SET sidecar:b100:st:{{ID}} foobar
+GETRANGE-b100|foo|GETRANGE sidecar:b100:st:{{ID}} 0 2
+SETRANGE-b100|6|SETRANGE sidecar:b100:st:{{ID}} 3 XXX
+GET-b100st|fooXXX|GET sidecar:b100:st:{{ID}}
+APPEND-b100|7|APPEND sidecar:b100:st:{{ID}} !
+STRLEN-b100|7|STRLEN sidecar:b100:st:{{ID}}
+DEL-b100st|1|DEL sidecar:b100:st:{{ID}}
+@DEL sidecar:b100:nx:{{ID}}
+SET-NX-b100|OK|SET sidecar:b100:nx:{{ID}} v NX
+SET-NX-GET-b100|v|SET sidecar:b100:nx:{{ID}} w NX GET
+GET-b100nx|v|GET sidecar:b100:nx:{{ID}}
+DEL-b100nx|1|DEL sidecar:b100:nx:{{ID}}
+@DEL sidecar:b100:xx:{{ID}}
+SET-b100xx|OK|SET sidecar:b100:xx:{{ID}} v
+SET-XX-GET-b100|v|SET sidecar:b100:xx:{{ID}} w XX GET
+GETEX-PX-b100|w|GETEX sidecar:b100:xx:{{ID}} PX 4000
+PTTL-b100|<=4000|PTTL sidecar:b100:xx:{{ID}}
+PTTL-b1002|>=1|PTTL sidecar:b100:xx:{{ID}}
+DEL-b100xx|1|DEL sidecar:b100:xx:{{ID}}
+@DEL sidecar:b100:bf:{{ID}}
+BITFIELD-SET-b100|0|BITFIELD sidecar:b100:bf:{{ID}} SET i8 0 -10
+BITFIELD-GET-b100|-10|BITFIELD sidecar:b100:bf:{{ID}} GET i8 0
+BITFIELD-INCR-b100|-7|BITFIELD sidecar:b100:bf:{{ID}} INCRBY i8 0 3
+DEL-b100bf|1|DEL sidecar:b100:bf:{{ID}}
+@DEL sidecar:b100:bit:{{ID}}
+SETBIT-b100|0|SETBIT sidecar:b100:bit:{{ID}} 4 1
+BITPOS-b100|4|BITPOS sidecar:b100:bit:{{ID}} 1
+BITCOUNT-b100|1|BITCOUNT sidecar:b100:bit:{{ID}} 0 0
+DEL-b100bit|1|DEL sidecar:b100:bit:{{ID}}
+@DEL sidecar:b100:x:{{ID}}
+XADD-b100a|10-0|XADD sidecar:b100:x:{{ID}} 10-0 f a
+XADD-b100b|20-0|XADD sidecar:b100:x:{{ID}} 20-0 f b
+XREVRANGE-b100|20-0\nf\nb|XREVRANGE sidecar:b100:x:{{ID}} + - COUNT 1
+XDEL-b100|1|XDEL sidecar:b100:x:{{ID}} 10-0
+XLEN-b100|1|XLEN sidecar:b100:x:{{ID}}
+DEL-b100x|1|DEL sidecar:b100:x:{{ID}}
+@DEL sidecar:b100:z2:{{ID}}
+@DEL sidecar:b100:z3:{{ID}}
+ZADD-b100z2|2|ZADD sidecar:b100:z2:{{ID}} 1 x 3 y
+ZADD-b100z3|2|ZADD sidecar:b100:z3:{{ID}} 2 y 4 z
+ZUNION-WS-b100|x\n1\nz\n4\ny\n5|ZUNION 2 sidecar:b100:z2:{{ID}} sidecar:b100:z3:{{ID}} WITHSCORES
+ZINTER-b100|y|ZINTER 2 sidecar:b100:z2:{{ID}} sidecar:b100:z3:{{ID}}
+ZDIFF-b100|x|ZDIFF 2 sidecar:b100:z2:{{ID}} sidecar:b100:z3:{{ID}}
+ZINTERCARD-b100|1|ZINTERCARD 2 sidecar:b100:z2:{{ID}} sidecar:b100:z3:{{ID}}
+DEL-b100zu|2|DEL sidecar:b100:z2:{{ID}} sidecar:b100:z3:{{ID}}
+@DEL sidecar:b100:sa:{{ID}}
+@DEL sidecar:b100:sb:{{ID}}
+SADD-b100sa|2|SADD sidecar:b100:sa:{{ID}} p q
+SADD-b100sb|2|SADD sidecar:b100:sb:{{ID}} q r
+SINTERCARD-b100|1|SINTERCARD 2 sidecar:b100:sa:{{ID}} sidecar:b100:sb:{{ID}}
+SDIFF-b100|p|SDIFF sidecar:b100:sa:{{ID}} sidecar:b100:sb:{{ID}}
+SINTER-b100|q|SINTER sidecar:b100:sa:{{ID}} sidecar:b100:sb:{{ID}}
+DEL-b100sc|2|DEL sidecar:b100:sa:{{ID}} sidecar:b100:sb:{{ID}}
+@DEL sidecar:b100:lm:{{ID}}
+RPUSH-b100lm|4|RPUSH sidecar:b100:lm:{{ID}} 1 2 3 4
+LMPOP-b100|sidecar:b100:lm:{{ID}}\n1\n2\n3|LMPOP 1 sidecar:b100:lm:{{ID}} LEFT COUNT 3
+@DEL sidecar:b100:zm:{{ID}}
+ZADD-b100zm|4|ZADD sidecar:b100:zm:{{ID}} 1 a 2 b 3 c 4 d
+ZMPOP-b100|sidecar:b100:zm:{{ID}}\na\n1\nb\n2|ZMPOP 1 sidecar:b100:zm:{{ID}} MIN COUNT 2
+@DEL sidecar:b100:lp:{{ID}}
+RPUSH-b100lp|5|RPUSH sidecar:b100:lp:{{ID}} x a x b x
+LPOS-COUNT0-b100|0\n2\n4|LPOS sidecar:b100:lp:{{ID}} x COUNT 0
+LPOS-RANK-b100|2|LPOS sidecar:b100:lp:{{ID}} x RANK 2
+DEL-b100lp|1|DEL sidecar:b100:lp:{{ID}}
+@DEL sidecar:b100:c1:{{ID}}
+@DEL sidecar:b100:c4:{{ID}}
+SET-b100c1|OK|SET sidecar:b100:c1:{{ID}} fooXXX!
+COPY-b100|1|COPY sidecar:b100:c1:{{ID}} sidecar:b100:c2:{{ID}}
+RENAME-b100|OK|RENAME sidecar:b100:c2:{{ID}} sidecar:b100:c3:{{ID}}
+RENAMENX-b100|1|RENAMENX sidecar:b100:c3:{{ID}} sidecar:b100:c4:{{ID}}
+GET-b100c4|fooXXX!|GET sidecar:b100:c4:{{ID}}
+EXPIRE-NX-b100|1|EXPIRE sidecar:b100:c4:{{ID}} 50 NX
+TTL-b100c4|<=50|TTL sidecar:b100:c4:{{ID}}
+EXPIRE-LT-b100|1|EXPIRE sidecar:b100:c4:{{ID}} 20 LT
+TTL-b100lt|<=20|TTL sidecar:b100:c4:{{ID}}
+TTL-b100lt2|>=1|TTL sidecar:b100:c4:{{ID}}
+MEMORY-b100|>=1|MEMORY USAGE sidecar:b100:c4:{{ID}}
+DEL-b100c|2|DEL sidecar:b100:c1:{{ID}} sidecar:b100:c4:{{ID}}
+@DEL sidecar:b100:m1:{{ID}}
+@DEL sidecar:b100:m2:{{ID}}
+MSET-b100|OK|MSET sidecar:b100:m1:{{ID}} 1 sidecar:b100:m2:{{ID}} 2
+MGET-b100|1\n$-1\n2|MGET sidecar:b100:m1:{{ID}} sidecar:b100:miss:{{ID}} sidecar:b100:m2:{{ID}}
+TOUCH-b100|2|TOUCH sidecar:b100:m1:{{ID}} sidecar:b100:m2:{{ID}}
+UNLINK-b100|1|UNLINK sidecar:b100:m2:{{ID}}
+EXISTS-b100m2|0|EXISTS sidecar:b100:m2:{{ID}}
+OBJECT-REF-b100|1|OBJECT REFCOUNT sidecar:b100:m1:{{ID}}
+DEL-b100m1|1|DEL sidecar:b100:m1:{{ID}}
+@DEL sidecar:b100:f:{{ID}}
+INCRBYFLOAT-b100|1.5|INCRBYFLOAT sidecar:b100:f:{{ID}} 1.5
+DEL-b100f|1|DEL sidecar:b100:f:{{ID}}
+@DEL sidecar:b100:hf:{{ID}}
+HINCRBYFLOAT-b100|0.25|HINCRBYFLOAT sidecar:b100:hf:{{ID}} n 0.25
+DEL-b100hf|1|DEL sidecar:b100:hf:{{ID}}
+@DEL sidecar:b100:zi:{{ID}}
+ZINCRBY-b100|4.5|ZINCRBY sidecar:b100:zi:{{ID}} 4.5 m
+ZSCORE-b100zi|4.5|ZSCORE sidecar:b100:zi:{{ID}} m
+DEL-b100zi|1|DEL sidecar:b100:zi:{{ID}}
+@DEL sidecar:b100:pf:{{ID}}
+PFADD-b100|1|PFADD sidecar:b100:pf:{{ID}} a b
+PFCOUNT-b100|2|PFCOUNT sidecar:b100:pf:{{ID}}
+DEL-b100pf|1|DEL sidecar:b100:pf:{{ID}}
+@DEL sidecar:b100:g:{{ID}}
+GEOADD-b100|1|GEOADD sidecar:b100:g:{{ID}} 13.361389 38.115556 Palermo
+GEOSEARCH-b100|Palermo|GEOSEARCH sidecar:b100:g:{{ID}} FROMLONLAT 13 38 BYRADIUS 50 km ASC COUNT 1
+DEL-b100g|1|DEL sidecar:b100:g:{{ID}}
+@DEL sidecar:b100:sort:{{ID}}
+RPUSH-b100sort|3|RPUSH sidecar:b100:sort:{{ID}} c a b
+SORT-LIMIT-b100|b\nc|SORT sidecar:b100:sort:{{ID}} ALPHA LIMIT 1 2
+DEL-b100sort|1|DEL sidecar:b100:sort:{{ID}}
+PING-b100|b100|PING b100
+ECHO-b100|batch100|ECHO batch100
+TYPE-b100miss|none|TYPE sidecar:b100:miss:{{ID}}
+EXISTS-b100miss|0|EXISTS sidecar:b100:miss:{{ID}}
+DBSIZE-b100|>=0|DBSIZE
+
 # --- cleanup string / incr keys ---
 DEL|1|DEL sidecar:allowlist:{{ID}}
 EXISTS-after-del|0|EXISTS sidecar:allowlist:{{ID}}
