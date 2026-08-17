@@ -916,6 +916,68 @@ GET-b80m2|b|GET sidecar:b80:m2:{{ID}}
 STRLEN-b80m1|1|STRLEN sidecar:b80:m1:{{ID}}
 DEL-b80m|2|DEL sidecar:b80:m1:{{ID}} sidecar:b80:m2:{{ID}}
 
+# --- batch 81 extras (TYPE typed; HEXISTS/HLEN; ZSCORE miss; PERSIST; DECRBY; SETBIT/GETBIT; PFADD/PFCOUNT; COPY; SETEX; EXISTS multi; UNLINK; LLEN; SCARD; SETNX fresh; ZCARD; HSETNX) ---
+@DEL sidecar:b81:h:{{ID}}
+HSET-b81|1|HSET sidecar:b81:h:{{ID}} f v
+HEXISTS-b81|1|HEXISTS sidecar:b81:h:{{ID}} f
+HEXISTS-b81miss|0|HEXISTS sidecar:b81:h:{{ID}} missing
+HLEN-b81|1|HLEN sidecar:b81:h:{{ID}}
+TYPE-b81h|hash|TYPE sidecar:b81:h:{{ID}}
+HSETNX-b81|0|HSETNX sidecar:b81:h:{{ID}} f other
+DEL-b81h|1|DEL sidecar:b81:h:{{ID}}
+@DEL sidecar:b81:z:{{ID}}
+ZADD-b81|2|ZADD sidecar:b81:z:{{ID}} 1 a 2 b
+ZSCORE-b81|1|ZSCORE sidecar:b81:z:{{ID}} a
+ZRANK-b81|0|ZRANK sidecar:b81:z:{{ID}} a
+ZCARD-b81|2|ZCARD sidecar:b81:z:{{ID}}
+TYPE-b81z|zset|TYPE sidecar:b81:z:{{ID}}
+DEL-b81z|1|DEL sidecar:b81:z:{{ID}}
+@DEL sidecar:b81:s:{{ID}}
+SADD-b81|2|SADD sidecar:b81:s:{{ID}} a b
+SCARD-b81|2|SCARD sidecar:b81:s:{{ID}}
+TYPE-b81s|set|TYPE sidecar:b81:s:{{ID}}
+DEL-b81s|1|DEL sidecar:b81:s:{{ID}}
+@DEL sidecar:b81:l:{{ID}}
+RPUSH-b81|2|RPUSH sidecar:b81:l:{{ID}} a b
+LLEN-b81|2|LLEN sidecar:b81:l:{{ID}}
+TYPE-b81l|list|TYPE sidecar:b81:l:{{ID}}
+DEL-b81l|1|DEL sidecar:b81:l:{{ID}}
+@DEL sidecar:b81:n:{{ID}}
+SET-b81n|OK|SET sidecar:b81:n:{{ID}} 10
+DECRBY-b81|7|DECRBY sidecar:b81:n:{{ID}} 3
+DEL-b81n|1|DEL sidecar:b81:n:{{ID}}
+@DEL sidecar:b81:bit:{{ID}}
+SETBIT-b81|0|SETBIT sidecar:b81:bit:{{ID}} 3 1
+GETBIT-b81|1|GETBIT sidecar:b81:bit:{{ID}} 3
+GETBIT-b81z|0|GETBIT sidecar:b81:bit:{{ID}} 0
+DEL-b81bit|1|DEL sidecar:b81:bit:{{ID}}
+@DEL sidecar:b81:pf:{{ID}}
+PFADD-b81|1|PFADD sidecar:b81:pf:{{ID}} a b c
+PFCOUNT-b81|3|PFCOUNT sidecar:b81:pf:{{ID}}
+DEL-b81pf|1|DEL sidecar:b81:pf:{{ID}}
+@DEL sidecar:b81:src:{{ID}}
+@DEL sidecar:b81:dst:{{ID}}
+SET-b81src|OK|SET sidecar:b81:src:{{ID}} copyme
+COPY-b81|1|COPY sidecar:b81:src:{{ID}} sidecar:b81:dst:{{ID}}
+GET-b81dst|copyme|GET sidecar:b81:dst:{{ID}}
+DEL-b81copy|2|DEL sidecar:b81:src:{{ID}} sidecar:b81:dst:{{ID}}
+@DEL sidecar:b81:ex:{{ID}}
+SETEX-b81|OK|SETEX sidecar:b81:ex:{{ID}} 120 v
+TTL-b81ex|>=1|TTL sidecar:b81:ex:{{ID}}
+PERSIST-b81|1|PERSIST sidecar:b81:ex:{{ID}}
+TTL-b81pers|-1|TTL sidecar:b81:ex:{{ID}}
+DEL-b81ex|1|DEL sidecar:b81:ex:{{ID}}
+@DEL sidecar:b81:e1:{{ID}}
+@DEL sidecar:b81:e2:{{ID}}
+SET-b81e1|OK|SET sidecar:b81:e1:{{ID}} 1
+EXISTS-b81m|1|EXISTS sidecar:b81:e1:{{ID}} sidecar:b81:e2:{{ID}}
+UNLINK-b81|1|UNLINK sidecar:b81:e1:{{ID}}
+EXISTS-b81after|0|EXISTS sidecar:b81:e1:{{ID}}
+@DEL sidecar:b81:nx:{{ID}}
+SETNX-b81|1|SETNX sidecar:b81:nx:{{ID}} fresh
+GET-b81nx|fresh|GET sidecar:b81:nx:{{ID}}
+DEL-b81nx|1|DEL sidecar:b81:nx:{{ID}}
+
 # --- cleanup string / incr keys ---
 DEL|1|DEL sidecar:allowlist:{{ID}}
 EXISTS-after-del|0|EXISTS sidecar:allowlist:{{ID}}

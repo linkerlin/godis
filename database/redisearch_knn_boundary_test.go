@@ -21,8 +21,9 @@ func TestFTDialectInvalidValues(t *testing.T) {
 		r := db.Exec(nil, utils.ToCmdLine(
 			"FT.SEARCH", "dialbd", "*", "DIALECT", bad,
 		))
-		if !protocol.IsErrorReply(r) || !strings.Contains(string(r.ToBytes()), "Invalid DIALECT") {
-			t.Fatalf("DIALECT %s want Invalid DIALECT ERR, got %s", bad, r.ToBytes())
+		// Redis 8.x: SEARCH_PARSE_ARGS DIALECT requires a non negative integer >=1 and <= 4
+		if !protocol.IsErrorReply(r) || !strings.Contains(string(r.ToBytes()), "DIALECT") {
+			t.Fatalf("DIALECT %s want DIALECT ERR, got %s", bad, r.ToBytes())
 		}
 	}
 	// DIALECT 4 is in the accepted range (subset semantics only — not full dialect 4).

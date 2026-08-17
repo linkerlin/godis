@@ -839,11 +839,11 @@ func execFTSearch(db *DB, args [][]byte) redis.Reply {
 			}
 		case "DIALECT":
 			if i+1 >= len(args) {
-				return protocol.MakeErrReply("Need an argument for DIALECT")
+				return protocol.MakeErrReply("SEARCH_PARSE_ARGS Need an argument for DIALECT")
 			}
 			d, err := strconv.Atoi(string(args[i+1]))
 			if err != nil || !validFTDialect(d) {
-				return protocol.MakeErrReply("DIALECT requires a non negative integer >=1 and <= 4")
+				return protocol.MakeErrReply("SEARCH_PARSE_ARGS DIALECT requires a non negative integer >=1 and <= 4")
 			}
 			dialect = d
 			dialectSpecified = true
@@ -878,12 +878,14 @@ func execFTSearch(db *DB, args [][]byte) redis.Reply {
 			i++
 		case "BM25STD_TANH_FACTOR":
 			// Per-query divisor for SCORER BM25STD.TANH (default 4).
+			// Redis 8.x: integer ≥1 (message cites 1..10000; values >10000 still accepted).
 			if i+1 >= len(args) {
-				return protocol.MakeSyntaxErrReply()
+				return protocol.MakeErrReply("SEARCH_PARSE_ARGS Need an argument for BM25STD_TANH_FACTOR")
 			}
-			f, err := strconv.ParseFloat(string(args[i+1]), 64)
-			if err != nil || f <= 0 || math.IsNaN(f) || math.IsInf(f, 0) {
-				return protocol.MakeErrReply("ERR Invalid BM25STD_TANH_FACTOR value")
+			raw := string(args[i+1])
+			f, err := strconv.ParseFloat(raw, 64)
+			if err != nil || math.IsNaN(f) || math.IsInf(f, 0) || f < 1 || math.Trunc(f) != f {
+				return protocol.MakeErrReply("SEARCH_PARSE_ARGS BM25STD_TANH_FACTOR must be between 1 and 10000 inclusive")
 			}
 			opts.BM25STDTanhFactor = f
 			i++
@@ -922,13 +924,20 @@ func execFTSearch(db *DB, args [][]byte) redis.Reply {
 				return protocol.MakeErrReply("SEARCH_PARSE_ARGS Bad arguments for SLOP: Expected an argument, but none provided")
 			}
 			slop, err := strconv.Atoi(string(args[i+1]))
-			if err != nil || slop < 0 {
-				return protocol.MakeErrReply("ERR Invalid SLOP value")
+			if err != nil {
+				// Redis 8.x: non-integer → convert error (negative SLOP is accepted).
+				return protocol.MakeErrReply("SEARCH_PARSE_ARGS Bad arguments for SLOP: Could not convert argument to expected type")
 			}
 			opts.Slop = slop
 			i++
 		case "INORDER":
 			opts.InOrder = true
+		case "EXPANDER":
+			// Redis 8.x: missing → PARSE_ARGS; unknown names accepted (STEM/custom no-op here).
+			if i+1 >= len(args) {
+				return protocol.MakeErrReply("SEARCH_PARSE_ARGS Bad arguments for EXPANDER: Expected an argument, but none provided")
+			}
+			i++
 		case "TIMEOUT":
 			if i+1 >= len(args) {
 				// Redis 8.x: bare TIMEOUT with no value (no ERR prefix).
@@ -1072,12 +1081,17 @@ func execFTSearch(db *DB, args [][]byte) redis.Reply {
 			}
 		case "FILTER":
 			if i+3 >= len(args) {
-				return protocol.MakeErrReply("FILTER requires 3 arguments")
+				return protocol.MakeErrReply("SEARCH_PARSE_ARGS FILTER requires 3 arguments")
 			}
-			minV, err1 := strconv.ParseFloat(string(args[i+2]), 64)
-			maxV, err2 := strconv.ParseFloat(string(args[i+3]), 64)
-			if err1 != nil || err2 != nil {
-				return protocol.MakeErrReply("ERR Invalid filter range")
+			minRaw := string(args[i+2])
+			maxRaw := string(args[i+3])
+			minV, err1 := strconv.ParseFloat(minRaw, 64)
+			if err1 != nil {
+				return protocol.MakeErrReply("SEARCH_PARSE_ARGS Bad lower range: " + minRaw)
+			}
+			maxV, err2 := strconv.ParseFloat(maxRaw, 64)
+			if err2 != nil {
+				return protocol.MakeErrReply("SEARCH_PARSE_ARGS Bad upper range: " + maxRaw)
 			}
 			opts.Filters = append(opts.Filters, redisearch.FieldFilter{
 				Field: string(args[i+1]),
@@ -1147,24 +1161,29 @@ func execFTSearch(db *DB, args [][]byte) redis.Reply {
 		case "GEOFILTER":
 			// GEOFILTER geo_field lon lat radius m|km|mi|ft
 			if i+5 >= len(args) {
-				return protocol.MakeErrReply("GEOFILTER requires 5 arguments")
+				return protocol.MakeErrReply("SEARCH_PARSE_ARGS GEOFILTER requires 5 arguments")
 			}
 			geoField := string(args[i+1])
 			lon, err := strconv.ParseFloat(string(args[i+2]), 64)
 			if err != nil {
-				return protocol.MakeErrReply("ERR Invalid longitude")
+				return protocol.MakeErrReply("SEARCH_PARSE_ARGS Bad arguments for <lon>: Could not convert argument to expected type")
 			}
 			lat, err := strconv.ParseFloat(string(args[i+3]), 64)
 			if err != nil {
-				return protocol.MakeErrReply("ERR Invalid latitude")
+				return protocol.MakeErrReply("SEARCH_PARSE_ARGS Bad arguments for <lat>: Could not convert argument to expected type")
 			}
 			radius, err := strconv.ParseFloat(string(args[i+4]), 64)
 			if err != nil {
-				return protocol.MakeErrReply("ERR Invalid radius")
+				return protocol.MakeErrReply("SEARCH_PARSE_ARGS Bad arguments for <radius>: Could not convert argument to expected type")
 			}
-			unit := strings.ToLower(string(args[i+5]))
+			// Redis 8.x: lon ∈ [-180,180], lat ∈ [-90,90] (not mercator clamp).
+			if lon < -180 || lon > 180 || lat < -90 || lat > 90 {
+				return protocol.MakeErrReply("SEARCH_SYNTAX Invalid GeoFilter lat/lon")
+			}
+			unitRaw := string(args[i+5])
+			unit := strings.ToLower(unitRaw)
 			if unit != "m" && unit != "km" && unit != "mi" && unit != "ft" {
-				return protocol.MakeErrReply("ERR Invalid unit")
+				return protocol.MakeErrReply("SEARCH_PARSE_ARGS Unknown distance unit " + unitRaw)
 			}
 			opts.GeoFilter = &redisearch.GeoFilterOptions{
 				Field:  strings.TrimPrefix(geoField, "@"),
@@ -1626,11 +1645,11 @@ func execFTAggregate(db *DB, args [][]byte) redis.Reply {
 
 		case "DIALECT":
 			if i+1 >= len(args) {
-				return protocol.MakeSyntaxErrReply()
+				return protocol.MakeErrReply("SEARCH_PARSE_ARGS Need an argument for DIALECT")
 			}
 			d, err := strconv.Atoi(string(args[i+1]))
 			if err != nil || !validFTDialect(d) {
-				return protocol.MakeErrReply("ERR Invalid DIALECT value")
+				return protocol.MakeErrReply("SEARCH_PARSE_ARGS DIALECT requires a non negative integer >=1 and <= 4")
 			}
 			req.Dialect = d
 			i += 2
@@ -1685,13 +1704,25 @@ func execFTAggregate(db *DB, args [][]byte) redis.Reply {
 			continue
 
 		case "APPLY":
-			if i+3 >= len(args) || !strings.EqualFold(string(args[i+2]), "AS") {
-				return protocol.MakeSyntaxErrReply()
+			// Redis 8.x: APPLY expr [AS name]; bare APPLY → PARSE_ARGS; AS without name → AS needs argument;
+			// no AS → alias defaults to the expression text.
+			if i+1 >= len(args) {
+				return protocol.MakeErrReply("SEARCH_PARSE_ARGS Bad arguments for APPLY/FILTER: Expected an argument, but none provided")
+			}
+			expr := string(args[i+1])
+			i += 2
+			asName := expr
+			if i < len(args) && strings.EqualFold(string(args[i]), "AS") {
+				if i+1 >= len(args) {
+					return protocol.MakeErrReply("SEARCH_PARSE_ARGS AS needs argument")
+				}
+				asName = string(args[i+1])
+				i += 2
 			}
 			sawApply = true
 			ac := &redisearch.ApplyClause{
-				Expr:     string(args[i+1]),
-				As:       string(args[i+3]),
+				Expr:     expr,
+				As:       asName,
 				PreGroup: !sawGroupBy,
 			}
 			req.Apply = append(req.Apply, *ac)
@@ -1700,7 +1731,6 @@ func execFTAggregate(db *DB, args [][]byte) redis.Reply {
 			} else {
 				req.PostSteps = append(req.PostSteps, redisearch.AggStep{Apply: ac})
 			}
-			i += 4
 			continue
 
 		case "LOAD":
@@ -1746,19 +1776,26 @@ func execFTAggregate(db *DB, args [][]byte) redis.Reply {
 		case "GROUPBY":
 			sawGroupBy = true
 			if i+1 >= len(args) {
-				return protocol.MakeSyntaxErrReply()
+				return protocol.MakeErrReply("SEARCH_PARSE_ARGS Bad arguments for GROUPBY: Expected an argument, but none provided")
 			}
 			nargs, err := strconv.Atoi(string(args[i+1]))
 			if err != nil {
-				return protocol.MakeErrReply("ERR Invalid groupby nargs")
+				return protocol.MakeErrReply("SEARCH_PARSE_ARGS Bad arguments for GROUPBY: Could not convert argument to expected type")
+			}
+			// Redis 8.x: negative nargs → same "Expected an argument" wording.
+			if nargs < 0 {
+				return protocol.MakeErrReply("SEARCH_PARSE_ARGS Bad arguments for GROUPBY: Expected an argument, but none provided")
 			}
 			i += 2
 
-			// Get properties (support multiple fields)
-			for j := 0; j < nargs && i < len(args); j++ {
+			// Get properties (support multiple fields); require exact nargs.
+			for j := 0; j < nargs; j++ {
+				if i >= len(args) {
+					return protocol.MakeErrReply("SEARCH_PARSE_ARGS Bad arguments for GROUPBY: Expected an argument, but none provided")
+				}
 				nextArg := strings.ToUpper(string(args[i]))
 				if nextArg == "REDUCE" || nextArg == "HAVING" {
-					break
+					return protocol.MakeErrReply("SEARCH_PARSE_ARGS Bad arguments for GROUPBY: Expected an argument, but none provided")
 				}
 				req.GroupBy = append(req.GroupBy, string(args[i]))
 				i++
@@ -1910,7 +1947,7 @@ func execFTAggregate(db *DB, args [][]byte) redis.Reply {
 
 		case "FILTER":
 			if i+1 >= len(args) {
-				return protocol.MakeSyntaxErrReply()
+				return protocol.MakeErrReply("SEARCH_PARSE_ARGS Bad arguments for APPLY/FILTER: Expected an argument, but none provided")
 			}
 			expr := string(args[i+1])
 			// Keep legacy single-Filter fields for synthesizeSteps / older tests.
