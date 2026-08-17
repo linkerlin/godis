@@ -339,6 +339,7 @@ func execFTCreate(db *DB, args [][]byte) redis.Reply {
 	// Index-level option scratch (FT.CREATE 8.x).
 	var noOffsets, noFields, noFreqs, noHL, maxTextFields bool
 	var temporary int
+	var hasTemporary bool
 	var filterExpr string
 	var indexAll string
 
@@ -376,12 +377,16 @@ func execFTCreate(db *DB, args [][]byte) redis.Reply {
 		case "SKIPINITIALSCAN":
 			skipInitialScan = true
 		case "STOPWORDS":
+			// Redis 8.x: missing / non-int / negative have distinct SEARCH_PARSE_ARGS.
 			if i+1 >= len(args) {
-				return protocol.MakeSyntaxErrReply()
+				return protocol.MakeErrReply("SEARCH_PARSE_ARGS Bad arguments for STOPWORDS: Expected an argument, but none provided")
 			}
 			count, err := strconv.Atoi(string(args[i+1]))
-			if err != nil || count < 0 {
-				return protocol.MakeErrReply("ERR Invalid stopwords count")
+			if err != nil {
+				return protocol.MakeErrReply("SEARCH_PARSE_ARGS Bad arguments for STOPWORDS: Could not convert argument to expected type")
+			}
+			if count < 0 {
+				return protocol.MakeErrReply("SEARCH_PARSE_ARGS Bad arguments for STOPWORDS: Value is outside acceptable bounds")
 			}
 			i += 2
 			stopWords = make([]string, 0, count)
@@ -405,14 +410,16 @@ func execFTCreate(db *DB, args [][]byte) redis.Reply {
 		case "MAXTEXTFIELDS":
 			maxTextFields = true
 		case "TEMPORARY":
+			// Redis 8.x: accepts any integer (incl. negative); 0 → expire immediately.
 			if i+1 >= len(args) {
-				return protocol.MakeSyntaxErrReply()
+				return protocol.MakeErrReply("SEARCH_PARSE_ARGS Bad arguments for TEMPORARY: Expected an argument, but none provided")
 			}
 			n, err := strconv.Atoi(string(args[i+1]))
-			if err != nil || n <= 0 {
-				return protocol.MakeErrReply("ERR Invalid TEMPORARY value")
+			if err != nil {
+				return protocol.MakeErrReply("SEARCH_PARSE_ARGS Bad arguments for TEMPORARY: Could not convert argument to expected type")
 			}
 			temporary = n
+			hasTemporary = true
 			i++
 		case "FILTER":
 			// FILTER uses the aggregation expression language; evaluated in
@@ -463,6 +470,12 @@ func execFTCreate(db *DB, args [][]byte) redis.Reply {
 	}
 	if len(fields) == 0 {
 		return protocol.MakeErrReply("ERR No schema specified")
+	}
+
+	// Redis: TEMPORARY 0 → CREATE OK but index is gone immediately (INFO not found).
+	if hasTemporary && temporary == 0 {
+		db.addAof(utils.ToCmdLine3("ft.create", args...))
+		return protocol.MakeOkReply()
 	}
 
 	// Create engine
@@ -770,6 +783,8 @@ func execFTSearch(db *DB, args [][]byte) redis.Reply {
 		case "WITHOUTCOUNT":
 			// Redis: leading total = docs returned in this reply (not full hit count).
 			withoutCount = true
+		case "WITHCOUNT":
+			// Redis accepts bare WITHCOUNT (accurate total is already the default).
 		case "WITHSCORES":
 			withScores = true
 			opts.WithScores = true
@@ -1194,7 +1209,8 @@ func execFTSearch(db *DB, args [][]byte) redis.Reply {
 			}
 			i += 5
 		default:
-			return protocol.MakeSyntaxErrReply()
+			// Redis 8.x: position is 1-based among option tokens (args[0]=index, args[1]=query).
+			return ftUnrecognizedArg(string(args[i]), i-1)
 		}
 	}
 
@@ -1974,7 +1990,8 @@ func execFTAggregate(db *DB, args [][]byte) redis.Reply {
 			continue
 
 		default:
-			return protocol.MakeSyntaxErrReply()
+			// Redis: REDUCE outside GROUPBY and other unknowns → SEARCH_ARG_UNRECOGNIZED.
+			return ftUnrecognizedArg(string(args[i]), i-1)
 		}
 	}
 
@@ -2633,6 +2650,15 @@ func isFTFieldType(token string) bool {
 	default:
 		return false
 	}
+}
+
+// ftUnrecognizedArg mirrors Redis 8.x SEARCH_ARG_UNRECOGNIZED for unknown
+// FT.SEARCH / FT.AGGREGATE option tokens. pos is 1-based among option tokens
+// (args[0]=index, args[1]=query → position = i-1).
+func ftUnrecognizedArg(arg string, pos int) redis.Reply {
+	return protocol.MakeErrReply(fmt.Sprintf(
+		"SEARCH_ARG_UNRECOGNIZED Unknown argument `%s` at position %d for <main>", arg, pos,
+	))
 }
 
 func init() {
