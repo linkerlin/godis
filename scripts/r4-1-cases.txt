@@ -704,6 +704,28 @@ SET-b74str|OK|SET sidecar:b74:str:{{ID}} ohmytext
 GETRANGE-neg|text|GETRANGE sidecar:b74:str:{{ID}} -4 -1
 DEL-b74str|1|DEL sidecar:b74:str:{{ID}}
 
+# --- batch 75 extras (EXPIRE XX/GT/LT; ZADD NX/XX; BITCOUNT range) ---
+@DEL sidecar:b75:e:{{ID}}
+SET-b75e|OK|SET sidecar:b75:e:{{ID}} v
+EXPIRE-XX0|0|EXPIRE sidecar:b75:e:{{ID}} 100 XX
+EXPIRE-set|1|EXPIRE sidecar:b75:e:{{ID}} 100
+EXPIRE-XX1|1|EXPIRE sidecar:b75:e:{{ID}} 50 XX
+EXPIRE-GT|1|EXPIRE sidecar:b75:e:{{ID}} 200 GT
+EXPIRE-LT|1|EXPIRE sidecar:b75:e:{{ID}} 10 LT
+DEL-b75e|1|DEL sidecar:b75:e:{{ID}}
+@DEL sidecar:b75:z:{{ID}}
+ZADD-NX|1|ZADD sidecar:b75:z:{{ID}} NX 1 a
+ZADD-NX0|0|ZADD sidecar:b75:z:{{ID}} NX 2 a
+ZADD-XX|0|ZADD sidecar:b75:z:{{ID}} XX 3 a
+ZSCORE-XX|3|ZSCORE sidecar:b75:z:{{ID}} a
+DEL-b75z|1|DEL sidecar:b75:z:{{ID}}
+@DEL sidecar:b75:b:{{ID}}
+SETBIT-b75a|0|SETBIT sidecar:b75:b:{{ID}} 0 1
+SETBIT-b75b|0|SETBIT sidecar:b75:b:{{ID}} 8 1
+BITCOUNT-b0|1|BITCOUNT sidecar:b75:b:{{ID}} 0 0
+BITCOUNT-b1|1|BITCOUNT sidecar:b75:b:{{ID}} 1 1
+DEL-b75b|1|DEL sidecar:b75:b:{{ID}}
+
 # --- cleanup string / incr keys ---
 DEL|1|DEL sidecar:allowlist:{{ID}}
 EXISTS-after-del|0|EXISTS sidecar:allowlist:{{ID}}

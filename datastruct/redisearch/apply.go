@@ -94,7 +94,7 @@ func EnsurePipelineProps(expr string, props map[string]bool) error {
 //	             matched_terms timefmt parsetime (strftime subset) day hour minute month dayofweek
 //	             dayofmonth dayofyear year monthofyear geodistance exists case
 //	Missing @field → SEARCH_VALUE_NOT_FOUND (exists() ok; &&/||/case short-circuit).
-//	Bad parsetime → Null (not ERR). Unknown timefmt directives kept literally. Non-numeric args to numeric funcs yield NaN (Redis). Unknown funcs → SEARCH_EXPR.
+//	Bad timefmt/parsetime → Null (not ERR; Redis 8.10 QE; %k/%l/unknown→Null). Non-numeric args to numeric funcs yield NaN (Redis). Unknown funcs → SEARCH_EXPR.
 func EvalApplyExpr(expr string, fields map[string]interface{}) (interface{}, error) {
 	return EvalApplyExprWithQuery(expr, fields, nil)
 }
@@ -1044,7 +1044,10 @@ func applyFunction(p *applyParser, name string, args []applyValue) (applyValue, 
 		if len(args) == 1 {
 			return applyValue{isStr: true, str: tm.Format("2006-01-02T15:04:05Z")}, nil
 		}
-		s, _ := strftimeFormat(tm, applyValueToString(args[1]))
+		s, ok := strftimeFormat(tm, applyValueToString(args[1]))
+		if !ok {
+			return applyValue{isNull: true}, nil // Redis 8.10 QE: bad/unsupported directive → Null
+		}
 		return applyValue{isStr: true, str: s}, nil
 	case "parsetime":
 		if len(args) != 2 {
@@ -1259,8 +1262,7 @@ func applyGeoCoordinates(args []applyValue) (float64, float64, float64, float64,
 }
 
 // strftimeFormat renders tm with a Redis Query Engine strftime subset.
-// Unknown directives are kept literally (e.g. "%Q"), matching Redis/glibc;
-// trailing bare "%" is emitted as "%". Always succeeds (ok=true).
+// ok=false → Null (Redis 8.10 QE: unsupported %k/%l/%Q/… and trailing bare %).
 func strftimeFormat(tm time.Time, format string) (string, bool) {
 	var b strings.Builder
 	for i := 0; i < len(format); i++ {
@@ -1269,8 +1271,7 @@ func strftimeFormat(tm time.Time, format string) (string, bool) {
 			continue
 		}
 		if i+1 >= len(format) {
-			b.WriteByte('%')
-			break
+			return "", false
 		}
 		i++
 		switch format[i] {
@@ -1288,8 +1289,6 @@ func strftimeFormat(tm time.Time, format string) (string, bool) {
 			b.WriteString(tm.Format("_2"))
 		case 'H':
 			b.WriteString(tm.Format("15"))
-		case 'k': // space-padded hour 0-23
-			b.WriteString(fmt.Sprintf("%2d", tm.Hour()))
 		case 'M':
 			b.WriteString(tm.Format("04"))
 		case 'S':
@@ -1302,7 +1301,7 @@ func strftimeFormat(tm time.Time, format string) (string, bool) {
 			b.WriteString(tm.Format("Mon"))
 		case 'A':
 			b.WriteString(tm.Format("Monday"))
-		case 'b':
+		case 'b', 'h': // %h ≡ %b
 			b.WriteString(tm.Format("Jan"))
 		case 'B':
 			b.WriteString(tm.Format("January"))
@@ -1312,28 +1311,63 @@ func strftimeFormat(tm time.Time, format string) (string, bool) {
 			b.WriteString(tm.Format("15:04:05"))
 		case 'R': // %H:%M
 			b.WriteString(tm.Format("15:04"))
-		case 'c': // locale date-time without zone (Redis UTC sample)
+		case 'D', 'x': // %m/%d/%y
+			b.WriteString(tm.Format("01/02/06"))
+		case 'r': // %I:%M:%S %p
+			b.WriteString(tm.Format("03:04:05 PM"))
+		case 'c': // Tue Jan  2 12:34:56 2024
 			b.WriteString(tm.Format("Mon Jan _2 15:04:05 2006"))
+		case 's': // unix seconds
+			b.WriteString(strconv.FormatInt(tm.Unix(), 10))
+		case 'C': // century year/100
+			b.WriteString(fmt.Sprintf("%02d", tm.Year()/100))
+		case 'G':
+			isoYear, _ := tm.ISOWeek()
+			b.WriteString(strconv.Itoa(isoYear))
+		case 'g':
+			isoYear, _ := tm.ISOWeek()
+			b.WriteString(fmt.Sprintf("%02d", isoYear%100))
 		case 'z':
 			b.WriteString(tm.Format("-0700"))
-		case 'Z':
-			// Redis Query Engine on UTC emits "GMT".
-			if tm.Location() == time.UTC || tm.Location().String() == "UTC" {
-				b.WriteString("GMT")
-			} else {
-				b.WriteString(tm.Format("MST"))
-			}
+		case 'Z': // Redis 8.10 QE UTC → "UTC"
+			b.WriteString(tm.Format("MST"))
 		case 'w': // weekday 0=Sunday … 6=Saturday
 			b.WriteString(strconv.Itoa(int(tm.Weekday())))
+		case 'u': // ISO weekday 1=Monday … 7=Sunday
+			u := int(tm.Weekday())
+			if u == 0 {
+				u = 7
+			}
+			b.WriteString(strconv.Itoa(u))
 		case 'j': // day of year 001-366
 			b.WriteString(tm.Format("002"))
+		case 'U': // week number, Sunday first, 00-53
+			b.WriteString(fmt.Sprintf("%02d", strftimeWeekNum(tm, false)))
+		case 'W': // week number, Monday first, 00-53
+			b.WriteString(fmt.Sprintf("%02d", strftimeWeekNum(tm, true)))
+		case 'V': // ISO 8601 week 01-53
+			_, isoWeek := tm.ISOWeek()
+			b.WriteString(fmt.Sprintf("%02d", isoWeek))
+		case 'n':
+			b.WriteByte('\n')
+		case 't':
+			b.WriteByte('\t')
 		default:
-			// Redis keeps unknown directives literally.
-			b.WriteByte('%')
-			b.WriteByte(format[i])
+			// %k/%l/%Q/… unsupported in Redis 8.10 QE → Null
+			return "", false
 		}
 	}
 	return b.String(), true
+}
+
+// strftimeWeekNum matches glibc %U (mondayFirst=false) / %W (mondayFirst=true).
+func strftimeWeekNum(tm time.Time, mondayFirst bool) int {
+	yday := tm.YearDay()
+	wday := int(tm.Weekday()) // Sunday=0
+	if mondayFirst {
+		wday = (wday + 6) % 7 // Monday=0 … Sunday=6
+	}
+	return (yday + 6 - wday) / 7
 }
 
 // strftimeToGoLayout maps a Redis strftime subset to a Go time.Parse layout
@@ -1377,7 +1411,7 @@ func strftimeToGoLayout(format string) string {
 			b.WriteString("Mon")
 		case 'A':
 			b.WriteString("Monday")
-		case 'b':
+		case 'b', 'h':
 			b.WriteString("Jan")
 		case 'B':
 			b.WriteString("January")
@@ -1387,17 +1421,16 @@ func strftimeToGoLayout(format string) string {
 			b.WriteString("15:04:05")
 		case 'R':
 			b.WriteString("15:04")
+		case 'D', 'x':
+			b.WriteString("01/02/06")
+		case 'r':
+			b.WriteString("03:04:05 PM")
 		case 'c':
 			b.WriteString("Mon Jan _2 15:04:05 2006")
 		case 'z':
 			b.WriteString("-0700")
-		case 'Z':
-			b.WriteString("GMT")
-		case 'k':
-			// space-padded hour — Parse rarely used; keep best-effort.
-			b.WriteString("15")
 		default:
-			// Keep unknown as literal so Parse fails → Null (Redis).
+			// %s/%u/%U/%W/%V/%G/%g/%C/%Z/%n/%t/%k are format-only or unsupported.
 			b.WriteByte('%')
 			b.WriteByte(format[i])
 		}
