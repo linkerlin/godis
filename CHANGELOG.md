@@ -6,6 +6,7 @@
 
 ### Fixed
 
+- 第七十一批（远期子集续研）：FT.AGGREGATE APPLY **`to_str`/`to_number`**（非法串→`SEARCH_PARSE_ARGS to_number: cannot convert string '…'`）；未知函数→`SEARCH_EXPR Unknown function name '…'`；数值函数非数值参数→小写 **`nan`**；FT **TIMEOUT soft** 中途取消保留已扫部分结果，**ON_TIMEOUT RETURN** 可返回部分命中，**FAIL**→`SEARCH_TIMEOUT Timeout limit was reached`（无 `ERR` 前缀；对照 Redis 8.x）；R4-1 扩至 **433** 条（ZINTER/ZUNION 单成员、MOVE、LINDEX）；远期仍 7 项，不宣称完整 KNN/DIALECT 或全量 sidecar
 - 第七十批（远期子集续研）：FT.AGGREGATE **REDUCE** 对齐 Redis 8.x 名称/参数校验文案（`No such reducer`、`Count accepts 0 values only`、`Missing arguments for …`、QUANTILE 百分比/转换、`RANDOM_SAMPLE`/`FIRST_VALUE BY`；无 `ERR` 前缀；COLLECT 仍为 Godis 8.8+）；R4-1 扩至 **419** 条（HSTRLEN、UNLINK、RENAMENX、SINTERCARD、ZINTERCARD、LINSERT/LSET/RPOP）；远期仍 7 项，不宣称完整 KNN/DIALECT 或全量 sidecar
 - 第六十九批（远期子集续研）：FT.AGGREGATE **APPLY/FILTER** 对齐 Redis 8.x **`SEARCH_PROP_NOT_FOUND Property not loaded nor in pipeline`**（无 LOAD 仅 SORTABLE + ADDSCORES/`LOAD … AS` 别名入管道；`LOAD *` 仍不含 `__key`）；**GROUPBY/REDUCE** 无 LOAD 仍可读非 SORTABLE 文档字段（TOLIST/GROUPBY 可验）；R4-1 扩至 **397** 条（ZREVRANGEBYSCORE、RPOPLPUSH、MGET）；远期仍 7 项，不宣称完整 KNN/DIALECT 或全量 sidecar
 - 第六十八批（远期子集续研）：FT.AGGREGATE **无 LOAD 默认空行**（仅保留 SORTABLE + ADDSCORES `@__score`；`LOAD *`/显式 LOAD 不变；对照 Redis 8.x）+ **FT.CREATE FILTER**（聚合表达式，`@__key`/字段求值；假/错→跳过索引；更新失败 FILTER 则撤出）+ **REDUCE TOLIST** 嵌套数组线格式；R4-1 扩至 **386** 条（SUNION 单成员、ZREMRANGEBYRANK、LREM、HSETNX）；远期仍 7 项，不宣称完整 KNN/DIALECT 或全量 sidecar

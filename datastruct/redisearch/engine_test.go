@@ -1,7 +1,9 @@
 package redisearch
 
 import (
+	"strconv"
 	"testing"
+	"time"
 )
 
 func TestMultiFieldGroupBy(t *testing.T) {
@@ -319,5 +321,37 @@ func TestHavingClauseGreaterThanOrEqual(t *testing.T) {
 	// Should have 2 groups: A (200) and C (250), B has 199 so it's filtered out
 	if result.Total != 2 {
 		t.Errorf("Expected 2 groups after HAVING >= 200, got %d", result.Total)
+	}
+}
+
+// TestSearchSoftTimeoutKeepsPartial locks mid-scan TIMEOUT: ErrTimeout with
+// whatever docs were scored before the deadline (ON_TIMEOUT decided upstream).
+func TestSearchSoftTimeoutKeepsPartial(t *testing.T) {
+	engine := NewRediSearchEngine(&EngineConfig{Name: "soft_to"})
+	if err := engine.CreateIndex([]*Field{
+		{Name: "t", Type: FieldTypeText},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 200; i++ {
+		id := "d" + strconv.Itoa(i)
+		if err := engine.AddDocument(id, map[string]interface{}{"t": "hello world token score"}, 1.0, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	res, err := engine.Search("hello", &SearchOptions{TimeoutMs: 1})
+	if err != ErrTimeout {
+		// Extremely fast hosts may finish within 1ms — fall back to pre-expired deadline.
+		res, err = engine.Search("hello", &SearchOptions{Deadline: time.Now().Add(-time.Millisecond)})
+	}
+	if err != ErrTimeout {
+		t.Fatalf("want ErrTimeout, got %v", err)
+	}
+	if err.Error() != "SEARCH_TIMEOUT Timeout limit was reached" {
+		t.Fatalf("want SEARCH_TIMEOUT wording, got %q", err.Error())
+	}
+	if res != nil && res.Total < 0 {
+		t.Fatalf("invalid partial total %d", res.Total)
 	}
 }

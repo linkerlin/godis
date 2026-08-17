@@ -1237,7 +1237,10 @@ func execFTSearch(db *DB, args [][]byte) redis.Reply {
 		}
 		results, err = engine.SearchKNN(baseQuery, opts, knnClause, queryVec)
 		if err != nil {
-			return ftTimeoutReply(err)
+			if !(err == redisearch.ErrTimeout && results != nil &&
+				strings.EqualFold(getFTConfigString("ON_TIMEOUT"), "RETURN")) {
+				return ftTimeoutReply(err)
+			}
 		}
 	} else {
 		// VECTOR_RANGE attr block (Redis 8.10): $YIELD_DISTANCE_AS always;
@@ -1286,7 +1289,10 @@ func execFTSearch(db *DB, args [][]byte) redis.Reply {
 		}
 		results, err = engine.Search(q, opts)
 		if err != nil {
-			return ftTimeoutReply(err)
+			if !(err == redisearch.ErrTimeout && results != nil &&
+				strings.EqualFold(getFTConfigString("ON_TIMEOUT"), "RETURN")) {
+				return ftTimeoutReply(err)
+			}
 		}
 	}
 
@@ -1884,14 +1890,16 @@ func execFTAggregate(db *DB, args [][]byte) redis.Reply {
 	// Execute aggregation
 	result, err := engine.Aggregate(req)
 	if err != nil {
-		if err == redisearch.ErrTimeout && strings.EqualFold(getFTConfigString("ON_TIMEOUT"), "RETURN") {
+		if err == redisearch.ErrTimeout && result != nil &&
+			strings.EqualFold(getFTConfigString("ON_TIMEOUT"), "RETURN") {
+			// Soft RETURN: keep pipeline output built from docs fetched so far.
+		} else if err == redisearch.ErrTimeout && strings.EqualFold(getFTConfigString("ON_TIMEOUT"), "RETURN") {
 			return protocol.MakeMultiBulkReply([][]byte{[]byte("0")})
-		}
-		// RediSearch SEARCH_* codes are returned without an ERR prefix (Redis 8.x).
-		if strings.HasPrefix(err.Error(), "SEARCH_") {
+		} else if strings.HasPrefix(err.Error(), "SEARCH_") {
 			return protocol.MakeErrReply(err.Error())
+		} else {
+			return protocol.MakeErrReply(fmt.Sprintf("ERR %v", err))
 		}
-		return protocol.MakeErrReply(fmt.Sprintf("ERR %v", err))
 	}
 
 	if withCursor {
@@ -2035,7 +2043,15 @@ func collectValueBytes(v interface{}) []byte {
 		}
 		return protocol.MakeMultiBulkReply(elems).ToBytes()
 	default:
-		return []byte(fmt.Sprintf("%v", v))
+		switch x := v.(type) {
+		case float64:
+			if math.IsNaN(x) {
+				return []byte("nan")
+			}
+			return []byte(strconv.FormatFloat(x, 'f', -1, 64))
+		default:
+			return []byte(fmt.Sprintf("%v", v))
+		}
 	}
 }
 

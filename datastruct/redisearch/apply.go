@@ -73,12 +73,12 @@ func EnsurePipelineProps(expr string, props map[string]bool) error {
 //	arithmetic: + - * / % ^ (power, right-assoc)
 //	comparison: == != < <= > >=   (return bool)
 //	logical:    && || !           (return bool)
-//	functions:  log log2 exp sqrt abs ceil floor
+//	functions:  log log2 exp sqrt abs ceil floor to_str to_number
 //	             upper lower strlen startswith contains substr format split
 //	             matched_terms timefmt parsetime day hour minute month dayofweek
 //	             dayofmonth dayofyear year monthofyear geodistance exists case
 //
-// `+` falls back to string concatenation when either operand is non-numeric.
+// Non-numeric args to numeric funcs yield NaN (Redis). Unknown funcs → SEARCH_EXPR.
 func EvalApplyExpr(expr string, fields map[string]interface{}) (interface{}, error) {
 	return EvalApplyExprWithQuery(expr, fields, nil)
 }
@@ -113,7 +113,7 @@ func EvalFilterExpr(expr string, fields map[string]interface{}) (bool, error) {
 	case bool:
 		return x, nil
 	case float64:
-		return x != 0, nil
+		return !math.IsNaN(x) && x != 0, nil
 	case string:
 		return x != "", nil
 	case nil:
@@ -642,6 +642,9 @@ func applyValueToInterface(v applyValue) interface{} {
 		return v.b
 	}
 	if v.isNum {
+		if math.IsNaN(v.num) {
+			return "nan" // Redis Query Engine wire form
+		}
 		return v.num
 	}
 	if v.isMulti {
@@ -746,6 +749,9 @@ func applyValueToString(v applyValue) string {
 		return "false"
 	}
 	if v.isNum {
+		if math.IsNaN(v.num) {
+			return "nan" // Redis Query Engine lowercase
+		}
 		return strconv.FormatFloat(v.num, 'f', -1, 64)
 	}
 	if v.isMulti {
@@ -803,40 +809,61 @@ func applyFunction(p *applyParser, name string, args []applyValue) (applyValue, 
 			matched = append(matched, term)
 		}
 		return applyValue{isMulti: true, multi: matched}, nil
-	// Numeric functions.
+	// Numeric functions. Non-numeric args → NaN (Redis Query Engine).
 	case "log":
-		if len(args) != 1 || !args[0].isNum {
+		if len(args) != 1 {
 			return applyValue{}, errors.New("log() expects one numeric argument")
+		}
+		if !args[0].isNum {
+			return applyValue{isNum: true, num: math.NaN()}, nil
 		}
 		return applyValue{isNum: true, num: math.Log(args[0].num)}, nil
 	case "log2":
-		if len(args) != 1 || !args[0].isNum {
+		if len(args) != 1 {
 			return applyValue{}, errors.New("log2() expects one numeric argument")
+		}
+		if !args[0].isNum {
+			return applyValue{isNum: true, num: math.NaN()}, nil
 		}
 		return applyValue{isNum: true, num: math.Log2(args[0].num)}, nil
 	case "exp":
-		if len(args) != 1 || !args[0].isNum {
+		if len(args) != 1 {
 			return applyValue{}, errors.New("exp() expects one numeric argument")
+		}
+		if !args[0].isNum {
+			return applyValue{isNum: true, num: math.NaN()}, nil
 		}
 		return applyValue{isNum: true, num: math.Exp(args[0].num)}, nil
 	case "sqrt":
-		if len(args) != 1 || !args[0].isNum {
+		if len(args) != 1 {
 			return applyValue{}, errors.New("sqrt() expects one numeric argument")
+		}
+		if !args[0].isNum {
+			return applyValue{isNum: true, num: math.NaN()}, nil
 		}
 		return applyValue{isNum: true, num: math.Sqrt(args[0].num)}, nil
 	case "abs":
-		if len(args) != 1 || !args[0].isNum {
+		if len(args) != 1 {
 			return applyValue{}, errors.New("abs() expects one numeric argument")
+		}
+		if !args[0].isNum {
+			return applyValue{isNum: true, num: math.NaN()}, nil
 		}
 		return applyValue{isNum: true, num: math.Abs(args[0].num)}, nil
 	case "ceil":
-		if len(args) != 1 || !args[0].isNum {
+		if len(args) != 1 {
 			return applyValue{}, errors.New("ceil() expects one numeric argument")
+		}
+		if !args[0].isNum {
+			return applyValue{isNum: true, num: math.NaN()}, nil
 		}
 		return applyValue{isNum: true, num: math.Ceil(args[0].num)}, nil
 	case "floor":
-		if len(args) != 1 || !args[0].isNum {
+		if len(args) != 1 {
 			return applyValue{}, errors.New("floor() expects one numeric argument")
+		}
+		if !args[0].isNum {
+			return applyValue{isNum: true, num: math.NaN()}, nil
 		}
 		return applyValue{isNum: true, num: math.Floor(args[0].num)}, nil
 	// Time functions use Unix seconds and UTC, matching Redis Query Engine.
@@ -994,8 +1021,27 @@ func applyFunction(p *applyParser, name string, args []applyValue) (applyValue, 
 			return args[1], nil
 		}
 		return args[2], nil
+	case "to_str":
+		if len(args) != 1 {
+			return applyValue{}, errors.New("to_str() expects one argument")
+		}
+		return applyValue{isStr: true, str: applyValueToString(args[0])}, nil
+	case "to_number":
+		if len(args) != 1 {
+			return applyValue{}, errors.New("to_number() expects one argument")
+		}
+		if args[0].isNum {
+			return applyValue{isNum: true, num: args[0].num}, nil
+		}
+		s := applyValueToString(args[0])
+		n, err := strconv.ParseFloat(s, 64)
+		if err != nil {
+			// Redis 8.x: SEARCH_PARSE_ARGS to_number: cannot convert string '…'
+			return applyValue{}, fmt.Errorf("SEARCH_PARSE_ARGS to_number: cannot convert string '%s'", s)
+		}
+		return applyValue{isNum: true, num: n}, nil
 	}
-	return applyValue{}, fmt.Errorf("unknown function %q", name)
+	return applyValue{}, fmt.Errorf("SEARCH_EXPR Unknown function name '%s'", name)
 }
 
 func applyGeoCoordinates(args []applyValue) (float64, float64, float64, float64, error) {

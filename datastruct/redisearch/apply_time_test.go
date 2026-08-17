@@ -2,6 +2,7 @@ package redisearch
 
 import (
 	"math"
+	"strings"
 	"testing"
 )
 
@@ -45,5 +46,33 @@ func TestEvalApplyGeoDistanceMatchesRedis810(t *testing.T) {
 		if !ok || math.Abs(distance-111226.3) > 0.1 {
 			t.Errorf("%s: got %v, want about 111226.3", expr, got)
 		}
+	}
+}
+
+func TestEvalApplyToStrToNumber(t *testing.T) {
+	fields := map[string]interface{}{"n": float64(42), "s": "7.5"}
+	got, err := EvalApplyExpr("to_str(@n)", fields)
+	if err != nil || got != "42" {
+		t.Fatalf("to_str(@n): got %v err %v", got, err)
+	}
+	got, err = EvalApplyExpr("to_number(@s)", fields)
+	if err != nil || got != float64(7.5) {
+		t.Fatalf("to_number(@s): got %v err %v", got, err)
+	}
+	got, err = EvalApplyExpr("to_number(@n) + 1", fields)
+	if err != nil || got != float64(43) {
+		t.Fatalf("to_number(@n) + 1: got %v err %v", got, err)
+	}
+	_, err = EvalApplyExpr("to_number('abc')", nil)
+	if err == nil || !strings.Contains(err.Error(), "SEARCH_PARSE_ARGS to_number: cannot convert string 'abc'") {
+		t.Fatalf("to_number bad: %v", err)
+	}
+	_, err = EvalApplyExpr("nosuchfn(1)", nil)
+	if err == nil || !strings.Contains(err.Error(), "SEARCH_EXPR Unknown function name 'nosuchfn'") {
+		t.Fatalf("unknown fn: %v", err)
+	}
+	got, err = EvalApplyExpr("floor('hello')", nil)
+	if err != nil || got != "nan" {
+		t.Fatalf("floor non-numeric want nan: got %v err %v", got, err)
 	}
 }

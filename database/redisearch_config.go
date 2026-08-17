@@ -163,9 +163,13 @@ func getFTConfigString(key string) string {
 }
 
 // ftTimeoutReply maps FT soft-timeout errors according to ON_TIMEOUT (FAIL|RETURN).
+// FAIL → SEARCH_TIMEOUT… (no ERR prefix). RETURN with no partial → empty search shape.
 func ftTimeoutReply(err error) redis.Reply {
 	if err == redisearch.ErrTimeout && strings.EqualFold(getFTConfigString("ON_TIMEOUT"), "RETURN") {
 		return protocol.MakeMultiRawReply([]redis.Reply{protocol.MakeIntReply(0)})
+	}
+	if err == redisearch.ErrTimeout || strings.HasPrefix(err.Error(), "SEARCH_") {
+		return protocol.MakeErrReply(err.Error())
 	}
 	return protocol.MakeErrReply(fmt.Sprintf("ERR %v", err))
 }

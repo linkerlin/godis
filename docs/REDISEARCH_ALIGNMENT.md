@@ -149,7 +149,7 @@ Redis 8.0 将 Redis Stack 的 RediSearch 模块并入核心(命令面 24 个 FT.
 | 查询语法 | 前缀/后缀/中缀/fuzzy 1-3/短语/SLOP/INORDER/标签/数值/geo 半径 | ✅ | |
 | GEOSHAPE | WKT + WITHIN/CONTAINS/INTERSECTS/DISJOINT(DIALECT 3) | ✅ | |
 | AGGREGATE reducers | COUNT/SUM/MIN/MAX/AVG/STDDEV/QUANTILE/COUNT_DISTINCT(ISH)/TOLIST/FIRST_VALUE/RANDOM_SAMPLE/COLLECT | ✅ | |
-| APPLY 表达式 | 算术 + % ^ + 数值/字符串/日期/geo + **matched_terms / 多值 split** | ✅ 子集 | 无 stemmer 变体；非完整 strftime |
+| APPLY 表达式 | 算术 + % ^ + 数值/字符串/日期/geo + **matched_terms / 多值 split** + **to_str/to_number** | ✅ 子集 | 无 stemmer 变体；非完整 strftime |
 | FILTER | 布尔组合 + 比较算符 | ✅ | |
 | 打分 | BM25STD(默认)/TFIDF/DISMAX/DOCSCORE/HAMMING + 变体 | ✅ | .NORM 真 min-max；.TANH=tanh(raw/4) |
 | 可选词 ~ | 打分加成、不过滤 | ✅ | |

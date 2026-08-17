@@ -14,7 +14,8 @@ import (
 )
 
 // ErrTimeout is returned when FT TIMEOUT soft deadline is exceeded.
-var ErrTimeout = errors.New("Timeout limit was reached")
+// Redis 8.x wire form: SEARCH_TIMEOUT (no ERR prefix).
+var ErrTimeout = errors.New("SEARCH_TIMEOUT Timeout limit was reached")
 
 // RediSearchEngine is the main search engine
 type RediSearchEngine struct {
@@ -614,9 +615,13 @@ func (e *RediSearchEngine) Search(query string, opts *SearchOptions) (*SearchRes
 	}
 
 	results := make([]*SearchResult, 0, len(docIDs))
+	timedOut := false
 	for _, docID := range docIDs {
 		if ftDeadlineExceeded(deadline) {
-			return nil, ErrTimeout
+			// Soft timeout: keep docs scored so far. ON_TIMEOUT RETURN/FAIL
+			// is decided at the command layer (Redis 8.x).
+			timedOut = true
+			break
 		}
 		doc, ok := e.index.GetDocument(docID)
 		if !ok {
@@ -739,10 +744,14 @@ func (e *RediSearchEngine) Search(query string, opts *SearchOptions) (*SearchRes
 		}
 	}
 
-	return &SearchResults{
+	out := &SearchResults{
 		Total:   total,
 		Results: results,
-	}, nil
+	}
+	if timedOut {
+		return out, ErrTimeout
+	}
+	return out, nil
 }
 
 // GeoFilterOptions holds geo filter options
@@ -924,9 +933,13 @@ func (e *RediSearchEngine) Aggregate(req *AggregationRequest) (*AggregationResul
 
 	var docs []*Document
 	var queryNode QueryNode
+	timedOut := false
 
 	// Handle wildcard query
 	if req.Query == "*" {
+		if ftDeadlineExceeded(deadline) {
+			return nil, ErrTimeout
+		}
 		// Get all documents
 		docs = e.index.GetAllDocuments()
 	} else {
@@ -948,11 +961,12 @@ func (e *RediSearchEngine) Aggregate(req *AggregationRequest) (*AggregationResul
 
 		docIDs := node.Evaluate(e.index)
 
-		// Fetch documents
+		// Fetch documents (soft timeout keeps docs collected so far).
 		docs = make([]*Document, 0, len(docIDs))
 		for _, docID := range docIDs {
 			if ftDeadlineExceeded(deadline) {
-				return nil, ErrTimeout
+				timedOut = true
+				break
 			}
 			doc, ok := e.index.GetDocument(docID)
 			if ok {
@@ -960,7 +974,10 @@ func (e *RediSearchEngine) Aggregate(req *AggregationRequest) (*AggregationResul
 			}
 		}
 	}
-	if ftDeadlineExceeded(deadline) {
+	if !timedOut && ftDeadlineExceeded(deadline) {
+		timedOut = true
+	}
+	if timedOut && len(docs) == 0 {
 		return nil, ErrTimeout
 	}
 
@@ -1078,10 +1095,14 @@ func (e *RediSearchEngine) Aggregate(req *AggregationRequest) (*AggregationResul
 		groups = groups[start:end]
 	}
 
-	return &AggregationResult{
+	out := &AggregationResult{
 		Total:  total,
 		Groups: groups,
-	}, nil
+	}
+	if timedOut {
+		return out, ErrTimeout
+	}
+	return out, nil
 }
 
 // cloneDocsForAggregate deep-copies document field maps so APPLY merges and
