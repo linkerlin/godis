@@ -2545,6 +2545,114 @@ TYPE-b96miss|none|TYPE sidecar:b96:miss:{{ID}}
 EXISTS-b96miss|0|EXISTS sidecar:b96:miss:{{ID}}
 DBSIZE-b96|>=0|DBSIZE
 
+# --- batch 97 extras (LPUSHX/RPUSHX; ZADD NX/XX/CH/INCR/GT/LT; HSETNX/SETNX; SET GET; MSETNX; SINTER/SDIFF STORE; ZDIFFSTORE/ZRANGESTORE; BITFIELD OVERFLOW SAT; GETDEL; EXPIRE NX/XX; PEXPIRE; ZRANK/ZREVRANK; LMOVE; LREM 0; XADD/XDEL; PFMERGE; GEOSEARCH FROMMEMBER; TOUCH/UNLINK) ---
+@DEL sidecar:b97:l:{{ID}}
+RPUSH-b97|4|RPUSH sidecar:b97:l:{{ID}} a b c d
+RPUSHX-b97|5|RPUSHX sidecar:b97:l:{{ID}} e
+LPUSHX-b97|6|LPUSHX sidecar:b97:l:{{ID}} z
+LRANGE-b97|z\na\nb\nc\nd\ne|LRANGE sidecar:b97:l:{{ID}} 0 -1
+LMOVE-b97|e|LMOVE sidecar:b97:l:{{ID}} sidecar:b97:l2:{{ID}} RIGHT LEFT
+LRANGE-b97l2|e|LRANGE sidecar:b97:l2:{{ID}} 0 -1
+LREM-b97|1|LREM sidecar:b97:l:{{ID}} 0 a
+LLEN-b97|4|LLEN sidecar:b97:l:{{ID}}
+DEL-b97l|2|DEL sidecar:b97:l:{{ID}} sidecar:b97:l2:{{ID}}
+@DEL sidecar:b97:z:{{ID}}
+ZADD-NX-b97|1|ZADD sidecar:b97:z:{{ID}} NX 1 a
+ZADD-NX-dup-b97|0|ZADD sidecar:b97:z:{{ID}} NX 1 a
+ZADD-XX-b97|0|ZADD sidecar:b97:z:{{ID}} XX 2 a
+ZADD-CH-b97|2|ZADD sidecar:b97:z:{{ID}} CH 3 a 4 b
+ZADD-INCR-b97|4|ZADD sidecar:b97:z:{{ID}} INCR 1 a
+ZSCORE-b97a|4|ZSCORE sidecar:b97:z:{{ID}} a
+ZADD-GT-b97|0|ZADD sidecar:b97:z:{{ID}} GT 10 a
+ZSCORE-b97gt|10|ZSCORE sidecar:b97:z:{{ID}} a
+ZADD-LT-b97|0|ZADD sidecar:b97:z:{{ID}} LT 5 a
+ZSCORE-b97lt|5|ZSCORE sidecar:b97:z:{{ID}} a
+DEL-b97z|1|DEL sidecar:b97:z:{{ID}}
+@DEL sidecar:b97:z1:{{ID}}
+@DEL sidecar:b97:z2:{{ID}}
+@DEL sidecar:b97:zd:{{ID}}
+@DEL sidecar:b97:zs:{{ID}}
+ZADD-b97z1|2|ZADD sidecar:b97:z1:{{ID}} 1 a 2 b
+ZADD-b97z2|1|ZADD sidecar:b97:z2:{{ID}} 1 b
+ZDIFFSTORE-b97|1|ZDIFFSTORE sidecar:b97:zd:{{ID}} 2 sidecar:b97:z1:{{ID}} sidecar:b97:z2:{{ID}}
+ZRANGE-b97zd|a|ZRANGE sidecar:b97:zd:{{ID}} 0 -1
+ZRANGESTORE-b97|1|ZRANGESTORE sidecar:b97:zs:{{ID}} sidecar:b97:z1:{{ID}} 0 0
+ZRANGE-WS-b97|a\n1|ZRANGE sidecar:b97:zs:{{ID}} 0 -1 WITHSCORES
+ZREVRANK-b97|1|ZREVRANK sidecar:b97:z1:{{ID}} a
+ZRANK-b97|1|ZRANK sidecar:b97:z1:{{ID}} b
+DEL-b97zst|4|DEL sidecar:b97:z1:{{ID}} sidecar:b97:z2:{{ID}} sidecar:b97:zd:{{ID}} sidecar:b97:zs:{{ID}}
+@DEL sidecar:b97:h:{{ID}}
+HSETNX-b97|1|HSETNX sidecar:b97:h:{{ID}} f v
+HSETNX-b97dup|0|HSETNX sidecar:b97:h:{{ID}} f x
+HLEN-b97|1|HLEN sidecar:b97:h:{{ID}}
+DEL-b97h|1|DEL sidecar:b97:h:{{ID}}
+@DEL sidecar:b97:st:{{ID}}
+SETNX-b97|1|SETNX sidecar:b97:st:{{ID}} v
+SETNX-b97dup|0|SETNX sidecar:b97:st:{{ID}} w
+GET-b97st|v|GET sidecar:b97:st:{{ID}}
+SET-GET-b97|v|SET sidecar:b97:st:{{ID}} v2 GET
+GETDEL-b97|v2|GETDEL sidecar:b97:st:{{ID}}
+EXISTS-b97st|0|EXISTS sidecar:b97:st:{{ID}}
+@DEL sidecar:b97:a:{{ID}}
+@DEL sidecar:b97:b:{{ID}}
+@DEL sidecar:b97:c:{{ID}}
+MSETNX-b97|1|MSETNX sidecar:b97:a:{{ID}} 1 sidecar:b97:b:{{ID}} 2
+MSETNX-b97dup|0|MSETNX sidecar:b97:a:{{ID}} 9 sidecar:b97:c:{{ID}} 3
+MGET-b97|1\n2|MGET sidecar:b97:a:{{ID}} sidecar:b97:b:{{ID}}
+TOUCH-b97|2|TOUCH sidecar:b97:a:{{ID}} sidecar:b97:b:{{ID}}
+UNLINK-b97|1|UNLINK sidecar:b97:b:{{ID}}
+EXISTS-b97b|0|EXISTS sidecar:b97:b:{{ID}}
+OBJECT-REF-b97|1|OBJECT REFCOUNT sidecar:b97:a:{{ID}}
+TYPE-b97a|string|TYPE sidecar:b97:a:{{ID}}
+DEL-b97a|1|DEL sidecar:b97:a:{{ID}}
+@DEL sidecar:b97:s1:{{ID}}
+@DEL sidecar:b97:s2:{{ID}}
+@DEL sidecar:b97:si:{{ID}}
+SADD-b97s1|2|SADD sidecar:b97:s1:{{ID}} a b
+SADD-b97s2|2|SADD sidecar:b97:s2:{{ID}} b c
+SINTERSTORE-b97|1|SINTERSTORE sidecar:b97:si:{{ID}} sidecar:b97:s1:{{ID}} sidecar:b97:s2:{{ID}}
+SCARD-b97si|1|SCARD sidecar:b97:si:{{ID}}
+SISMEMBER-b97si|1|SISMEMBER sidecar:b97:si:{{ID}} b
+SDIFF-b97|a|SDIFF sidecar:b97:s1:{{ID}} sidecar:b97:s2:{{ID}}
+SINTER-b97|b|SINTER sidecar:b97:s1:{{ID}} sidecar:b97:s2:{{ID}}
+DEL-b97s|3|DEL sidecar:b97:s1:{{ID}} sidecar:b97:s2:{{ID}} sidecar:b97:si:{{ID}}
+@DEL sidecar:b97:bf:{{ID}}
+BITFIELD-SAT1-b97|100|BITFIELD sidecar:b97:bf:{{ID}} OVERFLOW SAT INCRBY i8 0 100
+BITFIELD-SAT2-b97|127|BITFIELD sidecar:b97:bf:{{ID}} OVERFLOW SAT INCRBY i8 0 100
+BITFIELD-GET-b97|127|BITFIELD sidecar:b97:bf:{{ID}} GET i8 0
+DEL-b97bf|1|DEL sidecar:b97:bf:{{ID}}
+@DEL sidecar:b97:ex:{{ID}}
+SET-b97ex|OK|SET sidecar:b97:ex:{{ID}} v EX 40
+EXPIRE-NX-b97|0|EXPIRE sidecar:b97:ex:{{ID}} 40 NX
+EXPIRE-XX-b97|1|EXPIRE sidecar:b97:ex:{{ID}} 80 XX
+TTL-b97ex|<=80|TTL sidecar:b97:ex:{{ID}}
+PEXPIRE-b97|1|PEXPIRE sidecar:b97:ex:{{ID}} 9000
+PTTL-b97|<=9000|PTTL sidecar:b97:ex:{{ID}}
+PTTL-b972|>=1|PTTL sidecar:b97:ex:{{ID}}
+DEL-b97ex|1|DEL sidecar:b97:ex:{{ID}}
+@DEL sidecar:b97:x:{{ID}}
+XADD-b97|5-0|XADD sidecar:b97:x:{{ID}} 5-0 f 1
+XLEN-b97|1|XLEN sidecar:b97:x:{{ID}}
+XDEL-b97|1|XDEL sidecar:b97:x:{{ID}} 5-0
+EXISTS-b97x|1|EXISTS sidecar:b97:x:{{ID}}
+DEL-b97x|1|DEL sidecar:b97:x:{{ID}}
+@DEL sidecar:b97:pf:{{ID}}
+@DEL sidecar:b97:pfm:{{ID}}
+PFMERGE-b97empty|OK|PFMERGE sidecar:b97:pfm:{{ID}} sidecar:b97:pf:{{ID}}
+PFADD-b97|1|PFADD sidecar:b97:pf:{{ID}} x y
+PFMERGE-b97|OK|PFMERGE sidecar:b97:pfm:{{ID}} sidecar:b97:pf:{{ID}}
+PFCOUNT-b97|2|PFCOUNT sidecar:b97:pfm:{{ID}}
+DEL-b97pf|2|DEL sidecar:b97:pf:{{ID}} sidecar:b97:pfm:{{ID}}
+@DEL sidecar:b97:g:{{ID}}
+GEOADD-b97|1|GEOADD sidecar:b97:g:{{ID}} 13.361389 38.115556 Palermo
+GEOSEARCH-b97|Palermo|GEOSEARCH sidecar:b97:g:{{ID}} FROMMEMBER Palermo BYRADIUS 100 km ASC COUNT 1
+DEL-b97g|1|DEL sidecar:b97:g:{{ID}}
+PING-b97|b97|PING b97
+ECHO-b97|batch97|ECHO batch97
+TYPE-b97miss|none|TYPE sidecar:b97:miss:{{ID}}
+EXISTS-b97miss|0|EXISTS sidecar:b97:miss:{{ID}}
+DBSIZE-b97|>=0|DBSIZE
+
 # --- cleanup string / incr keys ---
 DEL|1|DEL sidecar:allowlist:{{ID}}
 EXISTS-after-del|0|EXISTS sidecar:allowlist:{{ID}}
