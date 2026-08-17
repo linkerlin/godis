@@ -1012,9 +1012,9 @@ func (e *RediSearchEngine) Aggregate(req *AggregationRequest) (*AggregationResul
 		groups = e.filterGroups(groups, req.Filter)
 	}
 
-	// Apply SORTBY (@field form; ADDSCORES → @__score)
-	if req.SortBy != "" {
-		groups = e.sortGroups(groups, req.SortBy, req.SortDesc)
+	// Apply SORTBY (multi-property; ADDSCORES → @__score)
+	if len(req.SortKeys) > 0 {
+		groups = e.sortGroups(groups, req.SortKeys)
 	}
 
 	// Total is the pipeline size before SORTBY MAX / LIMIT (Redis 8.x).
@@ -1056,9 +1056,9 @@ type AggregationRequest struct {
 	Deadline time.Time
 	GroupBy  []string      // Support multiple group by fields
 	Having   *HavingClause // HAVING clause for group filtering
-	Reduce   []Reducer
-	SortBy   string
-	SortDesc bool
+	Reduce []Reducer
+	// SortKeys is FT.AGGREGATE SORTBY property list (Redis: nargs tokens).
+	SortKeys []SortKey
 	// SortMax is SORTBY … MAX n (keep top-n after sort). 0 = unlimited.
 	SortMax int
 	Offset  int
@@ -1072,6 +1072,12 @@ type AggregationRequest struct {
 	MaxExpansions int
 	// Dialect controls DIALECT 1 vs 2 query precedence (| vs space).
 	Dialect int
+}
+
+// SortKey is one SORTBY property with optional ASC/DESC (default ASC).
+type SortKey struct {
+	Field string
+	Desc  bool
 }
 
 // HavingClause represents a HAVING clause for group filtering
@@ -1668,32 +1674,60 @@ func applyRandIntn(n int) int {
 	return rand.Intn(n)
 }
 
-func (e *RediSearchEngine) sortGroups(groups []*Group, field string, desc bool) []*Group {
-	field = strings.TrimPrefix(field, "@")
-	sort.Slice(groups, func(i, j int) bool {
-		vi := groups[i].Fields[field]
-		vj := groups[j].Fields[field]
-
-		// Prefer numeric compare (covers float64 __score and numeric strings).
-		fi, oki := toFloat64(vi)
-		fj, okj := toFloat64(vj)
-		if oki && okj {
-			if desc {
-				return fi > fj
+func (e *RediSearchEngine) sortGroups(groups []*Group, keys []SortKey) []*Group {
+	if len(keys) == 0 {
+		return groups
+	}
+	// Stable so equal keys keep relative order (Redis multi-SORTBY ties).
+	sort.SliceStable(groups, func(i, j int) bool {
+		for _, k := range keys {
+			field := strings.TrimPrefix(k.Field, "@")
+			vi, vj := groups[i].Fields[field], groups[j].Fields[field]
+			// Missing fields sort last for both ASC and DESC (Redis RediSearch).
+			mi, mj := vi == nil, vj == nil
+			if mi || mj {
+				if mi && mj {
+					continue
+				}
+				return !mi // present before missing
 			}
-			return fi < fj
+			cmp := compareSortValues(vi, vj)
+			if cmp == 0 {
+				continue
+			}
+			if k.Desc {
+				return cmp > 0
+			}
+			return cmp < 0
 		}
-
-		// String comparison
-		si := fmt.Sprintf("%v", vi)
-		sj := fmt.Sprintf("%v", vj)
-		if desc {
-			return si > sj
-		}
-		return si < sj
+		return false
 	})
-
 	return groups
+}
+
+// compareSortValues returns -1/0/1; prefers numeric when both parse as float.
+// Callers must exclude nil (missing) values first.
+func compareSortValues(vi, vj interface{}) int {
+	fi, oki := toFloat64(vi)
+	fj, okj := toFloat64(vj)
+	if oki && okj {
+		if fi < fj {
+			return -1
+		}
+		if fi > fj {
+			return 1
+		}
+		return 0
+	}
+	si := fmt.Sprintf("%v", vi)
+	sj := fmt.Sprintf("%v", vj)
+	if si < sj {
+		return -1
+	}
+	if si > sj {
+		return 1
+	}
+	return 0
 }
 
 // filterGroups filters groups based on a filter expression

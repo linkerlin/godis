@@ -1727,8 +1727,7 @@ func execFTAggregate(db *DB, args [][]byte) redis.Reply {
 
 		case "SORTBY":
 			// SORTBY nargs property [ASC|DESC] [property ASC|DESC ...] [MAX num]
-			// Consume exactly nargs tokens (Redis); only the first property drives
-			// sort (multi-property SORTBY is accepted but not fully applied).
+			// Consume exactly nargs tokens (Redis); all properties drive sort.
 			if i+1 >= len(args) {
 				return protocol.MakeSyntaxErrReply()
 			}
@@ -1739,24 +1738,25 @@ func execFTAggregate(db *DB, args [][]byte) redis.Reply {
 			i += 2
 			end := i + nargs
 			if end > len(args) {
-				return protocol.MakeSyntaxErrReply()
+				return protocol.MakeErrReply("Bad arguments for SORTBY: Expected an argument, but none provided")
 			}
-			if nargs > 0 {
-				req.SortBy = string(args[i])
+			var keys []redisearch.SortKey
+			for i < end {
+				field := string(args[i])
 				i++
+				desc := false
 				if i < end {
 					dir := strings.ToUpper(string(args[i]))
 					if dir == "ASC" {
-						req.SortDesc = false
 						i++
 					} else if dir == "DESC" {
-						req.SortDesc = true
+						desc = true
 						i++
 					}
 				}
-				// Skip remaining nargs (extra sort keys) for syntax parity.
-				i = end
+				keys = append(keys, redisearch.SortKey{Field: field, Desc: desc})
 			}
+			req.SortKeys = keys
 			if i < len(args) && strings.EqualFold(string(args[i]), "MAX") {
 				if i+1 >= len(args) {
 					return protocol.MakeErrReply("Bad arguments for MAX: Could not convert argument to expected type")

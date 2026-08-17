@@ -78,13 +78,15 @@ is_int() { [[ "$1" =~ ^-?[0-9]+$ ]]; }
 check_want() {
   local want="$1" got="$2"
   if [[ "${want}" =~ ^\>=(-?[0-9]+)$ ]]; then
+    local bound="${BASH_REMATCH[1]}"
     is_int "${got}" || return 1
-    if (( got >= BASH_REMATCH[1] )); then return 0; fi
+    if (( got >= bound )); then return 0; fi
     return 1
   fi
   if [[ "${want}" =~ ^\<=(-?[0-9]+)$ ]]; then
+    local bound="${BASH_REMATCH[1]}"
     is_int "${got}" || return 1
-    if (( got <= BASH_REMATCH[1] )); then return 0; fi
+    if (( got <= bound )); then return 0; fi
     return 1
   fi
   [[ "${got}" == "${want}" ]]
@@ -105,8 +107,8 @@ run_eq() {
   rv="$(normalize_cli_out "$(redis_cli "${args[@]}")")"
   gv="$(normalize_cli_out "$(godis_cli "${args[@]}")")"
   if ! check_want "${want}" "${rv}" || ! check_want "${want}" "${gv}" || [[ "${rv}" != "${gv}" ]]; then
-    # For >=/<= , redis and godis must still match each other for honesty when both satisfy.
-    if [[ "${want}" == \>=* || "${want}" == \<=* ]]; then
+    # For >=/<= , allow sides to differ by clock skew when both satisfy the bound.
+    if [[ "${want}" == ">="* || "${want}" == "<="* ]]; then
       if check_want "${want}" "${rv}" && check_want "${want}" "${gv}"; then
         return 0
       fi
