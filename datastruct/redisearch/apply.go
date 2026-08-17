@@ -19,6 +19,13 @@ type ApplyClause struct {
 	PreGroup bool
 }
 
+// AggStep is one FILTER or APPLY in FT.AGGREGATE command order (Redis runs
+// them interleaved; multiple FILTERs are AND-ed by successive pruning).
+type AggStep struct {
+	Filter string      // non-empty → FILTER expr
+	Apply  *ApplyClause // non-nil → APPLY
+}
+
 // PropNotLoadedError is Redis SEARCH_PROP_NOT_FOUND: APPLY/FILTER referenced a
 // property that is neither LOADed nor SORTABLE (nor produced by an earlier
 // pipeline stage). GROUPBY/REDUCE may still read full document fields.
@@ -94,7 +101,10 @@ func EnsurePipelineProps(expr string, props map[string]bool) error {
 //	             matched_terms timefmt parsetime (strftime subset) day hour minute month dayofweek
 //	             dayofmonth dayofyear year monthofyear geodistance exists case
 //	Missing @field → SEARCH_VALUE_NOT_FOUND (exists() ok; &&/||/case short-circuit).
-//	Bad timefmt/parsetime → Null (not ERR; Redis 8.x QE; unknown directive→Null). Non-numeric args to numeric funcs yield NaN (Redis). Unknown funcs → SEARCH_EXPR.
+//	Bad timefmt/parsetime → Null (not ERR; Redis 8.x QE; unknown directive→Null).
+//	Numeric builtins coerce bool + numeric strings (TrimLeft); else NaN (-nan/-inf wire).
+//	String builtins: upper/lower non-string→Null; strlen/startswith/contains/split/substr→Invalid type.
+//	Unknown funcs → SEARCH_EXPR.
 func EvalApplyExpr(expr string, fields map[string]interface{}) (interface{}, error) {
 	return EvalApplyExprWithQuery(expr, fields, nil)
 }
@@ -780,8 +790,8 @@ func applyValueToInterface(v applyValue) interface{} {
 		return v.b
 	}
 	if v.isNum {
-		if math.IsNaN(v.num) {
-			return "nan" // Redis Query Engine wire form
+		if s, ok := applyNumWireString(v.num); ok {
+			return s // Redis QE: nan / -nan / inf / -inf
 		}
 		return v.num
 	}
@@ -792,6 +802,55 @@ func applyValueToInterface(v applyValue) interface{} {
 		return v.str
 	}
 	return nil
+}
+
+// applyNumWireString returns Redis Query Engine text for NaN/Inf; ok=false for finite.
+func applyNumWireString(n float64) (string, bool) {
+	if math.IsNaN(n) {
+		if math.Signbit(n) {
+			return "-nan", true
+		}
+		return "nan", true
+	}
+	if math.IsInf(n, -1) {
+		return "-inf", true
+	}
+	if math.IsInf(n, 1) {
+		return "inf", true
+	}
+	return "", false
+}
+
+// applyAsNumber coerces APPLY values for numeric builtins (Redis 8.6 QE):
+// numbers as-is; bool → 0/1; strings TrimLeft then ParseFloat (trailing space → NaN).
+func applyAsNumber(v applyValue) float64 {
+	if v.isNum {
+		return v.num
+	}
+	if v.isBool {
+		if v.b {
+			return 1
+		}
+		return 0
+	}
+	if v.isStr {
+		s := strings.TrimLeft(v.str, " \t")
+		n, err := strconv.ParseFloat(s, 64)
+		if err != nil {
+			return math.NaN()
+		}
+		return n
+	}
+	return math.NaN()
+}
+
+// applyRequireString enforces VALIDATE_ARG__STRING for strlen/startswith/contains/split.
+// Redis always prints "VALIDATE_ARG__STRING(v, 0)" even when the failing arg index is 1.
+func applyRequireString(v applyValue, fn string, argIdx int) (string, error) {
+	if v.isStr {
+		return v.str, nil
+	}
+	return "", fmt.Errorf("Invalid type (1) for argument %d in function '%s'. VALIDATE_ARG__STRING(v, 0) was false.", argIdx, fn)
 }
 
 // applyTruthy coerces a value to bool (FILTER semantics). Null → VALUE_NOT_FOUND.
@@ -908,8 +967,8 @@ func applyValueToString(v applyValue) string {
 		return "false"
 	}
 	if v.isNum {
-		if math.IsNaN(v.num) {
-			return "nan" // Redis Query Engine lowercase
+		if s, ok := applyNumWireString(v.num); ok {
+			return s
 		}
 		return strconv.FormatFloat(v.num, 'f', -1, 64)
 	}
@@ -978,63 +1037,42 @@ func applyFunction(p *applyParser, name string, args []applyValue) (applyValue, 
 			matched = append(matched, term)
 		}
 		return applyValue{isMulti: true, multi: matched}, nil
-	// Numeric functions. Non-numeric args → NaN (Redis Query Engine).
+	// Numeric functions. Coerce bool/numeric-strings (Redis 8.6 QE); else NaN.
 	case "log":
 		if len(args) != 1 {
 			return applyValue{}, errors.New("log() expects one numeric argument")
 		}
-		if !args[0].isNum {
-			return applyValue{isNum: true, num: math.NaN()}, nil
-		}
-		return applyValue{isNum: true, num: math.Log(args[0].num)}, nil
+		return applyValue{isNum: true, num: math.Log(applyAsNumber(args[0]))}, nil
 	case "log2":
 		if len(args) != 1 {
 			return applyValue{}, errors.New("log2() expects one numeric argument")
 		}
-		if !args[0].isNum {
-			return applyValue{isNum: true, num: math.NaN()}, nil
-		}
-		return applyValue{isNum: true, num: math.Log2(args[0].num)}, nil
+		return applyValue{isNum: true, num: math.Log2(applyAsNumber(args[0]))}, nil
 	case "exp":
 		if len(args) != 1 {
 			return applyValue{}, errors.New("exp() expects one numeric argument")
 		}
-		if !args[0].isNum {
-			return applyValue{isNum: true, num: math.NaN()}, nil
-		}
-		return applyValue{isNum: true, num: math.Exp(args[0].num)}, nil
+		return applyValue{isNum: true, num: math.Exp(applyAsNumber(args[0]))}, nil
 	case "sqrt":
 		if len(args) != 1 {
 			return applyValue{}, errors.New("sqrt() expects one numeric argument")
 		}
-		if !args[0].isNum {
-			return applyValue{isNum: true, num: math.NaN()}, nil
-		}
-		return applyValue{isNum: true, num: math.Sqrt(args[0].num)}, nil
+		return applyValue{isNum: true, num: math.Sqrt(applyAsNumber(args[0]))}, nil
 	case "abs":
 		if len(args) != 1 {
 			return applyValue{}, errors.New("abs() expects one numeric argument")
 		}
-		if !args[0].isNum {
-			return applyValue{isNum: true, num: math.NaN()}, nil
-		}
-		return applyValue{isNum: true, num: math.Abs(args[0].num)}, nil
+		return applyValue{isNum: true, num: math.Abs(applyAsNumber(args[0]))}, nil
 	case "ceil":
 		if len(args) != 1 {
 			return applyValue{}, errors.New("ceil() expects one numeric argument")
 		}
-		if !args[0].isNum {
-			return applyValue{isNum: true, num: math.NaN()}, nil
-		}
-		return applyValue{isNum: true, num: math.Ceil(args[0].num)}, nil
+		return applyValue{isNum: true, num: math.Ceil(applyAsNumber(args[0]))}, nil
 	case "floor":
 		if len(args) != 1 {
 			return applyValue{}, errors.New("floor() expects one numeric argument")
 		}
-		if !args[0].isNum {
-			return applyValue{isNum: true, num: math.NaN()}, nil
-		}
-		return applyValue{isNum: true, num: math.Floor(args[0].num)}, nil
+		return applyValue{isNum: true, num: math.Floor(applyAsNumber(args[0]))}, nil
 	// Time functions use Unix seconds and UTC, matching Redis Query Engine.
 	case "timefmt":
 		if len(args) < 1 || len(args) > 2 || !args[0].isNum {
@@ -1103,35 +1141,57 @@ func applyFunction(p *applyParser, name string, args []applyValue) (applyValue, 
 		a := math.Sin(dLat/2)*math.Sin(dLat/2) +
 			math.Cos(lat1)*math.Cos(lat2)*math.Sin(dLon/2)*math.Sin(dLon/2)
 		return applyValue{isNum: true, num: earthRadiusMeters * 2 * math.Atan2(math.Sqrt(a), math.Sqrt(1-a))}, nil
-	// String functions.
+	// String functions. upper/lower: non-string → Null; others → Invalid type ERR (Redis 8.6).
 	case "upper":
 		if len(args) != 1 {
 			return applyValue{}, errors.New("upper() expects one argument")
 		}
-		return applyValue{isStr: true, str: strings.ToUpper(applyValueToString(args[0]))}, nil
+		if !args[0].isStr {
+			return applyValue{isNull: true}, nil
+		}
+		return applyValue{isStr: true, str: strings.ToUpper(args[0].str)}, nil
 	case "lower":
 		if len(args) != 1 {
 			return applyValue{}, errors.New("lower() expects one argument")
 		}
-		return applyValue{isStr: true, str: strings.ToLower(applyValueToString(args[0]))}, nil
+		if !args[0].isStr {
+			return applyValue{isNull: true}, nil
+		}
+		return applyValue{isStr: true, str: strings.ToLower(args[0].str)}, nil
 	case "strlen":
 		if len(args) != 1 {
 			return applyValue{}, errors.New("strlen() expects one argument")
 		}
-		return applyValue{isNum: true, num: float64(len(applyValueToString(args[0])))}, nil
+		s, err := applyRequireString(args[0], "strlen", 0)
+		if err != nil {
+			return applyValue{}, err
+		}
+		return applyValue{isNum: true, num: float64(len(s))}, nil
 	case "startswith":
 		if len(args) != 2 {
 			return applyValue{}, errors.New("startswith() expects two arguments")
 		}
-		s := applyValueToString(args[0])
-		prefix := applyValueToString(args[1])
+		s, err := applyRequireString(args[0], "startswith", 0)
+		if err != nil {
+			return applyValue{}, err
+		}
+		prefix, err := applyRequireString(args[1], "startswith", 1)
+		if err != nil {
+			return applyValue{}, err
+		}
 		return applyBoolValue(strings.HasPrefix(s, prefix)), nil
 	case "contains":
 		if len(args) != 2 {
 			return applyValue{}, errors.New("contains() expects two arguments")
 		}
-		s := applyValueToString(args[0])
-		sub := applyValueToString(args[1])
+		s, err := applyRequireString(args[0], "contains", 0)
+		if err != nil {
+			return applyValue{}, err
+		}
+		sub, err := applyRequireString(args[1], "contains", 1)
+		if err != nil {
+			return applyValue{}, err
+		}
 		if sub == "" {
 			return applyValue{isNum: true, num: float64(len(s) + 1)}, nil
 		}
@@ -1140,10 +1200,13 @@ func applyFunction(p *applyParser, name string, args []applyValue) (applyValue, 
 		if len(args) != 3 {
 			return applyValue{}, errors.New("substr() expects three arguments")
 		}
+		if !args[0].isStr {
+			return applyValue{}, errors.New("Invalid type for substr. Expected string")
+		}
 		if !args[1].isNum || !args[2].isNum {
 			return applyValue{}, errors.New("substr() offset/count must be numeric")
 		}
-		s := applyValueToString(args[0])
+		s := args[0].str
 		offset := int(args[1].num)
 		count := int(args[2].num)
 		return applyValue{isStr: true, str: applySubstr(s, offset, count)}, nil
@@ -1161,8 +1224,11 @@ func applyFunction(p *applyParser, name string, args []applyValue) (applyValue, 
 		if len(args) < 1 || len(args) > 3 {
 			return applyValue{}, errors.New("split() expects 1 to 3 arguments")
 		}
+		s, err := applyRequireString(args[0], "split", 0)
+		if err != nil {
+			return applyValue{}, err
+		}
 		// Redis: sep/strip are character sets (strpbrk / strchr); empty tokens dropped.
-		s := applyValueToString(args[0])
 		sep := ","
 		strip := " "
 		if len(args) >= 2 {
@@ -1449,13 +1515,14 @@ func strftimeToGoLayout(format string) string {
 }
 
 // applySubstr implements substr(s, offset, count) with Redis byte semantics:
-// negative offset counts from the end; count < 0 means "to the end".
+// negative offset counts from the end; if |offset| > len, return empty (do not
+// clamp to 0); count < 0 means "to the end".
 func applySubstr(s string, offset, count int) string {
 	n := len(s) // byte length (Redis Query Engine)
 	if offset < 0 {
 		offset = n + offset
 		if offset < 0 {
-			offset = 0
+			return ""
 		}
 	}
 	if offset > n {

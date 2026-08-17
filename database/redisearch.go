@@ -1640,11 +1640,17 @@ func execFTAggregate(db *DB, args [][]byte) redis.Reply {
 				return protocol.MakeSyntaxErrReply()
 			}
 			sawApply = true
-			req.Apply = append(req.Apply, redisearch.ApplyClause{
+			ac := &redisearch.ApplyClause{
 				Expr:     string(args[i+1]),
 				As:       string(args[i+3]),
 				PreGroup: !sawGroupBy,
-			})
+			}
+			req.Apply = append(req.Apply, *ac)
+			if !sawGroupBy {
+				req.PreSteps = append(req.PreSteps, redisearch.AggStep{Apply: ac})
+			} else {
+				req.PostSteps = append(req.PostSteps, redisearch.AggStep{Apply: ac})
+			}
 			i += 4
 			continue
 
@@ -1863,10 +1869,16 @@ func execFTAggregate(db *DB, args [][]byte) redis.Reply {
 			if i+1 >= len(args) {
 				return protocol.MakeSyntaxErrReply()
 			}
-			// FILTER expression (e.g., "@field > 10")
-			req.Filter = string(args[i+1])
+			expr := string(args[i+1])
+			// Keep legacy single-Filter fields for synthesizeSteps / older tests.
+			req.Filter = expr
 			if !sawApply {
 				req.FilterBeforeApply = true
+			}
+			if !sawGroupBy {
+				req.PreSteps = append(req.PreSteps, redisearch.AggStep{Filter: expr})
+			} else {
+				req.PostSteps = append(req.PostSteps, redisearch.AggStep{Filter: expr})
 			}
 			i += 2
 			continue
@@ -1886,8 +1898,8 @@ func execFTAggregate(db *DB, args [][]byte) redis.Reply {
 		}
 	}
 
-	// FILTER-before-APPLY only matters when APPLY is present; otherwise FILTER
-	// runs on post-GROUPBY groups (Redis group-key FILTER without LOAD).
+	// FILTER-before-APPLY legacy flag only matters when steps were not built
+	// (unit tests). Parser always fills PreSteps/PostSteps for FILTER/APPLY.
 	if len(req.Apply) == 0 {
 		req.FilterBeforeApply = false
 	}

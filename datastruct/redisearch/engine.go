@@ -1012,38 +1012,16 @@ func (e *RediSearchEngine) Aggregate(req *AggregationRequest) (*AggregationResul
 	props := buildAggregatePipelineProps(req, sortable)
 
 	var err error
-	// Redis runs FILTER/APPLY in command order. When FILTER precedes APPLY,
-	// prune pipeline rows before APPLY so missing fields do not VALUE_NOT_FOUND.
-	// Only when there is at least one APPLY: FILTER-only / FILTER-after-GROUPBY
-	// still run on groups below (need reducer aliases / group keys).
-	earlyFilter := req.FilterBeforeApply && req.Filter != "" && len(req.Apply) > 0
-	if earlyFilter {
-		if err := EnsurePipelineProps(req.Filter, props); err != nil {
-			return nil, err
-		}
-		pipeDocs, err = filterDocsByExpr(pipeDocs, req.Filter)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	// Apply APPLY clauses that appeared before GROUPBY against pipeline fields;
-	// merge computed AS values onto source docs so REDUCE can reference them.
-	var preApply, postApply []ApplyClause
-	for _, ac := range req.Apply {
-		if ac.PreGroup {
-			preApply = append(preApply, ac)
-		} else {
-			postApply = append(postApply, ac)
-		}
-	}
+	preSteps, postSteps := req.normalizedSteps()
 	queryTerms := extractQueryTerms(req.Query)
-	pipeDocs, err = applyPreGroupClauses(pipeDocs, preApply, queryTerms, props)
+
+	// Run pre-GROUPBY FILTER/APPLY in command order (Redis interleaving).
+	pipeDocs, err = runPreGroupSteps(pipeDocs, preSteps, queryTerms, props)
 	if err != nil {
 		return nil, err
 	}
-	if len(preApply) > 0 {
-		mergeApplyFields(sourceDocs, pipeDocs, preApply)
+	if hasApplyStep(preSteps) {
+		mergeApplyFields(sourceDocs, pipeDocs, applyClausesFromSteps(preSteps))
 	}
 
 	// Apply GROUPBY. When neither GROUPBY nor REDUCE is given, RediSearch
@@ -1065,24 +1043,15 @@ func (e *RediSearchEngine) Aggregate(req *AggregationRequest) (*AggregationResul
 		}
 	}
 
-	// Apply APPLY clauses that appeared after GROUPBY, against each result row.
-	if err := applyPostGroupClauses(groups, postApply, queryTerms, props); err != nil {
+	// Post-GROUPBY FILTER/APPLY in command order.
+	groups, err = runPostGroupSteps(groups, postSteps, queryTerms, props)
+	if err != nil {
 		return nil, err
 	}
 
 	// Apply HAVING clause
 	if req.Having != nil {
 		groups = e.applyHaving(groups, req.Having)
-	}
-
-	// Apply FILTER (pipeline props only; missing → SEARCH_PROP_NOT_FOUND).
-	// Skip when already applied before APPLY (earlyFilter above).
-	if req.Filter != "" && !(req.FilterBeforeApply && len(req.Apply) > 0) {
-		var err error
-		groups, err = e.filterGroups(groups, req.Filter, props)
-		if err != nil {
-			return nil, err
-		}
 	}
 
 	// Apply SORTBY (multi-property; ADDSCORES → @__score)
@@ -1217,11 +1186,13 @@ type AggregationRequest struct {
 	SortMax int
 	Offset  int
 	Limit   int
-	Filter  string        // FILTER expression
-	// FilterBeforeApply is true when FILTER appeared before any APPLY in the
-	// command (Redis runs clauses in order; early FILTER prunes before APPLY).
+	Filter string // legacy single FILTER (tests); prefer PreSteps/PostSteps
+	// FilterBeforeApply is legacy: FILTER before any APPLY (synthesizeSteps).
 	FilterBeforeApply bool
-	Apply             []ApplyClause // APPLY <expr> AS <name> clauses, in pipeline order
+	Apply             []ApplyClause // APPLY clauses (also mirrored in Pre/PostSteps)
+	// PreSteps / PostSteps: FILTER and APPLY in command order around GROUPBY.
+	PreSteps  []AggStep
+	PostSteps []AggStep
 	// AddScores exposes BM25STD (default) score as @__score in the pipeline.
 	AddScores bool
 	// Expansion limits (FT.CONFIG MINPREFIX / MAXEXPANSIONS). Zero = no check.
@@ -1940,6 +1911,121 @@ func compareSortValues(vi, vj interface{}) int {
 		return 1
 	}
 	return 0
+}
+
+// normalizedSteps returns Pre/Post steps; synthesizes from legacy Filter/Apply
+// when the parser (or tests) did not populate PreSteps/PostSteps.
+func (req *AggregationRequest) normalizedSteps() (pre, post []AggStep) {
+	if len(req.PreSteps) > 0 || len(req.PostSteps) > 0 {
+		return req.PreSteps, req.PostSteps
+	}
+	var preApply, postApply []ApplyClause
+	for _, ac := range req.Apply {
+		if ac.PreGroup {
+			preApply = append(preApply, ac)
+		} else {
+			postApply = append(postApply, ac)
+		}
+	}
+	if req.FilterBeforeApply && req.Filter != "" {
+		pre = append(pre, AggStep{Filter: req.Filter})
+	}
+	for i := range preApply {
+		ac := preApply[i]
+		pre = append(pre, AggStep{Apply: &ac})
+	}
+	if !req.FilterBeforeApply && req.Filter != "" && len(preApply) > 0 && len(postApply) == 0 {
+		// APPLY … FILTER (no GROUPBY): filter after all pre APPLYs.
+		pre = append(pre, AggStep{Filter: req.Filter})
+	}
+	for i := range postApply {
+		ac := postApply[i]
+		post = append(post, AggStep{Apply: &ac})
+	}
+	if req.Filter != "" && len(preApply) == 0 {
+		// FILTER-only, or FILTER after GROUPBY with only post APPLY handled above.
+		if !req.FilterBeforeApply || len(req.Apply) == 0 {
+			post = append(post, AggStep{Filter: req.Filter})
+		}
+	} else if !req.FilterBeforeApply && req.Filter != "" && len(postApply) > 0 {
+		post = append(post, AggStep{Filter: req.Filter})
+	}
+	return pre, post
+}
+
+func hasApplyStep(steps []AggStep) bool {
+	for _, s := range steps {
+		if s.Apply != nil {
+			return true
+		}
+	}
+	return false
+}
+
+func applyClausesFromSteps(steps []AggStep) []ApplyClause {
+	var out []ApplyClause
+	for _, s := range steps {
+		if s.Apply != nil {
+			out = append(out, *s.Apply)
+		}
+	}
+	return out
+}
+
+// runPreGroupSteps evaluates FILTER/APPLY in command order on pipeline docs.
+func runPreGroupSteps(docs []*Document, steps []AggStep, queryTerms []string, props map[string]bool) ([]*Document, error) {
+	var err error
+	for _, step := range steps {
+		if step.Filter != "" {
+			if err := EnsurePipelineProps(step.Filter, props); err != nil {
+				return nil, err
+			}
+			docs, err = filterDocsByExpr(docs, step.Filter)
+			if err != nil {
+				return nil, err
+			}
+			continue
+		}
+		if step.Apply == nil {
+			continue
+		}
+		docs, err = applyPreGroupClauses(docs, []ApplyClause{*step.Apply}, queryTerms, props)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return docs, nil
+}
+
+// runPostGroupSteps evaluates FILTER/APPLY in command order on group rows.
+func runPostGroupSteps(groups []*Group, steps []AggStep, queryTerms []string, props map[string]bool) ([]*Group, error) {
+	var err error
+	for _, step := range steps {
+		if step.Filter != "" {
+			if err := EnsurePipelineProps(step.Filter, props); err != nil {
+				return nil, err
+			}
+			var out []*Group
+			for _, group := range groups {
+				ok, ferr := EvalFilterExpr(step.Filter, group.Fields)
+				if ferr != nil {
+					return nil, ferr
+				}
+				if ok {
+					out = append(out, group)
+				}
+			}
+			groups = out
+			continue
+		}
+		if step.Apply == nil {
+			continue
+		}
+		if err = applyPostGroupClauses(groups, []ApplyClause{*step.Apply}, queryTerms, props); err != nil {
+			return nil, err
+		}
+	}
+	return groups, nil
 }
 
 // filterDocsByExpr keeps documents whose FILTER expression is truthy.

@@ -251,6 +251,7 @@ FT.SEARCH idx "hello"  # -> %5 total_results / results / attributes / format / w
 | SORTBY WITHCOUNT | ✅ 语法 | 接受令牌；准确总数本为默认（WITHOUTCOUNT 除外） |
 | FT.PROFILE 迭代器细分 | 🔶 | 只报诚实总耗时;细分需 instrument 引擎迭代器 |
 | FT.HYBRID RANGE/FILTER/POLICY | 🔶 | 接受但按暴力路径执行 |
+| APPLY FILTER 交错 / 类型 | ✅ 子集 | 命令序多 FILTER + APPLY 间 FILTER；数值串/布尔 coerce；upper/lower 非串→Null；strlen/substr 等 Invalid type；substr 负偏移越界→空；-nan/-inf |
 | APPLY 日期/geo 函数 | 🔶 | UTC 时间函数族、strftime 子集（含 %s/%u/%D/%x/%X/%r/%c/%C/%G/%g/%V/%U/%W/%h/%Z/%n/%t/%P/%k/%l 与既有 %y/%F/%T 等；未知→Null；%Z→UTC；对照 Redis **8.6**）的 timefmt/parsetime、geodistance 已实测；locale 等仍缺 |
 | FT.SEARCH EXPLAINSCORE | ✅ | 需 WITHSCORES；BM25STD/TFIDF/DOCSCORE/DISMAX 嵌套线格式子集（Godis b=0.09 自洽，非字节级对齐）；RESP3 score 嵌套 |
 | RDB / AOF rewrite 索引定义持久化 | ✅ | 命令 AOF + 纯 AOF rewrite→FT.CREATE + RDB opaque `ft`（非官方模块格式） |
