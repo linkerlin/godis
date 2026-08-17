@@ -2653,6 +2653,158 @@ TYPE-b97miss|none|TYPE sidecar:b97:miss:{{ID}}
 EXISTS-b97miss|0|EXISTS sidecar:b97:miss:{{ID}}
 DBSIZE-b97|>=0|DBSIZE
 
+# --- batch 98 extras (LRANGE/LPOP/RPOP COUNT; ZRANGE/ZREV* WS; ZMSCORE; HMGET/HINCRBY; SMISMEMBER; SETRANGE/SUBSTR; SET NX GET; SET XX GET; GETEX EX; BITFIELD u16; BITPOS; XRANGE/XREVRANGE/XTRIM; ZUNION/ZINTER/ZDIFF WITHSCORES; SINTERCARD; LMPOP/ZMPOP; LPOS; COPY/RENAME/RENAMENX; MGET; INCRBYFLOAT; GEORADIUS; SORT LIMIT; MEMORY USAGE) ---
+@DEL sidecar:b98:l:{{ID}}
+RPUSH-b98l|5|RPUSH sidecar:b98:l:{{ID}} 1 2 3 4 5
+LRANGE-b98a|1\n2\n3|LRANGE sidecar:b98:l:{{ID}} 0 2
+LRANGE-b98b|4\n5|LRANGE sidecar:b98:l:{{ID}} -2 -1
+LINDEX-b98|3|LINDEX sidecar:b98:l:{{ID}} 2
+LSET-b98|OK|LSET sidecar:b98:l:{{ID}} 2 99
+LPOP-b98|1|LPOP sidecar:b98:l:{{ID}}
+RPOP-COUNT-b98|5\n4|RPOP sidecar:b98:l:{{ID}} 2
+LLEN-b98|2|LLEN sidecar:b98:l:{{ID}}
+DEL-b98l|1|DEL sidecar:b98:l:{{ID}}
+@DEL sidecar:b98:z:{{ID}}
+ZADD-b98z|4|ZADD sidecar:b98:z:{{ID}} 1 a 2 b 3 c 4 d
+ZRANGE-WS-b98|a\n1\nb\n2\nc\n3\nd\n4|ZRANGE sidecar:b98:z:{{ID}} 0 -1 WITHSCORES
+ZREVRANGE-WS-b98|c\n3\nb\n2|ZREVRANGE sidecar:b98:z:{{ID}} 1 2 WITHSCORES
+ZRANGEBYSCORE-b98|a\nb|ZRANGEBYSCORE sidecar:b98:z:{{ID}} -inf 2
+ZCOUNT-b98|3|ZCOUNT sidecar:b98:z:{{ID}} 1 3
+ZREMRANGEBYSCORE-b98|1|ZREMRANGEBYSCORE sidecar:b98:z:{{ID}} 1 1
+ZCARD-b98|3|ZCARD sidecar:b98:z:{{ID}}
+ZMSCORE-b98|2\n3\n$-1|ZMSCORE sidecar:b98:z:{{ID}} b c missing
+DEL-b98z|1|DEL sidecar:b98:z:{{ID}}
+@DEL sidecar:b98:h:{{ID}}
+HSET-b98|4|HSET sidecar:b98:h:{{ID}} a 1 b 2 c 3 d 4
+HDEL-b98|2|HDEL sidecar:b98:h:{{ID}} b d
+HMGET-b98|1\n3\n$-1|HMGET sidecar:b98:h:{{ID}} a c missing
+HINCRBY-b98|10|HINCRBY sidecar:b98:h:{{ID}} a 9
+HGET-b98|10|HGET sidecar:b98:h:{{ID}} a
+HSTRLEN-b98|2|HSTRLEN sidecar:b98:h:{{ID}} a
+HEXISTS-b98|1|HEXISTS sidecar:b98:h:{{ID}} c
+DEL-b98h|1|DEL sidecar:b98:h:{{ID}}
+@DEL sidecar:b98:s:{{ID}}
+SADD-b98|3|SADD sidecar:b98:s:{{ID}} x y z
+SREM-b98|1|SREM sidecar:b98:s:{{ID}} y
+SCARD-b98|2|SCARD sidecar:b98:s:{{ID}}
+SMISMEMBER-b98|1\n0\n1|SMISMEMBER sidecar:b98:s:{{ID}} x y z
+DEL-b98s|1|DEL sidecar:b98:s:{{ID}}
+@DEL sidecar:b98:st:{{ID}}
+SET-b98st|OK|SET sidecar:b98:st:{{ID}} hello
+SETRANGE-b98|5|SETRANGE sidecar:b98:st:{{ID}} 0 HELLO
+GET-b98st|HELLO|GET sidecar:b98:st:{{ID}}
+APPEND-b98|6|APPEND sidecar:b98:st:{{ID}} !
+STRLEN-b98|6|STRLEN sidecar:b98:st:{{ID}}
+GETRANGE-b98|HELLO|GETRANGE sidecar:b98:st:{{ID}} 0 4
+SUBSTR-b98|ELL|SUBSTR sidecar:b98:st:{{ID}} 1 3
+DEL-b98st|1|DEL sidecar:b98:st:{{ID}}
+@DEL sidecar:b98:nx:{{ID}}
+SET-NX-GET-b98|$-1|SET sidecar:b98:nx:{{ID}} v NX GET
+GET-b98nx|v|GET sidecar:b98:nx:{{ID}}
+SET-NX-dup-b98|$-1|SET sidecar:b98:nx:{{ID}} w NX
+GET-b98nx2|v|GET sidecar:b98:nx:{{ID}}
+DEL-b98nx|1|DEL sidecar:b98:nx:{{ID}}
+@DEL sidecar:b98:xx:{{ID}}
+SET-b98xx|OK|SET sidecar:b98:xx:{{ID}} v
+SET-XX-GET-b98|v|SET sidecar:b98:xx:{{ID}} w XX GET
+GETEX-EX-b98|w|GETEX sidecar:b98:xx:{{ID}} EX 30
+TTL-b98xx|<=30|TTL sidecar:b98:xx:{{ID}}
+TTL-b98xx2|>=1|TTL sidecar:b98:xx:{{ID}}
+DEL-b98xx|1|DEL sidecar:b98:xx:{{ID}}
+@DEL sidecar:b98:bf:{{ID}}
+BITFIELD-SET-b98|0|BITFIELD sidecar:b98:bf:{{ID}} SET u16 0 1000
+BITFIELD-GET-b98|1000|BITFIELD sidecar:b98:bf:{{ID}} GET u16 0
+BITFIELD-INCR-b98|1024|BITFIELD sidecar:b98:bf:{{ID}} INCRBY u16 0 24
+DEL-b98bf|1|DEL sidecar:b98:bf:{{ID}}
+@DEL sidecar:b98:bit:{{ID}}
+SETBIT-b98|0|SETBIT sidecar:b98:bit:{{ID}} 15 1
+GETBIT-b98|1|GETBIT sidecar:b98:bit:{{ID}} 15
+BITCOUNT-b98|1|BITCOUNT sidecar:b98:bit:{{ID}}
+BITPOS-b98|15|BITPOS sidecar:b98:bit:{{ID}} 1
+DEL-b98bit|1|DEL sidecar:b98:bit:{{ID}}
+@DEL sidecar:b98:x:{{ID}}
+XADD-b98a|1-0|XADD sidecar:b98:x:{{ID}} 1-0 k v
+XADD-b98b|2-0|XADD sidecar:b98:x:{{ID}} 2-0 k2 v2
+XRANGE-b98|1-0\nk\nv\n2-0\nk2\nv2|XRANGE sidecar:b98:x:{{ID}} - + COUNT 2
+XREVRANGE-b98|2-0\nk2\nv2|XREVRANGE sidecar:b98:x:{{ID}} + - COUNT 1
+XTRIM-b98|1|XTRIM sidecar:b98:x:{{ID}} MAXLEN 1
+XLEN-b98|1|XLEN sidecar:b98:x:{{ID}}
+DEL-b98x|1|DEL sidecar:b98:x:{{ID}}
+@DEL sidecar:b98:z2:{{ID}}
+@DEL sidecar:b98:z3:{{ID}}
+ZADD-b98z2|2|ZADD sidecar:b98:z2:{{ID}} 1 p 2 q
+ZADD-b98z3|2|ZADD sidecar:b98:z3:{{ID}} 2 q 3 r
+ZUNION-WS-b98|p\n1\nr\n3\nq\n4|ZUNION 2 sidecar:b98:z2:{{ID}} sidecar:b98:z3:{{ID}} WITHSCORES
+ZINTER-WS-b98|q\n4|ZINTER 2 sidecar:b98:z2:{{ID}} sidecar:b98:z3:{{ID}} WITHSCORES
+ZDIFF-WS-b98|p\n1|ZDIFF 2 sidecar:b98:z2:{{ID}} sidecar:b98:z3:{{ID}} WITHSCORES
+ZINTERCARD-b98|1|ZINTERCARD 2 sidecar:b98:z2:{{ID}} sidecar:b98:z3:{{ID}}
+DEL-b98zu|2|DEL sidecar:b98:z2:{{ID}} sidecar:b98:z3:{{ID}}
+@DEL sidecar:b98:sa:{{ID}}
+@DEL sidecar:b98:sb:{{ID}}
+SADD-b98sa|2|SADD sidecar:b98:sa:{{ID}} m n
+SADD-b98sb|2|SADD sidecar:b98:sb:{{ID}} n o
+SINTERCARD-b98|1|SINTERCARD 2 sidecar:b98:sa:{{ID}} sidecar:b98:sb:{{ID}}
+DEL-b98sc|2|DEL sidecar:b98:sa:{{ID}} sidecar:b98:sb:{{ID}}
+@DEL sidecar:b98:lm:{{ID}}
+RPUSH-b98lm|4|RPUSH sidecar:b98:lm:{{ID}} a b c d
+LMPOP-b98|sidecar:b98:lm:{{ID}}\nd\nc|LMPOP 1 sidecar:b98:lm:{{ID}} RIGHT COUNT 2
+@DEL sidecar:b98:zm:{{ID}}
+ZADD-b98zm|3|ZADD sidecar:b98:zm:{{ID}} 1 a 2 b 3 c
+ZMPOP-b98|sidecar:b98:zm:{{ID}}\nc\n3\nb\n2|ZMPOP 1 sidecar:b98:zm:{{ID}} MAX COUNT 2
+@DEL sidecar:b98:lp:{{ID}}
+RPUSH-b98lp|5|RPUSH sidecar:b98:lp:{{ID}} a x a y a
+LPOS-NEG-b98|4|LPOS sidecar:b98:lp:{{ID}} a RANK -1
+LPOS-COUNT-b98|0\n2|LPOS sidecar:b98:lp:{{ID}} a COUNT 2
+DEL-b98lp|1|DEL sidecar:b98:lp:{{ID}}
+@DEL sidecar:b98:c1:{{ID}}
+@DEL sidecar:b98:c2:{{ID}}
+@DEL sidecar:b98:c3:{{ID}}
+@DEL sidecar:b98:c4:{{ID}}
+SET-b98c1|OK|SET sidecar:b98:c1:{{ID}} HELLO!
+COPY-b98|1|COPY sidecar:b98:c1:{{ID}} sidecar:b98:c2:{{ID}}
+GET-b98c2|HELLO!|GET sidecar:b98:c2:{{ID}}
+RENAME-b98|OK|RENAME sidecar:b98:c2:{{ID}} sidecar:b98:c3:{{ID}}
+GET-b98c3|HELLO!|GET sidecar:b98:c3:{{ID}}
+RENAMENX-b98|1|RENAMENX sidecar:b98:c3:{{ID}} sidecar:b98:c4:{{ID}}
+EXISTS-b98c3|0|EXISTS sidecar:b98:c3:{{ID}}
+GET-b98c4|HELLO!|GET sidecar:b98:c4:{{ID}}
+MEMORY-b98|>=1|MEMORY USAGE sidecar:b98:c4:{{ID}}
+OBJECT-IDLE-b98|>=0|OBJECT IDLETIME sidecar:b98:c4:{{ID}}
+DEL-b98c|2|DEL sidecar:b98:c1:{{ID}} sidecar:b98:c4:{{ID}}
+@DEL sidecar:b98:m1:{{ID}}
+@DEL sidecar:b98:m2:{{ID}}
+MSET-b98|OK|MSET sidecar:b98:m1:{{ID}} A sidecar:b98:m2:{{ID}} B
+MGET-b98|A\n$-1\nB|MGET sidecar:b98:m1:{{ID}} sidecar:b98:miss:{{ID}} sidecar:b98:m2:{{ID}}
+DEL-b98m|2|DEL sidecar:b98:m1:{{ID}} sidecar:b98:m2:{{ID}}
+@DEL sidecar:b98:f:{{ID}}
+INCRBYFLOAT-b98a|0.5|INCRBYFLOAT sidecar:b98:f:{{ID}} 0.5
+INCRBYFLOAT-b98b|2|INCRBYFLOAT sidecar:b98:f:{{ID}} 1.5
+DEL-b98f|1|DEL sidecar:b98:f:{{ID}}
+@DEL sidecar:b98:hf:{{ID}}
+HINCRBYFLOAT-b98|2.25|HINCRBYFLOAT sidecar:b98:hf:{{ID}} n 2.25
+DEL-b98hf|1|DEL sidecar:b98:hf:{{ID}}
+@DEL sidecar:b98:zi:{{ID}}
+ZINCRBY-b98|3.5|ZINCRBY sidecar:b98:zi:{{ID}} 3.5 m
+ZSCORE-b98zi|3.5|ZSCORE sidecar:b98:zi:{{ID}} m
+DEL-b98zi|1|DEL sidecar:b98:zi:{{ID}}
+@DEL sidecar:b98:pf:{{ID}}
+PFADD-b98|1|PFADD sidecar:b98:pf:{{ID}} a b c
+PFCOUNT-b98|3|PFCOUNT sidecar:b98:pf:{{ID}}
+DEL-b98pf|1|DEL sidecar:b98:pf:{{ID}}
+@DEL sidecar:b98:g:{{ID}}
+GEOADD-b98|2|GEOADD sidecar:b98:g:{{ID}} 13.361389 38.115556 Palermo 15.087269 37.502669 Catania
+GEORADIUS-b98|Catania|GEORADIUS sidecar:b98:g:{{ID}} 14 37 200 km ASC COUNT 1
+DEL-b98g|1|DEL sidecar:b98:g:{{ID}}
+@DEL sidecar:b98:sort:{{ID}}
+RPUSH-b98sort|3|RPUSH sidecar:b98:sort:{{ID}} b a c
+SORT-LIMIT-b98|a\nb|SORT sidecar:b98:sort:{{ID}} ALPHA LIMIT 0 2
+DEL-b98sort|1|DEL sidecar:b98:sort:{{ID}}
+PING-b98|b98|PING b98
+ECHO-b98|batch98|ECHO batch98
+TYPE-b98miss|none|TYPE sidecar:b98:miss:{{ID}}
+EXISTS-b98miss|0|EXISTS sidecar:b98:miss:{{ID}}
+DBSIZE-b98|>=0|DBSIZE
+
 # --- cleanup string / incr keys ---
 DEL|1|DEL sidecar:allowlist:{{ID}}
 EXISTS-after-del|0|EXISTS sidecar:allowlist:{{ID}}
