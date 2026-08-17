@@ -1663,6 +1663,100 @@ TOUCH-b90miss|0|TOUCH sidecar:b90:t1:{{ID}} sidecar:b90:t2:{{ID}}
 TYPE-b90none|none|TYPE sidecar:b90:none:{{ID}}
 DBSIZE-b90|>=0|DBSIZE
 
+# --- batch 91 extras (LPUSHX/RPUSHX; ZPOPMAX; single SPOP/SRAND/HRAND; HKEYS/HVALS; BITOP NOT; GEO ASC COUNT1; Z*LEX; EXPIREAT/PEXPIRE; MSET/MGET; SMOVE; XDEL) ---
+@DEL sidecar:b91:l:{{ID}}
+LPUSHX-b91miss|0|LPUSHX sidecar:b91:l:{{ID}} a
+RPUSH-b91|1|RPUSH sidecar:b91:l:{{ID}} a
+LPUSHX-b91|2|LPUSHX sidecar:b91:l:{{ID}} b
+RPUSHX-b91|3|RPUSHX sidecar:b91:l:{{ID}} c
+LINDEX-b91|b|LINDEX sidecar:b91:l:{{ID}} 0
+DEL-b91l|1|DEL sidecar:b91:l:{{ID}}
+@DEL sidecar:b91:z:{{ID}}
+ZADD-b91|3|ZADD sidecar:b91:z:{{ID}} 1 a 2 b 3 c
+ZPOPMAX-b91|c\n3|ZPOPMAX sidecar:b91:z:{{ID}}
+ZCARD-b91|2|ZCARD sidecar:b91:z:{{ID}}
+DEL-b91z|1|DEL sidecar:b91:z:{{ID}}
+@DEL sidecar:b91:s:{{ID}}
+SADD-b91|1|SADD sidecar:b91:s:{{ID}} only
+SPOP-b91|only|SPOP sidecar:b91:s:{{ID}}
+SCARD-b91|0|SCARD sidecar:b91:s:{{ID}}
+@DEL sidecar:b91:s2:{{ID}}
+SADD-b91s2|1|SADD sidecar:b91:s2:{{ID}} x
+SRANDMEMBER-b91|x|SRANDMEMBER sidecar:b91:s2:{{ID}}
+DEL-b91s2|1|DEL sidecar:b91:s2:{{ID}}
+@DEL sidecar:b91:h:{{ID}}
+HSET-b91|1|HSET sidecar:b91:h:{{ID}} f v
+HRANDFIELD-b91|f|HRANDFIELD sidecar:b91:h:{{ID}}
+HKEYS-b91|f|HKEYS sidecar:b91:h:{{ID}}
+HVALS-b91|v|HVALS sidecar:b91:h:{{ID}}
+DEL-b91h|1|DEL sidecar:b91:h:{{ID}}
+@DEL sidecar:b91:bn:{{ID}}
+@DEL sidecar:b91:bno:{{ID}}
+SETBIT-b91|0|SETBIT sidecar:b91:bn:{{ID}} 0 1
+BITOP-NOT-b91|1|BITOP NOT sidecar:b91:bno:{{ID}} sidecar:b91:bn:{{ID}}
+DEL-b91bn|2|DEL sidecar:b91:bn:{{ID}} sidecar:b91:bno:{{ID}}
+@DEL sidecar:b91:g:{{ID}}
+GEOADD-b91|2|GEOADD sidecar:b91:g:{{ID}} 13.361389 38.115556 Palermo 15.087269 37.502669 Catania
+GEORADIUS-b91|Catania|GEORADIUS sidecar:b91:g:{{ID}} 15 37 200 km ASC COUNT 1
+GEOSEARCH-b91|Catania|GEOSEARCH sidecar:b91:g:{{ID}} FROMLONLAT 15 37 BYRADIUS 200 km ASC COUNT 1
+DEL-b91g|1|DEL sidecar:b91:g:{{ID}}
+@DEL sidecar:b91:zl:{{ID}}
+ZADD-b91lex|4|ZADD sidecar:b91:zl:{{ID}} 0 a 0 b 0 c 0 d
+ZRANGEBYLEX-b91|a\nb\nc|ZRANGEBYLEX sidecar:b91:zl:{{ID}} [a [c
+ZREMRANGEBYLEX-b91|2|ZREMRANGEBYLEX sidecar:b91:zl:{{ID}} [a [b
+ZCARD-b91zl|2|ZCARD sidecar:b91:zl:{{ID}}
+DEL-b91zl|1|DEL sidecar:b91:zl:{{ID}}
+@DEL sidecar:b91:ea:{{ID}}
+SET-b91ea|OK|SET sidecar:b91:ea:{{ID}} v
+PEXPIRE-b91|1|PEXPIRE sidecar:b91:ea:{{ID}} 8000
+PTTL-b91|<=8000|PTTL sidecar:b91:ea:{{ID}}
+PTTL-b912|>=1|PTTL sidecar:b91:ea:{{ID}}
+DEL-b91ea|1|DEL sidecar:b91:ea:{{ID}}
+@DEL sidecar:b91:m1:{{ID}}
+@DEL sidecar:b91:m2:{{ID}}
+MSET-b91|OK|MSET sidecar:b91:m1:{{ID}} a sidecar:b91:m2:{{ID}} b
+MGET-b91|a\nb|MGET sidecar:b91:m1:{{ID}} sidecar:b91:m2:{{ID}}
+DEL-b91m|2|DEL sidecar:b91:m1:{{ID}} sidecar:b91:m2:{{ID}}
+@DEL sidecar:b91:sr:{{ID}}
+SETRANGE-b91|5|SETRANGE sidecar:b91:sr:{{ID}} 0 hello
+GET-b91sr|hello|GET sidecar:b91:sr:{{ID}}
+DEL-b91sr|1|DEL sidecar:b91:sr:{{ID}}
+@DEL sidecar:b91:db:{{ID}}
+DECRBY-b91|-3|DECRBY sidecar:b91:db:{{ID}} 3
+DEL-b91db|1|DEL sidecar:b91:db:{{ID}}
+@DEL sidecar:b91:hd:{{ID}}
+HSET-b91hd|2|HSET sidecar:b91:hd:{{ID}} a 1 b 2
+HDEL-b91|1|HDEL sidecar:b91:hd:{{ID}} a
+HLEN-b91|1|HLEN sidecar:b91:hd:{{ID}}
+DEL-b91hd|1|DEL sidecar:b91:hd:{{ID}}
+@DEL sidecar:b91:sa:{{ID}}
+@DEL sidecar:b91:sb:{{ID}}
+SADD-b91sa|2|SADD sidecar:b91:sa:{{ID}} a b
+SMOVE-b91|1|SMOVE sidecar:b91:sa:{{ID}} sidecar:b91:sb:{{ID}} a
+SCARD-b91sb|1|SCARD sidecar:b91:sb:{{ID}}
+DEL-b91sab|2|DEL sidecar:b91:sa:{{ID}} sidecar:b91:sb:{{ID}}
+@DEL sidecar:b91:x:{{ID}}
+XADD-b91|1-0|XADD sidecar:b91:x:{{ID}} 1-0 f v
+XDEL-b91|1|XDEL sidecar:b91:x:{{ID}} 1-0
+XLEN-b91|0|XLEN sidecar:b91:x:{{ID}}
+DEL-b91x|1|DEL sidecar:b91:x:{{ID}}
+@DEL sidecar:b91:mv:{{ID}}
+SET-b91mv|OK|SET sidecar:b91:mv:{{ID}} v
+MOVE-b91|1|MOVE sidecar:b91:mv:{{ID}} 1
+EXISTS-b91mv0|0|EXISTS sidecar:b91:mv:{{ID}}
+@DEL sidecar:b91:zs:{{ID}}
+ZADD-b91one|1|ZADD sidecar:b91:zs:{{ID}} 1 only
+ZRANDMEMBER-b91|only|ZRANDMEMBER sidecar:b91:zs:{{ID}}
+DEL-b91zs|1|DEL sidecar:b91:zs:{{ID}}
+@DEL sidecar:b91:pf:{{ID}}
+PFADD-b91|1|PFADD sidecar:b91:pf:{{ID}} a b
+PFCOUNT-b91|2|PFCOUNT sidecar:b91:pf:{{ID}}
+DEL-b91pf|1|DEL sidecar:b91:pf:{{ID}}
+STRLEN-b91miss|0|STRLEN sidecar:b91:smiss:{{ID}}
+GETBIT-b91miss|0|GETBIT sidecar:b91:bmiss:{{ID}} 0
+BITCOUNT-b91miss|0|BITCOUNT sidecar:b91:bmiss:{{ID}}
+DBSIZE-b91|>=0|DBSIZE
+
 # --- cleanup string / incr keys ---
 DEL|1|DEL sidecar:allowlist:{{ID}}
 EXISTS-after-del|0|EXISTS sidecar:allowlist:{{ID}}
