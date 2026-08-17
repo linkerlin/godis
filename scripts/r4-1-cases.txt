@@ -10,6 +10,7 @@
 #   LABEL|WANT|CMD ARG...       assert redis==godis==WANT (--raw)
 #   LABEL|>=N|CMD ARG...        assert both sides are integers >= N
 #   LABEL|<=N|CMD ARG...        assert both sides are integers <= N
+# WANT tokens: $-1 = null bulk field (empty under --raw); $empty = wholly empty reply
 # Placeholder {{ID}} -> process id (unique keys per run).
 #
 # WANT may embed \n for multi-line --raw (e.g. ZPOPMIN member\nscore).
@@ -1298,6 +1299,70 @@ DEL-b86bit|3|DEL sidecar:b86:b1:{{ID}} sidecar:b86:b2:{{ID}} sidecar:b86:bout:{{
 PFADD-b86|1|PFADD sidecar:b86:pf:{{ID}} a
 PFCOUNT-b86dup|1|PFCOUNT sidecar:b86:pf:{{ID}}
 DEL-b86pfd|1|DEL sidecar:b86:pf:{{ID}}
+
+# --- batch 87 extras (miss nils; SET GET; BITFIELD SET; float create; LMOVE/LPOS; Z* miss) ---
+ZSCORE-b87miss|$-1|ZSCORE sidecar:b87:zmiss:{{ID}} m
+ZRANK-b87miss|$-1|ZRANK sidecar:b87:zmiss:{{ID}} m
+ZREVRANK-b87miss|$-1|ZREVRANK sidecar:b87:zmiss:{{ID}} m
+ZMSCORE-b87miss|$empty|ZMSCORE sidecar:b87:zmiss:{{ID}} a b
+ZPOPMIN-b87empty|$empty|ZPOPMIN sidecar:b87:zmiss:{{ID}}
+GETDEL-b87miss|$-1|GETDEL sidecar:b87:gdmiss:{{ID}}
+LMOVE-b87miss|$-1|LMOVE sidecar:b87:lmiss:{{ID}} sidecar:b87:lmiss2:{{ID}} LEFT LEFT
+LPOS-b87miss|$-1|LPOS sidecar:b87:lmiss:{{ID}} x
+GETRANGE-b87miss|$empty|GETRANGE sidecar:b87:grmiss:{{ID}} 0 -1
+STRLEN-b87miss|0|STRLEN sidecar:b87:smiss:{{ID}}
+OBJECT-IDLETIME-b87miss|$-1|OBJECT IDLETIME sidecar:b87:idlemiss:{{ID}}
+@DEL sidecar:b87:sg:{{ID}}
+SET-GET-b87create|$-1|SET sidecar:b87:sg:{{ID}} v GET
+SET-GET-b87replace|v|SET sidecar:b87:sg:{{ID}} w GET
+GET-b87sg|w|GET sidecar:b87:sg:{{ID}}
+DEL-b87sg|1|DEL sidecar:b87:sg:{{ID}}
+@DEL sidecar:b87:bf:{{ID}}
+BITFIELD-b87set|0|BITFIELD sidecar:b87:bf:{{ID}} SET u8 0 7
+BITFIELD-b87get|7|BITFIELD sidecar:b87:bf:{{ID}} GET u8 0
+DEL-b87bf|1|DEL sidecar:b87:bf:{{ID}}
+@DEL sidecar:b87:hf:{{ID}}
+HINCRBYFLOAT-b87new|0.5|HINCRBYFLOAT sidecar:b87:hf:{{ID}} f 0.5
+DEL-b87hf|1|DEL sidecar:b87:hf:{{ID}}
+@DEL sidecar:b87:ib:{{ID}}
+INCRBYFLOAT-b87new|2.25|INCRBYFLOAT sidecar:b87:ib:{{ID}} 2.25
+DEL-b87ib|1|DEL sidecar:b87:ib:{{ID}}
+@DEL sidecar:b87:gs:{{ID}}
+GETSET-b87create|$-1|GETSET sidecar:b87:gs:{{ID}} old
+GETSET-b87replace|old|GETSET sidecar:b87:gs:{{ID}} new
+DEL-b87gs|1|DEL sidecar:b87:gs:{{ID}}
+@DEL sidecar:b87:sr:{{ID}}
+SETRANGE-b87create|3|SETRANGE sidecar:b87:sr:{{ID}} 0 hi!
+GET-b87sr|hi!|GET sidecar:b87:sr:{{ID}}
+DEL-b87sr|1|DEL sidecar:b87:sr:{{ID}}
+@DEL sidecar:b87:l:{{ID}}
+@DEL sidecar:b87:l2:{{ID}}
+LPUSH-b87|3|LPUSH sidecar:b87:l:{{ID}} a b c
+LPOS-b87|1|LPOS sidecar:b87:l:{{ID}} b
+LMOVE-b87|c|LMOVE sidecar:b87:l:{{ID}} sidecar:b87:l2:{{ID}} LEFT RIGHT
+LLEN-b87src|2|LLEN sidecar:b87:l:{{ID}}
+LLEN-b87dst|1|LLEN sidecar:b87:l2:{{ID}}
+DEL-b87l|2|DEL sidecar:b87:l:{{ID}} sidecar:b87:l2:{{ID}}
+@DEL sidecar:b87:z:{{ID}}
+ZADD-b87|3|ZADD sidecar:b87:z:{{ID}} 1 a 2 b 3 c
+ZREMRANGEBYSCORE-b87|2|ZREMRANGEBYSCORE sidecar:b87:z:{{ID}} 1 2
+ZCARD-b87|1|ZCARD sidecar:b87:z:{{ID}}
+DEL-b87z|1|DEL sidecar:b87:z:{{ID}}
+@DEL sidecar:b87:s:{{ID}}
+SADD-b87|3|SADD sidecar:b87:s:{{ID}} x y z
+SMISMEMBER-b87|1\n0\n1|SMISMEMBER sidecar:b87:s:{{ID}} x q y
+DEL-b87s|1|DEL sidecar:b87:s:{{ID}}
+@DEL sidecar:b87:x:{{ID}}
+XADD-b87|1-0|XADD sidecar:b87:x:{{ID}} 1-0 f v
+XTRIM-b87|0|XTRIM sidecar:b87:x:{{ID}} MAXLEN 1
+XLEN-b87|1|XLEN sidecar:b87:x:{{ID}}
+DEL-b87x|1|DEL sidecar:b87:x:{{ID}}
+DECRBY-b87new|-5|DECRBY sidecar:b87:db:{{ID}} 5
+DEL-b87db|1|DEL sidecar:b87:db:{{ID}}
+TTL-b87miss|-2|TTL sidecar:b87:ttlmiss:{{ID}}
+TYPE-b87none|none|TYPE sidecar:b87:typemiss:{{ID}}
+EXISTS-b87miss|0|EXISTS sidecar:b87:emiss:{{ID}}
+DBSIZE-b87|>=0|DBSIZE
 
 # --- cleanup string / incr keys ---
 DEL|1|DEL sidecar:allowlist:{{ID}}

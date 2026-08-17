@@ -59,9 +59,15 @@ subst() {
 }
 
 # Expand literal \n in WANT to a real newline (multi-line --raw replies).
+# Token $-1 → empty field (redis-cli --raw prints nothing for null bulk).
+# Token $empty → entirely empty reply (empty multi-bulk / empty string).
 expand_want() {
   local s="$1"
   s="${s//\\n/$'\n'}"
+  s="${s//\$-1/}"
+  if [[ "${s}" == '$empty' ]]; then
+    s=""
+  fi
   printf '%s' "${s}"
 }
 

@@ -65,7 +65,10 @@ function Test-Want {
 function Expand-WantEscapes {
     param([string]$Want)
     # Literal \n in cases → real newline (multi-line --raw, e.g. ZPOPMIN).
-    return $Want.Replace('\n', "`n")
+    # Token $-1 → empty field (redis-cli --raw prints nothing for null bulk).
+    # Token $empty → entirely empty reply (empty multi-bulk / empty string).
+    if ($Want -eq '$empty') { return '' }
+    return $Want.Replace('\n', "`n").Replace('$-1', '')
 }
 
 function Normalize-CliOut {
