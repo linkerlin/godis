@@ -91,10 +91,10 @@ func EnsurePipelineProps(expr string, props map[string]bool) error {
 //	functions:  log log2 exp sqrt abs ceil floor to_str to_number
 //	             upper lower strlen startswith contains substr format split
 //	             (split: charset sep/strip; format PARSE_ARGS; substr byte offsets)
-//	             matched_terms timefmt parsetime day hour minute month dayofweek
+//	             matched_terms timefmt parsetime (strftime subset) day hour minute month dayofweek
 //	             dayofmonth dayofyear year monthofyear geodistance exists case
 //	Missing @field → SEARCH_VALUE_NOT_FOUND (exists() ok; &&/||/case short-circuit).
-//	Non-numeric args to numeric funcs yield NaN (Redis). Unknown funcs → SEARCH_EXPR.
+//	Bad timefmt/parsetime → Null (not ERR). Non-numeric args to numeric funcs yield NaN (Redis). Unknown funcs → SEARCH_EXPR.
 func EvalApplyExpr(expr string, fields map[string]interface{}) (interface{}, error) {
 	return EvalApplyExprWithQuery(expr, fields, nil)
 }
@@ -114,6 +114,8 @@ func EvalApplyExprWithQuery(expr string, fields map[string]interface{}, queryTer
 	if p.peek().kind != applyTokEOF {
 		return nil, errors.New("unexpected trailing tokens in expression")
 	}
+	// Field-sourced Null → SEARCH_VALUE_NOT_FOUND. Function Null (e.g. bad
+	// parsetime/timefmt) is a valid empty result, matching Redis Query Engine.
 	if err := v.missingErr(); err != nil {
 		return nil, err
 	}
@@ -394,14 +396,11 @@ type applyValue struct {
 }
 
 func (v applyValue) missingErr() error {
-	if !v.isNull {
+	if !v.isNull || v.nullField == "" {
+		// Bare Null (no field name) is a function result, not a missing @ref.
 		return nil
 	}
-	name := v.nullField
-	if name == "" {
-		name = "value"
-	}
-	return &ValueNotFoundError{Name: name}
+	return &ValueNotFoundError{Name: v.nullField}
 }
 
 type applyParser struct {
@@ -1041,12 +1040,15 @@ func applyFunction(p *applyParser, name string, args []applyValue) (applyValue, 
 		if len(args) < 1 || len(args) > 2 || !args[0].isNum {
 			return applyValue{}, errors.New("timefmt() expects a timestamp and optional format")
 		}
-		layout := "2006-01-02T15:04:05Z"
-		if len(args) == 2 {
-			layout = strftimeToGoLayout(applyValueToString(args[1]))
-		}
 		tm := time.Unix(int64(args[0].num), 0).UTC()
-		return applyValue{isStr: true, str: tm.Format(layout)}, nil
+		if len(args) == 1 {
+			return applyValue{isStr: true, str: tm.Format("2006-01-02T15:04:05Z")}, nil
+		}
+		s, ok := strftimeFormat(tm, applyValueToString(args[1]))
+		if !ok {
+			return applyValue{isNull: true}, nil // Redis: bad format → Null
+		}
+		return applyValue{isStr: true, str: s}, nil
 	case "parsetime":
 		if len(args) != 2 {
 			return applyValue{}, errors.New("parsetime() expects a time string and format")
@@ -1057,7 +1059,7 @@ func applyFunction(p *applyParser, name string, args []applyValue) (applyValue, 
 			time.UTC,
 		)
 		if err != nil {
-			return applyValue{}, err
+			return applyValue{isNull: true}, nil // Redis: parse fail → Null
 		}
 		return applyValue{isNum: true, num: float64(tm.Unix())}, nil
 	case "day", "hour", "minute", "month", "dayofweek", "dayofmonth", "dayofyear", "year", "monthofyear":
@@ -1259,17 +1261,129 @@ func applyGeoCoordinates(args []applyValue) (float64, float64, float64, float64,
 	return 0, 0, 0, 0, errors.New("geodistance() expects two coordinates, three mixed, or four numbers")
 }
 
+// strftimeFormat renders tm with a Redis Query Engine strftime subset.
+// ok=false when the format contains an unsupported directive (Redis → Null).
+func strftimeFormat(tm time.Time, format string) (string, bool) {
+	var b strings.Builder
+	for i := 0; i < len(format); i++ {
+		if format[i] != '%' {
+			b.WriteByte(format[i])
+			continue
+		}
+		if i+1 >= len(format) {
+			return "", false
+		}
+		i++
+		switch format[i] {
+		case '%':
+			b.WriteByte('%')
+		case 'Y':
+			b.WriteString(tm.Format("2006"))
+		case 'y':
+			b.WriteString(tm.Format("06"))
+		case 'm':
+			b.WriteString(tm.Format("01"))
+		case 'd':
+			b.WriteString(tm.Format("02"))
+		case 'e': // space-padded day 1-31
+			b.WriteString(tm.Format("_2"))
+		case 'H':
+			b.WriteString(tm.Format("15"))
+		case 'M':
+			b.WriteString(tm.Format("04"))
+		case 'S':
+			b.WriteString(tm.Format("05"))
+		case 'I':
+			b.WriteString(tm.Format("03"))
+		case 'p':
+			b.WriteString(tm.Format("PM"))
+		case 'a':
+			b.WriteString(tm.Format("Mon"))
+		case 'A':
+			b.WriteString(tm.Format("Monday"))
+		case 'b':
+			b.WriteString(tm.Format("Jan"))
+		case 'B':
+			b.WriteString(tm.Format("January"))
+		case 'F': // %Y-%m-%d
+			b.WriteString(tm.Format("2006-01-02"))
+		case 'T': // %H:%M:%S
+			b.WriteString(tm.Format("15:04:05"))
+		case 'R': // %H:%M
+			b.WriteString(tm.Format("15:04"))
+		case 'z':
+			b.WriteString(tm.Format("-0700"))
+		case 'w': // weekday 0=Sunday … 6=Saturday
+			b.WriteString(strconv.Itoa(int(tm.Weekday())))
+		case 'j': // day of year 001-366
+			b.WriteString(tm.Format("002"))
+		default:
+			return "", false
+		}
+	}
+	return b.String(), true
+}
+
+// strftimeToGoLayout maps a Redis strftime subset to a Go time.Parse layout
+// (used by parsetime). Unknown directives are left as-is and typically fail Parse.
 func strftimeToGoLayout(format string) string {
-	replacer := strings.NewReplacer(
-		"%%", "%",
-		"%Y", "2006",
-		"%m", "01",
-		"%d", "02",
-		"%H", "15",
-		"%M", "04",
-		"%S", "05",
-	)
-	return replacer.Replace(format)
+	var b strings.Builder
+	for i := 0; i < len(format); i++ {
+		if format[i] != '%' {
+			b.WriteByte(format[i])
+			continue
+		}
+		if i+1 >= len(format) {
+			b.WriteByte('%')
+			break
+		}
+		i++
+		switch format[i] {
+		case '%':
+			b.WriteByte('%')
+		case 'Y':
+			b.WriteString("2006")
+		case 'y':
+			b.WriteString("06")
+		case 'm':
+			b.WriteString("01")
+		case 'd':
+			b.WriteString("02")
+		case 'e':
+			b.WriteString("_2")
+		case 'H':
+			b.WriteString("15")
+		case 'M':
+			b.WriteString("04")
+		case 'S':
+			b.WriteString("05")
+		case 'I':
+			b.WriteString("03")
+		case 'p':
+			b.WriteString("PM")
+		case 'a':
+			b.WriteString("Mon")
+		case 'A':
+			b.WriteString("Monday")
+		case 'b':
+			b.WriteString("Jan")
+		case 'B':
+			b.WriteString("January")
+		case 'F':
+			b.WriteString("2006-01-02")
+		case 'T':
+			b.WriteString("15:04:05")
+		case 'R':
+			b.WriteString("15:04")
+		case 'z':
+			b.WriteString("-0700")
+		default:
+			// Keep unknown as literal so Parse fails → Null (Redis).
+			b.WriteByte('%')
+			b.WriteByte(format[i])
+		}
+	}
+	return b.String()
 }
 
 // applySubstr implements substr(s, offset, count) with Redis byte semantics:

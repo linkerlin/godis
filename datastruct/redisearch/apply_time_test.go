@@ -20,7 +20,23 @@ func TestEvalApplyTimeFunctionsMatchRedis810(t *testing.T) {
 		"monthofyear(@ts)":                   float64(0),
 		"timefmt(@ts)":                       "2024-01-02T12:34:56Z",
 		"timefmt(@ts,'%Y-%m-%d')":            "2024-01-02",
+		"timefmt(@ts,'%F')":                  "2024-01-02",
+		"timefmt(@ts,'%T')":                  "12:34:56",
+		"timefmt(@ts,'%y')":                  "24",
+		"timefmt(@ts,'%a')":                  "Tue",
+		"timefmt(@ts,'%A')":                  "Tuesday",
+		"timefmt(@ts,'%b')":                  "Jan",
+		"timefmt(@ts,'%B')":                  "January",
+		"timefmt(@ts,'%I')":                  "12",
+		"timefmt(@ts,'%p')":                  "PM",
+		"timefmt(@ts,'%R')":                  "12:34",
+		"timefmt(@ts,'%z')":                  "+0000",
+		"timefmt(@ts,'%w')":                  "2",
+		"timefmt(@ts,'%j')":                  "002",
+		"timefmt(@ts,'%e')":                  " 2",
 		"parsetime('2024-01-02','%Y-%m-%d')": float64(1704153600),
+		"parsetime('24-01-02','%y-%m-%d')":   float64(1704153600),
+		"parsetime('Jan 02 2024','%b %d %Y')": float64(1704153600),
 	}
 	for expr, want := range tests {
 		got, err := EvalApplyExpr(expr, fields)
@@ -30,6 +46,15 @@ func TestEvalApplyTimeFunctionsMatchRedis810(t *testing.T) {
 		if got != want {
 			t.Errorf("%s: got %v, want %v", expr, got, want)
 		}
+	}
+	// Redis: unsupported directive / bad parse → Null (nil), not ERR.
+	got, err := EvalApplyExpr("timefmt(@ts,'%Q')", fields)
+	if err != nil || got != nil {
+		t.Fatalf("timefmt bad directive: got %v err %v want nil", got, err)
+	}
+	got, err = EvalApplyExpr(`parsetime("nope","%Y-%m-%d")`, nil)
+	if err != nil || got != nil {
+		t.Fatalf("parsetime fail: got %v err %v want nil", got, err)
 	}
 }
 

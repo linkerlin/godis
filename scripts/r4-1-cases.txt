@@ -677,6 +677,33 @@ GEORADIUS-b73|Catania|GEORADIUS sidecar:b73:g:{{ID}} 15 37 200 km ASC COUNT 1
 GEOSEARCH-b73|Catania|GEOSEARCH sidecar:b73:g:{{ID}} FROMLONLAT 15 37 BYRADIUS 200 km ASC COUNT 1
 DEL-b73g|1|DEL sidecar:b73:g:{{ID}}
 
+# --- batch 74 extras (LCS LEN; ZRANGE/ZREVRANGE WITHSCORES; EXPIRE NX; SISMEMBER; GETRANGE neg) ---
+@DEL sidecar:b74:lcs1:{{ID}}
+@DEL sidecar:b74:lcs2:{{ID}}
+SET-b74a|OK|SET sidecar:b74:lcs1:{{ID}} ohmytext
+SET-b74b|OK|SET sidecar:b74:lcs2:{{ID}} mynewtext
+LCS-LEN|6|LCS sidecar:b74:lcs1:{{ID}} sidecar:b74:lcs2:{{ID}} LEN
+DEL-b74lcs|2|DEL sidecar:b74:lcs1:{{ID}} sidecar:b74:lcs2:{{ID}}
+@DEL sidecar:b74:z:{{ID}}
+ZADD-b74|2|ZADD sidecar:b74:z:{{ID}} 1 a 2 b
+ZRANGE-WS|a\n1|ZRANGE sidecar:b74:z:{{ID}} 0 0 WITHSCORES
+ZREVRANGE-WS|b\n2|ZREVRANGE sidecar:b74:z:{{ID}} 0 0 WITHSCORES
+DEL-b74z|1|DEL sidecar:b74:z:{{ID}}
+@DEL sidecar:b74:e:{{ID}}
+SET-b74e|OK|SET sidecar:b74:e:{{ID}} v
+EXPIRE-NX|1|EXPIRE sidecar:b74:e:{{ID}} 120 NX
+EXPIRE-NX2|0|EXPIRE sidecar:b74:e:{{ID}} 120 NX
+DEL-b74e|1|DEL sidecar:b74:e:{{ID}}
+@DEL sidecar:b74:s:{{ID}}
+SADD-b74|1|SADD sidecar:b74:s:{{ID}} a
+SISMEMBER-hit|1|SISMEMBER sidecar:b74:s:{{ID}} a
+SISMEMBER-miss|0|SISMEMBER sidecar:b74:s:{{ID}} b
+DEL-b74s|1|DEL sidecar:b74:s:{{ID}}
+@DEL sidecar:b74:str:{{ID}}
+SET-b74str|OK|SET sidecar:b74:str:{{ID}} ohmytext
+GETRANGE-neg|text|GETRANGE sidecar:b74:str:{{ID}} -4 -1
+DEL-b74str|1|DEL sidecar:b74:str:{{ID}}
+
 # --- cleanup string / incr keys ---
 DEL|1|DEL sidecar:allowlist:{{ID}}
 EXISTS-after-del|0|EXISTS sidecar:allowlist:{{ID}}

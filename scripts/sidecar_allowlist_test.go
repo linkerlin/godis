@@ -141,6 +141,14 @@ func TestR41SidecarAllowlistScaffold(t *testing.T) {
 		"SRANDMEMBER|only|SRANDMEMBER",
 		"GEORADIUS-b73|Catania|GEORADIUS",
 		"GEOSEARCH-b73|Catania|GEOSEARCH",
+		"LCS-LEN|6|LCS",
+		"ZRANGE-WS|a\\n1|ZRANGE",
+		"ZREVRANGE-WS|b\\n2|ZREVRANGE",
+		"EXPIRE-NX|1|EXPIRE",
+		"EXPIRE-NX2|0|EXPIRE",
+		"SISMEMBER-hit|1|SISMEMBER",
+		"SISMEMBER-miss|0|SISMEMBER",
+		"GETRANGE-neg|text|GETRANGE",
 	} {
 		if !strings.Contains(cases, marker) {
 			t.Fatalf("r4-1-cases.txt missing honesty/assert marker %q", marker)
