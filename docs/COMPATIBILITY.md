@@ -291,7 +291,7 @@ UNWATCH、WAIT（简版）、BITOP、BITFIELD、SMOVE、LPOS、XCLAIM、SHUTDOWN
 
 ---
 
-**最后更新：** 2026-08-17（第九十二批：R4-1 扩至 **1323**（跨 1300；第八十八批跨 1000）；远期仍 **7**：jemalloc / gossip / 模块 RDB·DUMP / FUNCTION DUMP 互通 / 完整 BM25·KNN·DIALECT / R4-1 全量 / R4-2）
+**最后更新：** 2026-08-17（第九十三批：R4-1 扩至 **1466**（跨 1400；第八十八批跨 1000）；远期仍 **7**：jemalloc / gossip / 模块 RDB·DUMP / FUNCTION DUMP 互通 / 完整 BM25·KNN·DIALECT / R4-1 全量 / R4-2）
 
 
 

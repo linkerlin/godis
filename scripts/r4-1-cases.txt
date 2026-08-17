@@ -14,7 +14,7 @@
 # Placeholder {{ID}} -> process id (unique keys per run).
 #
 # WANT may embed \n for multi-line --raw (e.g. ZPOPMIN member\nscore).
-# @allowlist PING,ECHO,SET,SETNX,GET,GETDEL,GETSET,GETEX,STRLEN,APPEND,DEL,EXISTS,INCR,DECR,INCRBY,DECRBY,INCRBYFLOAT,TYPE,MSET,MGET,MSETNX,SETRANGE,GETRANGE,SUBSTR,SETEX,PSETEX,UNLINK,HSET,HMSET,HGET,HMGET,HSETNX,HINCRBY,HINCRBYFLOAT,HSTRLEN,HLEN,HEXISTS,HDEL,HEXPIRE,HTTL,HPEXPIRE,HPTTL,HKEYS,HVALS,HRANDFIELD,LPUSH,LPUSHX,RPUSH,RPUSHX,LLEN,LINDEX,LRANGE,LPOP,RPOP,RPOPLPUSH,LSET,LINSERT,LREM,LTRIM,LPOS,LMOVE,LMPOP,SADD,SCARD,SISMEMBER,SMISMEMBER,SMOVE,SREM,SPOP,SRANDMEMBER,SUNION,SUNIONSTORE,SINTERSTORE,SDIFFSTORE,SDIFF,SINTER,SINTERCARD,ZADD,ZINCRBY,ZSCORE,ZMSCORE,ZRANK,ZREVRANK,ZRANGE,ZREVRANGE,ZRANGEBYSCORE,ZREVRANGEBYSCORE,ZRANGEBYLEX,ZRANGESTORE,ZCARD,ZREM,ZCOUNT,ZREMRANGEBYRANK,ZREMRANGEBYSCORE,ZREMRANGEBYLEX,ZUNION,ZUNIONSTORE,ZINTER,ZINTERSTORE,ZINTERCARD,ZDIFFSTORE,ZDIFF,ZPOPMIN,ZPOPMAX,ZMPOP,ZLEXCOUNT,ZRANDMEMBER,TTL,PTTL,PEXPIRE,PEXPIREAT,EXPIRE,EXPIREAT,EXPIRETIME,PEXPIRETIME,PERSIST,TOUCH,RENAME,MOVE,XADD,XLEN,XDEL,XTRIM,GEOADD,GEOHASH,GEORADIUS,GEOSEARCH,SETBIT,GETBIT,BITCOUNT,BITPOS,BITOP,BITFIELD,PFADD,PFCOUNT,PFMERGE,COPY,RENAMENX,LCS,OBJECT,DBSIZE
+# @allowlist PING,ECHO,SET,SETNX,GET,GETDEL,GETSET,GETEX,STRLEN,APPEND,DEL,EXISTS,INCR,DECR,INCRBY,DECRBY,INCRBYFLOAT,TYPE,MSET,MGET,MSETNX,SETRANGE,GETRANGE,SUBSTR,SETEX,PSETEX,UNLINK,HSET,HMSET,HGET,HMGET,HSETNX,HINCRBY,HINCRBYFLOAT,HSTRLEN,HLEN,HEXISTS,HDEL,HEXPIRE,HTTL,HPEXPIRE,HPTTL,HKEYS,HVALS,HRANDFIELD,LPUSH,LPUSHX,RPUSH,RPUSHX,LLEN,LINDEX,LRANGE,LPOP,RPOP,RPOPLPUSH,LSET,LINSERT,LREM,LTRIM,LPOS,LMOVE,LMPOP,SADD,SCARD,SISMEMBER,SMISMEMBER,SMOVE,SREM,SPOP,SRANDMEMBER,SUNION,SUNIONSTORE,SINTERSTORE,SDIFFSTORE,SDIFF,SINTER,SINTERCARD,ZADD,ZINCRBY,ZSCORE,ZMSCORE,ZRANK,ZREVRANK,ZRANGE,ZREVRANGE,ZRANGEBYSCORE,ZREVRANGEBYSCORE,ZRANGEBYLEX,ZRANGESTORE,ZCARD,ZREM,ZCOUNT,ZREMRANGEBYRANK,ZREMRANGEBYSCORE,ZREMRANGEBYLEX,ZUNION,ZUNIONSTORE,ZINTER,ZINTERSTORE,ZINTERCARD,ZDIFFSTORE,ZDIFF,ZPOPMIN,ZPOPMAX,ZMPOP,ZLEXCOUNT,ZRANDMEMBER,TTL,PTTL,PEXPIRE,PEXPIREAT,EXPIRE,EXPIREAT,EXPIRETIME,PEXPIRETIME,PERSIST,TOUCH,RENAME,MOVE,XADD,XLEN,XDEL,XTRIM,XREVRANGE,XRANGE,GEOADD,GEOHASH,GEORADIUS,GEOSEARCH,SETBIT,GETBIT,BITCOUNT,BITPOS,BITOP,BITFIELD,PFADD,PFCOUNT,PFMERGE,COPY,RENAMENX,LCS,OBJECT,DBSIZE,SORT
 
 # --- String / ping ---
 PING|PONG|PING
@@ -1850,6 +1850,193 @@ TYPE-b92l|list|TYPE sidecar:b92:tl:{{ID}}
 DEL-b92types|4|DEL sidecar:b92:tz:{{ID}} sidecar:b92:ts:{{ID}} sidecar:b92:th:{{ID}} sidecar:b92:tl:{{ID}}
 ECHO-b92|b92|ECHO b92
 DBSIZE-b92|>=0|DBSIZE
+
+# --- batch 93 extras (LINDEX/LSET/LINSERT; ZRANGE WS; ZREVRANGEBYSCORE LIMIT; HMGET null; KEEPTTL; GETEX EX; BITFIELD u8; XREVRANGE; SORT ALPHA; LPOS COUNT; ZMPOP MAX; LMPOP RIGHT; RENAMENX ok; COPY; SMISMEMBER; SETRANGE; PING msg) ---
+@DEL sidecar:b93:l:{{ID}}
+RPUSH-b93l|4|RPUSH sidecar:b93:l:{{ID}} a b c d
+LINDEX-b93neg|d|LINDEX sidecar:b93:l:{{ID}} -1
+LINDEX-b93z|a|LINDEX sidecar:b93:l:{{ID}} 0
+LRANGE-b93mid|b\nc|LRANGE sidecar:b93:l:{{ID}} 1 -2
+LSET-b93|OK|LSET sidecar:b93:l:{{ID}} 1 B
+LRANGE-b93set|a\nB\nc\nd|LRANGE sidecar:b93:l:{{ID}} 0 -1
+LINSERT-b93|5|LINSERT sidecar:b93:l:{{ID}} BEFORE B X
+LRANGE-b93ins|a\nX\nB\nc\nd|LRANGE sidecar:b93:l:{{ID}} 0 -1
+DEL-b93l|1|DEL sidecar:b93:l:{{ID}}
+@DEL sidecar:b93:z:{{ID}}
+ZADD-b93z|4|ZADD sidecar:b93:z:{{ID}} 1 a 2 b 3 c 4 d
+ZRANGE-WS-b93|a\n1\nb\n2\nc\n3\nd\n4|ZRANGE sidecar:b93:z:{{ID}} 0 -1 WITHSCORES
+ZREVRANGE-WS-b93|d\n4\nc\n3|ZREVRANGE sidecar:b93:z:{{ID}} 0 1 WITHSCORES
+ZRANGEBYSCORE-b93|b\nc|ZRANGEBYSCORE sidecar:b93:z:{{ID}} 2 3
+ZREVRANGEBYSCORE-b93|c\nb|ZREVRANGEBYSCORE sidecar:b93:z:{{ID}} 3 1 LIMIT 0 2
+ZCOUNT-b93|2|ZCOUNT sidecar:b93:z:{{ID}} 2 3
+ZREM-b93|2|ZREM sidecar:b93:z:{{ID}} a d
+ZCARD-b93|2|ZCARD sidecar:b93:z:{{ID}}
+DEL-b93z|1|DEL sidecar:b93:z:{{ID}}
+@DEL sidecar:b93:h:{{ID}}
+HSET-b93|3|HSET sidecar:b93:h:{{ID}} a 1 b 2 c 3
+HMGET-b93|1\n$-1\n2|HMGET sidecar:b93:h:{{ID}} a missing b
+HDEL-b93|1|HDEL sidecar:b93:h:{{ID}} b
+HLEN-b93|2|HLEN sidecar:b93:h:{{ID}}
+HEXISTS-b93miss|0|HEXISTS sidecar:b93:h:{{ID}} missing
+DEL-b93h|1|DEL sidecar:b93:h:{{ID}}
+@DEL sidecar:b93:s:{{ID}}
+SADD-b93|3|SADD sidecar:b93:s:{{ID}} x y z
+SCARD-b93|3|SCARD sidecar:b93:s:{{ID}}
+SISMEMBER-b93|1|SISMEMBER sidecar:b93:s:{{ID}} x
+SMISMEMBER-b93|1\n0\n1|SMISMEMBER sidecar:b93:s:{{ID}} x q z
+DEL-b93s|1|DEL sidecar:b93:s:{{ID}}
+@DEL sidecar:b93:st:{{ID}}
+SET-b93st|OK|SET sidecar:b93:st:{{ID}} hello
+APPEND-b93|6|APPEND sidecar:b93:st:{{ID}} !
+STRLEN-b93|6|STRLEN sidecar:b93:st:{{ID}}
+GETRANGE-b93|hello|GETRANGE sidecar:b93:st:{{ID}} 0 4
+SETRANGE-b93|10|SETRANGE sidecar:b93:st:{{ID}} 5 WORLD
+GET-b93st|helloWORLD|GET sidecar:b93:st:{{ID}}
+DEL-b93st|1|DEL sidecar:b93:st:{{ID}}
+@DEL sidecar:b93:ge:{{ID}}
+SET-b93ge|OK|SET sidecar:b93:ge:{{ID}} v EX 100
+GETEX-EX-b93|v|GETEX sidecar:b93:ge:{{ID}} EX 50
+TTL-b93ge|<=50|TTL sidecar:b93:ge:{{ID}}
+TTL-b93ge2|>=1|TTL sidecar:b93:ge:{{ID}}
+DEL-b93ge|1|DEL sidecar:b93:ge:{{ID}}
+@DEL sidecar:b93:kt:{{ID}}
+SET-b93kt|OK|SET sidecar:b93:kt:{{ID}} keep EX 200
+SET-KEEPTTL-b93|OK|SET sidecar:b93:kt:{{ID}} keep2 KEEPTTL
+TTL-b93kt|<=200|TTL sidecar:b93:kt:{{ID}}
+TTL-b93kt2|>=1|TTL sidecar:b93:kt:{{ID}}
+DEL-b93kt|1|DEL sidecar:b93:kt:{{ID}}
+@DEL sidecar:b93:bf:{{ID}}
+BITFIELD-SET-b93|0|BITFIELD sidecar:b93:bf:{{ID}} SET u8 0 42
+BITFIELD-GET-b93|42|BITFIELD sidecar:b93:bf:{{ID}} GET u8 0
+DEL-b93bf|1|DEL sidecar:b93:bf:{{ID}}
+@DEL sidecar:b93:bit:{{ID}}
+SETBIT-b93|0|SETBIT sidecar:b93:bit:{{ID}} 7 1
+GETBIT-b93|1|GETBIT sidecar:b93:bit:{{ID}} 7
+BITCOUNT-b93|1|BITCOUNT sidecar:b93:bit:{{ID}}
+DEL-b93bit|1|DEL sidecar:b93:bit:{{ID}}
+@DEL sidecar:b93:x:{{ID}}
+XADD-b93|1-0|XADD sidecar:b93:x:{{ID}} 1-0 f v
+XLEN-b93|1|XLEN sidecar:b93:x:{{ID}}
+XRANGE-b93|1-0\nf\nv|XRANGE sidecar:b93:x:{{ID}} - + COUNT 1
+XREVRANGE-b93|1-0\nf\nv|XREVRANGE sidecar:b93:x:{{ID}} + - COUNT 1
+XDEL-b93|1|XDEL sidecar:b93:x:{{ID}} 1-0
+@DEL sidecar:b93:g:{{ID}}
+GEOADD-b93|1|GEOADD sidecar:b93:g:{{ID}} 13.361389 38.115556 Palermo
+TYPE-b93g|zset|TYPE sidecar:b93:g:{{ID}}
+DEL-b93g|1|DEL sidecar:b93:g:{{ID}}
+@DEL sidecar:b93:pf:{{ID}}
+PFADD-b93|1|PFADD sidecar:b93:pf:{{ID}} a b c
+PFCOUNT-b93|3|PFCOUNT sidecar:b93:pf:{{ID}}
+DEL-b93pf|1|DEL sidecar:b93:pf:{{ID}}
+@DEL sidecar:b93:c1:{{ID}}
+@DEL sidecar:b93:c2:{{ID}}
+SET-b93c1|OK|SET sidecar:b93:c1:{{ID}} src
+COPY-b93|1|COPY sidecar:b93:c1:{{ID}} sidecar:b93:c2:{{ID}}
+GET-b93c2|src|GET sidecar:b93:c2:{{ID}}
+DEL-b93c|2|DEL sidecar:b93:c1:{{ID}} sidecar:b93:c2:{{ID}}
+@DEL sidecar:b93:r1:{{ID}}
+@DEL sidecar:b93:r2:{{ID}}
+SET-b93r1|OK|SET sidecar:b93:r1:{{ID}} a
+RENAMENX-b93ok|1|RENAMENX sidecar:b93:r1:{{ID}} sidecar:b93:r2:{{ID}}
+GET-b93r2|a|GET sidecar:b93:r2:{{ID}}
+EXISTS-b93r1|0|EXISTS sidecar:b93:r1:{{ID}}
+DEL-b93r2|1|DEL sidecar:b93:r2:{{ID}}
+@DEL sidecar:b93:m1:{{ID}}
+@DEL sidecar:b93:m2:{{ID}}
+MSET-b93|OK|MSET sidecar:b93:m1:{{ID}} a sidecar:b93:m2:{{ID}} b
+MGET-b93|a\n$-1\nb|MGET sidecar:b93:m1:{{ID}} missing sidecar:b93:m2:{{ID}}
+DEL-b93m|2|DEL sidecar:b93:m1:{{ID}} sidecar:b93:m2:{{ID}}
+@DEL sidecar:b93:lp:{{ID}}
+RPUSH-b93lp|5|RPUSH sidecar:b93:lp:{{ID}} a b a c a
+LPOS-RANK2-b93|2|LPOS sidecar:b93:lp:{{ID}} a RANK 2
+LPOS-COUNT-b93|0\n2|LPOS sidecar:b93:lp:{{ID}} a COUNT 2
+DEL-b93lp|1|DEL sidecar:b93:lp:{{ID}}
+@DEL sidecar:b93:zm:{{ID}}
+ZADD-b93zm|2|ZADD sidecar:b93:zm:{{ID}} 1 a 2 b
+ZMPOP-MAX-b93|sidecar:b93:zm:{{ID}}\nb\n2|ZMPOP 1 sidecar:b93:zm:{{ID}} MAX COUNT 1
+@DEL sidecar:b93:lm:{{ID}}
+RPUSH-b93lm|3|RPUSH sidecar:b93:lm:{{ID}} x y z
+LMPOP-RIGHT-b93|sidecar:b93:lm:{{ID}}\nz\ny|LMPOP 1 sidecar:b93:lm:{{ID}} RIGHT COUNT 2
+DEL-b93lm|1|DEL sidecar:b93:lm:{{ID}}
+@DEL sidecar:b93:zr:{{ID}}
+ZADD-b93zr|3|ZADD sidecar:b93:zr:{{ID}} 1 a 2 b 3 c
+ZREMRANGEBYSCORE-b93|2|ZREMRANGEBYSCORE sidecar:b93:zr:{{ID}} 1 2
+ZRANGE-b93zr|c|ZRANGE sidecar:b93:zr:{{ID}} 0 -1
+DEL-b93zr|1|DEL sidecar:b93:zr:{{ID}}
+@DEL sidecar:b93:zsc:{{ID}}
+ZADD-b93zsc|1|ZADD sidecar:b93:zsc:{{ID}} 5 m
+ZINCRBY-b93|6.5|ZINCRBY sidecar:b93:zsc:{{ID}} 1.5 m
+ZSCORE-b93|6.5|ZSCORE sidecar:b93:zsc:{{ID}} m
+DEL-b93zsc|1|DEL sidecar:b93:zsc:{{ID}}
+@DEL sidecar:b93:sort:{{ID}}
+RPUSH-b93sort|3|RPUSH sidecar:b93:sort:{{ID}} c a b
+SORT-ALPHA-b93|a\nb\nc|SORT sidecar:b93:sort:{{ID}} ALPHA
+DEL-b93sort|1|DEL sidecar:b93:sort:{{ID}}
+@DEL sidecar:b93:nx:{{ID}}
+SETNX-b93|1|SETNX sidecar:b93:nx:{{ID}} v
+SETNX-b93dup|0|SETNX sidecar:b93:nx:{{ID}} w
+GET-b93nx|v|GET sidecar:b93:nx:{{ID}}
+DEL-b93nx|1|DEL sidecar:b93:nx:{{ID}}
+@DEL sidecar:b93:gs:{{ID}}
+SET-b93gs|OK|SET sidecar:b93:gs:{{ID}} old
+GETSET-b93|old|GETSET sidecar:b93:gs:{{ID}} new
+GET-b93gs|new|GET sidecar:b93:gs:{{ID}}
+DEL-b93gs|1|DEL sidecar:b93:gs:{{ID}}
+@DEL sidecar:b93:dec:{{ID}}
+SET-b93dec|OK|SET sidecar:b93:dec:{{ID}} 10
+DECRBY-b93|7|DECRBY sidecar:b93:dec:{{ID}} 3
+DEL-b93dec|1|DEL sidecar:b93:dec:{{ID}}
+@DEL sidecar:b93:ibf:{{ID}}
+INCRBYFLOAT-b93|2.5|INCRBYFLOAT sidecar:b93:ibf:{{ID}} 2.5
+GET-b93ibf|2.5|GET sidecar:b93:ibf:{{ID}}
+DEL-b93ibf|1|DEL sidecar:b93:ibf:{{ID}}
+@DEL sidecar:b93:bo1:{{ID}}
+@DEL sidecar:b93:bo2:{{ID}}
+@DEL sidecar:b93:bor:{{ID}}
+SETBIT-b93bo1|0|SETBIT sidecar:b93:bo1:{{ID}} 0 1
+SETBIT-b93bo2|0|SETBIT sidecar:b93:bo2:{{ID}} 1 1
+BITOP-OR-b93|1|BITOP OR sidecar:b93:bor:{{ID}} sidecar:b93:bo1:{{ID}} sidecar:b93:bo2:{{ID}}
+BITCOUNT-b93or|2|BITCOUNT sidecar:b93:bor:{{ID}}
+DEL-b93bo|3|DEL sidecar:b93:bo1:{{ID}} sidecar:b93:bo2:{{ID}} sidecar:b93:bor:{{ID}}
+@DEL sidecar:b93:sa:{{ID}}
+@DEL sidecar:b93:sb:{{ID}}
+SADD-b93sa|2|SADD sidecar:b93:sa:{{ID}} a b
+SADD-b93sb|2|SADD sidecar:b93:sb:{{ID}} b c
+SINTERCARD-b93|1|SINTERCARD 2 sidecar:b93:sa:{{ID}} sidecar:b93:sb:{{ID}}
+DEL-b93sc|2|DEL sidecar:b93:sa:{{ID}} sidecar:b93:sb:{{ID}}
+@DEL sidecar:b93:za:{{ID}}
+@DEL sidecar:b93:zb:{{ID}}
+@DEL sidecar:b93:zus:{{ID}}
+ZADD-b93za|2|ZADD sidecar:b93:za:{{ID}} 1 a 2 b
+ZADD-b93zb|2|ZADD sidecar:b93:zb:{{ID}} 1 b 3 c
+ZUNIONSTORE-b93|3|ZUNIONSTORE sidecar:b93:zus:{{ID}} 2 sidecar:b93:za:{{ID}} sidecar:b93:zb:{{ID}}
+ZCARD-b93zus|3|ZCARD sidecar:b93:zus:{{ID}}
+DEL-b93zus|3|DEL sidecar:b93:za:{{ID}} sidecar:b93:zb:{{ID}} sidecar:b93:zus:{{ID}}
+@DEL sidecar:b93:lv:{{ID}}
+@DEL sidecar:b93:ld:{{ID}}
+RPUSH-b93lv|2|RPUSH sidecar:b93:lv:{{ID}} a b
+LMOVE-b93|a|LMOVE sidecar:b93:lv:{{ID}} sidecar:b93:ld:{{ID}} LEFT RIGHT
+LLEN-b93ld|1|LLEN sidecar:b93:ld:{{ID}}
+DEL-b93lmove|2|DEL sidecar:b93:lv:{{ID}} sidecar:b93:ld:{{ID}}
+@DEL sidecar:b93:zp:{{ID}}
+ZADD-b93zp|2|ZADD sidecar:b93:zp:{{ID}} 1 a 2 b
+ZPOPMIN-b93|a\n1|ZPOPMIN sidecar:b93:zp:{{ID}}
+DEL-b93zp|1|DEL sidecar:b93:zp:{{ID}}
+@DEL sidecar:b93:hi:{{ID}}
+HINCRBY-b93|5|HINCRBY sidecar:b93:hi:{{ID}} n 5
+HGET-b93hi|5|HGET sidecar:b93:hi:{{ID}} n
+DEL-b93hi|1|DEL sidecar:b93:hi:{{ID}}
+@DEL sidecar:b93:t1:{{ID}}
+@DEL sidecar:b93:t2:{{ID}}
+SET-b93t1|OK|SET sidecar:b93:t1:{{ID}} 1
+SET-b93t2|OK|SET sidecar:b93:t2:{{ID}} 2
+TOUCH-b93|2|TOUCH sidecar:b93:t1:{{ID}} sidecar:b93:t2:{{ID}}
+UNLINK-b93|2|UNLINK sidecar:b93:t1:{{ID}} sidecar:b93:t2:{{ID}}
+PING-b93|hello93|PING hello93
+ECHO-b93|b93|ECHO b93
+TYPE-b93miss|none|TYPE sidecar:b93:miss:{{ID}}
+EXISTS-b93miss|0|EXISTS sidecar:b93:miss:{{ID}}
+DBSIZE-b93|>=0|DBSIZE
 
 # --- cleanup string / incr keys ---
 DEL|1|DEL sidecar:allowlist:{{ID}}
