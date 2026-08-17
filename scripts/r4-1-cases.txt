@@ -2038,6 +2038,218 @@ TYPE-b93miss|none|TYPE sidecar:b93:miss:{{ID}}
 EXISTS-b93miss|0|EXISTS sidecar:b93:miss:{{ID}}
 DBSIZE-b93|>=0|DBSIZE
 
+# --- batch 94 extras (LTRIM; ZRANGESTORE; ZINTER/ZDIFF STORE; ZLEX*; BITOP XOR/NOT; LCS LEN; SUBSTR/GETDEL; SET PX; HEXPIRE/HTTL; PERSIST; RPOPLPUSH/LMOVE; SDIFF/SUNION STORE; ZPOPMAX/ZRANK; SPOP/SRANDMEMBER 单成员; HKEYS/HVALS; MSETNX; INCR/DECR; OBJECT REFCOUNT; XTRIM; GEOSEARCH; BITPOS; EXPIRE GT/LT; PSETEX; LPUSHX; SMOVE; ZREMRANGEBY*; HSETNX/SETNX; BITFIELD INCRBY; PFMERGE; RENAME; COPY; EXPIREAT) ---
+@DEL sidecar:b94:l:{{ID}}
+RPUSH-b94l|5|RPUSH sidecar:b94:l:{{ID}} a b c d e
+LTRIM-b94|OK|LTRIM sidecar:b94:l:{{ID}} 1 -2
+LRANGE-b94|b\nc\nd|LRANGE sidecar:b94:l:{{ID}} 0 -1
+LLEN-b94|3|LLEN sidecar:b94:l:{{ID}}
+DEL-b94l|1|DEL sidecar:b94:l:{{ID}}
+@DEL sidecar:b94:z:{{ID}}
+@DEL sidecar:b94:zs:{{ID}}
+ZADD-b94z|3|ZADD sidecar:b94:z:{{ID}} 1 a 2 b 3 c
+ZRANGESTORE-b94|2|ZRANGESTORE sidecar:b94:zs:{{ID}} sidecar:b94:z:{{ID}} 0 1
+ZRANGE-WS-b94|a\n1\nb\n2|ZRANGE sidecar:b94:zs:{{ID}} 0 -1 WITHSCORES
+DEL-b94zs|2|DEL sidecar:b94:z:{{ID}} sidecar:b94:zs:{{ID}}
+@DEL sidecar:b94:zi:{{ID}}
+@DEL sidecar:b94:zd:{{ID}}
+@DEL sidecar:b94:zis:{{ID}}
+@DEL sidecar:b94:zds:{{ID}}
+ZADD-b94zi|2|ZADD sidecar:b94:zi:{{ID}} 1 a 2 b
+ZADD-b94zd|2|ZADD sidecar:b94:zd:{{ID}} 1 b 3 c
+ZINTERSTORE-b94|1|ZINTERSTORE sidecar:b94:zis:{{ID}} 2 sidecar:b94:zi:{{ID}} sidecar:b94:zd:{{ID}}
+ZRANGE-zis-b94|b\n3|ZRANGE sidecar:b94:zis:{{ID}} 0 -1 WITHSCORES
+ZDIFFSTORE-b94|1|ZDIFFSTORE sidecar:b94:zds:{{ID}} 2 sidecar:b94:zi:{{ID}} sidecar:b94:zd:{{ID}}
+ZRANGE-zds-b94|a|ZRANGE sidecar:b94:zds:{{ID}} 0 -1
+DEL-b94zist|4|DEL sidecar:b94:zi:{{ID}} sidecar:b94:zd:{{ID}} sidecar:b94:zis:{{ID}} sidecar:b94:zds:{{ID}}
+@DEL sidecar:b94:zlex:{{ID}}
+ZADD-b94zlex|4|ZADD sidecar:b94:zlex:{{ID}} 0 a 0 b 0 c 0 d
+ZRANGEBYLEX-b94|b\nc\nd|ZRANGEBYLEX sidecar:b94:zlex:{{ID}} [b [d
+ZLEXCOUNT-b94|2|ZLEXCOUNT sidecar:b94:zlex:{{ID}} [b [c
+ZREMRANGEBYLEX-b94|2|ZREMRANGEBYLEX sidecar:b94:zlex:{{ID}} [a [b
+ZRANGEBYLEX-b94b|c\nd|ZRANGEBYLEX sidecar:b94:zlex:{{ID}} - +
+DEL-b94zlex|1|DEL sidecar:b94:zlex:{{ID}}
+@DEL sidecar:b94:bx:{{ID}}
+@DEL sidecar:b94:bd:{{ID}}
+@DEL sidecar:b94:bo:{{ID}}
+@DEL sidecar:b94:bn:{{ID}}
+@DEL sidecar:b94:bf:{{ID}}
+SETBIT-b94bx|0|SETBIT sidecar:b94:bx:{{ID}} 0 1
+SETBIT-b94bd|0|SETBIT sidecar:b94:bd:{{ID}} 1 1
+BITOP-XOR-b94|1|BITOP XOR sidecar:b94:bo:{{ID}} sidecar:b94:bx:{{ID}} sidecar:b94:bd:{{ID}}
+BITCOUNT-b94xor|2|BITCOUNT sidecar:b94:bo:{{ID}}
+SETBIT-b94bn|0|SETBIT sidecar:b94:bn:{{ID}} 0 1
+BITOP-NOT-b94|1|BITOP NOT sidecar:b94:bf:{{ID}} sidecar:b94:bn:{{ID}}
+GETBIT-b94not|0|GETBIT sidecar:b94:bf:{{ID}} 0
+DEL-b94bit|5|DEL sidecar:b94:bx:{{ID}} sidecar:b94:bd:{{ID}} sidecar:b94:bo:{{ID}} sidecar:b94:bn:{{ID}} sidecar:b94:bf:{{ID}}
+@DEL sidecar:b94:lcs1:{{ID}}
+@DEL sidecar:b94:lcs2:{{ID}}
+SET-b94lcs1|OK|SET sidecar:b94:lcs1:{{ID}} abcdef
+SET-b94lcs2|OK|SET sidecar:b94:lcs2:{{ID}} zbcdxy
+LCS-LEN-b94|3|LCS sidecar:b94:lcs1:{{ID}} sidecar:b94:lcs2:{{ID}} LEN
+DEL-b94lcs|2|DEL sidecar:b94:lcs1:{{ID}} sidecar:b94:lcs2:{{ID}}
+@DEL sidecar:b94:sub:{{ID}}
+SET-b94sub|OK|SET sidecar:b94:sub:{{ID}} hello
+SUBSTR-b94|ell|SUBSTR sidecar:b94:sub:{{ID}} 1 3
+DEL-b94sub|1|DEL sidecar:b94:sub:{{ID}}
+@DEL sidecar:b94:gd:{{ID}}
+SET-b94gd|OK|SET sidecar:b94:gd:{{ID}} gone
+GETDEL-b94|gone|GETDEL sidecar:b94:gd:{{ID}}
+EXISTS-b94gd|0|EXISTS sidecar:b94:gd:{{ID}}
+@DEL sidecar:b94:px:{{ID}}
+SET-PX-b94|OK|SET sidecar:b94:px:{{ID}} v PX 5000
+PTTL-b94|<=5000|PTTL sidecar:b94:px:{{ID}}
+PTTL-b942|>=1|PTTL sidecar:b94:px:{{ID}}
+DEL-b94px|1|DEL sidecar:b94:px:{{ID}}
+@DEL sidecar:b94:hex:{{ID}}
+HSET-b94hex|1|HSET sidecar:b94:hex:{{ID}} f v
+HEXPIRE-b94|1|HEXPIRE sidecar:b94:hex:{{ID}} 100 FIELDS 1 f
+HTTL-b94|<=100|HTTL sidecar:b94:hex:{{ID}} FIELDS 1 f
+HTTL-b942|>=1|HTTL sidecar:b94:hex:{{ID}} FIELDS 1 f
+DEL-b94hex|1|DEL sidecar:b94:hex:{{ID}}
+@DEL sidecar:b94:pe:{{ID}}
+SET-b94pe|OK|SET sidecar:b94:pe:{{ID}} v EX 100
+PERSIST-b94|1|PERSIST sidecar:b94:pe:{{ID}}
+TTL-b94pe|-1|TTL sidecar:b94:pe:{{ID}}
+DEL-b94pe|1|DEL sidecar:b94:pe:{{ID}}
+@DEL sidecar:b94:bl:{{ID}}
+@DEL sidecar:b94:br:{{ID}}
+RPUSH-b94bl|2|RPUSH sidecar:b94:bl:{{ID}} a b
+RPUSH-b94br|1|RPUSH sidecar:b94:br:{{ID}} x
+RPOPLPUSH-b94|b|RPOPLPUSH sidecar:b94:bl:{{ID}} sidecar:b94:br:{{ID}}
+LRANGE-b94br|b\nx|LRANGE sidecar:b94:br:{{ID}} 0 -1
+LMOVE-b94|a|LMOVE sidecar:b94:bl:{{ID}} sidecar:b94:br:{{ID}} LEFT LEFT
+LRANGE-b94br2|a\nb\nx|LRANGE sidecar:b94:br:{{ID}} 0 -1
+DEL-b94bl|2|DEL sidecar:b94:bl:{{ID}} sidecar:b94:br:{{ID}}
+@DEL sidecar:b94:s1:{{ID}}
+@DEL sidecar:b94:s2:{{ID}}
+@DEL sidecar:b94:sd:{{ID}}
+@DEL sidecar:b94:su:{{ID}}
+SADD-b94s1|2|SADD sidecar:b94:s1:{{ID}} a b
+SADD-b94s2|2|SADD sidecar:b94:s2:{{ID}} b c
+SDIFFSTORE-b94|1|SDIFFSTORE sidecar:b94:sd:{{ID}} sidecar:b94:s1:{{ID}} sidecar:b94:s2:{{ID}}
+SCARD-b94sd|1|SCARD sidecar:b94:sd:{{ID}}
+SISMEMBER-b94sd|1|SISMEMBER sidecar:b94:sd:{{ID}} a
+SUNIONSTORE-b94|3|SUNIONSTORE sidecar:b94:su:{{ID}} sidecar:b94:s1:{{ID}} sidecar:b94:s2:{{ID}}
+SCARD-b94su|3|SCARD sidecar:b94:su:{{ID}}
+SMOVE-b94|1|SMOVE sidecar:b94:s1:{{ID}} sidecar:b94:s2:{{ID}} a
+SISMEMBER-b94sm|1|SISMEMBER sidecar:b94:s2:{{ID}} a
+DEL-b94s|4|DEL sidecar:b94:s1:{{ID}} sidecar:b94:s2:{{ID}} sidecar:b94:sd:{{ID}} sidecar:b94:su:{{ID}}
+@DEL sidecar:b94:zr:{{ID}}
+ZADD-b94zr|3|ZADD sidecar:b94:zr:{{ID}} 1 a 2 b 3 c
+ZPOPMAX-b94|c\n3|ZPOPMAX sidecar:b94:zr:{{ID}} 1
+ZRANK-b94|0|ZRANK sidecar:b94:zr:{{ID}} a
+ZREVRANK-b94|0|ZREVRANK sidecar:b94:zr:{{ID}} b
+ZREMRANGEBYRANK-b94|1|ZREMRANGEBYRANK sidecar:b94:zr:{{ID}} 0 0
+ZRANGE-b94zr|b|ZRANGE sidecar:b94:zr:{{ID}} 0 -1
+DEL-b94zr|1|DEL sidecar:b94:zr:{{ID}}
+@DEL sidecar:b94:sp:{{ID}}
+SADD-b94sp|1|SADD sidecar:b94:sp:{{ID}} only
+SPOP-b94|only|SPOP sidecar:b94:sp:{{ID}}
+@DEL sidecar:b94:sr:{{ID}}
+SADD-b94sr|1|SADD sidecar:b94:sr:{{ID}} only
+SRANDMEMBER-b94|only|SRANDMEMBER sidecar:b94:sr:{{ID}}
+DEL-b94sr|1|DEL sidecar:b94:sr:{{ID}}
+@DEL sidecar:b94:h:{{ID}}
+HSET-b94h|1|HSET sidecar:b94:h:{{ID}} f v
+HKEYS-b94|f|HKEYS sidecar:b94:h:{{ID}}
+HVALS-b94|v|HVALS sidecar:b94:h:{{ID}}
+HSTRLEN-b94|1|HSTRLEN sidecar:b94:h:{{ID}} f
+HSETNX-b94dup|0|HSETNX sidecar:b94:h:{{ID}} f other
+HSETNX-b94new|1|HSETNX sidecar:b94:h:{{ID}} g y
+DEL-b94h|1|DEL sidecar:b94:h:{{ID}}
+@DEL sidecar:b94:m1:{{ID}}
+@DEL sidecar:b94:m2:{{ID}}
+@DEL sidecar:b94:m3:{{ID}}
+MSETNX-b94|1|MSETNX sidecar:b94:m1:{{ID}} a sidecar:b94:m2:{{ID}} b
+MSETNX-b94dup|0|MSETNX sidecar:b94:m1:{{ID}} x sidecar:b94:m3:{{ID}} y
+MGET-b94|a\nb|MGET sidecar:b94:m1:{{ID}} sidecar:b94:m2:{{ID}}
+RENAME-b94|OK|RENAME sidecar:b94:m1:{{ID}} sidecar:b94:m1r:{{ID}}
+GET-b94ren|a|GET sidecar:b94:m1r:{{ID}}
+EXISTS-b94ren|0|EXISTS sidecar:b94:m1:{{ID}}
+COPY-b94|1|COPY sidecar:b94:m2:{{ID}} sidecar:b94:m2c:{{ID}}
+GET-b94copy|b|GET sidecar:b94:m2c:{{ID}}
+DEL-b94m|3|DEL sidecar:b94:m1r:{{ID}} sidecar:b94:m2:{{ID}} sidecar:b94:m2c:{{ID}}
+@DEL sidecar:b94:n:{{ID}}
+SET-b94n|OK|SET sidecar:b94:n:{{ID}} 5
+INCR-b94|6|INCR sidecar:b94:n:{{ID}}
+DECR-b94|5|DECR sidecar:b94:n:{{ID}}
+INCRBY-b94|15|INCRBY sidecar:b94:n:{{ID}} 10
+DEL-b94n|1|DEL sidecar:b94:n:{{ID}}
+@DEL sidecar:b94:obj:{{ID}}
+SET-b94obj|OK|SET sidecar:b94:obj:{{ID}} v
+OBJECT-REFCOUNT-b94|1|OBJECT REFCOUNT sidecar:b94:obj:{{ID}}
+DEL-b94obj|1|DEL sidecar:b94:obj:{{ID}}
+@DEL sidecar:b94:x:{{ID}}
+XADD-b94a|1-0|XADD sidecar:b94:x:{{ID}} 1-0 f 1
+XADD-b94b|2-0|XADD sidecar:b94:x:{{ID}} 2-0 f 2
+XADD-b94c|3-0|XADD sidecar:b94:x:{{ID}} 3-0 f 3
+XTRIM-b94|1|XTRIM sidecar:b94:x:{{ID}} MAXLEN 2
+XLEN-b94|2|XLEN sidecar:b94:x:{{ID}}
+XRANGE-b94|2-0\nf\n2|XRANGE sidecar:b94:x:{{ID}} - + COUNT 1
+DEL-b94x|1|DEL sidecar:b94:x:{{ID}}
+@DEL sidecar:b94:ge:{{ID}}
+GEOADD-b94|2|GEOADD sidecar:b94:ge:{{ID}} 13.361389 38.115556 Palermo 15.087269 37.502669 Catania
+GEOSEARCH-b94|Catania|GEOSEARCH sidecar:b94:ge:{{ID}} FROMLONLAT 15 37 BYRADIUS 200 km ASC COUNT 1
+DEL-b94ge|1|DEL sidecar:b94:ge:{{ID}}
+@DEL sidecar:b94:bp:{{ID}}
+SETBIT-b94bp|0|SETBIT sidecar:b94:bp:{{ID}} 3 1
+BITPOS-b94|3|BITPOS sidecar:b94:bp:{{ID}} 1
+DEL-b94bp|1|DEL sidecar:b94:bp:{{ID}}
+@DEL sidecar:b94:eg:{{ID}}
+SET-b94eg|OK|SET sidecar:b94:eg:{{ID}} v EX 50
+EXPIRE-GT-b94|1|EXPIRE sidecar:b94:eg:{{ID}} 100 GT
+TTL-b94gt|<=100|TTL sidecar:b94:eg:{{ID}}
+TTL-b94gt2|>=1|TTL sidecar:b94:eg:{{ID}}
+EXPIRE-LT-b94|1|EXPIRE sidecar:b94:eg:{{ID}} 10 LT
+TTL-b94lt|<=10|TTL sidecar:b94:eg:{{ID}}
+TTL-b94lt2|>=1|TTL sidecar:b94:eg:{{ID}}
+DEL-b94eg|1|DEL sidecar:b94:eg:{{ID}}
+@DEL sidecar:b94:pse:{{ID}}
+PSETEX-b94|OK|PSETEX sidecar:b94:pse:{{ID}} 8000 v
+GET-b94pse|v|GET sidecar:b94:pse:{{ID}}
+PTTL-b94pse|<=8000|PTTL sidecar:b94:pse:{{ID}}
+PTTL-b94pse2|>=1|PTTL sidecar:b94:pse:{{ID}}
+DEL-b94pse|1|DEL sidecar:b94:pse:{{ID}}
+@DEL sidecar:b94:lx:{{ID}}
+LPUSHX-b94miss|0|LPUSHX sidecar:b94:lx:{{ID}} z
+RPUSH-b94lx|1|RPUSH sidecar:b94:lx:{{ID}} a
+LPUSHX-b94|2|LPUSHX sidecar:b94:lx:{{ID}} z
+LINDEX-b94lx|z|LINDEX sidecar:b94:lx:{{ID}} 0
+DEL-b94lx|1|DEL sidecar:b94:lx:{{ID}}
+@DEL sidecar:b94:sn:{{ID}}
+SETNX-b94|1|SETNX sidecar:b94:sn:{{ID}} v
+SETNX-b94dup|0|SETNX sidecar:b94:sn:{{ID}} w
+GET-b94sn|v|GET sidecar:b94:sn:{{ID}}
+DEL-b94sn|1|DEL sidecar:b94:sn:{{ID}}
+@DEL sidecar:b94:zsc:{{ID}}
+ZADD-b94zsc|3|ZADD sidecar:b94:zsc:{{ID}} 1 a 5 b 9 c
+ZCOUNT-b94|1|ZCOUNT sidecar:b94:zsc:{{ID}} 2 8
+ZREMRANGEBYSCORE-b94|2|ZREMRANGEBYSCORE sidecar:b94:zsc:{{ID}} 1 5
+ZRANGE-b94zsc|c|ZRANGE sidecar:b94:zsc:{{ID}} 0 -1
+DEL-b94zsc|1|DEL sidecar:b94:zsc:{{ID}}
+@DEL sidecar:b94:bf2:{{ID}}
+BITFIELD-INCR-b94|3|BITFIELD sidecar:b94:bf2:{{ID}} INCRBY u8 0 3
+BITFIELD-GET-b94|3|BITFIELD sidecar:b94:bf2:{{ID}} GET u8 0
+DEL-b94bf2|1|DEL sidecar:b94:bf2:{{ID}}
+@DEL sidecar:b94:pf1:{{ID}}
+@DEL sidecar:b94:pfm:{{ID}}
+PFMERGE-b94empty|OK|PFMERGE sidecar:b94:pfm:{{ID}} sidecar:b94:pf1:{{ID}}
+PFADD-b94|1|PFADD sidecar:b94:pf1:{{ID}} a
+PFMERGE-b94|OK|PFMERGE sidecar:b94:pfm:{{ID}} sidecar:b94:pf1:{{ID}}
+PFCOUNT-b94|1|PFCOUNT sidecar:b94:pfm:{{ID}}
+DEL-b94pf|2|DEL sidecar:b94:pf1:{{ID}} sidecar:b94:pfm:{{ID}}
+@DEL sidecar:b94:ex:{{ID}}
+SET-b94ex|OK|SET sidecar:b94:ex:{{ID}} v
+EXPIREAT-b94|1|EXPIREAT sidecar:b94:ex:{{ID}} 4102444800
+TTL-b94ex|>=1|TTL sidecar:b94:ex:{{ID}}
+DEL-b94ex|1|DEL sidecar:b94:ex:{{ID}}
+PING-b94|b94msg|PING b94msg
+ECHO-b94|b94|ECHO b94
+TYPE-b94miss|none|TYPE sidecar:b94:miss:{{ID}}
+EXISTS-b94miss|0|EXISTS sidecar:b94:miss:{{ID}}
+DBSIZE-b94|>=0|DBSIZE
+
 # --- cleanup string / incr keys ---
 DEL|1|DEL sidecar:allowlist:{{ID}}
 EXISTS-after-del|0|EXISTS sidecar:allowlist:{{ID}}
