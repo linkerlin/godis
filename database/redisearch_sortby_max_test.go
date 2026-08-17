@@ -90,7 +90,8 @@ func unwrapFTAggregate(r redis.Reply) (*protocol.MultiBulkReply, bool) {
 	return nil, false
 }
 
-// TestFTTimeoutErrorWording aligns TIMEOUT parse errors with Redis 8.x (no ERR prefix).
+// TestFTTimeoutErrorWording aligns TIMEOUT parse errors with Redis 8.x
+// SEARCH_PARSE_ARGS Need argument / TIMEOUT requires a non negative integer.
 func TestFTTimeoutErrorWording(t *testing.T) {
 	db := makeTestDB()
 	_ = db.Exec(nil, utils.ToCmdLine(
@@ -100,19 +101,19 @@ func TestFTTimeoutErrorWording(t *testing.T) {
 	_ = db.Exec(nil, utils.ToCmdLine("HSET", "tmo:1", "t", "hello"))
 
 	neg := db.Exec(nil, utils.ToCmdLine("FT.SEARCH", "tmo", "*", "TIMEOUT", "-1"))
-	if !protocol.IsErrorReply(neg) || !strings.Contains(string(neg.ToBytes()), "TIMEOUT requires a non negative integer") {
+	if !protocol.IsErrorReply(neg) || !strings.Contains(string(neg.ToBytes()), "SEARCH_PARSE_ARGS TIMEOUT requires a non negative integer") {
 		t.Fatalf("TIMEOUT -1: %s", neg.ToBytes())
 	}
 	abc := db.Exec(nil, utils.ToCmdLine("FT.SEARCH", "tmo", "*", "TIMEOUT", "abc"))
-	if !protocol.IsErrorReply(abc) || !strings.Contains(string(abc.ToBytes()), "TIMEOUT requires a non negative integer") {
+	if !protocol.IsErrorReply(abc) || !strings.Contains(string(abc.ToBytes()), "SEARCH_PARSE_ARGS TIMEOUT requires a non negative integer") {
 		t.Fatalf("TIMEOUT abc: %s", abc.ToBytes())
 	}
 	miss := db.Exec(nil, utils.ToCmdLine("FT.SEARCH", "tmo", "*", "TIMEOUT"))
-	if !protocol.IsErrorReply(miss) || !strings.Contains(string(miss.ToBytes()), "Need argument for TIMEOUT") {
+	if !protocol.IsErrorReply(miss) || !strings.Contains(string(miss.ToBytes()), "SEARCH_PARSE_ARGS Need argument for TIMEOUT") {
 		t.Fatalf("TIMEOUT missing: %s", miss.ToBytes())
 	}
 	agg := db.Exec(nil, utils.ToCmdLine("FT.AGGREGATE", "tmo", "*", "TIMEOUT", "-1"))
-	if !protocol.IsErrorReply(agg) || !strings.Contains(string(agg.ToBytes()), "TIMEOUT requires a non negative integer") {
+	if !protocol.IsErrorReply(agg) || !strings.Contains(string(agg.ToBytes()), "SEARCH_PARSE_ARGS TIMEOUT requires a non negative integer") {
 		t.Fatalf("AGG TIMEOUT -1: %s", agg.ToBytes())
 	}
 }

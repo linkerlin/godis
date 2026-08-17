@@ -29,7 +29,7 @@ func TestFTLanguageReturnInkeysLoadParams(t *testing.T) {
 		{"lang-miss", []string{"FT.SEARCH", "p80", "hello", "LANGUAGE"}, "SEARCH_PARSE_ARGS Bad arguments for LANGUAGE: Expected an argument, but none provided"},
 		{"lang-bad", []string{"FT.SEARCH", "p80", "hello", "LANGUAGE", "nosuch"}, "SEARCH_QUERY_BAD No such language"},
 		{"lang-polish", []string{"FT.SEARCH", "p80", "hello", "LANGUAGE", "polish"}, "SEARCH_QUERY_BAD No such language"},
-		{"create-lang-bad", []string{"FT.CREATE", "p80bad", "ON", "HASH", "PREFIX", "1", "p80bad:", "LANGUAGE", "nosuch", "SCHEMA", "t", "TEXT"}, "Invalid language"},
+		{"create-lang-bad", []string{"FT.CREATE", "p80bad", "ON", "HASH", "PREFIX", "1", "p80bad:", "LANGUAGE", "nosuch", "SCHEMA", "t", "TEXT"}, "SEARCH_ADD_ARGS Invalid language"},
 		{"ret-miss", []string{"FT.SEARCH", "p80", "hello", "RETURN"}, "SEARCH_PARSE_ARGS Bad arguments for RETURN: Expected an argument, but none provided"},
 		{"ret-neg", []string{"FT.SEARCH", "p80", "hello", "RETURN", "-1"}, "SEARCH_PARSE_ARGS Bad arguments for RETURN: Value is outside acceptable bounds"},
 		{"ret-bad", []string{"FT.SEARCH", "p80", "hello", "RETURN", "abc"}, "SEARCH_PARSE_ARGS Bad arguments for RETURN: Could not convert argument to expected type"},

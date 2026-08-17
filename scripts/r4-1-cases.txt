@@ -1057,6 +1057,74 @@ DEL-b82px|1|DEL sidecar:b82:px:{{ID}}
 ECHO-b82|sidecar-b82|ECHO sidecar-b82
 DBSIZE-b82|>=0|DBSIZE
 
+# --- batch 83: BITOP OR/XOR; LINDEX/LSET/LINSERT; GETEX; STRLEN/XLEN miss; APPEND; HSTRLEN; SINTERCARD; ZINTERCARD; ZREMRANGEBYRANK; ZLEXCOUNT; RPUSHX; BITPOS; PFCOUNT multi; INCRBYFLOAT ---
+@DEL sidecar:b83:b1:{{ID}}
+@DEL sidecar:b83:b2:{{ID}}
+@DEL sidecar:b83:or:{{ID}}
+@DEL sidecar:b83:xor:{{ID}}
+SETBIT-b83a|0|SETBIT sidecar:b83:b1:{{ID}} 0 1
+SETBIT-b83b|0|SETBIT sidecar:b83:b2:{{ID}} 1 1
+BITOP-OR-b83|1|BITOP OR sidecar:b83:or:{{ID}} sidecar:b83:b1:{{ID}} sidecar:b83:b2:{{ID}}
+BITCOUNT-OR-b83|2|BITCOUNT sidecar:b83:or:{{ID}}
+BITOP-XOR-b83|1|BITOP XOR sidecar:b83:xor:{{ID}} sidecar:b83:b1:{{ID}} sidecar:b83:b2:{{ID}}
+BITCOUNT-XOR-b83|2|BITCOUNT sidecar:b83:xor:{{ID}}
+BITPOS-b83|0|BITPOS sidecar:b83:b1:{{ID}} 1
+DEL-b83bit|4|DEL sidecar:b83:b1:{{ID}} sidecar:b83:b2:{{ID}} sidecar:b83:or:{{ID}} sidecar:b83:xor:{{ID}}
+@DEL sidecar:b83:l:{{ID}}
+RPUSH-b83|3|RPUSH sidecar:b83:l:{{ID}} a b c
+LINDEX-b83|b|LINDEX sidecar:b83:l:{{ID}} 1
+LSET-b83|OK|LSET sidecar:b83:l:{{ID}} 1 B
+LINSERT-b83|4|LINSERT sidecar:b83:l:{{ID}} BEFORE B X
+LLEN-b83|4|LLEN sidecar:b83:l:{{ID}}
+DEL-b83l|1|DEL sidecar:b83:l:{{ID}}
+@DEL sidecar:b83:lx:{{ID}}
+RPUSHX-b83miss|0|RPUSHX sidecar:b83:lx:{{ID}} a
+RPUSH-b83lx|1|RPUSH sidecar:b83:lx:{{ID}} a
+RPUSHX-b83hit|2|RPUSHX sidecar:b83:lx:{{ID}} b
+DEL-b83lx|1|DEL sidecar:b83:lx:{{ID}}
+@DEL sidecar:b83:ge:{{ID}}
+SET-b83ge|OK|SET sidecar:b83:ge:{{ID}} abc
+GETEX-b83|abc|GETEX sidecar:b83:ge:{{ID}} EX 120
+TTL-b83ge|>=1|TTL sidecar:b83:ge:{{ID}}
+DEL-b83ge|1|DEL sidecar:b83:ge:{{ID}}
+STRLEN-b83miss|0|STRLEN sidecar:b83:strlen-miss:{{ID}}
+XLEN-b83miss|0|XLEN sidecar:b83:xmiss:{{ID}}
+@DEL sidecar:b83:ap:{{ID}}
+APPEND-b83|2|APPEND sidecar:b83:ap:{{ID}} hi
+DEL-b83ap|1|DEL sidecar:b83:ap:{{ID}}
+@DEL sidecar:b83:h:{{ID}}
+HSET-b83|1|HSET sidecar:b83:h:{{ID}} f hello
+HSTRLEN-b83|5|HSTRLEN sidecar:b83:h:{{ID}} f
+DEL-b83h|1|DEL sidecar:b83:h:{{ID}}
+@DEL sidecar:b83:sa:{{ID}}
+@DEL sidecar:b83:sb:{{ID}}
+SADD-b83a|3|SADD sidecar:b83:sa:{{ID}} a b c
+SADD-b83b|3|SADD sidecar:b83:sb:{{ID}} b c d
+SINTERCARD-b83|2|SINTERCARD 2 sidecar:b83:sa:{{ID}} sidecar:b83:sb:{{ID}}
+DEL-b83s|2|DEL sidecar:b83:sa:{{ID}} sidecar:b83:sb:{{ID}}
+@DEL sidecar:b83:za:{{ID}}
+@DEL sidecar:b83:zb:{{ID}}
+ZADD-b83a|3|ZADD sidecar:b83:za:{{ID}} 1 a 2 b 3 c
+ZADD-b83b|3|ZADD sidecar:b83:zb:{{ID}} 1 b 2 c 3 d
+ZINTERCARD-b83|2|ZINTERCARD 2 sidecar:b83:za:{{ID}} sidecar:b83:zb:{{ID}}
+ZREMRANGEBYRANK-b83|1|ZREMRANGEBYRANK sidecar:b83:za:{{ID}} 0 0
+ZCARD-b83|2|ZCARD sidecar:b83:za:{{ID}}
+DEL-b83z|2|DEL sidecar:b83:za:{{ID}} sidecar:b83:zb:{{ID}}
+@DEL sidecar:b83:zl:{{ID}}
+ZADD-b83lex|3|ZADD sidecar:b83:zl:{{ID}} 0 a 0 b 0 c
+ZLEXCOUNT-b83|3|ZLEXCOUNT sidecar:b83:zl:{{ID}} [a [c
+DEL-b83zl|1|DEL sidecar:b83:zl:{{ID}}
+@DEL sidecar:b83:pf1:{{ID}}
+@DEL sidecar:b83:pf2:{{ID}}
+PFADD-b83a|1|PFADD sidecar:b83:pf1:{{ID}} a
+PFADD-b83b|1|PFADD sidecar:b83:pf2:{{ID}} b
+PFCOUNT-b83m|2|PFCOUNT sidecar:b83:pf1:{{ID}} sidecar:b83:pf2:{{ID}}
+DEL-b83pf|2|DEL sidecar:b83:pf1:{{ID}} sidecar:b83:pf2:{{ID}}
+@DEL sidecar:b83:n:{{ID}}
+SET-b83n|OK|SET sidecar:b83:n:{{ID}} 1
+INCRBYFLOAT-b83|1.5|INCRBYFLOAT sidecar:b83:n:{{ID}} 0.5
+DEL-b83n|1|DEL sidecar:b83:n:{{ID}}
+
 # --- cleanup string / incr keys ---
 DEL|1|DEL sidecar:allowlist:{{ID}}
 EXISTS-after-del|0|EXISTS sidecar:allowlist:{{ID}}

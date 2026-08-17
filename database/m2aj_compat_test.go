@@ -54,7 +54,7 @@ func TestM2ajFTCreateOnType(t *testing.T) {
 		"FT.CREATE", "idxj", "ON", "JSON", "PREFIX", "1", "j:", "SCHEMA", "t", "TEXT")), "OK")
 	r := db.Exec(nil, utils.ToCmdLine(
 		"FT.CREATE", "bad", "ON", "SET", "SCHEMA", "t", "TEXT"))
-	asserts.AssertErrReply(t, r, "ERR Wrong type specified for ON. Expected HASH or JSON.")
+	asserts.AssertErrReply(t, r, "SEARCH_ADD_ARGS Invalid rule type: SET")
 
 	db.Exec(nil, utils.ToCmdLine("HSET", "h:1", "t", "hello"))
 	db.Exec(nil, utils.ToCmdLine("HSET", "j:1", "t", "should-not-index-json-idx"))

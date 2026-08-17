@@ -332,7 +332,7 @@ func execFTCreate(db *DB, args [][]byte) redis.Reply {
 	// Parse options
 	var prefix []string
 	onType := "HASH" // Redis default
-	schemaStart := 1
+	schemaStart := -1
 	skipInitialScan := false
 	var stopWords []string
 	hasStopWords := false
@@ -353,17 +353,22 @@ func execFTCreate(db *DB, args [][]byte) redis.Reply {
 			}
 			t := strings.ToUpper(string(args[i+1]))
 			if t != "HASH" && t != "JSON" {
-				return protocol.MakeErrReply("ERR Wrong type specified for ON. Expected HASH or JSON.")
+				// Redis 8.x QE: SEARCH_ADD_ARGS Invalid rule type: <TOKEN>
+				return protocol.MakeErrReply("SEARCH_ADD_ARGS Invalid rule type: " + t)
 			}
 			onType = t
 			i++
 		case "PREFIX":
+			// Redis 8.x: missing / non-int / negative → SEARCH_PARSE_ARGS (like STOPWORDS).
 			if i+1 >= len(args) {
-				return protocol.MakeSyntaxErrReply()
+				return protocol.MakeErrReply("SEARCH_PARSE_ARGS Bad arguments for PREFIX: Expected an argument, but none provided")
 			}
 			count, err := strconv.Atoi(string(args[i+1]))
 			if err != nil {
-				return protocol.MakeErrReply("ERR Invalid prefix count")
+				return protocol.MakeErrReply("SEARCH_PARSE_ARGS Bad arguments for PREFIX: Could not convert argument to expected type")
+			}
+			if count < 0 {
+				return protocol.MakeErrReply("SEARCH_PARSE_ARGS Bad arguments for PREFIX: Value is outside acceptable bounds")
 			}
 			i += 2
 			for j := 0; j < count && i < len(args); j++ {
@@ -425,17 +430,17 @@ func execFTCreate(db *DB, args [][]byte) redis.Reply {
 			// FILTER uses the aggregation expression language; evaluated in
 			// AddDocument against document fields + @__key (Redis 8.x).
 			if i+1 >= len(args) {
-				return protocol.MakeSyntaxErrReply()
+				return protocol.MakeErrReply("SEARCH_PARSE_ARGS Bad arguments for FILTER: Expected an argument, but none provided")
 			}
 			filterExpr = string(args[i+1])
 			i++
 		case "INDEXALL":
 			if i+1 >= len(args) {
-				return protocol.MakeSyntaxErrReply()
+				return protocol.MakeErrReply("SEARCH_PARSE_ARGS Bad arguments for INDEXALL: Expected an argument, but none provided")
 			}
 			v := strings.ToUpper(string(args[i+1]))
 			if v != "ENABLE" && v != "DISABLE" {
-				return protocol.MakeErrReply("ERR Invalid INDEXALL value, expected ENABLE or DISABLE")
+				return protocol.MakeErrReply("SEARCH_ADD_ARGS Invalid argument for `INDEXALL`, use ENABLE/DISABLE")
 			}
 			indexAll = v
 			i++
@@ -444,12 +449,21 @@ func execFTCreate(db *DB, args [][]byte) redis.Reply {
 				return protocol.MakeErrReply("SEARCH_PARSE_ARGS Bad arguments for LANGUAGE: Expected an argument, but none provided")
 			}
 			if !redisearch.IsKnownSearchLanguage(string(args[i+1])) {
-				return protocol.MakeErrReply("Invalid language")
+				return protocol.MakeErrReply("SEARCH_ADD_ARGS Invalid language")
 			}
 			i++
-		case "LANGUAGE_FIELD", "SCORE", "SCORE_FIELD", "PAYLOAD_FIELD":
-			// Accepted for syntax parity; SCORE_FIELD / PAYLOAD_FIELD / LANGUAGE_FIELD
-			// flow through EngineConfig below.
+		case "SCORE":
+			// Redis 8.x default document score ∈ [0,1] or NaN; others → Invalid score.
+			if i+1 >= len(args) {
+				return protocol.MakeErrReply("SEARCH_PARSE_ARGS Bad arguments for SCORE: Expected an argument, but none provided")
+			}
+			sc, err := strconv.ParseFloat(string(args[i+1]), 64)
+			if err != nil || math.IsInf(sc, 0) || (!math.IsNaN(sc) && (sc < 0 || sc > 1)) {
+				return protocol.MakeErrReply("SEARCH_ADD_ARGS Invalid score")
+			}
+			i++
+		case "LANGUAGE_FIELD", "SCORE_FIELD", "PAYLOAD_FIELD":
+			// Accepted for syntax parity; field name consumed, value unused here.
 			if i+1 >= len(args) {
 				return protocol.MakeSyntaxErrReply()
 			}
@@ -460,8 +474,8 @@ func execFTCreate(db *DB, args [][]byte) redis.Reply {
 		}
 	}
 
-	if schemaStart >= len(args) {
-		return protocol.MakeErrReply("ERR No schema specified")
+	if schemaStart < 0 || schemaStart >= len(args) {
+		return protocol.MakeErrReply("SEARCH_PARSE_ARGS No schema found")
 	}
 
 	fields, errReply := parseFTSchemaFields(args[schemaStart:])
@@ -469,7 +483,7 @@ func execFTCreate(db *DB, args [][]byte) redis.Reply {
 		return errReply
 	}
 	if len(fields) == 0 {
-		return protocol.MakeErrReply("ERR No schema specified")
+		return protocol.MakeErrReply("SEARCH_PARSE_ARGS No schema found")
 	}
 
 	// Redis: TEMPORARY 0 → CREATE OK but index is gone immediately (INFO not found).
@@ -955,12 +969,12 @@ func execFTSearch(db *DB, args [][]byte) redis.Reply {
 			i++
 		case "TIMEOUT":
 			if i+1 >= len(args) {
-				// Redis 8.x: bare TIMEOUT with no value (no ERR prefix).
-				return protocol.MakeErrReply("Need argument for TIMEOUT")
+				// Redis 8.x: SEARCH_PARSE_ARGS Need argument for TIMEOUT
+				return protocol.MakeErrReply("SEARCH_PARSE_ARGS Need argument for TIMEOUT")
 			}
 			ms, err := strconv.Atoi(string(args[i+1]))
 			if err != nil || ms < 0 {
-				return protocol.MakeErrReply("TIMEOUT requires a non negative integer")
+				return protocol.MakeErrReply("SEARCH_PARSE_ARGS TIMEOUT requires a non negative integer")
 			}
 			opts.TimeoutMs = ms
 			i++ // engine Search/KNN honor TimeoutMs soft deadline
@@ -1709,11 +1723,11 @@ func execFTAggregate(db *DB, args [][]byte) redis.Reply {
 
 		case "TIMEOUT":
 			if i+1 >= len(args) {
-				return protocol.MakeErrReply("Need argument for TIMEOUT")
+				return protocol.MakeErrReply("SEARCH_PARSE_ARGS Need argument for TIMEOUT")
 			}
 			ms, err := strconv.Atoi(string(args[i+1]))
 			if err != nil || ms < 0 {
-				return protocol.MakeErrReply("TIMEOUT requires a non negative integer")
+				return protocol.MakeErrReply("SEARCH_PARSE_ARGS TIMEOUT requires a non negative integer")
 			}
 			req.TimeoutMs = ms
 			i += 2
