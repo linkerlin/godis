@@ -96,7 +96,8 @@ func TestFTAggregateWithCursorPages(t *testing.T) {
 func TestFTAggregateApplyExpression(t *testing.T) {
 	db := makeTestDB()
 	asserts.AssertStatusReply(t, db.Exec(nil, utils.ToCmdLine(
-		"FT.CREATE", "idx_apply", "ON", "HASH", "PREFIX", "1", "p:", "SCHEMA", "price", "NUMERIC",
+		"FT.CREATE", "idx_apply", "ON", "HASH", "PREFIX", "1", "p:",
+		"SCHEMA", "price", "NUMERIC", "SORTABLE",
 	)), "OK")
 	_ = db.Exec(nil, utils.ToCmdLine("FT.ADD", "idx_apply", "p:1", "FIELDS", "price", "10"))
 	_ = db.Exec(nil, utils.ToCmdLine("FT.ADD", "idx_apply", "p:2", "FIELDS", "price", "20"))
@@ -118,7 +119,8 @@ func TestFTAggregateApplyExpression(t *testing.T) {
 func TestFTAggregateApplyAfterGroupBy(t *testing.T) {
 	db := makeTestDB()
 	asserts.AssertStatusReply(t, db.Exec(nil, utils.ToCmdLine(
-		"FT.CREATE", "idx_apply_post", "ON", "HASH", "PREFIX", "1", "q:", "SCHEMA", "cat", "TAG", "price", "NUMERIC",
+		"FT.CREATE", "idx_apply_post", "ON", "HASH", "PREFIX", "1", "q:",
+		"SCHEMA", "cat", "TAG", "SORTABLE", "price", "NUMERIC", "SORTABLE",
 	)), "OK")
 	_ = db.Exec(nil, utils.ToCmdLine("FT.ADD", "idx_apply_post", "q:1", "FIELDS", "cat", "a", "price", "10"))
 	_ = db.Exec(nil, utils.ToCmdLine("FT.ADD", "idx_apply_post", "q:2", "FIELDS", "cat", "a", "price", "20"))
@@ -144,7 +146,8 @@ func TestFTAggregateApplyAfterGroupBy(t *testing.T) {
 func TestFTAggregateApplyBeforeGroupByFeedsReduce(t *testing.T) {
 	db := makeTestDB()
 	asserts.AssertStatusReply(t, db.Exec(nil, utils.ToCmdLine(
-		"FT.CREATE", "idx_apply_pre", "ON", "HASH", "PREFIX", "1", "r:", "SCHEMA", "cat", "TAG", "price", "NUMERIC",
+		"FT.CREATE", "idx_apply_pre", "ON", "HASH", "PREFIX", "1", "r:",
+		"SCHEMA", "cat", "TAG", "SORTABLE", "price", "NUMERIC", "SORTABLE",
 	)), "OK")
 	_ = db.Exec(nil, utils.ToCmdLine("FT.ADD", "idx_apply_pre", "r:1", "FIELDS", "cat", "a", "price", "10"))
 	_ = db.Exec(nil, utils.ToCmdLine("FT.ADD", "idx_apply_pre", "r:2", "FIELDS", "cat", "a", "price", "20"))

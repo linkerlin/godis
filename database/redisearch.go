@@ -415,9 +415,8 @@ func execFTCreate(db *DB, args [][]byte) redis.Reply {
 			temporary = n
 			i++
 		case "FILTER":
-			// ponytail: FILTER expression is stored but not yet evaluated; needs
-			// an aggregation-style expression evaluator against @__key and doc
-			// fields. Until then it is accepted for syntax parity.
+			// FILTER uses the aggregation expression language; evaluated in
+			// AddDocument against document fields + @__key (Redis 8.x).
 			if i+1 >= len(args) {
 				return protocol.MakeSyntaxErrReply()
 			}
@@ -1927,7 +1926,7 @@ func aggRowBytes(group *redisearch.Group) []byte {
 
 // collectValueBytes renders a GROUPBY field value for the wire. []CollectEntry
 // becomes a nested array of k/v maps; []string (matched_terms / multi-value)
-// becomes a nested bulk array; everything else keeps %v formatting.
+// and []interface{} (REDUCE TOLIST) become nested bulk arrays — not Go %v.
 func collectValueBytes(v interface{}) []byte {
 	switch entries := v.(type) {
 	case []redisearch.CollectEntry:
@@ -1945,6 +1944,16 @@ func collectValueBytes(v interface{}) []byte {
 		elems := make([][]byte, len(entries))
 		for i, s := range entries {
 			elems[i] = []byte(s)
+		}
+		return protocol.MakeMultiBulkReply(elems).ToBytes()
+	case []interface{}:
+		elems := make([][]byte, len(entries))
+		for i, x := range entries {
+			if x == nil {
+				elems[i] = []byte{}
+				continue
+			}
+			elems[i] = []byte(fmt.Sprintf("%v", x))
 		}
 		return protocol.MakeMultiBulkReply(elems).ToBytes()
 	default:

@@ -14,7 +14,7 @@ import (
 func TestP4aReducers(t *testing.T) {
 	db := makeTestDB()
 	asserts.AssertStatusReply(t, db.Exec(nil, utils.ToCmdLine(
-		"FT.CREATE", "p4a", "SCHEMA", "v", "NUMERIC", "cat", "TAG",
+		"FT.CREATE", "p4a", "SCHEMA", "v", "NUMERIC", "SORTABLE", "cat", "TAG", "SORTABLE",
 	)), "OK")
 	// Four docs in cat:x with values 10,20,30,40 and one in cat:y with value 5.
 	for _, d := range [][2]string{

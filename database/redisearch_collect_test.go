@@ -14,7 +14,7 @@ import (
 func TestCollectReducer(t *testing.T) {
 	db := makeTestDB()
 	asserts.AssertStatusReply(t, db.Exec(nil, utils.ToCmdLine(
-		"FT.CREATE", "cl", "SCHEMA", "cat", "TAG", "v", "NUMERIC",
+		"FT.CREATE", "cl", "SCHEMA", "cat", "TAG", "SORTABLE", "v", "NUMERIC", "SORTABLE",
 	)), "OK")
 	// 3 docs in cat:x with v=10,20,30; 1 doc in cat:y with v=5.
 	for _, kv := range [][2]string{
@@ -53,7 +53,7 @@ func TestCollectReducer(t *testing.T) {
 func TestCollectDistinct(t *testing.T) {
 	db := makeTestDB()
 	asserts.AssertStatusReply(t, db.Exec(nil, utils.ToCmdLine(
-		"FT.CREATE", "cld", "SCHEMA", "cat", "TAG", "v", "NUMERIC",
+		"FT.CREATE", "cld", "SCHEMA", "cat", "TAG", "SORTABLE", "v", "NUMERIC", "SORTABLE",
 	)), "OK")
 	// Two docs in cat:x with identical v=7.
 	for _, id := range []string{"cld:1", "cld:2"} {

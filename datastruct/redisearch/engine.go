@@ -77,17 +77,16 @@ type EngineConfig struct {
 	StopWords    []string
 	HasStopWords bool
 	// Redis 8.x index-level options. Parsed from FT.CREATE; the behavioral
-	// subset (NoOffsets/NoFreqs/NoFields) is honored at index+query time, the
-	// rest (MaxTextFields/Temporary/Filter/IndexAll/IndexMissing) are stored
-	// for FT.INFO and later wiring (Temporary needs an idle timer; Filter needs
-	// an expression evaluator — both deferred).
+	// subset (NoOffsets/NoFreqs/NoFields) is honored at index+query time;
+	// Filter is evaluated in AddDocument; Temporary/IndexAll/IndexMissing are
+	// stored for FT.INFO (Temporary idle timer still deferred).
 	NoOffsets     bool
 	NoFields      bool
 	NoFreqs       bool
 	NoHL          bool
 	MaxTextFields bool
 	Temporary     int    // seconds; 0 = permanent
-	Filter        string // per-key FILTER expression
+	Filter        string // per-key FILTER expression (@__key + fields)
 	IndexAll      string // "ENABLE" | "DISABLE" | ""
 	IndexMissing  bool   // index-wide INDEXMISSING
 }
@@ -237,10 +236,24 @@ func (e *RediSearchEngine) DropIndex(deleteDocs bool) error {
 	return nil
 }
 
-// AddDocument adds a document to the index
+// AddDocument adds a document to the index. When FT.CREATE … FILTER is set,
+// the document is indexed only if the aggregation expression is truthy
+// (Redis 8.x; @__key is the document id). False/error → skip (no error).
 func (e *RediSearchEngine) AddDocument(docID string, fields map[string]interface{}, score float64, payload []byte) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
+
+	if e.filterExpr != "" {
+		eval := make(map[string]interface{}, len(fields)+1)
+		for k, v := range fields {
+			eval[k] = v
+		}
+		eval["__key"] = docID
+		ok, err := EvalFilterExpr(e.filterExpr, eval)
+		if err != nil || !ok {
+			return nil
+		}
+	}
 
 	doc := &Document{
 		ID:      docID,
@@ -968,9 +981,16 @@ func (e *RediSearchEngine) Aggregate(req *AggregationRequest) (*AggregationResul
 		docs = out
 	}
 
-	// Apply LOAD (projection + optional AS rename). LOAD * / absent LOAD keep
-	// existing fields (Godis still returns full docs without LOAD; Redis omits).
-	docs = applyLoadSpecs(docs, req.Load, req.LoadAll)
+	// Apply LOAD (projection + optional AS rename). LOAD * keeps all fields;
+	// absent LOAD keeps only SORTABLE schema fields (+ ADDSCORES __score),
+	// matching Redis 8.x default empty rows when nothing is SORTABLE.
+	sortable := make(map[string]bool, len(e.schema))
+	for name, f := range e.schema {
+		if f != nil && f.Sortable {
+			sortable[name] = true
+		}
+	}
+	docs = applyLoadSpecs(docs, req.Load, req.LoadAll, sortable)
 
 	// Apply APPLY clauses that appeared before GROUPBY, against each
 	// document's own fields (so a following GROUPBY/REDUCE can reference
@@ -1078,9 +1098,30 @@ type AggregationRequest struct {
 
 // applyLoadSpecs projects document fields for LOAD n … [AS alias]. Preserves
 // @__score injected by ADDSCORES. Missing source fields are omitted.
-func applyLoadSpecs(docs []*Document, specs []LoadSpec, loadAll bool) []*Document {
-	if loadAll || len(specs) == 0 {
+// When LOAD is absent (and not LOAD *), Redis keeps only SORTABLE attributes
+// in the pipeline — non-sortable document fields are dropped (empty rows).
+func applyLoadSpecs(docs []*Document, specs []LoadSpec, loadAll bool, sortable map[string]bool) []*Document {
+	if loadAll {
 		return docs
+	}
+	if len(specs) == 0 {
+		out := make([]*Document, len(docs))
+		for i, doc := range docs {
+			fields := make(map[string]interface{})
+			if score, ok := doc.Fields["__score"]; ok {
+				fields["__score"] = score
+			}
+			for k, v := range doc.Fields {
+				if k == "__score" {
+					continue
+				}
+				if sortable[k] {
+					fields[k] = v
+				}
+			}
+			out[i] = &Document{ID: doc.ID, Fields: fields, Score: doc.Score, Payload: doc.Payload}
+		}
+		return out
 	}
 	out := make([]*Document, len(docs))
 	for i, doc := range docs {

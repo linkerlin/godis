@@ -23,11 +23,11 @@ func TestAggregateMaxResultsCap(t *testing.T) {
 	}
 	// Set a tiny aggregate cap; the default LIMIT 0 10 must be clamped to it.
 	asserts.AssertStatusReply(t, db.Exec(nil, utils.ToCmdLine("FT.CONFIG", "SET", "MAXAGGREGATERESULTS", "3")), "OK")
-	r := db.Exec(nil, utils.ToCmdLine("FT.AGGREGATE", "cap", "*"))
+	r := db.Exec(nil, utils.ToCmdLine("FT.AGGREGATE", "cap", "*", "LOAD", "1", "@v"))
 	t.Logf("aggregate reply = %q", r.ToBytes())
 	// Redis reports total (LIMIT-before) as the first integer, and the page
 	// rows are clamped by the cap. Assert the PAGE has 3 rows: v=0,1,2 must be
-	// present and v=3,4 must not.
+	// present and v=3,4 must not. (LOAD required: absent LOAD drops non-SORTABLE.)
 	body := string(r.ToBytes())
 	for _, want := range []string{"0", "1", "2"} {
 		if !strings.Contains(body, "$1\r\n"+want+"\r\n") {
