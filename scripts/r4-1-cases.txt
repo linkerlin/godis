@@ -825,6 +825,45 @@ XDEL-b78|1|XDEL sidecar:b78:x:{{ID}} 1-0
 XLEN-b78|0|XLEN sidecar:b78:x:{{ID}}
 DEL-b78x|1|DEL sidecar:b78:x:{{ID}}
 
+# --- batch 79 extras (APPEND/STRLEN; LREM; ZRANK/ZREM; HINCRBYFLOAT; SISMEMBER; BITCOUNT; XTRIM) ---
+@DEL sidecar:b79:str:{{ID}}
+SET-b79str|OK|SET sidecar:b79:str:{{ID}} hello
+APPEND-b79|6|APPEND sidecar:b79:str:{{ID}} !
+STRLEN-b79|6|STRLEN sidecar:b79:str:{{ID}}
+GET-b79str|hello!|GET sidecar:b79:str:{{ID}}
+DEL-b79str|1|DEL sidecar:b79:str:{{ID}}
+@DEL sidecar:b79:l:{{ID}}
+RPUSH-b79|3|RPUSH sidecar:b79:l:{{ID}} a b c
+LREM-b79|1|LREM sidecar:b79:l:{{ID}} 1 b
+LLEN-b79|2|LLEN sidecar:b79:l:{{ID}}
+DEL-b79l|1|DEL sidecar:b79:l:{{ID}}
+@DEL sidecar:b79:z:{{ID}}
+ZADD-b79|3|ZADD sidecar:b79:z:{{ID}} 1 a 2 b 3 c
+ZRANK-b79|1|ZRANK sidecar:b79:z:{{ID}} b
+ZREM-b79|1|ZREM sidecar:b79:z:{{ID}} a
+ZCARD-b79|2|ZCARD sidecar:b79:z:{{ID}}
+DEL-b79z|1|DEL sidecar:b79:z:{{ID}}
+@DEL sidecar:b79:h:{{ID}}
+HSET-b79|1|HSET sidecar:b79:h:{{ID}} n 10
+HINCRBYFLOAT-b79|10.5|HINCRBYFLOAT sidecar:b79:h:{{ID}} n 0.5
+DEL-b79h|1|DEL sidecar:b79:h:{{ID}}
+@DEL sidecar:b79:s:{{ID}}
+SADD-b79|3|SADD sidecar:b79:s:{{ID}} a b c
+SISMEMBER-b79|1|SISMEMBER sidecar:b79:s:{{ID}} b
+SCARD-b79|3|SCARD sidecar:b79:s:{{ID}}
+DEL-b79s|1|DEL sidecar:b79:s:{{ID}}
+@DEL sidecar:b79:bit:{{ID}}
+SETBIT-b79a|0|SETBIT sidecar:b79:bit:{{ID}} 0 1
+SETBIT-b79b|0|SETBIT sidecar:b79:bit:{{ID}} 1 1
+BITCOUNT-b79|2|BITCOUNT sidecar:b79:bit:{{ID}}
+DEL-b79bit|1|DEL sidecar:b79:bit:{{ID}}
+@DEL sidecar:b79:x:{{ID}}
+XADD-b79a|1-0|XADD sidecar:b79:x:{{ID}} 1-0 f v
+XADD-b79b|2-0|XADD sidecar:b79:x:{{ID}} 2-0 f v2
+XTRIM-b79|1|XTRIM sidecar:b79:x:{{ID}} MAXLEN 1
+XLEN-b79|1|XLEN sidecar:b79:x:{{ID}}
+DEL-b79x|1|DEL sidecar:b79:x:{{ID}}
+
 # --- cleanup string / incr keys ---
 DEL|1|DEL sidecar:allowlist:{{ID}}
 EXISTS-after-del|0|EXISTS sidecar:allowlist:{{ID}}

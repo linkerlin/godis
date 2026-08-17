@@ -384,6 +384,13 @@ func (e *RediSearchEngine) GetDocument(docID string) (*Document, bool) {
 	return e.index.GetDocument(docID)
 }
 
+// SchemaField returns the schema field definition, or nil if absent.
+func (e *RediSearchEngine) SchemaField(name string) *Field {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	return e.schema[name]
+}
+
 // TagVals returns distinct values for a TAG field.
 func (e *RediSearchEngine) TagVals(field string) []string {
 	if e.index == nil {

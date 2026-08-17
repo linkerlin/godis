@@ -31,6 +31,18 @@ const (
 	ScorerHAMMING      = "HAMMING"
 )
 
+// IsKnownScorer reports whether name is an exact Redis 8.x SCORER token
+// (case-sensitive; lowercase like "bm25std" is rejected).
+func IsKnownScorer(name string) bool {
+	switch name {
+	case ScorerBM25STD, ScorerBM25, ScorerBM25STDNorm, ScorerBM25STDTanh,
+		ScorerTFIDF, ScorerTFIDFDocNorm, ScorerDISMAX, ScorerDOCSCORE, ScorerHAMMING:
+		return true
+	default:
+		return false
+	}
+}
+
 // BM25 parameters used by BM25STD and its variants. k1 controls term-frequency
 // saturation; b controls length normalization. These match RediSearch defaults.
 const (
@@ -81,8 +93,8 @@ func (e *RediSearchEngine) computeScore(doc *Document, sc *scoreContext, scorerN
 	case ScorerHAMMING:
 		return scorerHAMMING(doc, sc)
 	default:
-		// Unknown scorer falls back to the default (BM25STD) rather than zero,
-		// so a typo in SCORER doesn't silently derank everything.
+		// Empty / unset SCORER → BM25STD. Unknown names are rejected at parse
+		// time (IsKnownScorer); this branch is defensive only.
 		return scorerBM25STD(doc, sc, bm25K1, bm25B) * doc.Score
 	}
 }

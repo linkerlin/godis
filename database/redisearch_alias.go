@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/linkerlin/godis/datastruct/redisearch"
 	"github.com/linkerlin/godis/interface/redis"
 	"github.com/linkerlin/godis/lib/utils"
 	"github.com/linkerlin/godis/redis/protocol"
@@ -116,6 +117,12 @@ func execFTTagVals(db *DB, args [][]byte) redis.Reply {
 	searchEnginesMu.RUnlock()
 	if !ok || engine == nil {
 		return protocol.MakeErrReply(fmt.Sprintf("SEARCH_INDEX_NOT_FOUND Index not found: %s", string(args[0])))
+	}
+
+	if f := engine.SchemaField(field); f == nil {
+		return protocol.MakeErrReply("No such field")
+	} else if f.Type != redisearch.FieldTypeTag {
+		return protocol.MakeErrReply("Not a tag field")
 	}
 
 	tags := engine.TagVals(field)

@@ -797,12 +797,9 @@ func execFTSearch(db *DB, args [][]byte) redis.Reply {
 			for i+1 < len(args) {
 				opt := strings.ToUpper(string(args[i+1]))
 				if opt == "COUNT" {
-					if i+2 >= len(args) {
-						return protocol.MakeSyntaxErrReply()
-					}
-					n, err := strconv.Atoi(string(args[i+2]))
-					if err != nil || n <= 0 {
-						return protocol.MakeErrReply("ERR Invalid COUNT value")
+					n, errMsg := parseFTCursorCountArg(args, i+2)
+					if errMsg != "" {
+						return protocol.MakeErrReply(errMsg)
 					}
 					cursorCount = n
 					i += 2
@@ -842,9 +839,13 @@ func execFTSearch(db *DB, args [][]byte) redis.Reply {
 			i++
 		case "SCORER":
 			if i+1 >= len(args) {
-				return protocol.MakeSyntaxErrReply()
+				return protocol.MakeErrReply("Bad arguments for SCORER: Expected an argument, but none provided")
 			}
-			opts.Scorer = strings.ToUpper(string(args[i+1]))
+			scorerName := string(args[i+1])
+			if !redisearch.IsKnownScorer(scorerName) {
+				return protocol.MakeErrReply("No such scorer " + scorerName)
+			}
+			opts.Scorer = scorerName
 			i++
 		case "BM25STD_TANH_FACTOR":
 			// Per-query divisor for SCORER BM25STD.TANH (default 4).
@@ -1586,12 +1587,9 @@ func execFTAggregate(db *DB, args [][]byte) redis.Reply {
 					break
 				}
 				if opt == "COUNT" {
-					if i+1 >= len(args) {
-						return protocol.MakeSyntaxErrReply()
-					}
-					n, err := strconv.Atoi(string(args[i+1]))
-					if err != nil || n <= 0 {
-						return protocol.MakeErrReply("ERR Invalid COUNT value")
+					n, errMsg := parseFTCursorCountArg(args, i+1)
+					if errMsg != "" {
+						return protocol.MakeErrReply(errMsg)
 					}
 					cursorCount = n
 					i += 2
@@ -1929,6 +1927,22 @@ func execFTAggregate(db *DB, args [][]byte) redis.Reply {
 
 	// Wrap for dual-form RESP2/RESP3 output (RESP3 gets the 8.x map shape).
 	return MakeFTAggregateReply(protocol.MakeMultiBulkReply(reply), int64(result.Total))
+}
+
+// parseFTCursorCountArg parses WITHCURSOR COUNT n (Redis 8.x Bad arguments for COUNT:…).
+// idx is the index of the COUNT value token (may be past len(args)).
+func parseFTCursorCountArg(args [][]byte, idx int) (count int, errMsg string) {
+	if idx >= len(args) {
+		return 0, "Bad arguments for COUNT: Expected an argument, but none provided"
+	}
+	n, err := strconv.Atoi(string(args[idx]))
+	if err != nil {
+		return 0, "Bad arguments for COUNT: Could not convert argument to expected type"
+	}
+	if n <= 0 {
+		return 0, "Bad arguments for COUNT: Value is outside acceptable bounds"
+	}
+	return n, ""
 }
 
 // parseFTLimitPair parses LIMIT offset num at args[i]==LIMIT (Redis 8.x).

@@ -36,10 +36,10 @@ func TestP5ScorerDispatch(t *testing.T) {
 		t.Fatalf("DOCSCORE first hit should rank higher; got %v", scores)
 	}
 
-	// Invalid scorer name falls back to default rather than erroring.
+	// Invalid scorer name → Redis 8.x "No such scorer …" (no silent fallback).
 	r2 := db.Exec(nil, utils.ToCmdLine("FT.SEARCH", "p5d", "golang", "SCORER", "NOSUCH", "NOCONTENT"))
-	if protocol.IsErrorReply(r2) {
-		t.Fatalf("unknown scorer should fall back, not error: %s", r2.ToBytes())
+	if !protocol.IsErrorReply(r2) || !strings.Contains(string(r2.ToBytes()), "No such scorer NOSUCH") {
+		t.Fatalf("unknown scorer: %s", r2.ToBytes())
 	}
 }
 
