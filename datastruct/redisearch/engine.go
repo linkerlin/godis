@@ -1011,6 +1011,22 @@ func (e *RediSearchEngine) Aggregate(req *AggregationRequest) (*AggregationResul
 	pipeDocs := applyLoadSpecs(sourceDocs, req.Load, req.LoadAll, sortable)
 	props := buildAggregatePipelineProps(req, sortable)
 
+	var err error
+	// Redis runs FILTER/APPLY in command order. When FILTER precedes APPLY,
+	// prune pipeline rows before APPLY so missing fields do not VALUE_NOT_FOUND.
+	// Only when there is at least one APPLY: FILTER-only / FILTER-after-GROUPBY
+	// still run on groups below (need reducer aliases / group keys).
+	earlyFilter := req.FilterBeforeApply && req.Filter != "" && len(req.Apply) > 0
+	if earlyFilter {
+		if err := EnsurePipelineProps(req.Filter, props); err != nil {
+			return nil, err
+		}
+		pipeDocs, err = filterDocsByExpr(pipeDocs, req.Filter)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	// Apply APPLY clauses that appeared before GROUPBY against pipeline fields;
 	// merge computed AS values onto source docs so REDUCE can reference them.
 	var preApply, postApply []ApplyClause
@@ -1022,7 +1038,7 @@ func (e *RediSearchEngine) Aggregate(req *AggregationRequest) (*AggregationResul
 		}
 	}
 	queryTerms := extractQueryTerms(req.Query)
-	pipeDocs, err := applyPreGroupClauses(pipeDocs, preApply, queryTerms, props)
+	pipeDocs, err = applyPreGroupClauses(pipeDocs, preApply, queryTerms, props)
 	if err != nil {
 		return nil, err
 	}
@@ -1059,8 +1075,9 @@ func (e *RediSearchEngine) Aggregate(req *AggregationRequest) (*AggregationResul
 		groups = e.applyHaving(groups, req.Having)
 	}
 
-	// Apply FILTER (pipeline props only; missing → SEARCH_PROP_NOT_FOUND)
-	if req.Filter != "" {
+	// Apply FILTER (pipeline props only; missing → SEARCH_PROP_NOT_FOUND).
+	// Skip when already applied before APPLY (earlyFilter above).
+	if req.Filter != "" && !(req.FilterBeforeApply && len(req.Apply) > 0) {
 		var err error
 		groups, err = e.filterGroups(groups, req.Filter, props)
 		if err != nil {
@@ -1201,7 +1218,10 @@ type AggregationRequest struct {
 	Offset  int
 	Limit   int
 	Filter  string        // FILTER expression
-	Apply   []ApplyClause // APPLY <expr> AS <name> clauses, in pipeline order
+	// FilterBeforeApply is true when FILTER appeared before any APPLY in the
+	// command (Redis runs clauses in order; early FILTER prunes before APPLY).
+	FilterBeforeApply bool
+	Apply             []ApplyClause // APPLY <expr> AS <name> clauses, in pipeline order
 	// AddScores exposes BM25STD (default) score as @__score in the pipeline.
 	AddScores bool
 	// Expansion limits (FT.CONFIG MINPREFIX / MAXEXPANSIONS). Zero = no check.
@@ -1920,6 +1940,25 @@ func compareSortValues(vi, vj interface{}) int {
 		return 1
 	}
 	return 0
+}
+
+// filterDocsByExpr keeps documents whose FILTER expression is truthy.
+func filterDocsByExpr(docs []*Document, filter string) ([]*Document, error) {
+	filter = strings.TrimSpace(filter)
+	if filter == "" {
+		return docs, nil
+	}
+	var out []*Document
+	for _, doc := range docs {
+		ok, err := EvalFilterExpr(filter, doc.Fields)
+		if err != nil {
+			return nil, err
+		}
+		if ok {
+			out = append(out, doc)
+		}
+	}
+	return out, nil
 }
 
 // filterGroups filters groups based on a filter expression using the full

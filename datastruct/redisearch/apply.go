@@ -30,6 +30,21 @@ func (e *PropNotLoadedError) Error() string {
 	return fmt.Sprintf("SEARCH_PROP_NOT_FOUND Property not loaded nor in pipeline: `%s`", e.Name)
 }
 
+// ValueNotFoundError is Redis SEARCH_VALUE_NOT_FOUND: a pipeline property was
+// referenced but has no value on this row (use exists() to guard).
+type ValueNotFoundError struct {
+	Name string
+}
+
+func (e *ValueNotFoundError) Error() string {
+	return fmt.Sprintf("SEARCH_VALUE_NOT_FOUND Could not find the value for a parameter name, consider using EXISTS if applicable for %s", e.Name)
+}
+
+func isValueNotFound(err error) bool {
+	var vnf *ValueNotFoundError
+	return errors.As(err, &vnf)
+}
+
 // CollectApplyFieldRefs returns distinct @field names referenced in an
 // APPLY/FILTER expression (order of first appearance).
 func CollectApplyFieldRefs(expr string) ([]string, error) {
@@ -75,11 +90,11 @@ func EnsurePipelineProps(expr string, props map[string]bool) error {
 //	logical:    && || !           (return bool)
 //	functions:  log log2 exp sqrt abs ceil floor to_str to_number
 //	             upper lower strlen startswith contains substr format split
-//	             (split: charset sep/strip, drop empty; format: %s/%% + PARSE_ARGS)
+//	             (split: charset sep/strip; format PARSE_ARGS; substr byte offsets)
 //	             matched_terms timefmt parsetime day hour minute month dayofweek
 //	             dayofmonth dayofyear year monthofyear geodistance exists case
-//
-// Non-numeric args to numeric funcs yield NaN (Redis). Unknown funcs → SEARCH_EXPR.
+//	Missing @field → SEARCH_VALUE_NOT_FOUND (exists() ok; &&/||/case short-circuit).
+//	Non-numeric args to numeric funcs yield NaN (Redis). Unknown funcs → SEARCH_EXPR.
 func EvalApplyExpr(expr string, fields map[string]interface{}) (interface{}, error) {
 	return EvalApplyExprWithQuery(expr, fields, nil)
 }
@@ -98,6 +113,9 @@ func EvalApplyExprWithQuery(expr string, fields map[string]interface{}, queryTer
 	}
 	if p.peek().kind != applyTokEOF {
 		return nil, errors.New("unexpected trailing tokens in expression")
+	}
+	if err := v.missingErr(); err != nil {
+		return nil, err
 	}
 	return applyValueToInterface(v), nil
 }
@@ -361,16 +379,29 @@ func isApplyIdentChar(c byte) bool {
 
 // ---- value ----
 
-// applyValue is a tagged union of numeric, string, bool, or string-list result.
+// applyValue is a tagged union of numeric, string, bool, null, or string-list.
 type applyValue struct {
-	isNum   bool
-	isStr   bool
-	isBool  bool
-	isMulti bool
-	num     float64
-	str     string
-	b       bool
-	multi   []string
+	isNum     bool
+	isStr     bool
+	isBool    bool
+	isMulti   bool
+	isNull    bool   // missing pipeline field (Redis RSValue_Null)
+	nullField string // for SEARCH_VALUE_NOT_FOUND wording
+	num       float64
+	str       string
+	b         bool
+	multi     []string
+}
+
+func (v applyValue) missingErr() error {
+	if !v.isNull {
+		return nil
+	}
+	name := v.nullField
+	if name == "" {
+		name = "value"
+	}
+	return &ValueNotFoundError{Name: name}
 }
 
 type applyParser struct {
@@ -378,6 +409,7 @@ type applyParser struct {
 	pos        int
 	fields     map[string]interface{}
 	queryTerms []string // for matched_terms(); may be nil
+	lax        int      // >0: short-circuit dead branch — null soft, no VALUE_NOT_FOUND
 }
 
 func (p *applyParser) peek() applyToken { return p.tokens[p.pos] }
@@ -388,7 +420,18 @@ func (p *applyParser) next() applyToken {
 	return t
 }
 
+func (p *applyParser) checkPresent(v applyValue) error {
+	if !v.isNull {
+		return nil
+	}
+	if p != nil && p.lax > 0 {
+		return nil
+	}
+	return v.missingErr()
+}
+
 // parseBoolOr := parseBoolAnd ('||' parseBoolAnd)*
+// Redis short-circuits: when left is true, RHS is evaluated in lax mode.
 func (p *applyParser) parseBoolOr() (applyValue, error) {
 	left, err := p.parseBoolAnd()
 	if err != nil {
@@ -396,18 +439,35 @@ func (p *applyParser) parseBoolOr() (applyValue, error) {
 	}
 	for p.peek().kind == applyTokOr {
 		p.next()
+		lb, err := applyTruthy(left)
+		if err != nil {
+			return applyValue{}, err
+		}
+		if lb {
+			p.lax++
+			_, err := p.parseBoolAnd()
+			p.lax--
+			if err != nil {
+				return applyValue{}, err
+			}
+			left = applyBoolValue(true)
+			continue
+		}
 		right, err := p.parseBoolAnd()
 		if err != nil {
 			return applyValue{}, err
 		}
-		lb, _ := applyTruthy(left)
-		rb, _ := applyTruthy(right)
-		left = applyBoolValue(lb || rb)
+		rb, err := applyTruthy(right)
+		if err != nil {
+			return applyValue{}, err
+		}
+		left = applyBoolValue(rb)
 	}
 	return left, nil
 }
 
 // parseBoolAnd := parseComparison ('&&' parseComparison)*
+// Redis short-circuits: when left is false, RHS is evaluated in lax mode.
 func (p *applyParser) parseBoolAnd() (applyValue, error) {
 	left, err := p.parseComparison()
 	if err != nil {
@@ -415,13 +475,29 @@ func (p *applyParser) parseBoolAnd() (applyValue, error) {
 	}
 	for p.peek().kind == applyTokAnd {
 		p.next()
+		lb, err := applyTruthy(left)
+		if err != nil {
+			return applyValue{}, err
+		}
+		if !lb {
+			p.lax++
+			_, err := p.parseComparison()
+			p.lax--
+			if err != nil {
+				return applyValue{}, err
+			}
+			left = applyBoolValue(false)
+			continue
+		}
 		right, err := p.parseComparison()
 		if err != nil {
 			return applyValue{}, err
 		}
-		lb, _ := applyTruthy(left)
-		rb, _ := applyTruthy(right)
-		left = applyBoolValue(lb && rb)
+		rb, err := applyTruthy(right)
+		if err != nil {
+			return applyValue{}, err
+		}
+		left = applyBoolValue(rb)
 	}
 	return left, nil
 }
@@ -446,7 +522,7 @@ func (p *applyParser) parseComparison() (applyValue, error) {
 		if err != nil {
 			return applyValue{}, err
 		}
-		left = applyBoolValue(res)
+		left = res
 	}
 	return left, nil
 }
@@ -503,6 +579,12 @@ func (p *applyParser) parsePower() (applyValue, error) {
 		if err != nil {
 			return applyValue{}, err
 		}
+		if base.isNull {
+			return base, nil
+		}
+		if exp.isNull {
+			return exp, nil
+		}
 		if !base.isNum || !exp.isNum {
 			return applyValue{}, errors.New("^ requires numeric operands")
 		}
@@ -519,6 +601,9 @@ func (p *applyParser) parseUnary() (applyValue, error) {
 		if err != nil {
 			return applyValue{}, err
 		}
+		if v.isNull {
+			return v, nil
+		}
 		if !v.isNum {
 			return applyValue{}, errors.New("unary minus on non-numeric value")
 		}
@@ -530,7 +615,10 @@ func (p *applyParser) parseUnary() (applyValue, error) {
 		if err != nil {
 			return applyValue{}, err
 		}
-		tb, _ := applyTruthy(v)
+		tb, err := applyTruthy(v)
+		if err != nil {
+			return applyValue{}, err
+		}
 		return applyBoolValue(!tb), nil
 	}
 	return p.parsePrimary()
@@ -550,8 +638,8 @@ func (p *applyParser) parsePrimary() (applyValue, error) {
 		return applyValue{isStr: true, str: tok.text}, nil
 	case applyTokField:
 		raw, ok := p.fields[tok.text]
-		if !ok {
-			return applyValue{isNum: true, num: 0}, nil
+		if !ok || raw == nil {
+			return applyValue{isNull: true, nullField: tok.text}, nil
 		}
 		return applyValueFromInterface(raw), nil
 	case applyTokLParen:
@@ -581,6 +669,9 @@ func (p *applyParser) parsePrimary() (applyValue, error) {
 			return applyValue{isStr: true, str: tok.text}, nil
 		}
 		p.next() // consume '('
+		if name == "case" {
+			return p.parseCaseArgs()
+		}
 		var args []applyValue
 		if p.peek().kind != applyTokRParen {
 			for {
@@ -604,6 +695,63 @@ func (p *applyParser) parsePrimary() (applyValue, error) {
 	default:
 		return applyValue{}, errors.New("unexpected token in expression")
 	}
+}
+
+// parseCaseArgs evaluates case(cond, then, else) with Redis short-circuit:
+// the untaken branch runs in lax mode (null soft) so VALUE_NOT_FOUND is ignored.
+func (p *applyParser) parseCaseArgs() (applyValue, error) {
+	cond, err := p.parseBoolOr()
+	if err != nil {
+		return applyValue{}, err
+	}
+	if p.peek().kind != applyTokComma {
+		return applyValue{}, errors.New("case() expects (cond, ifTrue, ifFalse)")
+	}
+	p.next()
+	ok, err := applyTruthy(cond)
+	if err != nil {
+		return applyValue{}, err
+	}
+	if ok {
+		thenVal, err := p.parseBoolOr()
+		if err != nil {
+			return applyValue{}, err
+		}
+		if p.peek().kind != applyTokComma {
+			return applyValue{}, errors.New("case() expects (cond, ifTrue, ifFalse)")
+		}
+		p.next()
+		p.lax++
+		_, err = p.parseBoolOr()
+		p.lax--
+		if err != nil {
+			return applyValue{}, err
+		}
+		if p.peek().kind != applyTokRParen {
+			return applyValue{}, errors.New("expected ')' to close function \"case\"")
+		}
+		p.next()
+		return thenVal, nil
+	}
+	p.lax++
+	_, err = p.parseBoolOr()
+	p.lax--
+	if err != nil {
+		return applyValue{}, err
+	}
+	if p.peek().kind != applyTokComma {
+		return applyValue{}, errors.New("case() expects (cond, ifTrue, ifFalse)")
+	}
+	p.next()
+	elseVal, err := p.parseBoolOr()
+	if err != nil {
+		return applyValue{}, err
+	}
+	if p.peek().kind != applyTokRParen {
+		return applyValue{}, errors.New("expected ')' to close function \"case\"")
+	}
+	p.next()
+	return elseVal, nil
 }
 
 // applyValueFromInterface converts a stored field value into an applyValue.
@@ -657,8 +805,11 @@ func applyValueToInterface(v applyValue) interface{} {
 	return nil
 }
 
-// applyTruthy coerces a value to bool (FILTER semantics).
+// applyTruthy coerces a value to bool (FILTER semantics). Null → VALUE_NOT_FOUND.
 func applyTruthy(v applyValue) (bool, error) {
+	if err := v.missingErr(); err != nil {
+		return false, err
+	}
 	if v.isBool {
 		return v.b, nil
 	}
@@ -675,6 +826,12 @@ func applyTruthy(v applyValue) (bool, error) {
 }
 
 func applyBinaryArith(left applyValue, op applyTokenKind, right applyValue) (applyValue, error) {
+	if left.isNull {
+		return left, nil
+	}
+	if right.isNull {
+		return right, nil
+	}
 	if op == applyTokPlus && (!left.isNum || !right.isNum) {
 		// String concatenation fallback when either side is non-numeric.
 		return applyValue{isStr: true, str: applyValueToString(left) + applyValueToString(right)}, nil
@@ -704,42 +861,54 @@ func applyBinaryArith(left applyValue, op applyTokenKind, right applyValue) (app
 	}
 }
 
-// applyCompare evaluates a comparison operator. Numeric vs numeric compares by
-// value; otherwise both sides stringify and compare lexicographically.
-func applyCompare(left applyValue, op applyTokenKind, right applyValue) (bool, error) {
+// applyCompare evaluates a comparison operator. Null operands propagate (Redis
+// Null); numeric vs numeric compares by value; otherwise stringify.
+func applyCompare(left applyValue, op applyTokenKind, right applyValue) (applyValue, error) {
+	if left.isNull {
+		return left, nil
+	}
+	if right.isNull {
+		return right, nil
+	}
+	var res bool
 	if left.isNum && right.isNum {
 		switch op {
 		case applyTokEq, applyTokAssign:
-			return left.num == right.num, nil
+			res = left.num == right.num
 		case applyTokNe:
-			return left.num != right.num, nil
+			res = left.num != right.num
 		case applyTokLt:
-			return left.num < right.num, nil
+			res = left.num < right.num
 		case applyTokLe:
-			return left.num <= right.num, nil
+			res = left.num <= right.num
 		case applyTokGt:
-			return left.num > right.num, nil
+			res = left.num > right.num
 		case applyTokGe:
-			return left.num >= right.num, nil
+			res = left.num >= right.num
+		default:
+			return applyValue{}, errors.New("unsupported comparison operator")
 		}
+		return applyBoolValue(res), nil
 	}
 	ls := applyValueToString(left)
 	rs := applyValueToString(right)
 	switch op {
 	case applyTokEq, applyTokAssign:
-		return ls == rs, nil
+		res = ls == rs
 	case applyTokNe:
-		return ls != rs, nil
+		res = ls != rs
 	case applyTokLt:
-		return ls < rs, nil
+		res = ls < rs
 	case applyTokLe:
-		return ls <= rs, nil
+		res = ls <= rs
 	case applyTokGt:
-		return ls > rs, nil
+		res = ls > rs
 	case applyTokGe:
-		return ls >= rs, nil
+		res = ls >= rs
+	default:
+		return applyValue{}, errors.New("unsupported comparison operator")
 	}
-	return false, errors.New("unsupported comparison operator")
+	return applyBoolValue(res), nil
 }
 
 func applyValueToString(v applyValue) string {
@@ -763,6 +932,16 @@ func applyValueToString(v applyValue) string {
 
 // applyFunction dispatches a built-in function call.
 func applyFunction(p *applyParser, name string, args []applyValue) (applyValue, error) {
+	// Redis: missing @field is Null. exists() accepts Null; other funcs propagate
+	// Null so &&/||/case can short-circuit after the RHS is fully parsed.
+	// Top-level Null → SEARCH_VALUE_NOT_FOUND (EvalApplyExpr / applyTruthy / arith).
+	if name != "exists" {
+		for _, a := range args {
+			if a.isNull {
+				return a, nil
+			}
+		}
+	}
 	switch name {
 	case "matched_terms":
 		// Redis returns query terms that also appear in the row's text fields
@@ -1006,18 +1185,20 @@ func applyFunction(p *applyParser, name string, args []applyValue) (applyValue, 
 		if len(args) != 1 {
 			return applyValue{}, errors.New("exists() expects one argument")
 		}
-		// exists() of a field reference: a missing field parses as numeric 0, so
-		// we treat "0 from a literal" the same as absent — close enough for the
-		// common "@field" case where absence surfaces as 0.
-		if args[0].isNum && args[0].num == 0 {
-			return applyBoolValue(false), nil
+		// Redis: only Null/missing is false; literal 0 / "" / present-zero are true.
+		if args[0].isNull {
+			return applyValue{isNum: true, num: 0}, nil
 		}
-		return applyBoolValue(true), nil
+		return applyValue{isNum: true, num: 1}, nil
 	case "case":
+		// Prefer parseCaseArgs (short-circuit); this path is unreachable normally.
 		if len(args) != 3 {
 			return applyValue{}, errors.New("case() expects (cond, ifTrue, ifFalse)")
 		}
-		cond, _ := applyTruthy(args[0])
+		cond, err := applyTruthy(args[0])
+		if err != nil {
+			return applyValue{}, err
+		}
 		if cond {
 			return args[1], nil
 		}
@@ -1045,34 +1226,47 @@ func applyFunction(p *applyParser, name string, args []applyValue) (applyValue, 
 	return applyValue{}, fmt.Errorf("SEARCH_EXPR Unknown function name '%s'", name)
 }
 
+func applyParseLonLat(v applyValue) (float64, float64, error) {
+	parts := strings.Split(applyValueToString(v), ",")
+	if len(parts) != 2 {
+		return 0, 0, errors.New("geodistance() expects lon,lat coordinates")
+	}
+	lon, err := strconv.ParseFloat(strings.TrimSpace(parts[0]), 64)
+	if err != nil {
+		return 0, 0, errors.New("geodistance() expects numeric longitude")
+	}
+	lat, err := strconv.ParseFloat(strings.TrimSpace(parts[1]), 64)
+	if err != nil {
+		return 0, 0, errors.New("geodistance() expects numeric latitude")
+	}
+	return lon, lat, nil
+}
+
 func applyGeoCoordinates(args []applyValue) (float64, float64, float64, float64, error) {
 	if len(args) == 4 && args[0].isNum && args[1].isNum && args[2].isNum && args[3].isNum {
 		return args[0].num, args[1].num, args[2].num, args[3].num, nil
 	}
-	if len(args) == 2 {
-		parse := func(v applyValue) (float64, float64, error) {
-			parts := strings.Split(applyValueToString(v), ",")
-			if len(parts) != 2 {
-				return 0, 0, errors.New("geodistance() expects lon,lat coordinates")
-			}
-			lon, err := strconv.ParseFloat(strings.TrimSpace(parts[0]), 64)
-			if err != nil {
-				return 0, 0, errors.New("geodistance() expects numeric longitude")
-			}
-			lat, err := strconv.ParseFloat(strings.TrimSpace(parts[1]), 64)
-			if err != nil {
-				return 0, 0, errors.New("geodistance() expects numeric latitude")
-			}
-			return lon, lat, nil
+	// Redis 3-arg: geodistance(lon,lat,point) or geodistance(point,lon,lat).
+	if len(args) == 3 {
+		if args[0].isNum && args[1].isNum {
+			lon2, lat2, err := applyParseLonLat(args[2])
+			return args[0].num, args[1].num, lon2, lat2, err
 		}
-		lon1, lat1, err := parse(args[0])
+		if args[1].isNum && args[2].isNum {
+			lon1, lat1, err := applyParseLonLat(args[0])
+			return lon1, lat1, args[1].num, args[2].num, err
+		}
+		return 0, 0, 0, 0, errors.New("geodistance() expects two coordinates, three mixed, or four numbers")
+	}
+	if len(args) == 2 {
+		lon1, lat1, err := applyParseLonLat(args[0])
 		if err != nil {
 			return 0, 0, 0, 0, err
 		}
-		lon2, lat2, err := parse(args[1])
+		lon2, lat2, err := applyParseLonLat(args[1])
 		return lon1, lat1, lon2, lat2, err
 	}
-	return 0, 0, 0, 0, errors.New("geodistance() expects two coordinates or four numbers")
+	return 0, 0, 0, 0, errors.New("geodistance() expects two coordinates, three mixed, or four numbers")
 }
 
 func strftimeToGoLayout(format string) string {
@@ -1088,27 +1282,27 @@ func strftimeToGoLayout(format string) string {
 	return replacer.Replace(format)
 }
 
-// applySubstr implements substr(s, offset, count) with Redis semantics: a
-// negative offset counts from the end; count == -1 means "to the end".
+// applySubstr implements substr(s, offset, count) with Redis byte semantics:
+// negative offset counts from the end; count < 0 means "to the end".
 func applySubstr(s string, offset, count int) string {
-	runes := []rune(s)
+	n := len(s) // byte length (Redis Query Engine)
 	if offset < 0 {
-		offset = len(runes) + offset
+		offset = n + offset
 		if offset < 0 {
 			offset = 0
 		}
 	}
-	if offset > len(runes) {
-		offset = len(runes)
+	if offset > n {
+		offset = n
 	}
 	end := offset + count
-	if count < 0 || end > len(runes) {
-		end = len(runes)
+	if count < 0 || end > n {
+		end = n
 	}
 	if end < offset {
 		end = offset
 	}
-	return string(runes[offset:end])
+	return s[offset:end]
 }
 
 // applySplit splits s on any rune in sepChars, trims leading/trailing runes in

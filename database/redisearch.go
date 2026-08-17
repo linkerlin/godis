@@ -1539,6 +1539,7 @@ func execFTAggregate(db *DB, args [][]byte) redis.Reply {
 	cursorCount := 10
 	cursorMaxIdle := ftCursorIdleTimeout
 	sawGroupBy := false
+	sawApply := false
 
 	for i := 2; i < len(args); {
 		arg := strings.ToUpper(string(args[i]))
@@ -1638,6 +1639,7 @@ func execFTAggregate(db *DB, args [][]byte) redis.Reply {
 			if i+3 >= len(args) || !strings.EqualFold(string(args[i+2]), "AS") {
 				return protocol.MakeSyntaxErrReply()
 			}
+			sawApply = true
 			req.Apply = append(req.Apply, redisearch.ApplyClause{
 				Expr:     string(args[i+1]),
 				As:       string(args[i+3]),
@@ -1863,6 +1865,9 @@ func execFTAggregate(db *DB, args [][]byte) redis.Reply {
 			}
 			// FILTER expression (e.g., "@field > 10")
 			req.Filter = string(args[i+1])
+			if !sawApply {
+				req.FilterBeforeApply = true
+			}
 			i += 2
 			continue
 
@@ -1879,6 +1884,12 @@ func execFTAggregate(db *DB, args [][]byte) redis.Reply {
 		default:
 			return protocol.MakeSyntaxErrReply()
 		}
+	}
+
+	// FILTER-before-APPLY only matters when APPLY is present; otherwise FILTER
+	// runs on post-GROUPBY groups (Redis group-key FILTER without LOAD).
+	if len(req.Apply) == 0 {
+		req.FilterBeforeApply = false
 	}
 
 	// FT.AGGREGATE results are capped by search-max-aggregate-results (8.0
@@ -2049,6 +2060,12 @@ func collectValueBytes(v interface{}) []byte {
 				return []byte("nan")
 			}
 			return []byte(strconv.FormatFloat(x, 'f', -1, 64))
+		case bool:
+			// Redis APPLY bools (exists/startswith/…) wire as "1"/"0", not "true"/"false".
+			if x {
+				return []byte("1")
+			}
+			return []byte("0")
 		default:
 			return []byte(fmt.Sprintf("%v", v))
 		}
