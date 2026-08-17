@@ -864,6 +864,54 @@ XTRIM-b79|1|XTRIM sidecar:b79:x:{{ID}} MAXLEN 1
 XLEN-b79|1|XLEN sidecar:b79:x:{{ID}}
 DEL-b79x|1|DEL sidecar:b79:x:{{ID}}
 
+# --- batch 80 extras (GETSET; TYPE none; EXPIRE+TTL; HDEL multi; SREM multi; LRANGE neg; ZCOUNT; TOUCH; RENAMENX miss; PEXPIRE+PTTL; MSET; STRLEN) ---
+@DEL sidecar:b80:gs:{{ID}}
+SET-b80gs|OK|SET sidecar:b80:gs:{{ID}} old
+GETSET-b80|old|GETSET sidecar:b80:gs:{{ID}} new
+GET-b80gs|new|GET sidecar:b80:gs:{{ID}}
+DEL-b80gs|1|DEL sidecar:b80:gs:{{ID}}
+TYPE-b80none|none|TYPE sidecar:b80:missing:{{ID}}
+@DEL sidecar:b80:ttl:{{ID}}
+SET-b80ttl|OK|SET sidecar:b80:ttl:{{ID}} v
+EXPIRE-b80|1|EXPIRE sidecar:b80:ttl:{{ID}} 120
+TTL-b80|>=1|TTL sidecar:b80:ttl:{{ID}}
+DEL-b80ttl|1|DEL sidecar:b80:ttl:{{ID}}
+@DEL sidecar:b80:h:{{ID}}
+HSET-b80|2|HSET sidecar:b80:h:{{ID}} a 1 b 2
+HDEL-b80|2|HDEL sidecar:b80:h:{{ID}} a b
+EXISTS-b80h|0|EXISTS sidecar:b80:h:{{ID}}
+@DEL sidecar:b80:s:{{ID}}
+SADD-b80|3|SADD sidecar:b80:s:{{ID}} a b c
+SREM-b80|2|SREM sidecar:b80:s:{{ID}} a b
+SCARD-b80|1|SCARD sidecar:b80:s:{{ID}}
+DEL-b80s|1|DEL sidecar:b80:s:{{ID}}
+@DEL sidecar:b80:l:{{ID}}
+RPUSH-b80|3|RPUSH sidecar:b80:l:{{ID}} a b c
+LRANGE-b80|b\nc|LRANGE sidecar:b80:l:{{ID}} -2 -1
+DEL-b80l|1|DEL sidecar:b80:l:{{ID}}
+@DEL sidecar:b80:z:{{ID}}
+ZADD-b80|3|ZADD sidecar:b80:z:{{ID}} 1 a 2 b 3 c
+ZCOUNT-b80|2|ZCOUNT sidecar:b80:z:{{ID}} 1 2
+DEL-b80z|1|DEL sidecar:b80:z:{{ID}}
+@DEL sidecar:b80:touch:{{ID}}
+SET-b80touch|OK|SET sidecar:b80:touch:{{ID}} v
+TOUCH-b80|1|TOUCH sidecar:b80:touch:{{ID}}
+DEL-b80touch|1|DEL sidecar:b80:touch:{{ID}}
+@DEL sidecar:b80:rn:{{ID}}
+RENAMENX-b80miss|0|RENAMENX sidecar:b80:missing:{{ID}} sidecar:b80:rn:{{ID}}
+@DEL sidecar:b80:pt:{{ID}}
+SET-b80pt|OK|SET sidecar:b80:pt:{{ID}} v
+PEXPIRE-b80|1|PEXPIRE sidecar:b80:pt:{{ID}} 120000
+PTTL-b80|>=1|PTTL sidecar:b80:pt:{{ID}}
+DEL-b80pt|1|DEL sidecar:b80:pt:{{ID}}
+@DEL sidecar:b80:m1:{{ID}}
+@DEL sidecar:b80:m2:{{ID}}
+MSET-b80|OK|MSET sidecar:b80:m1:{{ID}} a sidecar:b80:m2:{{ID}} b
+GET-b80m1|a|GET sidecar:b80:m1:{{ID}}
+GET-b80m2|b|GET sidecar:b80:m2:{{ID}}
+STRLEN-b80m1|1|STRLEN sidecar:b80:m1:{{ID}}
+DEL-b80m|2|DEL sidecar:b80:m1:{{ID}} sidecar:b80:m2:{{ID}}
+
 # --- cleanup string / incr keys ---
 DEL|1|DEL sidecar:allowlist:{{ID}}
 EXISTS-after-del|0|EXISTS sidecar:allowlist:{{ID}}

@@ -432,9 +432,17 @@ func execFTCreate(db *DB, args [][]byte) redis.Reply {
 			}
 			indexAll = v
 			i++
-		case "LANGUAGE", "LANGUAGE_FIELD", "SCORE", "SCORE_FIELD", "PAYLOAD_FIELD":
-			// Accepted for syntax parity; the few that are wired (SCORE_FIELD,
-			// PAYLOAD_FIELD, LANGUAGE default) flow through EngineConfig below.
+		case "LANGUAGE":
+			if i+1 >= len(args) {
+				return protocol.MakeErrReply("SEARCH_PARSE_ARGS Bad arguments for LANGUAGE: Expected an argument, but none provided")
+			}
+			if !redisearch.IsKnownSearchLanguage(string(args[i+1])) {
+				return protocol.MakeErrReply("Invalid language")
+			}
+			i++
+		case "LANGUAGE_FIELD", "SCORE", "SCORE_FIELD", "PAYLOAD_FIELD":
+			// Accepted for syntax parity; SCORE_FIELD / PAYLOAD_FIELD / LANGUAGE_FIELD
+			// flow through EngineConfig below.
 			if i+1 >= len(args) {
 				return protocol.MakeSyntaxErrReply()
 			}
@@ -625,6 +633,9 @@ func execFTAdd(db *DB, args [][]byte) redis.Reply {
 				return reply
 			}
 			language = string(args[i+1])
+			if !redisearch.IsKnownSearchLanguage(language) {
+				return protocol.MakeErrReply("Invalid language")
+			}
 			i++
 		case "FIELDS":
 			fieldsStart = i + 1
@@ -746,6 +757,7 @@ func execFTSearch(db *DB, args [][]byte) redis.Reply {
 	returnSpecified := false
 	dialectSpecified := false
 	var inKeys map[string]struct{}
+	inKeysFilter := false // true once INKEYS seen (count 0 → empty result set)
 	var params map[string][]byte // PARAMS name -> raw value (often a vector blob)
 	formatExpand := false
 
@@ -827,11 +839,11 @@ func execFTSearch(db *DB, args [][]byte) redis.Reply {
 			}
 		case "DIALECT":
 			if i+1 >= len(args) {
-				return protocol.MakeSyntaxErrReply()
+				return protocol.MakeErrReply("Need an argument for DIALECT")
 			}
 			d, err := strconv.Atoi(string(args[i+1]))
 			if err != nil || !validFTDialect(d) {
-				return protocol.MakeErrReply("ERR Invalid DIALECT value")
+				return protocol.MakeErrReply("DIALECT requires a non negative integer >=1 and <= 4")
 			}
 			dialect = d
 			dialectSpecified = true
@@ -846,6 +858,23 @@ func execFTSearch(db *DB, args [][]byte) redis.Reply {
 				return protocol.MakeErrReply("No such scorer " + scorerName)
 			}
 			opts.Scorer = scorerName
+			i++
+		case "LANGUAGE":
+			// Query-time stemmer language (Redis 8.x). Godis accepts known names
+			// but still uses the English tokenizer path (subset; not full ICU).
+			if i+1 >= len(args) {
+				return protocol.MakeErrReply("SEARCH_PARSE_ARGS Bad arguments for LANGUAGE: Expected an argument, but none provided")
+			}
+			if !redisearch.IsKnownSearchLanguage(string(args[i+1])) {
+				return protocol.MakeErrReply("SEARCH_QUERY_BAD No such language")
+			}
+			i++
+		case "PAYLOAD":
+			// Query payload for SCORER HAMMING (Redis 8.x).
+			if i+1 >= len(args) {
+				return protocol.MakeErrReply("SEARCH_PARSE_ARGS Bad arguments for PAYLOAD: Expected an argument, but none provided")
+			}
+			opts.Payload = args[i+1]
 			i++
 		case "BM25STD_TANH_FACTOR":
 			// Per-query divisor for SCORER BM25STD.TANH (default 4).
@@ -862,11 +891,18 @@ func execFTSearch(db *DB, args [][]byte) redis.Reply {
 			// PARAMS count name value [name value ...] — count is the total
 			// number of attribute tokens (2 × number of named parameters).
 			if i+1 >= len(args) {
-				return protocol.MakeSyntaxErrReply()
+				return protocol.MakeErrReply("SEARCH_PARSE_ARGS Bad arguments for PARAMS: Expected an argument, but none provided")
 			}
 			count, err := strconv.Atoi(string(args[i+1]))
-			if err != nil || count < 0 || count%2 != 0 {
-				return protocol.MakeErrReply("ERR Invalid PARAMS count")
+			if err != nil {
+				return protocol.MakeErrReply("SEARCH_PARSE_ARGS Bad arguments for PARAMS: Could not convert argument to expected type")
+			}
+			if count < 0 {
+				return protocol.MakeErrReply("SEARCH_PARSE_ARGS Bad arguments for PARAMS: Value is outside acceptable bounds")
+			}
+			// Redis rejects 0 and odd counts alike (PARAM VALUE pairs).
+			if count == 0 || count%2 != 0 {
+				return protocol.MakeErrReply("SEARCH_ADD_ARGS Parameters must be specified in PARAM VALUE pairs")
 			}
 			i += 2
 			if params == nil {
@@ -874,7 +910,7 @@ func execFTSearch(db *DB, args [][]byte) redis.Reply {
 			}
 			for j := 0; j < count; j += 2 {
 				if i+1 >= len(args) {
-					return protocol.MakeSyntaxErrReply()
+					return protocol.MakeErrReply("SEARCH_ADD_ARGS Parameters must be specified in PARAM VALUE pairs")
 				}
 				name := string(args[i])
 				params[name] = args[i+1]
@@ -883,7 +919,7 @@ func execFTSearch(db *DB, args [][]byte) redis.Reply {
 			i--
 		case "SLOP":
 			if i+1 >= len(args) {
-				return protocol.MakeSyntaxErrReply()
+				return protocol.MakeErrReply("SEARCH_PARSE_ARGS Bad arguments for SLOP: Expected an argument, but none provided")
 			}
 			slop, err := strconv.Atoi(string(args[i+1]))
 			if err != nil || slop < 0 {
@@ -906,16 +942,19 @@ func execFTSearch(db *DB, args [][]byte) redis.Reply {
 			i++ // engine Search/KNN honor TimeoutMs soft deadline
 		case "INFIELDS":
 			if i+1 >= len(args) {
-				return protocol.MakeSyntaxErrReply()
+				return protocol.MakeErrReply("SEARCH_PARSE_ARGS Bad arguments for INFIELDS: Expected an argument, but none provided")
 			}
 			count, err := strconv.Atoi(string(args[i+1]))
-			if err != nil || count < 0 {
-				return protocol.MakeErrReply("ERR Invalid INFIELDS count")
+			if err != nil {
+				return protocol.MakeErrReply("SEARCH_PARSE_ARGS Bad arguments for INFIELDS: Could not convert argument to expected type")
+			}
+			if count < 0 {
+				return protocol.MakeErrReply("SEARCH_PARSE_ARGS Bad arguments for INFIELDS: Value is outside acceptable bounds")
 			}
 			i += 2
 			for j := 0; j < count; j++ {
 				if i >= len(args) {
-					return protocol.MakeSyntaxErrReply()
+					return protocol.MakeErrReply("SEARCH_PARSE_ARGS Bad arguments for INFIELDS: Expected an argument, but none provided")
 				}
 				opts.InFields = append(opts.InFields, string(args[i]))
 				i++
@@ -930,15 +969,15 @@ func execFTSearch(db *DB, args [][]byte) redis.Reply {
 				next := strings.ToUpper(string(args[i+1]))
 				if next == "FIELDS" {
 					if i+2 >= len(args) {
-						return protocol.MakeSyntaxErrReply()
+						return protocol.MakeErrReply("SEARCH_PARSE_ARGS Bad arguments for SUMMARIZE")
 					}
 					n, err := strconv.Atoi(string(args[i+2]))
 					if err != nil || n < 0 {
-						return protocol.MakeErrReply("ERR Invalid SUMMARIZE FIELDS count")
+						return protocol.MakeErrReply("SEARCH_PARSE_ARGS Bad arguments for SUMMARIZE")
 					}
 					last := i + 2 + n
 					if last >= len(args) {
-						return protocol.MakeSyntaxErrReply()
+						return protocol.MakeErrReply("SEARCH_PARSE_ARGS Bad arguments for SUMMARIZE")
 					}
 					for j := i + 3; j <= last; j++ {
 						opts.SummarizeFields = append(opts.SummarizeFields, string(args[j]))
@@ -948,11 +987,11 @@ func execFTSearch(db *DB, args [][]byte) redis.Reply {
 				}
 				if next == "FRAGS" || next == "LEN" {
 					if i+2 >= len(args) {
-						return protocol.MakeSyntaxErrReply()
+						return protocol.MakeErrReply("SEARCH_PARSE_ARGS Bad arguments for SUMMARIZE")
 					}
 					v, err := strconv.Atoi(string(args[i+2]))
 					if err != nil || v < 0 {
-						return protocol.MakeErrReply("ERR Invalid SUMMARIZE " + next + " value")
+						return protocol.MakeErrReply("SEARCH_PARSE_ARGS Bad arguments for SUMMARIZE")
 					}
 					if next == "LEN" {
 						opts.SummarizeLen = v
@@ -963,7 +1002,7 @@ func execFTSearch(db *DB, args [][]byte) redis.Reply {
 				}
 				if next == "SEPARATOR" {
 					if i+2 >= len(args) {
-						return protocol.MakeSyntaxErrReply()
+						return protocol.MakeErrReply("SEARCH_PARSE_ARGS Bad arguments for SUMMARIZE")
 					}
 					i += 2 // accept separator; unused in minimal truncate
 					continue
@@ -972,17 +1011,21 @@ func execFTSearch(db *DB, args [][]byte) redis.Reply {
 			}
 		case "INKEYS":
 			if i+1 >= len(args) {
-				return protocol.MakeSyntaxErrReply()
+				return protocol.MakeErrReply("SEARCH_PARSE_ARGS Bad arguments for INKEYS: Expected an argument, but none provided")
 			}
 			count, err := strconv.Atoi(string(args[i+1]))
-			if err != nil || count < 0 {
-				return protocol.MakeErrReply("ERR Invalid INKEYS count")
+			if err != nil {
+				return protocol.MakeErrReply("SEARCH_PARSE_ARGS Bad arguments for INKEYS: Could not convert argument to expected type")
+			}
+			if count < 0 {
+				return protocol.MakeErrReply("SEARCH_PARSE_ARGS Bad arguments for INKEYS: Value is outside acceptable bounds")
 			}
 			i += 2
+			inKeysFilter = true
 			inKeys = make(map[string]struct{}, count)
 			for j := 0; j < count; j++ {
 				if i >= len(args) {
-					return protocol.MakeSyntaxErrReply()
+					return protocol.MakeErrReply("SEARCH_PARSE_ARGS Bad arguments for INKEYS: Expected an argument, but none provided")
 				}
 				inKeys[string(args[i])] = struct{}{}
 				i++
@@ -1000,15 +1043,15 @@ func execFTSearch(db *DB, args [][]byte) redis.Reply {
 				next := strings.ToUpper(string(args[i+1]))
 				if next == "FIELDS" {
 					if i+2 >= len(args) {
-						return protocol.MakeSyntaxErrReply()
+						return protocol.MakeErrReply("SEARCH_PARSE_ARGS Bad arguments for HIGHLIGHT")
 					}
 					n, err := strconv.Atoi(string(args[i+2]))
 					if err != nil || n < 0 {
-						return protocol.MakeErrReply("ERR Invalid HIGHLIGHT FIELDS count")
+						return protocol.MakeErrReply("SEARCH_PARSE_ARGS Bad arguments for HIGHLIGHT")
 					}
 					last := i + 2 + n
 					if last >= len(args) {
-						return protocol.MakeSyntaxErrReply()
+						return protocol.MakeErrReply("SEARCH_PARSE_ARGS Bad arguments for HIGHLIGHT")
 					}
 					for j := i + 3; j <= last; j++ {
 						opts.HighlightFields = append(opts.HighlightFields, string(args[j]))
@@ -1018,7 +1061,7 @@ func execFTSearch(db *DB, args [][]byte) redis.Reply {
 				}
 				if next == "TAGS" {
 					if i+3 >= len(args) {
-						return protocol.MakeSyntaxErrReply()
+						return protocol.MakeErrReply("SEARCH_PARSE_ARGS Bad arguments for HIGHLIGHT")
 					}
 					opts.HighlightOpenTag = string(args[i+2])
 					opts.HighlightCloseTag = string(args[i+3])
@@ -1029,7 +1072,7 @@ func execFTSearch(db *DB, args [][]byte) redis.Reply {
 			}
 		case "FILTER":
 			if i+3 >= len(args) {
-				return protocol.MakeSyntaxErrReply()
+				return protocol.MakeErrReply("FILTER requires 3 arguments")
 			}
 			minV, err1 := strconv.ParseFloat(string(args[i+2]), 64)
 			maxV, err2 := strconv.ParseFloat(string(args[i+3]), 64)
@@ -1052,7 +1095,7 @@ func execFTSearch(db *DB, args [][]byte) redis.Reply {
 			i += 2
 		case "SORTBY":
 			if i+1 >= len(args) {
-				return protocol.MakeSyntaxErrReply()
+				return protocol.MakeErrReply("Bad SORTBY arguments")
 			}
 			opts.SortBy = string(args[i+1])
 			i++
@@ -1073,27 +1116,27 @@ func execFTSearch(db *DB, args [][]byte) redis.Reply {
 			}
 		case "RETURN":
 			if i+1 >= len(args) {
-				return protocol.MakeSyntaxErrReply()
+				return protocol.MakeErrReply("SEARCH_PARSE_ARGS Bad arguments for RETURN: Expected an argument, but none provided")
 			}
 			count, err := strconv.Atoi(string(args[i+1]))
 			if err != nil {
-				return protocol.MakeErrReply("ERR Invalid return count")
+				return protocol.MakeErrReply("SEARCH_PARSE_ARGS Bad arguments for RETURN: Could not convert argument to expected type")
+			}
+			if count < 0 {
+				return protocol.MakeErrReply("SEARCH_PARSE_ARGS Bad arguments for RETURN: Value is outside acceptable bounds")
 			}
 			returnSpecified = true
 			i += 2
-			for j := 0; j < count && i < len(args); j++ {
-				nextArg := strings.ToUpper(string(args[i]))
-				if nextArg == "LIMIT" || nextArg == "SORTBY" || nextArg == "GEOFILTER" ||
-					nextArg == "WITHCURSOR" || nextArg == "HIGHLIGHT" || nextArg == "SUMMARIZE" {
-					i--
-					break
+			for j := 0; j < count; j++ {
+				if i >= len(args) {
+					return protocol.MakeErrReply("SEARCH_PARSE_ARGS Bad arguments for RETURN: Expected an argument, but none provided")
 				}
 				src := string(args[i])
 				name := src
 				i++
 				if i < len(args) && strings.EqualFold(string(args[i]), "AS") {
 					if i+1 >= len(args) {
-						return protocol.MakeSyntaxErrReply()
+						return protocol.MakeErrReply("SEARCH_PARSE_ARGS Bad arguments for RETURN: Expected an argument, but none provided")
 					}
 					name = string(args[i+1])
 					i += 2
@@ -1104,7 +1147,7 @@ func execFTSearch(db *DB, args [][]byte) redis.Reply {
 		case "GEOFILTER":
 			// GEOFILTER geo_field lon lat radius m|km|mi|ft
 			if i+5 >= len(args) {
-				return protocol.MakeSyntaxErrReply()
+				return protocol.MakeErrReply("GEOFILTER requires 5 arguments")
 			}
 			geoField := string(args[i+1])
 			lon, err := strconv.ParseFloat(string(args[i+2]), 64)
@@ -1195,6 +1238,13 @@ func execFTSearch(db *DB, args [][]byte) redis.Reply {
 			opts.Limit = max
 		} else if opts.Limit < 1000 {
 			opts.Limit = 1000
+		}
+	}
+
+	if opts.SortBy != "" {
+		sf := engine.SchemaField(opts.SortBy)
+		if sf == nil {
+			return protocol.MakeErrReply(fmt.Sprintf("Property `%s` not loaded nor in schema", opts.SortBy))
 		}
 	}
 
@@ -1290,7 +1340,7 @@ func execFTSearch(db *DB, args [][]byte) redis.Reply {
 		}
 	}
 
-	if len(inKeys) > 0 {
+	if inKeysFilter {
 		filtered := make([]*redisearch.SearchResult, 0, len(results.Results))
 		for _, result := range results.Results {
 			if result.Document == nil {
@@ -1376,6 +1426,14 @@ func execFTSearch(db *DB, args [][]byte) redis.Reply {
 						sk = fmt.Sprintf("%v", val)
 					}
 				}
+			}
+			// Redis WITHSORTKEYS: numeric fields prefixed '#', text '$'; missing → empty.
+			if sk != "" {
+				prefix := "$"
+				if sf := engine.SchemaField(opts.SortBy); sf != nil && sf.Type == redisearch.FieldTypeNumeric {
+					prefix = "#"
+				}
+				sk = prefix + sk
 			}
 			replies = append(replies, protocol.MakeBulkReply([]byte(sk)))
 		}
@@ -1647,7 +1705,7 @@ func execFTAggregate(db *DB, args [][]byte) redis.Reply {
 
 		case "LOAD":
 			if i+1 >= len(args) {
-				return protocol.MakeSyntaxErrReply()
+				return protocol.MakeErrReply("SEARCH_PARSE_ARGS Bad arguments for LOAD: Expected an argument, but none provided")
 			}
 			if string(args[i+1]) == "*" {
 				req.LoadAll = true
@@ -1656,15 +1714,16 @@ func execFTAggregate(db *DB, args [][]byte) redis.Reply {
 			}
 			count, err := strconv.Atoi(string(args[i+1]))
 			if err != nil {
-				return protocol.MakeErrReply("ERR Invalid load count")
+				return protocol.MakeErrReply("SEARCH_PARSE_ARGS Bad arguments for LOAD: Expected number of fields or `*`")
+			}
+			if count < 0 {
+				return protocol.MakeErrReply("SEARCH_PARSE_ARGS Bad arguments for LOAD: Value is outside acceptable bounds")
 			}
 			i += 2
 			consumed := 0
-			for consumed < count && i < len(args) {
-				nextArg := strings.ToUpper(string(args[i]))
-				if nextArg == "GROUPBY" || nextArg == "SORTBY" || nextArg == "LIMIT" ||
-					nextArg == "APPLY" || nextArg == "FILTER" || nextArg == "LOAD" {
-					break
+			for consumed < count {
+				if i >= len(args) {
+					return protocol.MakeErrReply("SEARCH_PARSE_ARGS Bad arguments for LOAD: Expected an argument, but none provided")
 				}
 				field := strings.TrimPrefix(string(args[i]), "@")
 				i++
@@ -2195,18 +2254,28 @@ func execFTCursor(db *DB, args [][]byte) redis.Reply {
 	indexName := resolveSearchIndex(string(args[1]))
 	cursorID, err := strconv.ParseUint(string(args[2]), 10, 64)
 	if err != nil {
-		return protocol.MakeErrReply("ERR Cursor not found")
+		return protocol.MakeErrReply(fmt.Sprintf("Cursor not found, id: %s", args[2]))
 	}
 
 	switch sub {
 	case "READ":
+		// Redis 8.x: bare COUNT with no value → ignore (default page);
+		// COUNT 0 → default; COUNT <0 → remaining rows; non-numeric →
+		// Bad value for COUNT: `…` (distinct from WITHCURSOR COUNT bounds).
 		count := 0
-		if len(args) >= 5 && strings.EqualFold(string(args[3]), "COUNT") {
-			n, err := strconv.Atoi(string(args[4]))
-			if err != nil || n <= 0 {
-				return protocol.MakeErrReply("ERR Invalid COUNT value")
+		readAll := false
+		if len(args) >= 4 && strings.EqualFold(string(args[3]), "COUNT") {
+			if len(args) >= 5 {
+				n, err := strconv.Atoi(string(args[4]))
+				if err != nil {
+					return protocol.MakeErrReply(fmt.Sprintf("Bad value for COUNT: `%s`", args[4]))
+				}
+				if n < 0 {
+					readAll = true
+				} else {
+					count = n
+				}
 			}
-			count = n
 		}
 
 		ftCursorMu.Lock()
@@ -2217,9 +2286,14 @@ func execFTCursor(db *DB, args [][]byte) redis.Reply {
 		ftCursorMu.Unlock()
 
 		if !ok || entry.indexName != indexName {
-			return protocol.MakeErrReply("ERR Cursor not found")
+			return protocol.MakeErrReply(fmt.Sprintf("Cursor not found, id: %d", cursorID))
 		}
-		if count <= 0 {
+		if readAll {
+			count = len(entry.rows)
+			if count == 0 {
+				count = 1
+			}
+		} else if count <= 0 {
 			count = 10
 		}
 		return ftBuildCursorPage(indexName, entry.total, entry.rows, count, entry.maxIdle)
@@ -2232,7 +2306,7 @@ func execFTCursor(db *DB, args [][]byte) redis.Reply {
 		}
 		ftCursorMu.Unlock()
 		if !ok {
-			return protocol.MakeErrReply("ERR Cursor not found")
+			return protocol.MakeErrReply("Cursor does not exist")
 		}
 		return protocol.MakeOkReply()
 

@@ -202,6 +202,20 @@ func TestR41SidecarAllowlistScaffold(t *testing.T) {
 		"BITCOUNT-b79|2|BITCOUNT",
 		"XTRIM-b79|1|XTRIM",
 		"XLEN-b79|1|XLEN",
+		"GETSET-b80|old|GETSET",
+		"TYPE-b80none|none|TYPE",
+		"EXPIRE-b80|1|EXPIRE",
+		"TTL-b80|>=1|TTL",
+		"HDEL-b80|2|HDEL",
+		"SREM-b80|2|SREM",
+		"LRANGE-b80|b\\nc|LRANGE",
+		"ZCOUNT-b80|2|ZCOUNT",
+		"TOUCH-b80|1|TOUCH",
+		"RENAMENX-b80miss|0|RENAMENX",
+		"PEXPIRE-b80|1|PEXPIRE",
+		"PTTL-b80|>=1|PTTL",
+		"MSET-b80|OK|MSET",
+		"STRLEN-b80m1|1|STRLEN",
 	} {
 		if !strings.Contains(cases, marker) {
 			t.Fatalf("r4-1-cases.txt missing honesty/assert marker %q", marker)

@@ -6,6 +6,7 @@
 
 ### Fixed
 
+- 第八十批（远期子集续研）：对照 Redis **8.10** QE 对齐 FT.SEARCH **LANGUAGE**（缺参/`No such language`；大小写不敏感已知列表）+ **RETURN/INKEYS/LOAD/PARAMS** 文案与负值边界（修负 COUNT 静默成功）+ **HIGHLIGHT** 缺参 + **FT.CURSOR READ COUNT**（`Bad value for COUNT`；负值排空）+ R4-1 扩至 **630**（GETSET、TYPE none、EXPIRE+TTL、HDEL/SREM 多成员、LRANGE 负索引、ZCOUNT、TOUCH、RENAMENX miss、PEXPIRE+PTTL、MSET）；远期仍 7 项，不宣称完整 KNN/DIALECT 或全量 sidecar
 - 第七十九批（远期子集续研）：对照 Redis **8.6/8.x** QE 对齐 FT **WITHCURSOR COUNT** 文案（`Bad arguments for COUNT:…`；SEARCH+AGGREGATE）+ **SCORER** 校验（缺参/`No such scorer`；大小写敏感；拒静默回退）+ **FT.TAGVALS**（`No such field`/`Not a tag field`）+ R4-1 扩至 **595**（APPEND/STRLEN、LREM、ZRANK/ZREM、HINCRBYFLOAT、SISMEMBER、BITCOUNT、XTRIM）；远期仍 7 项，不宣称完整 KNN/DIALECT 或全量 sidecar
 - 第七十八批（远期子集续研）：对照 Redis **8.10** QE 对齐 FT.SEARCH/AGGREGATE **LIMIT**（缺参/`requires two`；负/非数字→`needs two numeric`；修负 offset **panic**）+ AGGREGATE **GROUPBY/SORTBY** 未知属性（`No such property` / `not loaded nor in schema`；schema/LOAD/APPLY/REDUCE AS 仍合法）+ R4-1 扩至 **565**（SETRANGE、SUNION/SINTER/SDIFF STORE、SMOVE、ZUNION/ZINTER STORE、HINCRBY、INCRBY、SETBIT/GETBIT、XDEL）；远期仍 7 项，不宣称完整 KNN/DIALECT 或全量 sidecar
 - 第七十七批（远期子集续研）：对照 Redis **8.6** QE 对齐 FT.AGGREGATE **FILTER/APPLY 命令序交错**（多 FILTER；APPLY 间 FILTER）+ APPLY **数值串/布尔强制转换**（floor('3.7')/floor(1==1)）与 **字符串类型校验**（upper(@n)→Null；strlen/substr→Invalid type；substr 负偏移越界→空串；-nan/-inf 线格式）+ R4-1 扩至 **537**（OBJECT ENCODING、SET GET、EXISTS 多键、LTRIM、ZCOUNT/ZINCRBY、HMSET、PEXPIREAT）；远期仍 7 项，不宣称完整 KNN/DIALECT 或全量 sidecar
