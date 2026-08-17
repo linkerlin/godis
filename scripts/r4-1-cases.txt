@@ -1364,6 +1364,114 @@ TYPE-b87none|none|TYPE sidecar:b87:typemiss:{{ID}}
 EXISTS-b87miss|0|EXISTS sidecar:b87:emiss:{{ID}}
 DBSIZE-b87|>=0|DBSIZE
 
+# --- batch 88 extras (LINSERT/LSET; Z*STORE; BITOP XOR; MSETNX/RENAMENX/COPY; GETEX; HSET multi; ZLEXCOUNT; LREM/SREM; RPOPLPUSH; PFADD; SETBIT) ---
+@DEL sidecar:b88:l:{{ID}}
+RPUSH-b88|2|RPUSH sidecar:b88:l:{{ID}} a c
+LINSERT-b88|3|LINSERT sidecar:b88:l:{{ID}} BEFORE c b
+LRANGE-b88|a\nb\nc|LRANGE sidecar:b88:l:{{ID}} 0 -1
+LSET-b88|OK|LSET sidecar:b88:l:{{ID}} 1 x
+LINDEX-b88|x|LINDEX sidecar:b88:l:{{ID}} 1
+DEL-b88l|1|DEL sidecar:b88:l:{{ID}}
+@DEL sidecar:b88:z:{{ID}}
+@DEL sidecar:b88:zu:{{ID}}
+@DEL sidecar:b88:zi:{{ID}}
+ZADD-b88|2|ZADD sidecar:b88:z:{{ID}} 1 a 2 b
+ZUNIONSTORE-b88|2|ZUNIONSTORE sidecar:b88:zu:{{ID}} 1 sidecar:b88:z:{{ID}}
+ZINTERSTORE-b88|2|ZINTERSTORE sidecar:b88:zi:{{ID}} 1 sidecar:b88:z:{{ID}}
+ZREVRANGE-b88|b|ZREVRANGE sidecar:b88:z:{{ID}} 0 0
+ZREVRANGE-WS-b88|b\n2|ZREVRANGE sidecar:b88:z:{{ID}} 0 0 WITHSCORES
+DEL-b88z|3|DEL sidecar:b88:z:{{ID}} sidecar:b88:zu:{{ID}} sidecar:b88:zi:{{ID}}
+@DEL sidecar:b88:b1:{{ID}}
+@DEL sidecar:b88:b2:{{ID}}
+@DEL sidecar:b88:bx:{{ID}}
+SETBIT-b88b1|0|SETBIT sidecar:b88:b1:{{ID}} 0 1
+SETBIT-b88b2|0|SETBIT sidecar:b88:b2:{{ID}} 0 1
+BITOP-b88xor|1|BITOP XOR sidecar:b88:bx:{{ID}} sidecar:b88:b1:{{ID}} sidecar:b88:b2:{{ID}}
+GETBIT-b88xor|0|GETBIT sidecar:b88:bx:{{ID}} 0
+DEL-b88bit|3|DEL sidecar:b88:b1:{{ID}} sidecar:b88:b2:{{ID}} sidecar:b88:bx:{{ID}}
+@DEL sidecar:b88:m1:{{ID}}
+@DEL sidecar:b88:m2:{{ID}}
+@DEL sidecar:b88:m3:{{ID}}
+MSETNX-b88|1|MSETNX sidecar:b88:m1:{{ID}} a sidecar:b88:m2:{{ID}} b
+MSETNX-b88exist|0|MSETNX sidecar:b88:m1:{{ID}} x sidecar:b88:m3:{{ID}} y
+DEL-b88m|2|DEL sidecar:b88:m1:{{ID}} sidecar:b88:m2:{{ID}}
+@DEL sidecar:b88:r1:{{ID}}
+@DEL sidecar:b88:r2:{{ID}}
+SET-b88r|OK|SET sidecar:b88:r1:{{ID}} v
+RENAMENX-b88|1|RENAMENX sidecar:b88:r1:{{ID}} sidecar:b88:r2:{{ID}}
+GET-b88r|v|GET sidecar:b88:r2:{{ID}}
+DEL-b88r|1|DEL sidecar:b88:r2:{{ID}}
+@DEL sidecar:b88:c1:{{ID}}
+@DEL sidecar:b88:c2:{{ID}}
+SET-b88c|OK|SET sidecar:b88:c1:{{ID}} hi
+COPY-b88|1|COPY sidecar:b88:c1:{{ID}} sidecar:b88:c2:{{ID}}
+GET-b88c|hi|GET sidecar:b88:c2:{{ID}}
+DEL-b88c|2|DEL sidecar:b88:c1:{{ID}} sidecar:b88:c2:{{ID}}
+@DEL sidecar:b88:ge:{{ID}}
+SET-b88ge|OK|SET sidecar:b88:ge:{{ID}} v
+GETEX-b88|v|GETEX sidecar:b88:ge:{{ID}} EX 100
+TTL-b88ge|<=100|TTL sidecar:b88:ge:{{ID}}
+TTL-b88ge2|>=1|TTL sidecar:b88:ge:{{ID}}
+DEL-b88ge|1|DEL sidecar:b88:ge:{{ID}}
+@DEL sidecar:b88:h:{{ID}}
+HSET-b88multi|3|HSET sidecar:b88:h:{{ID}} a 1 b 2 c 3
+HLEN-b88|3|HLEN sidecar:b88:h:{{ID}}
+HEXISTS-b88|1|HEXISTS sidecar:b88:h:{{ID}} a
+HEXISTS-b88miss|0|HEXISTS sidecar:b88:h:{{ID}} z
+DEL-b88h|1|DEL sidecar:b88:h:{{ID}}
+@DEL sidecar:b88:zl:{{ID}}
+ZADD-b88lex|4|ZADD sidecar:b88:zl:{{ID}} 0 a 0 b 0 c 0 d
+ZLEXCOUNT-b88|3|ZLEXCOUNT sidecar:b88:zl:{{ID}} [a [c
+DEL-b88zl|1|DEL sidecar:b88:zl:{{ID}}
+@DEL sidecar:b88:lr:{{ID}}
+RPUSH-b88lr|5|RPUSH sidecar:b88:lr:{{ID}} a b a c a
+LREM-b88|2|LREM sidecar:b88:lr:{{ID}} 2 a
+LLEN-b88lr|3|LLEN sidecar:b88:lr:{{ID}}
+DEL-b88lr|1|DEL sidecar:b88:lr:{{ID}}
+@DEL sidecar:b88:sr:{{ID}}
+SADD-b88|3|SADD sidecar:b88:sr:{{ID}} a b c
+SREM-b88|1|SREM sidecar:b88:sr:{{ID}} b z
+SCARD-b88|2|SCARD sidecar:b88:sr:{{ID}}
+DEL-b88sr|1|DEL sidecar:b88:sr:{{ID}}
+@DEL sidecar:b88:rp:{{ID}}
+@DEL sidecar:b88:rq:{{ID}}
+RPUSH-b88rp|3|RPUSH sidecar:b88:rp:{{ID}} a b c
+RPOPLPUSH-b88|c|RPOPLPUSH sidecar:b88:rp:{{ID}} sidecar:b88:rq:{{ID}}
+LLEN-b88rp|2|LLEN sidecar:b88:rp:{{ID}}
+LINDEX-b88rq|c|LINDEX sidecar:b88:rq:{{ID}} 0
+DEL-b88rpq|2|DEL sidecar:b88:rp:{{ID}} sidecar:b88:rq:{{ID}}
+@DEL sidecar:b88:s1:{{ID}}
+@DEL sidecar:b88:s2:{{ID}}
+@DEL sidecar:b88:sd:{{ID}}
+SADD-b88s1|3|SADD sidecar:b88:s1:{{ID}} a b c
+SADD-b88s2|1|SADD sidecar:b88:s2:{{ID}} b
+SDIFFSTORE-b88|2|SDIFFSTORE sidecar:b88:sd:{{ID}} sidecar:b88:s1:{{ID}} sidecar:b88:s2:{{ID}}
+SCARD-b88sd|2|SCARD sidecar:b88:sd:{{ID}}
+DEL-b88sd|3|DEL sidecar:b88:s1:{{ID}} sidecar:b88:s2:{{ID}} sidecar:b88:sd:{{ID}}
+@DEL sidecar:b88:pf:{{ID}}
+PFADD-b88|1|PFADD sidecar:b88:pf:{{ID}} a b c
+PFCOUNT-b88|3|PFCOUNT sidecar:b88:pf:{{ID}}
+DEL-b88pf|1|DEL sidecar:b88:pf:{{ID}}
+@DEL sidecar:b88:sb:{{ID}}
+SETBIT-b88|0|SETBIT sidecar:b88:sb:{{ID}} 7 1
+BITCOUNT-b88|1|BITCOUNT sidecar:b88:sb:{{ID}}
+BITPOS-b88|7|BITPOS sidecar:b88:sb:{{ID}} 1
+DEL-b88sb|1|DEL sidecar:b88:sb:{{ID}}
+@DEL sidecar:b88:touch:{{ID}}
+SET-b88t|OK|SET sidecar:b88:touch:{{ID}} t
+TOUCH-b88|1|TOUCH sidecar:b88:touch:{{ID}}
+UNLINK-b88|1|UNLINK sidecar:b88:touch:{{ID}}
+EXISTS-b88after|0|EXISTS sidecar:b88:touch:{{ID}}
+PTTL-b88miss|-2|PTTL sidecar:b88:pttlmiss:{{ID}}
+EXPIRETIME-b88miss|-2|EXPIRETIME sidecar:b88:etmiss:{{ID}}
+APPEND-b88|3|APPEND sidecar:b88:ap:{{ID}} xyz
+STRLEN-b88ap|3|STRLEN sidecar:b88:ap:{{ID}}
+DEL-b88ap|1|DEL sidecar:b88:ap:{{ID}}
+INCRBY-b88|10|INCRBY sidecar:b88:ib:{{ID}} 10
+DEL-b88ib|1|DEL sidecar:b88:ib:{{ID}}
+HINCRBY-b88|4|HINCRBY sidecar:b88:hi:{{ID}} n 4
+DEL-b88hi|1|DEL sidecar:b88:hi:{{ID}}
+
 # --- cleanup string / incr keys ---
 DEL|1|DEL sidecar:allowlist:{{ID}}
 EXISTS-after-del|0|EXISTS sidecar:allowlist:{{ID}}
