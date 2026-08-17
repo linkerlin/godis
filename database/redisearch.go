@@ -738,6 +738,7 @@ func execFTSearch(db *DB, args [][]byte) redis.Reply {
 	withSortKeys := false
 	withCursor := false
 	cursorCount := 10
+	cursorMaxIdle := ftCursorIdleTimeout
 	type returnFieldSpec struct {
 		source string
 		name   string // reply key (AS alias or source)
@@ -794,16 +795,39 @@ func execFTSearch(db *DB, args [][]byte) redis.Reply {
 			}
 		case "WITHCURSOR":
 			withCursor = true
-			if i+1 < len(args) && strings.EqualFold(string(args[i+1]), "COUNT") {
-				if i+2 >= len(args) {
-					return protocol.MakeSyntaxErrReply()
+			for i+1 < len(args) {
+				opt := strings.ToUpper(string(args[i+1]))
+				if opt == "COUNT" {
+					if i+2 >= len(args) {
+						return protocol.MakeSyntaxErrReply()
+					}
+					n, err := strconv.Atoi(string(args[i+2]))
+					if err != nil || n <= 0 {
+						return protocol.MakeErrReply("ERR Invalid COUNT value")
+					}
+					cursorCount = n
+					i += 2
+					continue
 				}
-				n, err := strconv.Atoi(string(args[i+2]))
-				if err != nil || n <= 0 {
-					return protocol.MakeErrReply("ERR Invalid COUNT value")
+				if opt == "MAXIDLE" {
+					if i+2 >= len(args) {
+						return protocol.MakeErrReply("Bad arguments for MAXIDLE: Expected an argument, but none provided")
+					}
+					ms, err := strconv.ParseInt(string(args[i+2]), 10, 64)
+					if err != nil {
+						return protocol.MakeErrReply("Bad arguments for MAXIDLE: Could not convert argument to expected type")
+					}
+					if ms <= 0 {
+						return protocol.MakeErrReply("Bad arguments for MAXIDLE: Value is outside acceptable bounds")
+					}
+					if ms > ftCursorMaxIdleCapMs {
+						ms = ftCursorMaxIdleCapMs
+					}
+					cursorMaxIdle = time.Duration(ms) * time.Millisecond
+					i += 2
+					continue
 				}
-				cursorCount = n
-				i += 2
+				break
 			}
 		case "DIALECT":
 			if i+1 >= len(args) {
@@ -1414,7 +1438,7 @@ func execFTSearch(db *DB, args [][]byte) redis.Reply {
 	}
 
 	if withCursor {
-		return ftBuildCursorPage(indexName, results.Total, cursorRows, cursorCount)
+		return ftBuildCursorPage(indexName, results.Total, cursorRows, cursorCount, cursorMaxIdle)
 	}
 	// Wrap in FTSearchReply so RESP3 connections get the Redis 8.x map shape;
 	// RESP2 connections see the unchanged positional array via ToBytes().
@@ -1508,6 +1532,7 @@ func execFTAggregate(db *DB, args [][]byte) redis.Reply {
 	}
 	withCursor := false
 	cursorCount := 10
+	cursorMaxIdle := ftCursorIdleTimeout
 	sawGroupBy := false
 
 	for i := 2; i < len(args); {
@@ -1556,15 +1581,38 @@ func execFTAggregate(db *DB, args [][]byte) redis.Reply {
 		case "WITHCURSOR":
 			withCursor = true
 			i++
-			if i < len(args) && strings.EqualFold(string(args[i]), "COUNT") {
+			for i < len(args) {
+				opt := strings.ToUpper(string(args[i]))
+				if opt != "COUNT" && opt != "MAXIDLE" {
+					break
+				}
+				if opt == "COUNT" {
+					if i+1 >= len(args) {
+						return protocol.MakeSyntaxErrReply()
+					}
+					n, err := strconv.Atoi(string(args[i+1]))
+					if err != nil || n <= 0 {
+						return protocol.MakeErrReply("ERR Invalid COUNT value")
+					}
+					cursorCount = n
+					i += 2
+					continue
+				}
+				// MAXIDLE
 				if i+1 >= len(args) {
-					return protocol.MakeSyntaxErrReply()
+					return protocol.MakeErrReply("Bad arguments for MAXIDLE: Expected an argument, but none provided")
 				}
-				n, err := strconv.Atoi(string(args[i+1]))
-				if err != nil || n <= 0 {
-					return protocol.MakeErrReply("ERR Invalid COUNT value")
+				ms, err := strconv.ParseInt(string(args[i+1]), 10, 64)
+				if err != nil {
+					return protocol.MakeErrReply("Bad arguments for MAXIDLE: Could not convert argument to expected type")
 				}
-				cursorCount = n
+				if ms <= 0 {
+					return protocol.MakeErrReply("Bad arguments for MAXIDLE: Value is outside acceptable bounds")
+				}
+				if ms > ftCursorMaxIdleCapMs {
+					ms = ftCursorMaxIdleCapMs
+				}
+				cursorMaxIdle = time.Duration(ms) * time.Millisecond
 				i += 2
 			}
 			continue
@@ -1607,14 +1655,28 @@ func execFTAggregate(db *DB, args [][]byte) redis.Reply {
 				return protocol.MakeErrReply("ERR Invalid load count")
 			}
 			i += 2
-			for j := 0; j < count && i < len(args); j++ {
+			consumed := 0
+			for consumed < count && i < len(args) {
 				nextArg := strings.ToUpper(string(args[i]))
 				if nextArg == "GROUPBY" || nextArg == "SORTBY" || nextArg == "LIMIT" ||
 					nextArg == "APPLY" || nextArg == "FILTER" || nextArg == "LOAD" {
 					break
 				}
-				req.Load = append(req.Load, string(args[i]))
+				field := strings.TrimPrefix(string(args[i]), "@")
 				i++
+				consumed++
+				as := ""
+				if consumed < count && i < len(args) && strings.EqualFold(string(args[i]), "AS") {
+					i++
+					consumed++
+					if consumed >= count || i >= len(args) {
+						return protocol.MakeErrReply("LOAD path AS name - must be accompanied with NAME")
+					}
+					as = string(args[i])
+					i++
+					consumed++
+				}
+				req.Load = append(req.Load, redisearch.LoadSpec{Field: field, As: as})
 			}
 			continue
 
@@ -1831,7 +1893,7 @@ func execFTAggregate(db *DB, args [][]byte) redis.Reply {
 		for _, group := range result.Groups {
 			rows = append(rows, aggRowBytes(group))
 		}
-		return ftBuildCursorPage(indexName, result.Total, rows, cursorCount)
+		return ftBuildCursorPage(indexName, result.Total, rows, cursorCount, cursorMaxIdle)
 	}
 
 	// Build response
@@ -1897,9 +1959,13 @@ type ftCursorEntry struct {
 	total      int
 	rows       [][]byte
 	lastAccess time.Time
+	maxIdle    time.Duration // FROM WITHCURSOR MAXIDLE; 0 → ftCursorIdleTimeout
 }
 
 const ftCursorIdleTimeout = time.Minute
+
+// Redis Query Engine caps MAXIDLE at 300000 ms (default when omitted is 5 min).
+const ftCursorMaxIdleCapMs = 300000
 
 var (
 	ftCursorMu      sync.Mutex
@@ -1907,15 +1973,19 @@ var (
 	ftCursorCounter uint64
 )
 
-// ftSweepExpiredCursorsLocked drops cursors idle for longer than
-// ftCursorIdleTimeout. Caller must hold ftCursorMu.
+// ftSweepExpiredCursorsLocked drops cursors idle past their MAXIDLE (or the
+// default). Caller must hold ftCursorMu.
 func ftSweepExpiredCursorsLocked() {
 	if len(ftCursorStore) == 0 {
 		return
 	}
 	now := time.Now()
 	for id, entry := range ftCursorStore {
-		if now.Sub(entry.lastAccess) > ftCursorIdleTimeout {
+		idle := entry.maxIdle
+		if idle <= 0 {
+			idle = ftCursorIdleTimeout
+		}
+		if now.Sub(entry.lastAccess) > idle {
 			delete(ftCursorStore, id)
 		}
 	}
@@ -1925,9 +1995,12 @@ func ftSweepExpiredCursorsLocked() {
 // storing the remainder (if any) under a freshly minted cursor id. Returns
 // the Redis reply shape `[[total, row, row, ...], cursorID]`, with cursorID
 // 0 once the result set is exhausted.
-func ftBuildCursorPage(indexName string, total int, rows [][]byte, count int) redis.Reply {
+func ftBuildCursorPage(indexName string, total int, rows [][]byte, count int, maxIdle time.Duration) redis.Reply {
 	if count <= 0 {
 		count = 10
+	}
+	if maxIdle <= 0 {
+		maxIdle = ftCursorIdleTimeout
 	}
 	pageRows := rows
 	remaining := ([][]byte)(nil)
@@ -1952,6 +2025,7 @@ func ftBuildCursorPage(indexName string, total int, rows [][]byte, count int) re
 			total:      total,
 			rows:       remaining,
 			lastAccess: time.Now(),
+			maxIdle:    maxIdle,
 		}
 	}
 	ftCursorMu.Unlock()
@@ -1998,7 +2072,7 @@ func execFTCursor(db *DB, args [][]byte) redis.Reply {
 		if count <= 0 {
 			count = 10
 		}
-		return ftBuildCursorPage(indexName, entry.total, entry.rows, count)
+		return ftBuildCursorPage(indexName, entry.total, entry.rows, count, entry.maxIdle)
 
 	case "DEL":
 		ftCursorMu.Lock()

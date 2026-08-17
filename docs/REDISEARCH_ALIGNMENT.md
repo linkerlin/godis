@@ -239,6 +239,8 @@ FT.SEARCH idx "hello"  # -> %5 total_results / results / attributes / format / w
 
 | FT.AGGREGATE ADDSCORES | ✅ 子集 | 管道注入 `@__score`（BM25STD）；可 SORTBY；**非**字节级对齐 RediSearch |
 | FT.AGGREGATE 多字段 SORTBY | ✅ 子集 | nargs 内多 property+ASC/DESC；缺字段排后；可与 MAX 组合 |
+| FT.AGGREGATE LOAD … AS / `@__key` | ✅ 子集 | nargs 计 AS+别名；有 LOAD 时投影；ADDSCORES 保留 `__score`；**无 LOAD 仍返回全字段**（非 Redis 默认空行） |
+| FT.AGGREGATE WITHCURSOR MAXIDLE | ✅ 子集 | COUNT/MAXIDLE 可互换；≤0/缺参/非数字文案；上限 300000ms；每游标 idle |
 | FT.SEARCH FORMAT | ✅ 子集 | STRING；拒 JSON/未知；EXPAND→DIALECT≥3+RESP3+ON JSON（回复仍为双形 FTSearchReply，非完整 EXPAND 树） |
 | 查询属性 `$weight` | ✅ 子集 | 乘分；`$slop`/`$inorder`；拒非法/未知/`$phonetic:true`；**非** Redis 字节级项贡献 |
 | FT.SEARCH EXPLAINSCORE | ✅ 子集 | 需 WITHSCORES；BM25STD/DOCSCORE/DISMAX 嵌套线格式；**非**字节级对齐 RediSearch（b=0.09） |

@@ -6,6 +6,7 @@
 
 ### Fixed
 
+- 第六十七批（远期子集续研）：FT.AGGREGATE **LOAD … AS**（nargs 计 AS+别名；投影未 LOAD 字段；`@__key`；ADDSCORES 保留 `__score`；对照 Redis 8.6）+ **WITHCURSOR MAXIDLE**（COUNT/MAXIDLE 可互换；≤0/缺参/非数字文案；上限 300000ms）；R4-1 扩至 **370** 条（SINTER 单成员、STRLEN/APPEND/GETRANGE/DECRBY）；远期仍 7 项，不宣称完整 KNN/DIALECT 或全量 sidecar
 - 第六十六批（远期子集续研）：FT.AGGREGATE **多字段 SORTBY**（nargs 内多 property+ASC/DESC；缺字段排后；稳定 tie-break；可与 MAX 组合；对照 Redis 8.x）；R4-1 扩至 **358** 条（SDIFF/ZDIFF 单成员、XTRIM+XLEN、ZMPOP/LMPOP）；sidecar `check_want` 修复 `<=`（`is_int` 不再冲掉边界）；`DEL-b63zp` WANT 1；远期仍 7 项，不宣称完整 KNN/DIALECT 或全量 sidecar
 - 第六十五批（远期子集续研）：FT.AGGREGATE **SORTBY … MAX**（排序后截断；Total 保持截断前；对照 Redis 8.x）；FT.SEARCH/AGGREGATE **TIMEOUT** 非法/缺参文案对齐（无 `ERR` 前缀）；R4-1 扩至 **338** 条（ZREMRANGEBYLEX/HPEXPIRE+HPTTL）；远期仍 7 项，不宣称完整 KNN/DIALECT 或全量 sidecar
 - 第六十四批（远期子集续研）：FT.SEARCH/AGGREGATE **FORMAT**（STRING；拒 JSON/未知；EXPAND 需 DIALECT≥3+RESP3+ON JSON，对照 Redis 8.10）；查询属性 **`$weight`**（乘分；`$slop`/`$inorder`；拒非法/未知/`$phonetic:true`；非字节级 BM25）；R4-1 扩至 **329** 条（ZRANGESTORE/ZRANGEBYLEX/BITFIELD/HEXPIRE+HTTL）；远期仍 7 项，不宣称完整 KNN/DIALECT 或全量 sidecar

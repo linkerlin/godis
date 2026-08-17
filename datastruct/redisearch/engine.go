@@ -968,14 +968,9 @@ func (e *RediSearchEngine) Aggregate(req *AggregationRequest) (*AggregationResul
 		docs = out
 	}
 
-	// Apply LOAD
-	if req.LoadAll {
-		// LOAD *: document fields already present
-	} else {
-		for _, load := range req.Load {
-			_ = load // Fields already loaded in documents
-		}
-	}
+	// Apply LOAD (projection + optional AS rename). LOAD * / absent LOAD keep
+	// existing fields (Godis still returns full docs without LOAD; Redis omits).
+	docs = applyLoadSpecs(docs, req.Load, req.LoadAll)
 
 	// Apply APPLY clauses that appeared before GROUPBY, against each
 	// document's own fields (so a following GROUPBY/REDUCE can reference
@@ -1045,10 +1040,17 @@ func (e *RediSearchEngine) Aggregate(req *AggregationRequest) (*AggregationResul
 	}, nil
 }
 
+// LoadSpec is one FT.AGGREGATE LOAD field token, optionally renamed with AS.
+// Redis counts AS + alias inside the LOAD nargs (e.g. LOAD 3 @title AS t).
+type LoadSpec struct {
+	Field string // source without leading @; "__key" → document id
+	As    string // empty = keep Field as the pipeline name
+}
+
 // AggregationRequest represents an aggregation request
 type AggregationRequest struct {
 	Query     string
-	Load      []string
+	Load      []LoadSpec
 	LoadAll   bool // LOAD *
 	Verbatim  bool
 	TimeoutMs int // soft deadline in ms
@@ -1072,6 +1074,40 @@ type AggregationRequest struct {
 	MaxExpansions int
 	// Dialect controls DIALECT 1 vs 2 query precedence (| vs space).
 	Dialect int
+}
+
+// applyLoadSpecs projects document fields for LOAD n … [AS alias]. Preserves
+// @__score injected by ADDSCORES. Missing source fields are omitted.
+func applyLoadSpecs(docs []*Document, specs []LoadSpec, loadAll bool) []*Document {
+	if loadAll || len(specs) == 0 {
+		return docs
+	}
+	out := make([]*Document, len(docs))
+	for i, doc := range docs {
+		fields := make(map[string]interface{}, len(specs)+1)
+		if score, ok := doc.Fields["__score"]; ok {
+			fields["__score"] = score
+		}
+		for _, spec := range specs {
+			var val interface{}
+			ok := false
+			if spec.Field == "__key" {
+				val, ok = doc.ID, true
+			} else {
+				val, ok = doc.Fields[spec.Field]
+			}
+			if !ok {
+				continue
+			}
+			name := spec.Field
+			if spec.As != "" {
+				name = spec.As
+			}
+			fields[name] = val
+		}
+		out[i] = &Document{ID: doc.ID, Fields: fields, Score: doc.Score, Payload: doc.Payload}
+	}
+	return out
 }
 
 // SortKey is one SORTBY property with optional ASC/DESC (default ASC).
