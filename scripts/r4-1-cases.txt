@@ -1568,6 +1568,101 @@ DEL-b89pf|3|DEL sidecar:b89:pf1:{{ID}} sidecar:b89:pf2:{{ID}} sidecar:b89:pfm:{{
 TYPE-b89miss|none|TYPE sidecar:b89:miss:{{ID}}
 DBSIZE-b89|>=0|DBSIZE
 
+# --- batch 90 extras (LINSERT AFTER; ZRANGESTORE/ZDIFFSTORE; S*STORE; BITOP AND; SET EX/PSETEX; RENAME; LCS; ZCOUNT/ZINCRBY; GETSET; HSTRLEN; HEXPIRE/HTTL) ---
+@DEL sidecar:b90:l:{{ID}}
+RPUSH-b90|2|RPUSH sidecar:b90:l:{{ID}} a c
+LINSERT-AFTER-b90|3|LINSERT sidecar:b90:l:{{ID}} AFTER a b
+LRANGE-b90|a\nb\nc|LRANGE sidecar:b90:l:{{ID}} 0 -1
+LPOS-b90|1|LPOS sidecar:b90:l:{{ID}} b
+DEL-b90l|1|DEL sidecar:b90:l:{{ID}}
+@DEL sidecar:b90:z:{{ID}}
+@DEL sidecar:b90:zs:{{ID}}
+ZADD-b90|3|ZADD sidecar:b90:z:{{ID}} 1 a 2 b 3 c
+ZRANGESTORE-b90|2|ZRANGESTORE sidecar:b90:zs:{{ID}} sidecar:b90:z:{{ID}} 0 1
+ZRANGE-b90zs|a\nb|ZRANGE sidecar:b90:zs:{{ID}} 0 -1
+ZCOUNT-b90|2|ZCOUNT sidecar:b90:z:{{ID}} 1 2
+ZINCRBY-b90|2|ZINCRBY sidecar:b90:z:{{ID}} 1 a
+DEL-b90z|2|DEL sidecar:b90:z:{{ID}} sidecar:b90:zs:{{ID}}
+@DEL sidecar:b90:z1:{{ID}}
+@DEL sidecar:b90:z2:{{ID}}
+@DEL sidecar:b90:zd:{{ID}}
+ZADD-b90z1|2|ZADD sidecar:b90:z1:{{ID}} 1 a 2 b
+ZADD-b90z2|1|ZADD sidecar:b90:z2:{{ID}} 1 b
+ZDIFFSTORE-b90|1|ZDIFFSTORE sidecar:b90:zd:{{ID}} 2 sidecar:b90:z1:{{ID}} sidecar:b90:z2:{{ID}}
+ZCARD-b90zd|1|ZCARD sidecar:b90:zd:{{ID}}
+DEL-b90zd|3|DEL sidecar:b90:z1:{{ID}} sidecar:b90:z2:{{ID}} sidecar:b90:zd:{{ID}}
+@DEL sidecar:b90:s1:{{ID}}
+@DEL sidecar:b90:s2:{{ID}}
+@DEL sidecar:b90:su:{{ID}}
+@DEL sidecar:b90:si:{{ID}}
+SADD-b90s1|2|SADD sidecar:b90:s1:{{ID}} a b
+SADD-b90s2|2|SADD sidecar:b90:s2:{{ID}} b c
+SUNIONSTORE-b90|3|SUNIONSTORE sidecar:b90:su:{{ID}} sidecar:b90:s1:{{ID}} sidecar:b90:s2:{{ID}}
+SINTERSTORE-b90|1|SINTERSTORE sidecar:b90:si:{{ID}} sidecar:b90:s1:{{ID}} sidecar:b90:s2:{{ID}}
+SCARD-b90si|1|SCARD sidecar:b90:si:{{ID}}
+SMISMEMBER-b90|1|SMISMEMBER sidecar:b90:s1:{{ID}} a
+DEL-b90s|4|DEL sidecar:b90:s1:{{ID}} sidecar:b90:s2:{{ID}} sidecar:b90:su:{{ID}} sidecar:b90:si:{{ID}}
+@DEL sidecar:b90:b1:{{ID}}
+@DEL sidecar:b90:b2:{{ID}}
+@DEL sidecar:b90:ba:{{ID}}
+SETBIT-b90b1a|0|SETBIT sidecar:b90:b1:{{ID}} 0 1
+SETBIT-b90b1b|0|SETBIT sidecar:b90:b1:{{ID}} 1 1
+SETBIT-b90b2|0|SETBIT sidecar:b90:b2:{{ID}} 0 1
+BITOP-AND-b90|1|BITOP AND sidecar:b90:ba:{{ID}} sidecar:b90:b1:{{ID}} sidecar:b90:b2:{{ID}}
+GETBIT-b90a0|1|GETBIT sidecar:b90:ba:{{ID}} 0
+GETBIT-b90a1|0|GETBIT sidecar:b90:ba:{{ID}} 1
+DEL-b90bit|3|DEL sidecar:b90:b1:{{ID}} sidecar:b90:b2:{{ID}} sidecar:b90:ba:{{ID}}
+@DEL sidecar:b90:ex:{{ID}}
+SET-EX-b90|OK|SET sidecar:b90:ex:{{ID}} v EX 50
+TTL-b90ex|<=50|TTL sidecar:b90:ex:{{ID}}
+TTL-b90ex2|>=1|TTL sidecar:b90:ex:{{ID}}
+DEL-b90ex|1|DEL sidecar:b90:ex:{{ID}}
+@DEL sidecar:b90:px:{{ID}}
+PSETEX-b90|OK|PSETEX sidecar:b90:px:{{ID}} 5000 v
+PTTL-b90|<=5000|PTTL sidecar:b90:px:{{ID}}
+PTTL-b902|>=1|PTTL sidecar:b90:px:{{ID}}
+DEL-b90px|1|DEL sidecar:b90:px:{{ID}}
+@DEL sidecar:b90:rn1:{{ID}}
+@DEL sidecar:b90:rn2:{{ID}}
+SET-b90rn|OK|SET sidecar:b90:rn1:{{ID}} v
+RENAME-b90|OK|RENAME sidecar:b90:rn1:{{ID}} sidecar:b90:rn2:{{ID}}
+GET-b90rn|v|GET sidecar:b90:rn2:{{ID}}
+DEL-b90rn|1|DEL sidecar:b90:rn2:{{ID}}
+@DEL sidecar:b90:l1:{{ID}}
+@DEL sidecar:b90:l2:{{ID}}
+SET-b90l1|OK|SET sidecar:b90:l1:{{ID}} abc
+SET-b90l2|OK|SET sidecar:b90:l2:{{ID}} abd
+LCS-LEN-b90|2|LCS sidecar:b90:l1:{{ID}} sidecar:b90:l2:{{ID}} LEN
+OBJECT-REF-b90|1|OBJECT REFCOUNT sidecar:b90:l1:{{ID}}
+@skip OBJECT ENCODING may be embstr vs raw
+DEL-b90lcs|2|DEL sidecar:b90:l1:{{ID}} sidecar:b90:l2:{{ID}}
+@DEL sidecar:b90:gs:{{ID}}
+SET-b90gs|OK|SET sidecar:b90:gs:{{ID}} old
+GETSET-b90|old|GETSET sidecar:b90:gs:{{ID}} new
+GET-b90gs|new|GET sidecar:b90:gs:{{ID}}
+DEL-b90gs|1|DEL sidecar:b90:gs:{{ID}}
+@DEL sidecar:b90:ib:{{ID}}
+INCRBYFLOAT-b90|0.5|INCRBYFLOAT sidecar:b90:ib:{{ID}} 0.5
+DEL-b90ib|1|DEL sidecar:b90:ib:{{ID}}
+@DEL sidecar:b90:h:{{ID}}
+HSET-b90|1|HSET sidecar:b90:h:{{ID}} f hello
+HSTRLEN-b90|5|HSTRLEN sidecar:b90:h:{{ID}} f
+HEXPIRE-b90|1|HEXPIRE sidecar:b90:h:{{ID}} 100 FIELDS 1 f
+HTTL-b90|<=100|HTTL sidecar:b90:h:{{ID}} FIELDS 1 f
+HTTL-b902|>=1|HTTL sidecar:b90:h:{{ID}} FIELDS 1 f
+DEL-b90h|1|DEL sidecar:b90:h:{{ID}}
+@DEL sidecar:b90:decr:{{ID}}
+DECR-b90|-1|DECR sidecar:b90:decr:{{ID}}
+DEL-b90decr|1|DEL sidecar:b90:decr:{{ID}}
+@DEL sidecar:b90:incr:{{ID}}
+INCR-b90|1|INCR sidecar:b90:incr:{{ID}}
+DEL-b90incr|1|DEL sidecar:b90:incr:{{ID}}
+EXISTS-b90multi|0|EXISTS sidecar:b90:e1:{{ID}} sidecar:b90:e2:{{ID}}
+UNLINK-b90miss|0|UNLINK sidecar:b90:u1:{{ID}} sidecar:b90:u2:{{ID}}
+TOUCH-b90miss|0|TOUCH sidecar:b90:t1:{{ID}} sidecar:b90:t2:{{ID}}
+TYPE-b90none|none|TYPE sidecar:b90:none:{{ID}}
+DBSIZE-b90|>=0|DBSIZE
+
 # --- cleanup string / incr keys ---
 DEL|1|DEL sidecar:allowlist:{{ID}}
 EXISTS-after-del|0|EXISTS sidecar:allowlist:{{ID}}
