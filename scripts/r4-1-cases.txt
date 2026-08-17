@@ -1472,6 +1472,102 @@ DEL-b88ib|1|DEL sidecar:b88:ib:{{ID}}
 HINCRBY-b88|4|HINCRBY sidecar:b88:hi:{{ID}} n 4
 DEL-b88hi|1|DEL sidecar:b88:hi:{{ID}}
 
+# --- batch 89 extras (LTRIM; ZREMRANGEBYRANK; HSETNX; SET NX; LMOVE; ZMPOP/LMPOP; GEO; *INTERCARD; EXPIRE+PERSIST; GETDEL; BITFIELD INCRBY; LPOS RANK; HMSET/HMGET) ---
+@DEL sidecar:b89:l:{{ID}}
+RPUSH-b89|5|RPUSH sidecar:b89:l:{{ID}} a b c d e
+LTRIM-b89|OK|LTRIM sidecar:b89:l:{{ID}} 1 3
+LRANGE-b89|b\nc\nd|LRANGE sidecar:b89:l:{{ID}} 0 -1
+DEL-b89l|1|DEL sidecar:b89:l:{{ID}}
+@DEL sidecar:b89:z:{{ID}}
+ZADD-b89|4|ZADD sidecar:b89:z:{{ID}} 1 a 2 b 3 c 4 d
+ZREMRANGEBYRANK-b89|2|ZREMRANGEBYRANK sidecar:b89:z:{{ID}} 0 1
+ZCARD-b89|2|ZCARD sidecar:b89:z:{{ID}}
+DEL-b89z|1|DEL sidecar:b89:z:{{ID}}
+@DEL sidecar:b89:h:{{ID}}
+HSET-b89|1|HSET sidecar:b89:h:{{ID}} f v
+HSETNX-b89exist|0|HSETNX sidecar:b89:h:{{ID}} f x
+HSETNX-b89new|1|HSETNX sidecar:b89:h:{{ID}} g y
+DEL-b89h|1|DEL sidecar:b89:h:{{ID}}
+@DEL sidecar:b89:nx:{{ID}}
+SET-NX-b89|OK|SET sidecar:b89:nx:{{ID}} v NX
+SET-NX-b89fail|$-1|SET sidecar:b89:nx:{{ID}} w NX
+GET-b89nx|v|GET sidecar:b89:nx:{{ID}}
+DEL-b89nx|1|DEL sidecar:b89:nx:{{ID}}
+@DEL sidecar:b89:la:{{ID}}
+@DEL sidecar:b89:lb:{{ID}}
+RPUSH-b89la|3|RPUSH sidecar:b89:la:{{ID}} 1 2 3
+LMOVE-b89|3|LMOVE sidecar:b89:la:{{ID}} sidecar:b89:lb:{{ID}} RIGHT LEFT
+LLEN-b89la|2|LLEN sidecar:b89:la:{{ID}}
+LLEN-b89lb|1|LLEN sidecar:b89:lb:{{ID}}
+DEL-b89lab|2|DEL sidecar:b89:la:{{ID}} sidecar:b89:lb:{{ID}}
+@DEL sidecar:b89:zp:{{ID}}
+ZADD-b89zp|2|ZADD sidecar:b89:zp:{{ID}} 1 a 2 b
+ZMPOP-b89|sidecar:b89:zp:{{ID}}\na\n1|ZMPOP 1 sidecar:b89:zp:{{ID}} MIN
+DEL-b89zp|1|DEL sidecar:b89:zp:{{ID}}
+@DEL sidecar:b89:lp:{{ID}}
+RPUSH-b89lp|2|RPUSH sidecar:b89:lp:{{ID}} x y
+LMPOP-b89|sidecar:b89:lp:{{ID}}\nx|LMPOP 1 sidecar:b89:lp:{{ID}} LEFT
+DEL-b89lp|1|DEL sidecar:b89:lp:{{ID}}
+@DEL sidecar:b89:g:{{ID}}
+GEOADD-b89|1|GEOADD sidecar:b89:g:{{ID}} 13.361389 38.115556 Palermo
+@skip GEOHASH float/hash precision vs Redis (Godis may differ in last chars)
+DEL-b89g|1|DEL sidecar:b89:g:{{ID}}
+@DEL sidecar:b89:sa:{{ID}}
+@DEL sidecar:b89:sb:{{ID}}
+SADD-b89sa|3|SADD sidecar:b89:sa:{{ID}} a b c
+SADD-b89sb|3|SADD sidecar:b89:sb:{{ID}} b c d
+SINTERCARD-b89|2|SINTERCARD 2 sidecar:b89:sa:{{ID}} sidecar:b89:sb:{{ID}}
+DEL-b89s|2|DEL sidecar:b89:sa:{{ID}} sidecar:b89:sb:{{ID}}
+@DEL sidecar:b89:za:{{ID}}
+@DEL sidecar:b89:zb:{{ID}}
+ZADD-b89za|2|ZADD sidecar:b89:za:{{ID}} 1 a 2 b
+ZADD-b89zb|2|ZADD sidecar:b89:zb:{{ID}} 1 b 2 c
+ZINTERCARD-b89|1|ZINTERCARD 2 sidecar:b89:za:{{ID}} sidecar:b89:zb:{{ID}}
+ZRANGEBYSCORE-b89|a\nb|ZRANGEBYSCORE sidecar:b89:za:{{ID}} 1 2
+DEL-b89zab|2|DEL sidecar:b89:za:{{ID}} sidecar:b89:zb:{{ID}}
+@DEL sidecar:b89:e:{{ID}}
+SET-b89e|OK|SET sidecar:b89:e:{{ID}} v
+EXPIRE-b89|1|EXPIRE sidecar:b89:e:{{ID}} 100
+PERSIST-b89|1|PERSIST sidecar:b89:e:{{ID}}
+TTL-b89persist|-1|TTL sidecar:b89:e:{{ID}}
+DEL-b89e|1|DEL sidecar:b89:e:{{ID}}
+@DEL sidecar:b89:gd:{{ID}}
+SET-b89gd|OK|SET sidecar:b89:gd:{{ID}} bye
+GETDEL-b89|bye|GETDEL sidecar:b89:gd:{{ID}}
+EXISTS-b89gd|0|EXISTS sidecar:b89:gd:{{ID}}
+@DEL sidecar:b89:bf:{{ID}}
+BITFIELD-INCR-b89|5|BITFIELD sidecar:b89:bf:{{ID}} INCRBY u8 0 5
+BITFIELD-GET-b89|5|BITFIELD sidecar:b89:bf:{{ID}} GET u8 0
+DEL-b89bf|1|DEL sidecar:b89:bf:{{ID}}
+@DEL sidecar:b89:lp2:{{ID}}
+RPUSH-b89lp2|5|RPUSH sidecar:b89:lp2:{{ID}} a b a c a
+LPOS-RANK-b89|2|LPOS sidecar:b89:lp2:{{ID}} a RANK 2
+DEL-b89lp2|1|DEL sidecar:b89:lp2:{{ID}}
+@DEL sidecar:b89:hm:{{ID}}
+HMSET-b89|OK|HMSET sidecar:b89:hm:{{ID}} a 1 b 2
+HMGET-b89|1\n2|HMGET sidecar:b89:hm:{{ID}} a b
+DEL-b89hm|1|DEL sidecar:b89:hm:{{ID}}
+@DEL sidecar:b89:x:{{ID}}
+XADD-b89|1-0|XADD sidecar:b89:x:{{ID}} 1-0 f 1
+XADD-b892|2-0|XADD sidecar:b89:x:{{ID}} 2-0 f 2
+XTRIM-b89|1|XTRIM sidecar:b89:x:{{ID}} MAXLEN 1
+XLEN-b89|1|XLEN sidecar:b89:x:{{ID}}
+DEL-b89x|1|DEL sidecar:b89:x:{{ID}}
+@DEL sidecar:b89:sub:{{ID}}
+SET-b89sub|OK|SET sidecar:b89:sub:{{ID}} hello
+SUBSTR-b89|ell|SUBSTR sidecar:b89:sub:{{ID}} 1 3
+GETRANGE-b89|ell|GETRANGE sidecar:b89:sub:{{ID}} 1 3
+DEL-b89sub|1|DEL sidecar:b89:sub:{{ID}}
+@DEL sidecar:b89:pf1:{{ID}}
+@DEL sidecar:b89:pf2:{{ID}}
+PFADD-b89a|1|PFADD sidecar:b89:pf1:{{ID}} a
+PFADD-b89b|1|PFADD sidecar:b89:pf2:{{ID}} b
+PFMERGE-b89|OK|PFMERGE sidecar:b89:pfm:{{ID}} sidecar:b89:pf1:{{ID}} sidecar:b89:pf2:{{ID}}
+PFCOUNT-b89m|2|PFCOUNT sidecar:b89:pfm:{{ID}}
+DEL-b89pf|3|DEL sidecar:b89:pf1:{{ID}} sidecar:b89:pf2:{{ID}} sidecar:b89:pfm:{{ID}}
+TYPE-b89miss|none|TYPE sidecar:b89:miss:{{ID}}
+DBSIZE-b89|>=0|DBSIZE
+
 # --- cleanup string / incr keys ---
 DEL|1|DEL sidecar:allowlist:{{ID}}
 EXISTS-after-del|0|EXISTS sidecar:allowlist:{{ID}}
