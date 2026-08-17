@@ -34,6 +34,11 @@ func TestEvalApplyTimeFunctionsMatchRedis810(t *testing.T) {
 		"timefmt(@ts,'%w')":                  "2",
 		"timefmt(@ts,'%j')":                  "002",
 		"timefmt(@ts,'%e')":                  " 2",
+		"timefmt(@ts,'%k')":                  "12",
+		"timefmt(@ts,'%X')":                  "12:34:56",
+		"timefmt(@ts,'%c')":                  "Tue Jan  2 12:34:56 2024",
+		"timefmt(@ts,'%Z')":                  "GMT",
+		"timefmt(@ts,'hello %Q world')":      "hello %Q world",
 		"parsetime('2024-01-02','%Y-%m-%d')": float64(1704153600),
 		"parsetime('24-01-02','%y-%m-%d')":   float64(1704153600),
 		"parsetime('Jan 02 2024','%b %d %Y')": float64(1704153600),
@@ -47,10 +52,10 @@ func TestEvalApplyTimeFunctionsMatchRedis810(t *testing.T) {
 			t.Errorf("%s: got %v, want %v", expr, got, want)
 		}
 	}
-	// Redis: unsupported directive / bad parse → Null (nil), not ERR.
+	// Redis: unknown strftime directives kept literally; parsetime fail → Null.
 	got, err := EvalApplyExpr("timefmt(@ts,'%Q')", fields)
-	if err != nil || got != nil {
-		t.Fatalf("timefmt bad directive: got %v err %v want nil", got, err)
+	if err != nil || got != "%Q" {
+		t.Fatalf("timefmt unknown directive: got %v err %v want %%Q", got, err)
 	}
 	got, err = EvalApplyExpr(`parsetime("nope","%Y-%m-%d")`, nil)
 	if err != nil || got != nil {

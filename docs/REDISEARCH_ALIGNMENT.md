@@ -250,7 +250,7 @@ FT.SEARCH idx "hello"  # -> %5 total_results / results / attributes / format / w
 | SORTBY WITHCOUNT | ✅ 语法 | 接受令牌；准确总数本为默认（WITHOUTCOUNT 除外） |
 | FT.PROFILE 迭代器细分 | 🔶 | 只报诚实总耗时;细分需 instrument 引擎迭代器 |
 | FT.HYBRID RANGE/FILTER/POLICY | 🔶 | 接受但按暴力路径执行 |
-| APPLY 日期/geo 函数 | 🔶 | UTC 时间函数族、strftime 子集（`%y/%F/%T/%R/%a/%A/%b/%B/%I/%p/%z/%w/%j/%e` 等）的 `timefmt`/`parsetime`、`geodistance` 已按 Redis 8.10 实测；完整 strftime（`%k`/本地化等）仍缺 |
+| APPLY 日期/geo 函数 | 🔶 | UTC 时间函数族、strftime 子集（含 `%k/%X/%c/%Z`；未知指令原样保留；`parsetime` 失败→Null/`$-1`）的 `timefmt`/`parsetime`、`geodistance` 已按 Redis 8.x 实测；完整 strftime（`%s` 本地 TZ 怪异等）仍缺 |
 | FT.SEARCH EXPLAINSCORE | ✅ | 需 WITHSCORES；BM25STD/TFIDF/DOCSCORE/DISMAX 嵌套线格式子集（Godis b=0.09 自洽，非字节级对齐）；RESP3 score 嵌套 |
 | RDB / AOF rewrite 索引定义持久化 | ✅ | 命令 AOF + 纯 AOF rewrite→FT.CREATE + RDB opaque `ft`（非官方模块格式） |
 | ACL @search 类别 | ✅ | `+@search` / ACL CAT `@search` 已生效；非「需重构 ACL」 |

@@ -6,7 +6,7 @@
 
 ### Fixed
 
-- 第七十四批（远期子集续研）：FT.AGGREGATE APPLY **`timefmt`/`parsetime` strftime 子集**扩至 `%y/%F/%T/%R/%a/%A/%b/%B/%I/%p/%z/%w/%j/%e`（非法指令与解析失败→Null，对照 Redis 8.x；**非**完整 strftime）+ Null 字段线格式空 bulk；R4-1 扩至 **475** 条（LCS LEN、ZRANGE/ZREVRANGE WITHSCORES、EXPIRE NX、SISMEMBER、GETRANGE 负索引）；远期仍 7 项，不宣称完整 KNN/DIALECT 或全量 sidecar
+- 第七十四批（远期子集续研）：FT.AGGREGATE APPLY **`timefmt`/`parsetime` strftime 子集**扩至 `%y/%F/%T/%R/%X/%a/%A/%b/%B/%I/%p/%z/%Z/%w/%j/%e/%k/%c`（未知指令原样保留；**`parsetime` 失败→Null/`$-1`**，对照 Redis 8.x；**非**完整 strftime/本地化）+ Null 字段线格式 **`$-1`**；R4-1 扩至 **475** 条（LCS LEN、ZRANGE/ZREVRANGE WITHSCORES、EXPIRE NX、SISMEMBER、GETRANGE 负索引）；远期仍 7 项，不宣称完整 KNN/DIALECT 或全量 sidecar
 - 第七十三批（远期子集续研）：FT.AGGREGATE APPLY 缺字段对齐 Redis **`SEARCH_VALUE_NOT_FOUND`**（**`exists()`** 仅 Null 为假、字面量 0/`""`/present-zero 为真；**`&&`/`||`/`case` 短路**；**FILTER 先于 APPLY** 时先裁剪）+ **`geodistance` 三参**（point,lon,lat / lon,lat,point）+ **`substr` 字节偏移** + bool 线格式 `1`/`0`；R4-1 扩至 **456** 条（单成员 ZRANDMEMBER/HRANDFIELD/SRANDMEMBER、GEORADIUS/GEOSEARCH ASC COUNT 1）；远期仍 7 项，不宣称完整 KNN/DIALECT 或全量 sidecar
 - 第七十二批（远期子集续研）：FT.AGGREGATE APPLY **`split`** 对齐 Redis（**sep/strip 字符集**、空段丢弃、第三参 strip）+ **`format`** `SEARCH_PARSE_ARGS` 文案（Bad format / Not enough arguments / Unknown specifier）；R4-1 扩至 **443** 条（GEOHASH、SPOP 单成员、HKEYS/HVALS 单字段）；远期仍 7 项，不宣称完整 KNN/DIALECT 或全量 sidecar
 - 第七十一批（远期子集续研）：FT.AGGREGATE APPLY **`to_str`/`to_number`**（非法串→`SEARCH_PARSE_ARGS to_number: cannot convert string '…'`）；未知函数→`SEARCH_EXPR Unknown function name '…'`；数值函数非数值参数→小写 **`nan`**；FT **TIMEOUT soft** 中途取消保留已扫部分结果，**ON_TIMEOUT RETURN** 可返回部分命中，**FAIL**→`SEARCH_TIMEOUT Timeout limit was reached`（无 `ERR` 前缀；对照 Redis 8.x）；R4-1 扩至 **433** 条（ZINTER/ZUNION 单成员、MOVE、LINDEX）；远期仍 7 项，不宣称完整 KNN/DIALECT 或全量 sidecar

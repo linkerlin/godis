@@ -2047,31 +2047,31 @@ func collectValueBytes(v interface{}) []byte {
 		elems := make([][]byte, len(entries))
 		for i, x := range entries {
 			if x == nil {
-				elems[i] = []byte{}
+				elems[i] = nil // MultiBulk nil → $-1
 				continue
 			}
 			elems[i] = []byte(fmt.Sprintf("%v", x))
 		}
 		return protocol.MakeMultiBulkReply(elems).ToBytes()
+	default:
+		if v == nil {
+			return nil // Redis Null APPLY field → $-1 (not empty $0)
+		}
+		switch x := v.(type) {
+		case float64:
+			if math.IsNaN(x) {
+				return []byte("nan")
+			}
+			return []byte(strconv.FormatFloat(x, 'f', -1, 64))
+		case bool:
+			// Redis APPLY bools (exists/startswith/…) wire as "1"/"0", not "true"/"false".
+			if x {
+				return []byte("1")
+			}
+			return []byte("0")
 		default:
-			if v == nil {
-				return []byte{} // Redis Null APPLY field → empty bulk
-			}
-			switch x := v.(type) {
-			case float64:
-				if math.IsNaN(x) {
-					return []byte("nan")
-				}
-				return []byte(strconv.FormatFloat(x, 'f', -1, 64))
-			case bool:
-				// Redis APPLY bools (exists/startswith/…) wire as "1"/"0", not "true"/"false".
-				if x {
-					return []byte("1")
-				}
-				return []byte("0")
-			default:
-				return []byte(fmt.Sprintf("%v", v))
-			}
+			return []byte(fmt.Sprintf("%v", v))
+		}
 	}
 }
 

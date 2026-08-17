@@ -94,7 +94,7 @@ func EnsurePipelineProps(expr string, props map[string]bool) error {
 //	             matched_terms timefmt parsetime (strftime subset) day hour minute month dayofweek
 //	             dayofmonth dayofyear year monthofyear geodistance exists case
 //	Missing @field → SEARCH_VALUE_NOT_FOUND (exists() ok; &&/||/case short-circuit).
-//	Bad timefmt/parsetime → Null (not ERR). Non-numeric args to numeric funcs yield NaN (Redis). Unknown funcs → SEARCH_EXPR.
+//	Bad parsetime → Null (not ERR). Unknown timefmt directives kept literally. Non-numeric args to numeric funcs yield NaN (Redis). Unknown funcs → SEARCH_EXPR.
 func EvalApplyExpr(expr string, fields map[string]interface{}) (interface{}, error) {
 	return EvalApplyExprWithQuery(expr, fields, nil)
 }
@@ -1044,10 +1044,7 @@ func applyFunction(p *applyParser, name string, args []applyValue) (applyValue, 
 		if len(args) == 1 {
 			return applyValue{isStr: true, str: tm.Format("2006-01-02T15:04:05Z")}, nil
 		}
-		s, ok := strftimeFormat(tm, applyValueToString(args[1]))
-		if !ok {
-			return applyValue{isNull: true}, nil // Redis: bad format → Null
-		}
+		s, _ := strftimeFormat(tm, applyValueToString(args[1]))
 		return applyValue{isStr: true, str: s}, nil
 	case "parsetime":
 		if len(args) != 2 {
@@ -1262,7 +1259,8 @@ func applyGeoCoordinates(args []applyValue) (float64, float64, float64, float64,
 }
 
 // strftimeFormat renders tm with a Redis Query Engine strftime subset.
-// ok=false when the format contains an unsupported directive (Redis → Null).
+// Unknown directives are kept literally (e.g. "%Q"), matching Redis/glibc;
+// trailing bare "%" is emitted as "%". Always succeeds (ok=true).
 func strftimeFormat(tm time.Time, format string) (string, bool) {
 	var b strings.Builder
 	for i := 0; i < len(format); i++ {
@@ -1271,7 +1269,8 @@ func strftimeFormat(tm time.Time, format string) (string, bool) {
 			continue
 		}
 		if i+1 >= len(format) {
-			return "", false
+			b.WriteByte('%')
+			break
 		}
 		i++
 		switch format[i] {
@@ -1289,6 +1288,8 @@ func strftimeFormat(tm time.Time, format string) (string, bool) {
 			b.WriteString(tm.Format("_2"))
 		case 'H':
 			b.WriteString(tm.Format("15"))
+		case 'k': // space-padded hour 0-23
+			b.WriteString(fmt.Sprintf("%2d", tm.Hour()))
 		case 'M':
 			b.WriteString(tm.Format("04"))
 		case 'S':
@@ -1307,18 +1308,29 @@ func strftimeFormat(tm time.Time, format string) (string, bool) {
 			b.WriteString(tm.Format("January"))
 		case 'F': // %Y-%m-%d
 			b.WriteString(tm.Format("2006-01-02"))
-		case 'T': // %H:%M:%S
+		case 'T', 'X': // %H:%M:%S
 			b.WriteString(tm.Format("15:04:05"))
 		case 'R': // %H:%M
 			b.WriteString(tm.Format("15:04"))
+		case 'c': // locale date-time without zone (Redis UTC sample)
+			b.WriteString(tm.Format("Mon Jan _2 15:04:05 2006"))
 		case 'z':
 			b.WriteString(tm.Format("-0700"))
+		case 'Z':
+			// Redis Query Engine on UTC emits "GMT".
+			if tm.Location() == time.UTC || tm.Location().String() == "UTC" {
+				b.WriteString("GMT")
+			} else {
+				b.WriteString(tm.Format("MST"))
+			}
 		case 'w': // weekday 0=Sunday … 6=Saturday
 			b.WriteString(strconv.Itoa(int(tm.Weekday())))
 		case 'j': // day of year 001-366
 			b.WriteString(tm.Format("002"))
 		default:
-			return "", false
+			// Redis keeps unknown directives literally.
+			b.WriteByte('%')
+			b.WriteByte(format[i])
 		}
 	}
 	return b.String(), true
@@ -1371,12 +1383,19 @@ func strftimeToGoLayout(format string) string {
 			b.WriteString("January")
 		case 'F':
 			b.WriteString("2006-01-02")
-		case 'T':
+		case 'T', 'X':
 			b.WriteString("15:04:05")
 		case 'R':
 			b.WriteString("15:04")
+		case 'c':
+			b.WriteString("Mon Jan _2 15:04:05 2006")
 		case 'z':
 			b.WriteString("-0700")
+		case 'Z':
+			b.WriteString("GMT")
+		case 'k':
+			// space-padded hour — Parse rarely used; keep best-effort.
+			b.WriteString("15")
 		default:
 			// Keep unknown as literal so Parse fails → Null (Redis).
 			b.WriteByte('%')
