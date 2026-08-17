@@ -898,7 +898,11 @@ SET-b80touch|OK|SET sidecar:b80:touch:{{ID}} v
 TOUCH-b80|1|TOUCH sidecar:b80:touch:{{ID}}
 DEL-b80touch|1|DEL sidecar:b80:touch:{{ID}}
 @DEL sidecar:b80:rn:{{ID}}
-RENAMENX-b80miss|0|RENAMENX sidecar:b80:missing:{{ID}} sidecar:b80:rn:{{ID}}
+@DEL sidecar:b80:rn2:{{ID}}
+SET-b80rn|OK|SET sidecar:b80:rn:{{ID}} a
+SET-b80rn2|OK|SET sidecar:b80:rn2:{{ID}} b
+RENAMENX-b80miss|0|RENAMENX sidecar:b80:rn:{{ID}} sidecar:b80:rn2:{{ID}}
+DEL-b80rn|2|DEL sidecar:b80:rn:{{ID}} sidecar:b80:rn2:{{ID}}
 @DEL sidecar:b80:pt:{{ID}}
 SET-b80pt|OK|SET sidecar:b80:pt:{{ID}} v
 PEXPIRE-b80|1|PEXPIRE sidecar:b80:pt:{{ID}} 120000

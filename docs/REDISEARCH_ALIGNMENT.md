@@ -249,10 +249,12 @@ FT.SEARCH idx "hello"  # -> %5 total_results / results / attributes / format / w
 | FT.AGGREGATE/SEARCH WITHCURSOR COUNT/MAXIDLE | ✅ 子集 | COUNT/MAXIDLE 可互换；COUNT/MAXIDLE ≤0/缺参/非数字→`Bad arguments for …`；上限 300000ms；每游标 idle |
 | FT.SEARCH SCORER 校验 | ✅ 子集 | 缺参/`No such scorer`（大小写敏感）；已知名须与 Redis 一致 |
 | FT.TAGVALS 字段校验 | ✅ 子集 | `No such field` / `Not a tag field` |
-| FT.SEARCH LANGUAGE | ✅ 子集 | 缺参/`SEARCH_QUERY_BAD No such language`（大小写不敏感；接受后仍走英文分词路径） |
-| FT.SEARCH RETURN/INKEYS / AGGREGATE LOAD / PARAMS | ✅ 子集 | `SEARCH_PARSE_ARGS Bad arguments for …`；负值 outside bounds；PARAMS 奇数→`SEARCH_ADD_ARGS` |
-| FT.CURSOR READ COUNT | ✅ 子集 | 非数字→`Bad value for COUNT: …`；`<0` 排空剩余；`0`/缺值→默认页 |
-| FT.SEARCH HIGHLIGHT 缺参 | ✅ 子集 | FIELDS/TAGS 不完整→`Bad arguments for HIGHLIGHT` |
+| FT.SEARCH LANGUAGE | ✅ 子集 | 缺参/`SEARCH_QUERY_BAD No such language`（大小写不敏感；接受后仍走英文分词路径）；FT.CREATE 未知→`Invalid language` |
+| FT.SEARCH RETURN/INKEYS / AGGREGATE LOAD / PARAMS | ✅ 子集 | `SEARCH_PARSE_ARGS Bad arguments for …`；负值 outside bounds；PARAMS 0/奇数→`SEARCH_ADD_ARGS`；**INKEYS 0→空集** |
+| FT.CURSOR READ/DEL | ✅ 子集 | 缺失→`Cursor not found, id: …` / `Cursor does not exist`；READ COUNT 非数字→`Bad value for COUNT`；`<0` 排空；`0`/缺值→默认页 |
+| FT.SEARCH HIGHLIGHT/SUMMARIZE 缺参 | ✅ 子集 | 不完整→`Bad arguments for HIGHLIGHT/SUMMARIZE` |
+| FT.SEARCH DIALECT/SORTBY/FILTER/GEOFILTER/SLOP/PAYLOAD/INFIELDS | ✅ 子集 | 缺参/范围文案对齐 Redis 8.10；SORTBY 未知→`Property … not loaded nor in schema` |
+| FT.SEARCH WITHSORTKEYS | ✅ 子集 | NUMERIC→`#` 前缀；TEXT→`$` 前缀；缺值→空 bulk |
 | FT.SEARCH FORMAT | ✅ 子集 | STRING；拒 JSON/未知；EXPAND→DIALECT≥3+RESP3+ON JSON（回复仍为双形 FTSearchReply，非完整 EXPAND 树） |
 | 查询属性 `$weight` | ✅ 子集 | 乘分；`$slop`/`$inorder`；拒非法/未知/`$phonetic:true`；**非** Redis 字节级项贡献 |
 | FT.SEARCH EXPLAINSCORE | ✅ 子集 | 需 WITHSCORES；BM25STD/DOCSCORE/DISMAX 嵌套线格式；**非**字节级对齐 RediSearch（b=0.09） |

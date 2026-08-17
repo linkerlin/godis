@@ -36,8 +36,8 @@ func TestM2avFTDialectAndWithSortKeys(t *testing.T) {
 	}
 	// [total, id, sortkey, fields, ...]
 	sk, ok := mr.Replies[2].(*protocol.BulkReply)
-	if !ok || string(sk.Arg) != "10" {
-		t.Fatalf("expected sortkey 10 at replies[2], got %s", r.ToBytes())
+	if !ok || string(sk.Arg) != "#10" {
+		t.Fatalf("expected sortkey #10 at replies[2], got %T %v / %s", mr.Replies[2], mr.Replies[2], r.ToBytes())
 	}
 }
 

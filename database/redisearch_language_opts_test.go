@@ -1,6 +1,7 @@
 package database
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 
@@ -143,7 +144,7 @@ func ftCursorIDFromReply(t *testing.T, r redis.Reply) string {
 	if mr, ok := r.(*protocol.MultiRawReply); ok && len(mr.Replies) >= 2 {
 		switch last := mr.Replies[len(mr.Replies)-1].(type) {
 		case *protocol.IntReply:
-			return strings.TrimSpace(string(last.ToBytes()))
+			return strconv.FormatInt(last.Code, 10)
 		case *protocol.BulkReply:
 			return string(last.Arg)
 		}
