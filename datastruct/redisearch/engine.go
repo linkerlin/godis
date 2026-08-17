@@ -981,20 +981,21 @@ func (e *RediSearchEngine) Aggregate(req *AggregationRequest) (*AggregationResul
 		docs = out
 	}
 
-	// Apply LOAD (projection + optional AS rename). LOAD * keeps all fields;
-	// absent LOAD keeps only SORTABLE schema fields (+ ADDSCORES __score),
-	// matching Redis 8.x default empty rows when nothing is SORTABLE.
+	// LOAD projection defines the APPLY/FILTER pipeline. GROUPBY/REDUCE still
+	// read full document fields (Redis: TOLIST/GROUPBY on non-SORTABLE without
+	// LOAD works; APPLY/FILTER on those fields → Property not loaded).
 	sortable := make(map[string]bool, len(e.schema))
 	for name, f := range e.schema {
 		if f != nil && f.Sortable {
 			sortable[name] = true
 		}
 	}
-	docs = applyLoadSpecs(docs, req.Load, req.LoadAll, sortable)
+	sourceDocs := cloneDocsForAggregate(docs)
+	pipeDocs := applyLoadSpecs(sourceDocs, req.Load, req.LoadAll, sortable)
+	props := buildAggregatePipelineProps(req, sortable)
 
-	// Apply APPLY clauses that appeared before GROUPBY, against each
-	// document's own fields (so a following GROUPBY/REDUCE can reference
-	// the computed field).
+	// Apply APPLY clauses that appeared before GROUPBY against pipeline fields;
+	// merge computed AS values onto source docs so REDUCE can reference them.
 	var preApply, postApply []ApplyClause
 	for _, ac := range req.Apply {
 		if ac.PreGroup {
@@ -1003,28 +1004,51 @@ func (e *RediSearchEngine) Aggregate(req *AggregationRequest) (*AggregationResul
 			postApply = append(postApply, ac)
 		}
 	}
-	docs = applyPreGroupClauses(docs, preApply, extractQueryTerms(req.Query))
+	queryTerms := extractQueryTerms(req.Query)
+	pipeDocs, err := applyPreGroupClauses(pipeDocs, preApply, queryTerms, props)
+	if err != nil {
+		return nil, err
+	}
+	if len(preApply) > 0 {
+		mergeApplyFields(sourceDocs, pipeDocs, preApply)
+	}
 
 	// Apply GROUPBY. When neither GROUPBY nor REDUCE is given, RediSearch
 	// returns one row per matching document instead of collapsing them.
 	var groups []*Group
 	if len(req.GroupBy) == 0 && len(req.Reduce) == 0 {
-		groups = passthroughGroups(docs)
+		groups = passthroughGroups(pipeDocs)
 	} else {
-		groups = e.groupBy(docs, req.GroupBy, req.Reduce)
+		groups = e.groupBy(sourceDocs, req.GroupBy, req.Reduce)
+		for _, f := range req.GroupBy {
+			props[strings.TrimPrefix(f, "@")] = true
+		}
+		for _, r := range req.Reduce {
+			if r.As != "" {
+				props[r.As] = true
+			} else if r.Field != "" {
+				props[strings.TrimPrefix(r.Field, "@")] = true
+			}
+		}
 	}
 
 	// Apply APPLY clauses that appeared after GROUPBY, against each result row.
-	applyPostGroupClauses(groups, postApply, extractQueryTerms(req.Query))
+	if err := applyPostGroupClauses(groups, postApply, queryTerms, props); err != nil {
+		return nil, err
+	}
 
 	// Apply HAVING clause
 	if req.Having != nil {
 		groups = e.applyHaving(groups, req.Having)
 	}
 
-	// Apply FILTER
+	// Apply FILTER (pipeline props only; missing → SEARCH_PROP_NOT_FOUND)
 	if req.Filter != "" {
-		groups = e.filterGroups(groups, req.Filter)
+		var err error
+		groups, err = e.filterGroups(groups, req.Filter, props)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	// Apply SORTBY (multi-property; ADDSCORES → @__score)
@@ -1058,6 +1082,76 @@ func (e *RediSearchEngine) Aggregate(req *AggregationRequest) (*AggregationResul
 		Total:  total,
 		Groups: groups,
 	}, nil
+}
+
+// cloneDocsForAggregate deep-copies document field maps so APPLY merges and
+// GROUPBY cannot mutate inverted-index-resident Documents.
+func cloneDocsForAggregate(docs []*Document) []*Document {
+	out := make([]*Document, len(docs))
+	for i, d := range docs {
+		fields := make(map[string]interface{}, len(d.Fields))
+		for k, v := range d.Fields {
+			fields[k] = v
+		}
+		out[i] = &Document{ID: d.ID, Fields: fields, Score: d.Score, Payload: d.Payload}
+	}
+	return out
+}
+
+// buildAggregatePipelineProps is the set of names APPLY/FILTER may reference:
+// LOAD * → any name except __key (still requires LOAD @__key); explicit LOAD
+// → aliases/fields listed; absent LOAD → SORTABLE (+ ADDSCORES __score).
+func buildAggregatePipelineProps(req *AggregationRequest, sortable map[string]bool) map[string]bool {
+	props := make(map[string]bool)
+	if req != nil && req.LoadAll {
+		// LOAD * exposes document fields; __key remains opt-in via LOAD @__key.
+		props["*"] = true
+	} else if req != nil && len(req.Load) > 0 {
+		for _, spec := range req.Load {
+			name := spec.Field
+			if spec.As != "" {
+				name = spec.As
+			}
+			props[name] = true
+		}
+	} else {
+		for name := range sortable {
+			props[name] = true
+		}
+	}
+	if req != nil && req.AddScores {
+		props["__score"] = true
+	}
+	return props
+}
+
+// pipelineHas reports whether name is available to APPLY/FILTER.
+func pipelineHas(props map[string]bool, name string) bool {
+	if props[name] {
+		return true
+	}
+	if name == "__key" {
+		return false
+	}
+	return props["*"]
+}
+
+// mergeApplyFields copies pre-GROUPBY APPLY outputs from pipeDocs onto
+// sourceDocs so REDUCE can reference computed fields.
+func mergeApplyFields(source, pipe []*Document, applies []ApplyClause) {
+	if len(applies) == 0 || len(source) != len(pipe) {
+		return
+	}
+	for i := range source {
+		if source[i].Fields == nil {
+			source[i].Fields = make(map[string]interface{})
+		}
+		for _, ac := range applies {
+			if v, ok := pipe[i].Fields[ac.As]; ok {
+				source[i].Fields[ac.As] = v
+			}
+		}
+	}
 }
 
 // LoadSpec is one FT.AGGREGATE LOAD field token, optionally renamed with AS.
@@ -1807,30 +1901,27 @@ func compareSortValues(vi, vj interface{}) int {
 	return 0
 }
 
-// filterGroups filters groups based on a filter expression
-// Simple filter format: "field > 10", "field = value", "field < 100"
-func (e *RediSearchEngine) filterGroups(groups []*Group, filter string) []*Group {
-	// FILTER uses the full aggregation expression grammar (comparison + boolean
-	// operators + functions), evaluated per group row. Pre-2.10 a single binary
-	// comparison was all that was supported; the unified evaluator subsumes it.
+// filterGroups filters groups based on a filter expression using the full
+// aggregation expression grammar. Missing pipeline properties → PropNotLoadedError.
+func (e *RediSearchEngine) filterGroups(groups []*Group, filter string, props map[string]bool) ([]*Group, error) {
 	filter = strings.TrimSpace(filter)
 	if filter == "" {
-		return groups
+		return groups, nil
+	}
+	if err := EnsurePipelineProps(filter, props); err != nil {
+		return nil, err
 	}
 	var result []*Group
 	for _, group := range groups {
 		ok, err := EvalFilterExpr(filter, group.Fields)
 		if err != nil {
-			// Treat a malformed filter as non-matching rather than dropping the
-			// whole result set; Redis errors out, but best-effort is safer here
-			// until the parser is wired to surface errors from the pipeline.
-			continue
+			return nil, err
 		}
 		if ok {
 			result = append(result, group)
 		}
 	}
-	return result
+	return result, nil
 }
 
 func (e *RediSearchEngine) matchesFilter(fieldValue interface{}, op string, numValue float64, strValue string, isNum bool) bool {

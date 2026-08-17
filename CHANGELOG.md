@@ -6,6 +6,7 @@
 
 ### Fixed
 
+- 第六十九批（远期子集续研）：FT.AGGREGATE **APPLY/FILTER** 对齐 Redis 8.x **`SEARCH_PROP_NOT_FOUND Property not loaded nor in pipeline`**（无 LOAD 仅 SORTABLE + ADDSCORES/`LOAD … AS` 别名入管道；`LOAD *` 仍不含 `__key`）；**GROUPBY/REDUCE** 无 LOAD 仍可读非 SORTABLE 文档字段（TOLIST/GROUPBY 可验）；R4-1 扩至 **397** 条（ZREVRANGEBYSCORE、RPOPLPUSH、MGET）；远期仍 7 项，不宣称完整 KNN/DIALECT 或全量 sidecar
 - 第六十八批（远期子集续研）：FT.AGGREGATE **无 LOAD 默认空行**（仅保留 SORTABLE + ADDSCORES `@__score`；`LOAD *`/显式 LOAD 不变；对照 Redis 8.x）+ **FT.CREATE FILTER**（聚合表达式，`@__key`/字段求值；假/错→跳过索引；更新失败 FILTER 则撤出）+ **REDUCE TOLIST** 嵌套数组线格式；R4-1 扩至 **386** 条（SUNION 单成员、ZREMRANGEBYRANK、LREM、HSETNX）；远期仍 7 项，不宣称完整 KNN/DIALECT 或全量 sidecar
 - 第六十七批（远期子集续研）：FT.AGGREGATE **LOAD … AS**（nargs 计 AS+别名；投影未 LOAD 字段；`@__key`；ADDSCORES 保留 `__score`；对照 Redis 8.6）+ **WITHCURSOR MAXIDLE**（COUNT/MAXIDLE 可互换；≤0/缺参/非数字文案；上限 300000ms）；R4-1 扩至 **370** 条（SINTER 单成员、STRLEN/APPEND/GETRANGE/DECRBY）；远期仍 7 项，不宣称完整 KNN/DIALECT 或全量 sidecar
 - 第六十六批（远期子集续研）：FT.AGGREGATE **多字段 SORTBY**（nargs 内多 property+ASC/DESC；缺字段排后；稳定 tie-break；可与 MAX 组合；对照 Redis 8.x）；R4-1 扩至 **358** 条（SDIFF/ZDIFF 单成员、XTRIM+XLEN、ZMPOP/LMPOP）；sidecar `check_want` 修复 `<=`（`is_int` 不再冲掉边界）；`DEL-b63zp` WANT 1；远期仍 7 项，不宣称完整 KNN/DIALECT 或全量 sidecar

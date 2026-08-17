@@ -19,6 +19,52 @@ type ApplyClause struct {
 	PreGroup bool
 }
 
+// PropNotLoadedError is Redis SEARCH_PROP_NOT_FOUND: APPLY/FILTER referenced a
+// property that is neither LOADed nor SORTABLE (nor produced by an earlier
+// pipeline stage). GROUPBY/REDUCE may still read full document fields.
+type PropNotLoadedError struct {
+	Name string
+}
+
+func (e *PropNotLoadedError) Error() string {
+	return fmt.Sprintf("SEARCH_PROP_NOT_FOUND Property not loaded nor in pipeline: `%s`", e.Name)
+}
+
+// CollectApplyFieldRefs returns distinct @field names referenced in an
+// APPLY/FILTER expression (order of first appearance).
+func CollectApplyFieldRefs(expr string) ([]string, error) {
+	tokens, err := applyTokenize(expr)
+	if err != nil {
+		return nil, err
+	}
+	var refs []string
+	seen := make(map[string]bool)
+	for _, tok := range tokens {
+		if tok.kind != applyTokField || seen[tok.text] {
+			continue
+		}
+		seen[tok.text] = true
+		refs = append(refs, tok.text)
+	}
+	return refs, nil
+}
+
+// EnsurePipelineProps reports PropNotLoadedError if expr references a field
+// absent from props (pipeline-available names). props["*"] means LOAD * (any
+// field except __key, which still requires explicit LOAD).
+func EnsurePipelineProps(expr string, props map[string]bool) error {
+	refs, err := CollectApplyFieldRefs(expr)
+	if err != nil {
+		return err
+	}
+	for _, ref := range refs {
+		if !pipelineHas(props, ref) {
+			return &PropNotLoadedError{Name: ref}
+		}
+	}
+	return nil
+}
+
 // EvalApplyExpr evaluates an FT.AGGREGATE expression (used by both APPLY and
 // FILTER) against a row's field map. The grammar is a superset of Redis's
 // aggregation expression language:
@@ -91,11 +137,21 @@ func passthroughGroups(docs []*Document) []*Group {
 }
 
 // applyPreGroupClauses evaluates APPLY clauses that appeared before GROUPBY
-// against each document's own fields. queryTerms feeds matched_terms().
-func applyPreGroupClauses(docs []*Document, applies []ApplyClause, queryTerms []string) []*Document {
+// against each document's pipeline fields. props is updated with each AS name.
+// queryTerms feeds matched_terms().
+func applyPreGroupClauses(docs []*Document, applies []ApplyClause, queryTerms []string, props map[string]bool) ([]*Document, error) {
 	if len(applies) == 0 {
-		return docs
+		return docs, nil
 	}
+	// Validate @refs once up front (Redis errors even when the result set is empty).
+	for _, ac := range applies {
+		if err := EnsurePipelineProps(ac.Expr, props); err != nil {
+			return nil, err
+		}
+		props[ac.As] = true
+	}
+	// Re-run with a fresh progressive props for evaluation? props already has all AS.
+	// Evaluation still needs intermediate AS on the field map per doc.
 	out := make([]*Document, len(docs))
 	for i, doc := range docs {
 		fields := make(map[string]interface{}, len(doc.Fields)+len(applies))
@@ -103,25 +159,37 @@ func applyPreGroupClauses(docs []*Document, applies []ApplyClause, queryTerms []
 			fields[k] = v
 		}
 		for _, ac := range applies {
-			if val, err := EvalApplyExprWithQuery(ac.Expr, fields, queryTerms); err == nil {
-				fields[ac.As] = val
+			val, err := EvalApplyExprWithQuery(ac.Expr, fields, queryTerms)
+			if err != nil {
+				return nil, err
 			}
+			fields[ac.As] = val
 		}
 		out[i] = &Document{ID: doc.ID, Fields: fields, Score: doc.Score, Payload: doc.Payload}
 	}
-	return out
+	return out, nil
 }
 
 // applyPostGroupClauses evaluates APPLY clauses that appeared after GROUPBY
 // against each result row (group), adding the computed field in place.
-func applyPostGroupClauses(groups []*Group, applies []ApplyClause, queryTerms []string) {
-	for _, g := range groups {
-		for _, ac := range applies {
-			if val, err := EvalApplyExprWithQuery(ac.Expr, g.Fields, queryTerms); err == nil {
-				g.Fields[ac.As] = val
-			}
-		}
+func applyPostGroupClauses(groups []*Group, applies []ApplyClause, queryTerms []string, props map[string]bool) error {
+	if len(applies) == 0 {
+		return nil
 	}
+	for _, ac := range applies {
+		if err := EnsurePipelineProps(ac.Expr, props); err != nil {
+			return err
+		}
+		for _, g := range groups {
+			val, err := EvalApplyExprWithQuery(ac.Expr, g.Fields, queryTerms)
+			if err != nil {
+				return err
+			}
+			g.Fields[ac.As] = val
+		}
+		props[ac.As] = true
+	}
+	return nil
 }
 
 // ---- token types ----

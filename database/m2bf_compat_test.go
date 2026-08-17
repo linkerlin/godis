@@ -113,7 +113,7 @@ func TestM2bfClientListCmd(t *testing.T) {
 func TestM2bfFTAggregateApply(t *testing.T) {
 	db := makeTestDB()
 	asserts.AssertStatusReply(t, db.Exec(nil, utils.ToCmdLine(
-		"FT.CREATE", "m2bf", "ON", "HASH", "PREFIX", "1", "f:", "SCHEMA", "n", "NUMERIC",
+		"FT.CREATE", "m2bf", "ON", "HASH", "PREFIX", "1", "f:", "SCHEMA", "n", "NUMERIC", "SORTABLE",
 	)), "OK")
 	_ = db.Exec(nil, utils.ToCmdLine("FT.ADD", "m2bf", "f:1", "FIELDS", "n", "10"))
 	r := db.Exec(nil, utils.ToCmdLine(

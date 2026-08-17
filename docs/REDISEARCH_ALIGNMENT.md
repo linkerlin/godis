@@ -239,7 +239,7 @@ FT.SEARCH idx "hello"  # -> %5 total_results / results / attributes / format / w
 
 | FT.AGGREGATE ADDSCORES | ✅ 子集 | 管道注入 `@__score`（BM25STD）；可 SORTBY；**非**字节级对齐 RediSearch |
 | FT.AGGREGATE 多字段 SORTBY | ✅ 子集 | nargs 内多 property+ASC/DESC；缺字段排后；可与 MAX 组合 |
-| FT.AGGREGATE LOAD … AS / `@__key` | ✅ 子集 | nargs 计 AS+别名；有 LOAD 时投影；ADDSCORES 保留 `__score`；**无 LOAD 仅 SORTABLE**（非 SORTABLE→空行，对齐 Redis）；非 SORTABLE 上 APPLY 仍不强制 Redis「not loaded」ERR |
+| FT.AGGREGATE LOAD … AS / `@__key` | ✅ 子集 | nargs 计 AS+别名；有 LOAD 时投影；ADDSCORES 保留 `__score`；**无 LOAD 仅 SORTABLE**（非 SORTABLE→空行）；**APPLY/FILTER 未 LOAD→`SEARCH_PROP_NOT_FOUND Property not loaded nor in pipeline`**；GROUPBY/REDUCE 仍可读全文档字段；`LOAD *` 仍不含 `__key` |
 | FT.CREATE FILTER | ✅ 子集 | 聚合表达式；`@__key` + 字段；假/求值错→不索引；HSET 更新失败则撤出 |
 | FT.AGGREGATE REDUCE TOLIST | ✅ 子集 | 组内值收集为**嵌套数组**（非 Go `%v` 串） |
 | FT.AGGREGATE WITHCURSOR MAXIDLE | ✅ 子集 | COUNT/MAXIDLE 可互换；≤0/缺参/非数字文案；上限 300000ms；每游标 idle |

@@ -1884,6 +1884,10 @@ func execFTAggregate(db *DB, args [][]byte) redis.Reply {
 		if err == redisearch.ErrTimeout && strings.EqualFold(getFTConfigString("ON_TIMEOUT"), "RETURN") {
 			return protocol.MakeMultiBulkReply([][]byte{[]byte("0")})
 		}
+		// RediSearch SEARCH_* codes are returned without an ERR prefix (Redis 8.x).
+		if strings.HasPrefix(err.Error(), "SEARCH_") {
+			return protocol.MakeErrReply(err.Error())
+		}
 		return protocol.MakeErrReply(fmt.Sprintf("ERR %v", err))
 	}
 
