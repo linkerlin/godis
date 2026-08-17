@@ -2,6 +2,7 @@ package database
 
 import (
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 
@@ -133,7 +134,7 @@ func parseFTSchemaFields(args [][]byte) ([]*redisearch.Field, redis.Reply) {
 		jsonPath := ""
 		if i < len(args) && strings.EqualFold(string(args[i]), "AS") {
 			if i+1 >= len(args) {
-				return nil, protocol.MakeSyntaxErrReply()
+				return nil, protocol.MakeErrReply("SEARCH_PARSE_ARGS AS requires an argument")
 			}
 			if reply := validateBulkBytes(args[i+1]); reply != nil {
 				return nil, reply
@@ -144,7 +145,8 @@ func parseFTSchemaFields(args [][]byte) ([]*redisearch.Field, redis.Reply) {
 		}
 
 		if i >= len(args) {
-			return nil, protocol.MakeErrReply(fmt.Sprintf("ERR No type specified for field '%s'", ident))
+			// Redis 8.x: SEARCH_PARSE_ARGS Field `name` does not have a type
+			return nil, protocol.MakeErrReply(fmt.Sprintf("SEARCH_PARSE_ARGS Field `%s` does not have a type", ident))
 		}
 
 		fieldType := strings.ToUpper(string(args[i]))
@@ -169,7 +171,8 @@ func parseFTSchemaFields(args [][]byte) ([]*redisearch.Field, redis.Reply) {
 			// sub-block now; the generic option loop below must not re-enter it.
 			cfg, consumed, err := redisearch.ParseVectorFieldConfig(args[i+1:])
 			if err != nil {
-				return nil, protocol.MakeErrReply("ERR " + err.Error())
+				// ParseVectorFieldConfig returns Redis-aligned messages (no ERR prefix).
+				return nil, protocol.MakeErrReply(err.Error())
 			}
 			field.VectorConfig = cfg
 			i += consumed
@@ -177,7 +180,7 @@ func parseFTSchemaFields(args [][]byte) ([]*redisearch.Field, redis.Reply) {
 			field.Type = redisearch.FieldTypeGeoShape
 			field.CoordinateSystem = "SPHERICAL" // Redis default
 		default:
-			return nil, protocol.MakeErrReply(fmt.Sprintf("ERR Unknown field type '%s'", fieldType))
+			return nil, protocol.MakeErrReply(fmt.Sprintf("SEARCH_PARSE_ARGS Invalid field type for field `%s`", ident))
 		}
 		i++
 		for i < len(args) {
@@ -213,9 +216,14 @@ func parseFTSchemaFields(args [][]byte) ([]*redisearch.Field, redis.Reply) {
 					return nil, protocol.MakeErrReply("ERR SEPARATOR is supported only for TAG fields")
 				}
 				if i+1 >= len(args) {
-					return nil, protocol.MakeSyntaxErrReply()
+					return nil, protocol.MakeErrReply("SEARCH_PARSE_ARGS SEPARATOR requires an argument")
 				}
-				field.Separator = string(args[i+1])
+				sep := string(args[i+1])
+				// Redis 8.x keeps a literal `%s` in the message before the value.
+				if len(sep) != 1 {
+					return nil, protocol.MakeErrReply("SEARCH_PARSE_ARGS Tag separator must be a single character. Got `%s`" + sep)
+				}
+				field.Separator = sep
 				i += 2
 			case "CASESENSITIVE":
 				if field.Type != redisearch.FieldTypeTag {
@@ -227,12 +235,13 @@ func parseFTSchemaFields(args [][]byte) ([]*redisearch.Field, redis.Reply) {
 				if field.Type != redisearch.FieldTypeText {
 					return nil, protocol.MakeErrReply("ERR WEIGHT is supported only for TEXT fields")
 				}
+				// Redis 8.10: missing / non-float / NaN → convert failure; Inf / negatives OK.
 				if i+1 >= len(args) {
-					return nil, protocol.MakeSyntaxErrReply()
+					return nil, protocol.MakeErrReply("SEARCH_PARSE_ARGS Bad arguments for weight: Could not convert argument to expected type")
 				}
 				w, err := strconv.ParseFloat(string(args[i+1]), 64)
-				if err != nil {
-					return nil, protocol.MakeErrReply("ERR Invalid weight")
+				if err != nil || math.IsNaN(w) {
+					return nil, protocol.MakeErrReply("SEARCH_PARSE_ARGS Bad arguments for weight: Could not convert argument to expected type")
 				}
 				field.Weight = w
 				i += 2
@@ -241,14 +250,15 @@ func parseFTSchemaFields(args [][]byte) ([]*redisearch.Field, redis.Reply) {
 					return nil, protocol.MakeErrReply("ERR PHONETIC is supported only for TEXT fields")
 				}
 				if i+1 >= len(args) {
-					return nil, protocol.MakeSyntaxErrReply()
+					return nil, protocol.MakeErrReply("SEARCH_PARSE_ARGS PHONETIC requires an argument")
 				}
-				matcher := strings.ToLower(string(args[i+1]))
+				// Redis 8.10: matcher is case-sensitive (dm:en only).
+				matcher := string(args[i+1])
 				switch matcher {
 				case "dm:en", "dm:fr", "dm:pt", "dm:es":
 					field.Phonetic = matcher
 				default:
-					return nil, protocol.MakeErrReply(fmt.Sprintf("ERR Invalid PHONETIC matcher '%s'", string(args[i+1])))
+					return nil, protocol.MakeErrReply("SEARCH_QUERY_BAD Matcher Format: <2 chars algorithm>:<2 chars language>. Support algorithms: double metaphone (dm). Supported languages: English (en), French (fr), Portuguese (pt) and Spanish (es)")
 				}
 				i += 2
 			case "INDEXMISSING":

@@ -1125,6 +1125,71 @@ SET-b83n|OK|SET sidecar:b83:n:{{ID}} 1
 INCRBYFLOAT-b83|1.5|INCRBYFLOAT sidecar:b83:n:{{ID}} 0.5
 DEL-b83n|1|DEL sidecar:b83:n:{{ID}}
 
+# --- batch 84: LPUSHX; GETBIT; miss HLEN/HEXISTS/SCARD/LLEN; SDIFFSTORE/SUNIONSTORE/SINTERSTORE; ZUNIONSTORE; GETRANGE; SETEX/PERSIST; DECR/INCRBY/HINCRBY; BITOP AND; ZSCORE; EXISTS miss; UNLINK miss ---
+@DEL sidecar:b84:lx:{{ID}}
+LPUSHX-b84miss|0|LPUSHX sidecar:b84:lx:{{ID}} a
+LPUSH-b84|1|LPUSH sidecar:b84:lx:{{ID}} a
+LPUSHX-b84hit|2|LPUSHX sidecar:b84:lx:{{ID}} b
+DEL-b84lx|1|DEL sidecar:b84:lx:{{ID}}
+@DEL sidecar:b84:bit:{{ID}}
+SETBIT-b84|0|SETBIT sidecar:b84:bit:{{ID}} 3 1
+GETBIT-b84|1|GETBIT sidecar:b84:bit:{{ID}} 3
+GETBIT-b84z|0|GETBIT sidecar:b84:bit:{{ID}} 0
+DEL-b84bit|1|DEL sidecar:b84:bit:{{ID}}
+HLEN-b84miss|0|HLEN sidecar:b84:hmiss:{{ID}}
+HEXISTS-b84miss|0|HEXISTS sidecar:b84:hmiss:{{ID}} f
+SCARD-b84miss|0|SCARD sidecar:b84:smiss:{{ID}}
+LLEN-b84miss|0|LLEN sidecar:b84:lmiss:{{ID}}
+EXISTS-b84miss|0|EXISTS sidecar:b84:emiss:{{ID}}
+UNLINK-b84miss|0|UNLINK sidecar:b84:umiss:{{ID}}
+@DEL sidecar:b84:sa:{{ID}}
+@DEL sidecar:b84:sb:{{ID}}
+@DEL sidecar:b84:sd:{{ID}}
+@DEL sidecar:b84:su:{{ID}}
+@DEL sidecar:b84:si:{{ID}}
+SADD-b84a|3|SADD sidecar:b84:sa:{{ID}} a b c
+SADD-b84b|3|SADD sidecar:b84:sb:{{ID}} b c d
+SDIFFSTORE-b84|1|SDIFFSTORE sidecar:b84:sd:{{ID}} sidecar:b84:sa:{{ID}} sidecar:b84:sb:{{ID}}
+SCARD-b84sd|1|SCARD sidecar:b84:sd:{{ID}}
+SUNIONSTORE-b84|4|SUNIONSTORE sidecar:b84:su:{{ID}} sidecar:b84:sa:{{ID}} sidecar:b84:sb:{{ID}}
+SINTERSTORE-b84|2|SINTERSTORE sidecar:b84:si:{{ID}} sidecar:b84:sa:{{ID}} sidecar:b84:sb:{{ID}}
+DEL-b84s|5|DEL sidecar:b84:sa:{{ID}} sidecar:b84:sb:{{ID}} sidecar:b84:sd:{{ID}} sidecar:b84:su:{{ID}} sidecar:b84:si:{{ID}}
+@DEL sidecar:b84:za:{{ID}}
+@DEL sidecar:b84:zb:{{ID}}
+@DEL sidecar:b84:zu:{{ID}}
+ZADD-b84a|2|ZADD sidecar:b84:za:{{ID}} 1 a 2 b
+ZADD-b84b|2|ZADD sidecar:b84:zb:{{ID}} 1 b 3 c
+ZUNIONSTORE-b84|3|ZUNIONSTORE sidecar:b84:zu:{{ID}} 2 sidecar:b84:za:{{ID}} sidecar:b84:zb:{{ID}}
+ZSCORE-b84|1|ZSCORE sidecar:b84:za:{{ID}} a
+DEL-b84z|3|DEL sidecar:b84:za:{{ID}} sidecar:b84:zb:{{ID}} sidecar:b84:zu:{{ID}}
+@DEL sidecar:b84:str:{{ID}}
+SET-b84|OK|SET sidecar:b84:str:{{ID}} hello
+GETRANGE-b84|ell|GETRANGE sidecar:b84:str:{{ID}} 1 3
+DEL-b84str|1|DEL sidecar:b84:str:{{ID}}
+@DEL sidecar:b84:sx:{{ID}}
+SETEX-b84|OK|SETEX sidecar:b84:sx:{{ID}} 120 v
+TTL-b84sx|>=1|TTL sidecar:b84:sx:{{ID}}
+PERSIST-b84|1|PERSIST sidecar:b84:sx:{{ID}}
+TTL-b84persist|-1|TTL sidecar:b84:sx:{{ID}}
+DEL-b84sx|1|DEL sidecar:b84:sx:{{ID}}
+@DEL sidecar:b84:n:{{ID}}
+SET-b84n|OK|SET sidecar:b84:n:{{ID}} 10
+DECR-b84|9|DECR sidecar:b84:n:{{ID}}
+INCRBY-b84|14|INCRBY sidecar:b84:n:{{ID}} 5
+DEL-b84n|1|DEL sidecar:b84:n:{{ID}}
+@DEL sidecar:b84:h:{{ID}}
+HSET-b84|1|HSET sidecar:b84:h:{{ID}} n 1
+HINCRBY-b84|6|HINCRBY sidecar:b84:h:{{ID}} n 5
+DEL-b84h|1|DEL sidecar:b84:h:{{ID}}
+@DEL sidecar:b84:b1:{{ID}}
+@DEL sidecar:b84:b2:{{ID}}
+@DEL sidecar:b84:and:{{ID}}
+SETBIT-b84a|0|SETBIT sidecar:b84:b1:{{ID}} 0 1
+SETBIT-b84b|0|SETBIT sidecar:b84:b2:{{ID}} 0 1
+BITOP-AND-b84|1|BITOP AND sidecar:b84:and:{{ID}} sidecar:b84:b1:{{ID}} sidecar:b84:b2:{{ID}}
+BITCOUNT-AND-b84|1|BITCOUNT sidecar:b84:and:{{ID}}
+DEL-b84and|3|DEL sidecar:b84:b1:{{ID}} sidecar:b84:b2:{{ID}} sidecar:b84:and:{{ID}}
+
 # --- cleanup string / incr keys ---
 DEL|1|DEL sidecar:allowlist:{{ID}}
 EXISTS-after-del|0|EXISTS sidecar:allowlist:{{ID}}

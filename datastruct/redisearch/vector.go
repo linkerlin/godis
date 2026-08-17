@@ -59,16 +59,32 @@ type VectorFieldConfig struct {
 // optional. Returns an error if a required attr is missing or values are bad.
 func ParseVectorFieldConfig(args [][]byte) (*VectorFieldConfig, int, error) {
 	// args[0] = ALGO, args[1] = count (total remaining tokens), then count tokens.
-	if len(args) < 2 {
-		return nil, 0, fmt.Errorf("VECTOR field requires algorithm and attribute count")
+	// Redis 8.10 QE (SEARCH_PARSE_ARGS prefix):
+	//   missing algo → Bad arguments for vector similarity algorithm: Expected…
+	//   unknown algo → Bad arguments for vector similarity algorithm: Unknown argument
+	//   missing count → Bad arguments for vector similarity number of parameters: Expected…
+	//   non-int count → …Could not convert argument to expected type
+	//   negative count → …Value is outside acceptable bounds
+	//   odd count → Bad number of arguments for vector similarity index: …
+	if len(args) < 1 {
+		return nil, 0, fmt.Errorf("SEARCH_PARSE_ARGS Bad arguments for vector similarity algorithm: Expected an argument, but none provided")
 	}
 	algo := string(args[0])
 	if algo != VectorAlgoFlat && algo != VectorAlgoHNSW && algo != VectorAlgoVAMANA {
-		return nil, 0, fmt.Errorf("Invalid VECTOR algorithm '%s'", algo)
+		return nil, 0, fmt.Errorf("SEARCH_PARSE_ARGS Bad arguments for vector similarity algorithm: Unknown argument")
+	}
+	if len(args) < 2 {
+		return nil, 0, fmt.Errorf("SEARCH_PARSE_ARGS Bad arguments for vector similarity number of parameters: Expected an argument, but none provided")
 	}
 	count, err := parseInt(string(args[1]))
-	if err != nil || count < 0 || count%2 != 0 {
-		return nil, 0, fmt.Errorf("Invalid VECTOR attribute count")
+	if err != nil {
+		return nil, 0, fmt.Errorf("SEARCH_PARSE_ARGS Bad arguments for vector similarity number of parameters: Could not convert argument to expected type")
+	}
+	if count < 0 {
+		return nil, 0, fmt.Errorf("SEARCH_PARSE_ARGS Bad arguments for vector similarity number of parameters: Value is outside acceptable bounds")
+	}
+	if count%2 != 0 {
+		return nil, 0, fmt.Errorf("SEARCH_PARSE_ARGS Bad number of arguments for vector similarity index: got %d but expected even number as algorithm parameters (should be submitted as named arguments)", count)
 	}
 	if len(args) < 2+count {
 		return nil, 0, fmt.Errorf("VECTOR field declares %d attribute tokens but fewer were provided", count)

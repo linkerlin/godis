@@ -464,8 +464,9 @@ func execFTCreate(db *DB, args [][]byte) redis.Reply {
 			i++
 		case "LANGUAGE_FIELD", "SCORE_FIELD", "PAYLOAD_FIELD":
 			// Accepted for syntax parity; field name consumed, value unused here.
+			// Redis 8.x: missing → SEARCH_PARSE_ARGS Bad arguments for <OPT>: …
 			if i+1 >= len(args) {
-				return protocol.MakeSyntaxErrReply()
+				return protocol.MakeErrReply("SEARCH_PARSE_ARGS Bad arguments for " + arg + ": Expected an argument, but none provided")
 			}
 			i++
 		case "SCHEMA":
@@ -474,8 +475,12 @@ func execFTCreate(db *DB, args [][]byte) redis.Reply {
 		}
 	}
 
-	if schemaStart < 0 || schemaStart >= len(args) {
+	if schemaStart < 0 {
 		return protocol.MakeErrReply("SEARCH_PARSE_ARGS No schema found")
+	}
+	if schemaStart >= len(args) {
+		// SCHEMA present but no field tokens — Redis 8.x distinct from "No schema found".
+		return protocol.MakeErrReply("SEARCH_PARSE_ARGS Fields arguments are missing")
 	}
 
 	fields, errReply := parseFTSchemaFields(args[schemaStart:])
@@ -483,7 +488,7 @@ func execFTCreate(db *DB, args [][]byte) redis.Reply {
 		return errReply
 	}
 	if len(fields) == 0 {
-		return protocol.MakeErrReply("SEARCH_PARSE_ARGS No schema found")
+		return protocol.MakeErrReply("SEARCH_PARSE_ARGS Fields arguments are missing")
 	}
 
 	// Redis: TEMPORARY 0 → CREATE OK but index is gone immediately (INFO not found).
