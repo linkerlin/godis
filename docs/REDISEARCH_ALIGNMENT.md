@@ -242,6 +242,7 @@ FT.SEARCH idx "hello"  # -> %5 total_results / results / attributes / format / w
 | FT.AGGREGATE LOAD … AS / `@__key` | ✅ 子集 | nargs 计 AS+别名；有 LOAD 时投影；ADDSCORES 保留 `__score`；**无 LOAD 仅 SORTABLE**（非 SORTABLE→空行）；**APPLY/FILTER 未 LOAD→`SEARCH_PROP_NOT_FOUND Property not loaded nor in pipeline`**；GROUPBY/REDUCE 仍可读全文档字段；`LOAD *` 仍不含 `__key` |
 | FT.CREATE FILTER | ✅ 子集 | 聚合表达式；`@__key` + 字段；假/求值错→不索引；HSET 更新失败则撤出 |
 | FT.AGGREGATE REDUCE TOLIST | ✅ 子集 | 组内值收集为**嵌套数组**（非 Go `%v` 串） |
+| FT.AGGREGATE REDUCE 校验 | ✅ 子集 | 未知名/`COUNT` nargs/`Missing arguments`/`QUANTILE`/`RANDOM_SAMPLE`/`FIRST_VALUE BY` 文案对齐 Redis 8.x（无 ERR 前缀）；COLLECT 为 Godis 8.8+ |
 | FT.AGGREGATE WITHCURSOR MAXIDLE | ✅ 子集 | COUNT/MAXIDLE 可互换；≤0/缺参/非数字文案；上限 300000ms；每游标 idle |
 | FT.SEARCH FORMAT | ✅ 子集 | STRING；拒 JSON/未知；EXPAND→DIALECT≥3+RESP3+ON JSON（回复仍为双形 FTSearchReply，非完整 EXPAND 树） |
 | 查询属性 `$weight` | ✅ 子集 | 乘分；`$slop`/`$inorder`；拒非法/未知/`$phonetic:true`；**非** Redis 字节级项贡献 |

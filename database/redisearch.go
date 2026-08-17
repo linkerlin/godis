@@ -1772,6 +1772,9 @@ func execFTAggregate(db *DB, args [][]byte) redis.Reply {
 			if len(reducer.Args) > 0 {
 				reducer.Field = strings.TrimPrefix(reducer.Args[0], "@")
 			}
+			if errMsg := validateFTReducer(funcName, reducer); errMsg != "" {
+				return protocol.MakeErrReply(errMsg)
+			}
 
 				// Check for AS
 				if i < len(args) && strings.ToUpper(string(args[i])) == "AS" {
@@ -1909,6 +1912,77 @@ func execFTAggregate(db *DB, args [][]byte) redis.Reply {
 
 	// Wrap for dual-form RESP2/RESP3 output (RESP3 gets the 8.x map shape).
 	return MakeFTAggregateReply(protocol.MakeMultiBulkReply(reply), int64(result.Total))
+}
+
+// validateFTReducer mirrors Redis 8.x FT.AGGREGATE REDUCE arity / name errors
+// (no ERR prefix). COLLECT is Godis 8.8+ support and is accepted.
+func validateFTReducer(funcName string, r redisearch.Reducer) string {
+	fn := strings.ToUpper(r.Function)
+	switch fn {
+	case "COUNT":
+		if len(r.Args) != 0 {
+			return "Count accepts 0 values only"
+		}
+	case "SUM", "MIN", "MAX", "AVG", "STDDEV", "TOLIST", "COUNT_DISTINCT", "COUNT_DISTINCTISH":
+		if len(r.Args) < 1 {
+			return "Missing arguments for " + fn
+		}
+	case "QUANTILE":
+		if len(r.Args) < 1 {
+			return "Missing arguments for QUANTILE"
+		}
+		if len(r.Args) < 2 {
+			return "Bad arguments for QUANTILE: Could not convert argument to expected type"
+		}
+		q, err := strconv.ParseFloat(r.Args[1], 64)
+		if err != nil {
+			return "Bad arguments for QUANTILE: Could not convert argument to expected type"
+		}
+		if q < 0 || q > 1 {
+			return "Percentage must be between 0.0 and 1.0"
+		}
+	case "FIRST_VALUE":
+		if len(r.Args) < 1 {
+			return "Missing arguments for FIRST_VALUE"
+		}
+		if len(r.Args) == 1 {
+			return ""
+		}
+		if !strings.EqualFold(r.Args[1], "BY") {
+			return fmt.Sprintf("Unknown argument `%s` at position 1 for FIRST_VALUE", r.Args[1])
+		}
+		if len(r.Args) < 3 {
+			return "Missing arguments for FIRST_VALUE"
+		}
+		if len(r.Args) >= 4 {
+			dir := strings.ToUpper(r.Args[3])
+			if dir != "ASC" && dir != "DESC" {
+				return fmt.Sprintf("Unknown argument `%s` at position 3 for FIRST_VALUE", r.Args[3])
+			}
+		}
+		if len(r.Args) > 4 {
+			return fmt.Sprintf("Unknown argument `%s` at position 4 for FIRST_VALUE", r.Args[4])
+		}
+	case "RANDOM_SAMPLE":
+		if len(r.Args) < 1 {
+			return "Missing arguments for RANDOM_SAMPLE"
+		}
+		if len(r.Args) < 2 {
+			return "Bad arguments for <sample size>: Expected an argument, but none provided"
+		}
+		size, err := strconv.Atoi(r.Args[1])
+		if err != nil {
+			return "Bad arguments for <sample size>: Could not convert argument to expected type"
+		}
+		if size < 0 {
+			return "Bad arguments for <sample size>: Value is outside acceptable bounds"
+		}
+	case "COLLECT":
+		// Redis 8.8+; keep accepting on Godis.
+	default:
+		return "No such reducer: " + funcName
+	}
+	return ""
 }
 
 // aggRowBytes encodes one aggregation result row in the wire format used by
