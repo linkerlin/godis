@@ -149,7 +149,8 @@ Redis 8.0 将 Redis Stack 的 RediSearch 模块并入核心(命令面 24 个 FT.
 | 查询语法 | 前缀/后缀/中缀/fuzzy 1-3/短语/SLOP/INORDER/标签/数值/geo 半径 | ✅ | |
 | GEOSHAPE | WKT + WITHIN/CONTAINS/INTERSECTS/DISJOINT(DIALECT 3) | ✅ | |
 | AGGREGATE reducers | COUNT/SUM/MIN/MAX/AVG/STDDEV/QUANTILE/COUNT_DISTINCT(ISH)/TOLIST/FIRST_VALUE/RANDOM_SAMPLE/COLLECT | ✅ | |
-| APPLY 表达式 | 算术 + % ^ + 数值/字符串/日期/geo + **matched_terms / split(charset sep/strip) / format PARSE_ARGS / to_str/to_number** | ✅ 子集 | 无 stemmer 变体；strftime 非 locale；%k/%l Redis 8.10 亦 Null |
+| APPLY 表达式 | 算术 + % ^ + 数值/字符串/日期/geo + **matched_terms / split(charset sep/strip) / format PARSE_ARGS / to_str/to_number** | ✅ 子集 | 无 stemmer 变体；strftime 非 locale；未知指令→Null |
+
 | FILTER | 布尔组合 + 比较算符 | ✅ | |
 | 打分 | BM25STD(默认)/TFIDF/DISMAX/DOCSCORE/HAMMING + 变体 | ✅ | .NORM 真 min-max；.TANH=tanh(raw/4) |
 | 可选词 ~ | 打分加成、不过滤 | ✅ | |
@@ -250,7 +251,7 @@ FT.SEARCH idx "hello"  # -> %5 total_results / results / attributes / format / w
 | SORTBY WITHCOUNT | ✅ 语法 | 接受令牌；准确总数本为默认（WITHOUTCOUNT 除外） |
 | FT.PROFILE 迭代器细分 | 🔶 | 只报诚实总耗时;细分需 instrument 引擎迭代器 |
 | FT.HYBRID RANGE/FILTER/POLICY | 🔶 | 接受但按暴力路径执行 |
-| APPLY 日期/geo 函数 | 🔶 | UTC 时间函数族、strftime 子集（含 %s/%u/%D/%x/%X/%r/%c/%C/%G/%g/%V/%U/%W/%h/%Z/%n/%t 与既有 %y/%F/%T 等；%k/%l/未知→Null；%Z→UTC；对照 Redis 8.10）的 timefmt/parsetime、geodistance 已实测；locale/%P 等仍缺 |
+| APPLY 日期/geo 函数 | 🔶 | UTC 时间函数族、strftime 子集（含 %s/%u/%D/%x/%X/%r/%c/%C/%G/%g/%V/%U/%W/%h/%Z/%n/%t/%P/%k/%l 与既有 %y/%F/%T 等；未知→Null；%Z→UTC；对照 Redis **8.6**）的 timefmt/parsetime、geodistance 已实测；locale 等仍缺 |
 | FT.SEARCH EXPLAINSCORE | ✅ | 需 WITHSCORES；BM25STD/TFIDF/DOCSCORE/DISMAX 嵌套线格式子集（Godis b=0.09 自洽，非字节级对齐）；RESP3 score 嵌套 |
 | RDB / AOF rewrite 索引定义持久化 | ✅ | 命令 AOF + 纯 AOF rewrite→FT.CREATE + RDB opaque `ft`（非官方模块格式） |
 | ACL @search 类别 | ✅ | `+@search` / ACL CAT `@search` 已生效；非「需重构 ACL」 |

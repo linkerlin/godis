@@ -94,7 +94,7 @@ func EnsurePipelineProps(expr string, props map[string]bool) error {
 //	             matched_terms timefmt parsetime (strftime subset) day hour minute month dayofweek
 //	             dayofmonth dayofyear year monthofyear geodistance exists case
 //	Missing @field → SEARCH_VALUE_NOT_FOUND (exists() ok; &&/||/case short-circuit).
-//	Bad timefmt/parsetime → Null (not ERR; Redis 8.10 QE; %k/%l/unknown→Null). Non-numeric args to numeric funcs yield NaN (Redis). Unknown funcs → SEARCH_EXPR.
+//	Bad timefmt/parsetime → Null (not ERR; Redis 8.x QE; unknown directive→Null). Non-numeric args to numeric funcs yield NaN (Redis). Unknown funcs → SEARCH_EXPR.
 func EvalApplyExpr(expr string, fields map[string]interface{}) (interface{}, error) {
 	return EvalApplyExprWithQuery(expr, fields, nil)
 }
@@ -1262,7 +1262,7 @@ func applyGeoCoordinates(args []applyValue) (float64, float64, float64, float64,
 }
 
 // strftimeFormat renders tm with a Redis Query Engine strftime subset.
-// ok=false → Null (Redis 8.10 QE: unsupported %k/%l/%Q/… and trailing bare %).
+// ok=false → Null (Redis 8.x QE: unsupported %Q/… and trailing bare %).
 func strftimeFormat(tm time.Time, format string) (string, bool) {
 	var b strings.Builder
 	for i := 0; i < len(format); i++ {
@@ -1289,14 +1289,24 @@ func strftimeFormat(tm time.Time, format string) (string, bool) {
 			b.WriteString(tm.Format("_2"))
 		case 'H':
 			b.WriteString(tm.Format("15"))
+		case 'k': // space-padded hour 0-23 (Redis 8.6 QE)
+			b.WriteString(fmt.Sprintf("%2d", tm.Hour()))
 		case 'M':
 			b.WriteString(tm.Format("04"))
 		case 'S':
 			b.WriteString(tm.Format("05"))
 		case 'I':
 			b.WriteString(tm.Format("03"))
+		case 'l': // space-padded hour 1-12 (Redis 8.6 QE)
+			h12 := tm.Hour() % 12
+			if h12 == 0 {
+				h12 = 12
+			}
+			b.WriteString(fmt.Sprintf("%2d", h12))
 		case 'p':
 			b.WriteString(tm.Format("PM"))
+		case 'P': // lowercase am/pm (Redis 8.6 QE)
+			b.WriteString(strings.ToLower(tm.Format("PM")))
 		case 'a':
 			b.WriteString(tm.Format("Mon"))
 		case 'A':
@@ -1329,7 +1339,7 @@ func strftimeFormat(tm time.Time, format string) (string, bool) {
 			b.WriteString(fmt.Sprintf("%02d", isoYear%100))
 		case 'z':
 			b.WriteString(tm.Format("-0700"))
-		case 'Z': // Redis 8.10 QE UTC → "UTC"
+		case 'Z': // Redis 8.x QE UTC → "UTC"
 			b.WriteString(tm.Format("MST"))
 		case 'w': // weekday 0=Sunday … 6=Saturday
 			b.WriteString(strconv.Itoa(int(tm.Weekday())))
@@ -1353,7 +1363,7 @@ func strftimeFormat(tm time.Time, format string) (string, bool) {
 		case 't':
 			b.WriteByte('\t')
 		default:
-			// %k/%l/%Q/… unsupported in Redis 8.10 QE → Null
+			// %Q/… unsupported in Redis 8.x QE → Null
 			return "", false
 		}
 	}
@@ -1430,7 +1440,7 @@ func strftimeToGoLayout(format string) string {
 		case 'z':
 			b.WriteString("-0700")
 		default:
-			// %s/%u/%U/%W/%V/%G/%g/%C/%Z/%n/%t/%k are format-only or unsupported.
+			// %s/%u/%U/%W/%V/%G/%g/%C/%Z/%n/%t/%k/%l/%P are format-only or unsupported in Parse.
 			b.WriteByte('%')
 			b.WriteByte(format[i])
 		}

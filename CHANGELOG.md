@@ -6,6 +6,7 @@
 
 ### Fixed
 
+- 第七十六批（远期子集续研）：对照 Redis **8.6** QE 纠偏 APPLY `timefmt` **`%P`（小写 am/pm）**、**`%k`/`%l`（空格填充小时）**（上批误标 Null；未知 `%Q` 仍 Null）；R4-1 扩至 **508**（ZADD CH/GT/LT/INCR、SREM、GETRANGE 正索引）；远期仍 7 项，不宣称完整 KNN/DIALECT 或全量 sidecar
 - 第七十五批（远期子集续研）：对照 Redis **8.10** 纠正 APPLY `timefmt`（未知/`%k`/`%l`→Null，非原样保留；`%Z`→`UTC`）并扩 strftime **`%s/%D/%r/%c/%C/%u/%U/%W/%V/%G/%g/%X/%x/%h/%n/%t`**；R4-1 扩至 **492**（EXPIRE XX/GT/LT、ZADD NX/XX、BITCOUNT 字节范围）；远期仍 7 项，不宣称完整 KNN/DIALECT 或全量 sidecar
 - 第七十四批（远期子集续研）：FT.AGGREGATE APPLY **`timefmt`/`parsetime` strftime 子集**扩至 `%y/%F/%T/%R/%X/%a/%A/%b/%B/%I/%p/%z/%Z/%w/%j/%e/%c`（后续由第七十五批按 Redis 8.10 校正未知指令→Null）；**`parsetime` 失败→Null/`$-1`**；Null 字段线格式 **`$-1`**；R4-1 扩至 **475** 条（LCS LEN、ZRANGE/ZREVRANGE WITHSCORES、EXPIRE NX、SISMEMBER、GETRANGE 负索引）；远期仍 7 项，不宣称完整 KNN/DIALECT 或全量 sidecar
 - 第七十三批（远期子集续研）：FT.AGGREGATE APPLY 缺字段对齐 Redis **`SEARCH_VALUE_NOT_FOUND`**（**`exists()`** 仅 Null 为假、字面量 0/`""`/present-zero 为真；**`&&`/`||`/`case` 短路**；**FILTER 先于 APPLY** 时先裁剪）+ **`geodistance` 三参**（point,lon,lat / lon,lat,point）+ **`substr` 字节偏移** + bool 线格式 `1`/`0`；R4-1 扩至 **456** 条（单成员 ZRANDMEMBER/HRANDFIELD/SRANDMEMBER、GEORADIUS/GEOSEARCH ASC COUNT 1）；远期仍 7 项，不宣称完整 KNN/DIALECT 或全量 sidecar

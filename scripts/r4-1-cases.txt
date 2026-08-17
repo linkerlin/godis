@@ -726,6 +726,27 @@ BITCOUNT-b0|1|BITCOUNT sidecar:b75:b:{{ID}} 0 0
 BITCOUNT-b1|1|BITCOUNT sidecar:b75:b:{{ID}} 1 1
 DEL-b75b|1|DEL sidecar:b75:b:{{ID}}
 
+# --- batch 76 extras (ZADD CH/GT/LT/INCR; SREM; GETRANGE positive) ---
+@DEL sidecar:b76:z:{{ID}}
+ZADD-b76|2|ZADD sidecar:b76:z:{{ID}} 1 a 2 b
+ZADD-CH|2|ZADD sidecar:b76:z:{{ID}} CH 3 a 4 c
+ZSCORE-CH|3|ZSCORE sidecar:b76:z:{{ID}} a
+ZADD-GT|0|ZADD sidecar:b76:z:{{ID}} GT 5 a
+ZSCORE-GT|5|ZSCORE sidecar:b76:z:{{ID}} a
+ZADD-LT|0|ZADD sidecar:b76:z:{{ID}} LT 1 a
+ZSCORE-LT|1|ZSCORE sidecar:b76:z:{{ID}} a
+ZADD-INCR|2.5|ZADD sidecar:b76:z:{{ID}} INCR 0.5 b
+DEL-b76z|1|DEL sidecar:b76:z:{{ID}}
+@DEL sidecar:b76:s:{{ID}}
+SADD-b76|2|SADD sidecar:b76:s:{{ID}} a b
+SREM-b76|1|SREM sidecar:b76:s:{{ID}} a
+SCARD-b76|1|SCARD sidecar:b76:s:{{ID}}
+DEL-b76s|1|DEL sidecar:b76:s:{{ID}}
+@DEL sidecar:b76:str:{{ID}}
+SET-b76str|OK|SET sidecar:b76:str:{{ID}} hello
+GETRANGE-pos|ell|GETRANGE sidecar:b76:str:{{ID}} 1 3
+DEL-b76str|1|DEL sidecar:b76:str:{{ID}}
+
 # --- cleanup string / incr keys ---
 DEL|1|DEL sidecar:allowlist:{{ID}}
 EXISTS-after-del|0|EXISTS sidecar:allowlist:{{ID}}

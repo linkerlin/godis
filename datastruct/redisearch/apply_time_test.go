@@ -30,6 +30,9 @@ func TestEvalApplyTimeFunctionsMatchRedis810(t *testing.T) {
 		"timefmt(@ts,'%B')":                   "January",
 		"timefmt(@ts,'%I')":                   "12",
 		"timefmt(@ts,'%p')":                   "PM",
+		"timefmt(@ts,'%P')":                   "pm",
+		"timefmt(@ts,'%k')":                   "12",
+		"timefmt(@ts,'%l')":                   "12",
 		"timefmt(@ts,'%R')":                   "12:34",
 		"timefmt(@ts,'%z')":                   "+0000",
 		"timefmt(@ts,'%Z')":                   "UTC",
@@ -64,11 +67,27 @@ func TestEvalApplyTimeFunctionsMatchRedis810(t *testing.T) {
 			t.Errorf("%s: got %v, want %v", expr, got, want)
 		}
 	}
-	// Redis 8.10 QE: unsupported directive → Null (not literal keep).
-	for _, bad := range []string{"timefmt(@ts,'%Q')", "timefmt(@ts,'%k')", "timefmt(@ts,'%l')", "timefmt(@ts,'hello %Q world')"} {
+	// Redis 8.x QE: unsupported directive → Null (not literal keep).
+	for _, bad := range []string{"timefmt(@ts,'%Q')", "timefmt(@ts,'hello %Q world')"} {
 		got, err := EvalApplyExpr(bad, fields)
 		if err != nil || got != nil {
 			t.Fatalf("%s: got %v err %v want nil", bad, got, err)
+		}
+	}
+	// Redis 8.6 QE: %k/%l space-padded; %P lowercase am/pm (midnight / 13:00).
+	for _, tc := range []struct {
+		unix int64
+		expr string
+		want string
+	}{
+		{1704153600, "timefmt(@ts,'%k|%l|%P|%p')", " 0|12|am|AM"},
+		{1704157200, "timefmt(@ts,'%k|%l|%P')", " 1| 1|am"},
+		{1704200400, "timefmt(@ts,'%k|%l|%P|%p')", "13| 1|pm|PM"},
+		{1704236400, "timefmt(@ts,'%k|%l|%P')", "23|11|pm"},
+	} {
+		got, err := EvalApplyExpr(tc.expr, map[string]interface{}{"ts": float64(tc.unix)})
+		if err != nil || got != tc.want {
+			t.Fatalf("ts=%d %s: got %v err %v want %s", tc.unix, tc.expr, got, err, tc.want)
 		}
 	}
 	got, err := EvalApplyExpr(`parsetime("nope","%Y-%m-%d")`, nil)
