@@ -420,16 +420,6 @@ func (p *applyParser) next() applyToken {
 	return t
 }
 
-func (p *applyParser) checkPresent(v applyValue) error {
-	if !v.isNull {
-		return nil
-	}
-	if p != nil && p.lax > 0 {
-		return nil
-	}
-	return v.missingErr()
-}
-
 // parseBoolOr := parseBoolAnd ('||' parseBoolAnd)*
 // Redis short-circuits: when left is true, RHS is evaluated in lax mode.
 func (p *applyParser) parseBoolOr() (applyValue, error) {
