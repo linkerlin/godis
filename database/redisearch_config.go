@@ -31,13 +31,13 @@ var (
 // are used so CONFIG GET search-* and CONFIG SET search-* interoperate with
 // FT.CONFIG GET/SET on the same underlying values.
 var ftKebabMap = map[string]string{
-	"search-timeout":              "TIMEOUT",
-	"search-on-timeout":           "ON_TIMEOUT",
-	"search-max-search-results":   "MAXSEARCHRESULTS",
+	"search-timeout":               "TIMEOUT",
+	"search-on-timeout":            "ON_TIMEOUT",
+	"search-max-search-results":    "MAXSEARCHRESULTS",
 	"search-max-aggregate-results": "MAXAGGREGATERESULTS",
-	"search-min-prefix":           "MINPREFIX",
-	"search-max-expansions":       "MAXEXPANSIONS",
-	"search-default-dialect":      "DEFAULT_DIALECT",
+	"search-min-prefix":            "MINPREFIX",
+	"search-max-expansions":        "MAXEXPANSIONS",
+	"search-default-dialect":       "DEFAULT_DIALECT",
 }
 
 // searchKebabPairs returns the search-* config pairs (kebab key → value) for
@@ -63,38 +63,79 @@ func setSearchKebab(kebab, value string) bool {
 	}
 	ftConfigMu.Lock()
 	defer ftConfigMu.Unlock()
-	switch internal {
-	case "TIMEOUT", "MAXSEARCHRESULTS", "MAXAGGREGATERESULTS", "MINPREFIX", "MAXEXPANSIONS":
-		if _, err := strconv.Atoi(value); err != nil {
-			return false
-		}
-	case "DEFAULT_DIALECT":
-		d, err := strconv.Atoi(value)
-		if err != nil || !validFTDialect(d) {
-			return false
-		}
-	case "ON_TIMEOUT":
-		u := strings.ToUpper(value)
-		if u != "FAIL" && u != "RETURN" {
-			return false
-		}
-		value = u
+	normalized, errReply := validateFTConfigValue(internal, value)
+	if errReply != nil {
+		return false
 	}
-	ftConfig[internal] = value
+	ftConfig[internal] = normalized
 	return true
+}
+
+// validateFTConfigValue aligns FT.CONFIG SET validation with Redis 8.10 texts.
+// Returns the normalized value to store, or an error reply.
+func validateFTConfigValue(key, val string) (string, redis.Reply) {
+	switch key {
+	case "TIMEOUT":
+		n, err := strconv.Atoi(val)
+		if err != nil {
+			return "", protocol.MakeErrReply("SEARCH_PARSE_ARGS Could not convert argument to expected type")
+		}
+		if n < 0 {
+			return "", protocol.MakeErrReply("SEARCH_PARSE_ARGS Value is outside acceptable bounds")
+		}
+		return val, nil
+	case "MAXSEARCHRESULTS", "MAXAGGREGATERESULTS":
+		// Redis accepts negatives (unlimited semantics); only reject non-integers.
+		if _, err := strconv.Atoi(val); err != nil {
+			return "", protocol.MakeErrReply("SEARCH_PARSE_ARGS Could not convert argument to expected type")
+		}
+		return val, nil
+	case "MINPREFIX", "MAXEXPANSIONS":
+		n, err := strconv.Atoi(val)
+		if err != nil {
+			return "", protocol.MakeErrReply("SEARCH_PARSE_ARGS Could not convert argument to expected type")
+		}
+		if n < 1 {
+			return "", protocol.MakeErrReply("SEARCH_PARSE_ARGS Value is outside acceptable bounds")
+		}
+		return val, nil
+	case "DEFAULT_DIALECT":
+		d, err := strconv.Atoi(val)
+		if err != nil {
+			return "", protocol.MakeErrReply("SEARCH_PARSE_ARGS Could not convert argument to expected type")
+		}
+		if d < 1 {
+			return "", protocol.MakeErrReply("SEARCH_PARSE_ARGS Value is outside acceptable bounds")
+		}
+		if d > 4 {
+			return "", protocol.MakeErrReply("SEARCH_VALUE_BAD Default dialect version cannot be higher than 4")
+		}
+		return val, nil
+	case "ON_TIMEOUT":
+		u := strings.ToUpper(val)
+		switch u {
+		case "FAIL", "RETURN", "RETURN-STRICT":
+			return u, nil
+		default:
+			return "", protocol.MakeErrReply("SEARCH_VALUE_BAD Invalid ON_TIMEOUT value")
+		}
+	default:
+		return val, nil
+	}
 }
 
 // execFTConfig FT.CONFIG GET|SET ...
 func execFTConfig(db *DB, args [][]byte) redis.Reply {
 	if len(args) < 1 {
-		return protocol.MakeErrReply("ERR wrong number of arguments for 'ft.config' command")
+		return protocol.MakeErrReply("ERR wrong number of arguments for 'FT.CONFIG' command")
 	}
 	sub := strings.ToUpper(string(args[0]))
 	switch sub {
 	case "GET":
-		if len(args) != 2 {
-			return protocol.MakeErrReply("ERR wrong number of arguments for 'ft.config|get' command")
+		if len(args) < 2 {
+			return protocol.MakeErrReply("ERR wrong number of arguments for 'FT.CONFIG|GET' command")
 		}
+		// Redis accepts trailing args after the option (ignored).
 		pattern := string(args[1])
 		ftConfigMu.RLock()
 		defer ftConfigMu.RUnlock()
@@ -106,46 +147,40 @@ func execFTConfig(db *DB, args [][]byte) redis.Reply {
 		}
 		return m
 	case "SET":
-		if len(args) != 3 {
-			return protocol.MakeErrReply("ERR wrong number of arguments for 'ft.config|set' command")
+		if len(args) < 2 {
+			return protocol.MakeErrReply("ERR wrong number of arguments for 'FT.CONFIG|SET' command")
+		}
+		if len(args) < 3 {
+			return protocol.MakeErrReply("SEARCH_PARSE_ARGS Expected an argument, but none provided")
+		}
+		if len(args) > 3 {
+			// Redis 8.10 bare EXCESSARGS (no ERR / SEARCH_ prefix).
+			return protocol.MakeErrReply("EXCESSARGS")
 		}
 		key := strings.ToUpper(string(args[1]))
 		val := string(args[2])
 		ftConfigMu.Lock()
 		defer ftConfigMu.Unlock()
 		if _, ok := ftConfig[key]; !ok {
-			return protocol.MakeErrReply(fmt.Sprintf("ERR Unknown option '%s'", string(args[1])))
+			return protocol.MakeErrReply("SEARCH_OPTION_INVALID Invalid option")
 		}
-		if key == "TIMEOUT" || key == "MAXSEARCHRESULTS" || key == "MINPREFIX" || key == "MAXEXPANSIONS" {
-			if _, err := strconv.Atoi(val); err != nil {
-				return protocol.MakeErrReply("ERR Invalid value for option")
-			}
+		normalized, errReply := validateFTConfigValue(key, val)
+		if errReply != nil {
+			return errReply
 		}
-		if key == "DEFAULT_DIALECT" {
-			d, err := strconv.Atoi(val)
-			if err != nil || !validFTDialect(d) {
-				return protocol.MakeErrReply("ERR Invalid value for option")
-			}
-		}
-		if key == "ON_TIMEOUT" {
-			u := strings.ToUpper(val)
-			if u != "FAIL" && u != "RETURN" {
-				return protocol.MakeErrReply("ERR Invalid value for option")
-			}
-			val = u
-		}
-		ftConfig[key] = val
+		ftConfig[key] = normalized
 		// Persist the setting so it survives AOF replay (DEFAULT_DIALECT,
 		// MINPREFIX, MAXEXPANSIONS, TIMEOUT, etc.).
 		db.addAof(utils.ToCmdLine3("ft.config", args...))
 		return protocol.MakeOkReply()
 	case "HELP":
-		return protocol.MakeMultiBulkReply([][]byte{
-			[]byte("FT.CONFIG GET <option|*>"),
-			[]byte("FT.CONFIG SET <option> <value>"),
-		})
+		// Redis 8.10: HELP arity -3 (needs ≥1 trailing token); body is empty.
+		if len(args) < 2 {
+			return protocol.MakeErrReply("ERR wrong number of arguments for 'FT.CONFIG|HELP' command")
+		}
+		return protocol.MakeEmptyMultiBulkReply()
 	default:
-		return protocol.MakeErrReply("ERR Unknown subcommand '" + string(args[0]) + "'")
+		return protocol.MakeErrReply(fmt.Sprintf("ERR unknown subcommand '%s'. Try FT.CONFIG HELP.", string(args[0])))
 	}
 }
 
@@ -162,10 +197,11 @@ func getFTConfigString(key string) string {
 	return ftConfig[key]
 }
 
-// ftTimeoutReply maps FT soft-timeout errors according to ON_TIMEOUT (FAIL|RETURN).
-// FAIL → SEARCH_TIMEOUT… (no ERR prefix). RETURN with no partial → empty search shape.
+// ftTimeoutReply maps FT soft-timeout errors according to ON_TIMEOUT (FAIL|RETURN|RETURN-STRICT).
+// FAIL → SEARCH_TIMEOUT… (no ERR prefix). RETURN / RETURN-STRICT with no partial → empty search shape.
 func ftTimeoutReply(err error) redis.Reply {
-	if err == redisearch.ErrTimeout && strings.EqualFold(getFTConfigString("ON_TIMEOUT"), "RETURN") {
+	on := strings.ToUpper(getFTConfigString("ON_TIMEOUT"))
+	if err == redisearch.ErrTimeout && (on == "RETURN" || on == "RETURN-STRICT") {
 		return protocol.MakeMultiRawReply([]redis.Reply{protocol.MakeIntReply(0)})
 	}
 	if err == redisearch.ErrTimeout || strings.HasPrefix(err.Error(), "SEARCH_") {

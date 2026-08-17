@@ -65,13 +65,13 @@ func execFTAliasAdd(db *DB, args [][]byte) redis.Reply {
 	searchAliasesMu.Lock()
 	defer searchAliasesMu.Unlock()
 	if _, exists := searchAliases[alias]; exists {
-		return protocol.MakeErrReply(fmt.Sprintf("ERR Alias '%s' already exists", alias))
+		return protocol.MakeErrReply("SEARCH_INDEX_EXISTS Alias already exists")
 	}
 	searchEnginesMu.RLock()
 	_, nameConflict := searchEngines[alias]
 	searchEnginesMu.RUnlock()
 	if nameConflict {
-		return protocol.MakeErrReply(fmt.Sprintf("ERR Alias '%s' conflicts with an existing index name", alias))
+		return protocol.MakeErrReply("SEARCH_ALIAS_CONFLICT Alias conflicts with an existing index name")
 	}
 	searchAliases[alias] = index
 	db.addAof(utils.ToCmdLine3("ft.aliasadd", args...))

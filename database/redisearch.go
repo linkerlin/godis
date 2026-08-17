@@ -3,6 +3,7 @@ package database
 import (
 	"fmt"
 	"math"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -2406,7 +2407,7 @@ func prepareFTCursor(args [][]byte) ([]string, []string) {
 // FT.INFO index
 func execFTInfo(db *DB, args [][]byte) redis.Reply {
 	if len(args) != 1 {
-		return protocol.MakeErrReply("ERR wrong number of arguments for 'ft.info' command")
+		return protocol.MakeErrReply("ERR wrong number of arguments for 'FT.INFO' command")
 	}
 
 	indexName := resolveSearchIndex(string(args[0]))
@@ -2493,15 +2494,20 @@ func interfaceToReply(v interface{}) redis.Reply {
 // FT._LIST
 func execFTList(db *DB, args [][]byte) redis.Reply {
 	if len(args) != 0 {
-		return protocol.MakeErrReply("ERR wrong number of arguments for 'ft._list' command")
+		return protocol.MakeErrReply("ERR wrong number of arguments for 'FT._LIST' command")
 	}
 
 	searchEnginesMu.RLock()
 	defer searchEnginesMu.RUnlock()
 
-	var indexes [][]byte
+	names := make([]string, 0, len(searchEngines))
 	for name := range searchEngines {
-		indexes = append(indexes, []byte(name))
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	indexes := make([][]byte, len(names))
+	for i, name := range names {
+		indexes[i] = []byte(name)
 	}
 
 	return protocol.MakeMultiBulkReply(indexes)
@@ -2702,7 +2708,7 @@ func init() {
 		attachCommandExtra([]string{redisFlagReadonly}, 2, 2, 1)
 	registerCommand("FT.Info", execFTInfo, readFirstKey, nil, 2, flagReadOnly).
 		attachCommandExtra([]string{redisFlagReadonly}, 1, 1, 1)
-	registerCommand("FT._List", execFTList, prepareNoKeys, nil, 1, flagReadOnly).
+	registerCommand("FT._List", execFTList, prepareNoKeys, nil, -1, flagReadOnly).
 		attachCommandExtra([]string{redisFlagReadonly}, 0, 0, 0)
 	registerCommand("FT.SugAdd", execFTSugAdd, writeFirstKey, nil, -4, flagWrite).
 		attachCommandExtra([]string{redisFlagWrite}, 1, 1, 1)

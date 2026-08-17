@@ -1274,6 +1274,31 @@ PFADD-b85|1|PFADD sidecar:b85:pf:{{ID}} a
 PFCOUNT-b85|1|PFCOUNT sidecar:b85:pf:{{ID}}
 DEL-b85pf|1|DEL sidecar:b85:pf:{{ID}}
 
+# --- batch 86 extras (miss cardinality / partial MGET / BITOP OR) ---
+SCARD-b86miss|0|SCARD sidecar:b86:smiss:{{ID}}
+LLEN-b86miss|0|LLEN sidecar:b86:lmiss:{{ID}}
+ZCARD-b86miss|0|ZCARD sidecar:b86:zmiss:{{ID}}
+HGET-b86miss|$-1|HGET sidecar:b86:hmiss:{{ID}} f
+@DEL sidecar:b86:m1:{{ID}}
+@DEL sidecar:b86:m2:{{ID}}
+SET-b86m1|OK|SET sidecar:b86:m1:{{ID}} a
+SET-b86m2|OK|SET sidecar:b86:m2:{{ID}} b
+MGET-b86partial|a\n$-1\nb|MGET sidecar:b86:m1:{{ID}} sidecar:b86:miss:{{ID}} sidecar:b86:m2:{{ID}}
+DEL-b86m|2|DEL sidecar:b86:m1:{{ID}} sidecar:b86:m2:{{ID}}
+@DEL sidecar:b86:b1:{{ID}}
+@DEL sidecar:b86:b2:{{ID}}
+@DEL sidecar:b86:bout:{{ID}}
+SETBIT-b86b1|0|SETBIT sidecar:b86:b1:{{ID}} 0 1
+SETBIT-b86b2|0|SETBIT sidecar:b86:b2:{{ID}} 1 1
+BITOP-b86or|1|BITOP OR sidecar:b86:bout:{{ID}} sidecar:b86:b1:{{ID}} sidecar:b86:b2:{{ID}}
+GETBIT-b86or0|1|GETBIT sidecar:b86:bout:{{ID}} 0
+GETBIT-b86or1|1|GETBIT sidecar:b86:bout:{{ID}} 1
+DEL-b86bit|3|DEL sidecar:b86:b1:{{ID}} sidecar:b86:b2:{{ID}} sidecar:b86:bout:{{ID}}
+@DEL sidecar:b86:pf:{{ID}}
+PFADD-b86|1|PFADD sidecar:b86:pf:{{ID}} a
+PFCOUNT-b86dup|1|PFCOUNT sidecar:b86:pf:{{ID}}
+DEL-b86pfd|1|DEL sidecar:b86:pf:{{ID}}
+
 # --- cleanup string / incr keys ---
 DEL|1|DEL sidecar:allowlist:{{ID}}
 EXISTS-after-del|0|EXISTS sidecar:allowlist:{{ID}}

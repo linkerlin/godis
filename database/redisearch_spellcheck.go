@@ -249,7 +249,7 @@ func parseQueryTerms(query string) []string {
 // FT.DICTADD dict term [term ...]
 func execFTDictAdd(db *DB, args [][]byte) redis.Reply {
 	if len(args) < 2 {
-		return protocol.MakeErrReply("ERR wrong number of arguments for 'ft.dictadd' command")
+		return protocol.MakeErrReply("ERR wrong number of arguments for 'FT.DICTADD' command")
 	}
 
 	dictName := string(args[0])
@@ -291,7 +291,7 @@ func execFTDictAdd(db *DB, args [][]byte) redis.Reply {
 // FT.DICTDEL dict term [term ...]
 func execFTDictDel(db *DB, args [][]byte) redis.Reply {
 	if len(args) < 2 {
-		return protocol.MakeErrReply("ERR wrong number of arguments for 'ft.dictdel' command")
+		return protocol.MakeErrReply("ERR wrong number of arguments for 'FT.DICTDEL' command")
 	}
 
 	dictName := string(args[0])
@@ -326,7 +326,7 @@ func execFTDictDel(db *DB, args [][]byte) redis.Reply {
 // FT.DICTDUMP dict
 func execFTDictDump(db *DB, args [][]byte) redis.Reply {
 	if len(args) != 1 {
-		return protocol.MakeErrReply("ERR wrong number of arguments for 'ft.dictdump' command")
+		return protocol.MakeErrReply("ERR wrong number of arguments for 'FT.DICTDUMP' command")
 	}
 
 	dictName := string(args[0])
