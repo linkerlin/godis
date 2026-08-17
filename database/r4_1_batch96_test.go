@@ -1,7 +1,6 @@
 package database
 
 import (
-	"strings"
 	"testing"
 
 	"github.com/linkerlin/godis/lib/utils"
