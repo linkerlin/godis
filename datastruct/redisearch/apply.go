@@ -75,6 +75,7 @@ func EnsurePipelineProps(expr string, props map[string]bool) error {
 //	logical:    && || !           (return bool)
 //	functions:  log log2 exp sqrt abs ceil floor to_str to_number
 //	             upper lower strlen startswith contains substr format split
+//	             (split: charset sep/strip, drop empty; format: %s/%% + PARSE_ARGS)
 //	             matched_terms timefmt parsetime day hour minute month dayofweek
 //	             dayofmonth dayofyear year monthofyear geodistance exists case
 //
@@ -980,26 +981,26 @@ func applyFunction(p *applyParser, name string, args []applyValue) (applyValue, 
 			return applyValue{}, errors.New("format() expects a format string")
 		}
 		fmtStr := applyValueToString(args[0])
-		rest := args[1:]
-		// Redis format only supports %s. Replace each %s with the next argument.
-		out := applyFormat(fmtStr, rest)
+		out, err := applyFormat(fmtStr, args[1:])
+		if err != nil {
+			return applyValue{}, err
+		}
 		return applyValue{isStr: true, str: out}, nil
 	case "split":
-		if len(args) < 1 {
-			return applyValue{}, errors.New("split() expects a string argument")
+		if len(args) < 1 || len(args) > 3 {
+			return applyValue{}, errors.New("split() expects 1 to 3 arguments")
 		}
-		// Multi-value array on the wire (same shape as Redis APPLY split).
+		// Redis: sep/strip are character sets (strpbrk / strchr); empty tokens dropped.
 		s := applyValueToString(args[0])
 		sep := ","
+		strip := " "
 		if len(args) >= 2 {
 			sep = applyValueToString(args[1])
 		}
-		raw := strings.Split(s, sep)
-		parts := make([]string, 0, len(raw))
-		for _, p := range raw {
-			parts = append(parts, strings.TrimSpace(p))
+		if len(args) == 3 {
+			strip = applyValueToString(args[2])
 		}
-		return applyValue{isMulti: true, multi: parts}, nil
+		return applyValue{isMulti: true, multi: applySplit(s, sep, strip)}, nil
 	// Boolean / control.
 	case "exists":
 		if len(args) != 1 {
@@ -1110,28 +1111,82 @@ func applySubstr(s string, offset, count int) string {
 	return string(runes[offset:end])
 }
 
+// applySplit splits s on any rune in sepChars, trims leading/trailing runes in
+// stripChars from each token, drops empty tokens, and caps at 1024 parts
+// (Redis RediSearch stringfunc_split).
+func applySplit(s, sepChars, stripChars string) []string {
+	if s == "" {
+		return nil
+	}
+	if sepChars == "" {
+		// No separators → one token (still strip ends).
+		tok := applyStripCharset(s, stripChars)
+		if tok == "" {
+			return nil
+		}
+		return []string{tok}
+	}
+	parts := make([]string, 0, 8)
+	start := 0
+	for i := 0; i < len(s) && len(parts) < 1024; i++ {
+		if strings.ContainsRune(sepChars, rune(s[i])) {
+			tok := applyStripCharset(s[start:i], stripChars)
+			if tok != "" {
+				parts = append(parts, tok)
+			}
+			start = i + 1
+		}
+	}
+	if len(parts) < 1024 && start <= len(s) {
+		tok := applyStripCharset(s[start:], stripChars)
+		if tok != "" {
+			parts = append(parts, tok)
+		}
+	}
+	return parts
+}
+
+func applyStripCharset(s, cset string) string {
+	if s == "" {
+		return ""
+	}
+	start, end := 0, len(s)
+	for start < end && strings.ContainsRune(cset, rune(s[start])) {
+		start++
+	}
+	for end > start && strings.ContainsRune(cset, rune(s[end-1])) {
+		end--
+	}
+	return s[start:end]
+}
+
 // applyFormat replaces each %s in fmtStr with successive args (Redis only
-// supports %s in format()). A literal %% becomes %.
-func applyFormat(fmtStr string, args []applyValue) string {
+// supports %s). A literal %% becomes %. Error wording matches Redis PARSE_ARGS.
+func applyFormat(fmtStr string, args []applyValue) (string, error) {
 	var b strings.Builder
 	ai := 0
 	for i := 0; i < len(fmtStr); i++ {
-		if fmtStr[i] == '%' && i+1 < len(fmtStr) {
-			if fmtStr[i+1] == '%' {
-				b.WriteByte('%')
-				i++
-				continue
-			}
-			if fmtStr[i+1] == 's' {
-				if ai < len(args) {
-					b.WriteString(applyValueToString(args[ai]))
-					ai++
-				}
-				i++
-				continue
-			}
+		if fmtStr[i] != '%' {
+			b.WriteByte(fmtStr[i])
+			continue
 		}
-		b.WriteByte(fmtStr[i])
+		if i+1 >= len(fmtStr) {
+			return "", errors.New("SEARCH_PARSE_ARGS Bad format string!")
+		}
+		switch fmtStr[i+1] {
+		case '%':
+			b.WriteByte('%')
+			i++
+		case 's':
+			if ai >= len(args) {
+				return "", errors.New("SEARCH_PARSE_ARGS Not enough arguments for format")
+			}
+			b.WriteString(applyValueToString(args[ai]))
+			ai++
+			i++
+		default:
+			return "", errors.New("SEARCH_PARSE_ARGS Unknown format specifier passed")
+		}
 	}
-	return b.String()
+	return b.String(), nil
 }

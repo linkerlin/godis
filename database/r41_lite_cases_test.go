@@ -162,4 +162,13 @@ func TestR41LiteCaseExpectations(t *testing.T) {
 			t.Fatalf("HPTTL want 1..100000, got %T %s", mr.Replies[0], httl.ToBytes())
 		}
 	}
+
+	asserts.AssertIntReply(t, testDB.Exec(nil, utils.ToCmdLine("GEOADD", "b72g", "13.361389", "38.115556", "Palermo")), 1)
+	asserts.AssertMultiBulkReply(t, testDB.Exec(nil, utils.ToCmdLine("GEOHASH", "b72g", "Palermo")), []string{"sqc8b49rnys0"})
+	asserts.AssertIntReply(t, testDB.Exec(nil, utils.ToCmdLine("SADD", "b72s", "only")), 1)
+	asserts.AssertBulkReply(t, testDB.Exec(nil, utils.ToCmdLine("SPOP", "b72s")), "only")
+	asserts.AssertIntReply(t, testDB.Exec(nil, utils.ToCmdLine("EXISTS", "b72s")), 0)
+	asserts.AssertIntReply(t, testDB.Exec(nil, utils.ToCmdLine("HSET", "b72h", "f", "v")), 1)
+	asserts.AssertMultiBulkReply(t, testDB.Exec(nil, utils.ToCmdLine("HKEYS", "b72h")), []string{"f"})
+	asserts.AssertMultiBulkReply(t, testDB.Exec(nil, utils.ToCmdLine("HVALS", "b72h")), []string{"v"})
 }

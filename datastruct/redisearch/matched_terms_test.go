@@ -2,6 +2,7 @@ package redisearch
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -55,6 +56,57 @@ func TestApplySplitMultiValue(t *testing.T) {
 	want := []string{"a", "b", "c"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("split want %v, got %#v", want, got)
+	}
+
+	// Charset sep (not whole-string delimiter) + drop empty after strip.
+	got, err = EvalApplyExpr(`split("a::b", ":")`, nil)
+	if err != nil {
+		t.Fatalf("split charset: %v", err)
+	}
+	want = []string{"a", "b"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("split charset want %v, got %#v", want, got)
+	}
+
+	got, err = EvalApplyExpr(`split("a;b,c", ";,")`, nil)
+	if err != nil {
+		t.Fatalf("split multi-sep: %v", err)
+	}
+	want = []string{"a", "b", "c"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("split multi-sep want %v, got %#v", want, got)
+	}
+
+	// Custom strip set (3rd arg); default strip is space only.
+	got, err = EvalApplyExpr(`split("xa,xb", ",", "x")`, nil)
+	if err != nil {
+		t.Fatalf("split strip: %v", err)
+	}
+	want = []string{"a", "b"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("split strip want %v, got %#v", want, got)
+	}
+}
+
+func TestApplyFormatParseArgs(t *testing.T) {
+	got, err := EvalApplyExpr(`format("Hi %s", "you")`, nil)
+	if err != nil {
+		t.Fatalf("format ok: %v", err)
+	}
+	if got != "Hi you" {
+		t.Fatalf("format ok want Hi you, got %#v", got)
+	}
+	_, err = EvalApplyExpr(`format("bad %")`, nil)
+	if err == nil || !strings.Contains(err.Error(), "SEARCH_PARSE_ARGS Bad format string!") {
+		t.Fatalf("trailing %%: %v", err)
+	}
+	_, err = EvalApplyExpr(`format("%s")`, nil)
+	if err == nil || !strings.Contains(err.Error(), "SEARCH_PARSE_ARGS Not enough arguments for format") {
+		t.Fatalf("missing arg: %v", err)
+	}
+	_, err = EvalApplyExpr(`format("%d", 1)`, nil)
+	if err == nil || !strings.Contains(err.Error(), "SEARCH_PARSE_ARGS Unknown format specifier passed") {
+		t.Fatalf("bad specifier: %v", err)
 	}
 }
 
