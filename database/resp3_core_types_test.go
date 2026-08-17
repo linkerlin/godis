@@ -641,7 +641,8 @@ func TestResp3LatencyHistogramMap(t *testing.T) {
 
 func TestResp3FTSynDumpSpellProfileMaps(t *testing.T) {
 	db := makeTestDB()
-	_ = db.Exec(nil, utils.ToCmdLine("FT.SYNADD", "idx", "hello", "hi"))
+	asserts.AssertStatusReply(t, db.Exec(nil, utils.ToCmdLine("FT.CREATE", "idx", "SCHEMA", "t", "TEXT")), "OK")
+	asserts.AssertStatusReply(t, db.Exec(nil, utils.ToCmdLine("FT.SYNUPDATE", "idx", "0", "hello", "hi")), "OK")
 	dump := db.Exec(nil, utils.ToCmdLine("FT.SYNDUMP", "idx"))
 	if _, ok := dump.(*protocol.MapReply); !ok {
 		t.Fatalf("SYNDUMP type %T", dump)

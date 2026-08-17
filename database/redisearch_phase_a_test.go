@@ -116,7 +116,7 @@ func TestFTCreateDefaultStopWordsFilterThe(t *testing.T) {
 	}
 }
 
-// TestFTSynonymExpansionInSearch verifies FT.SYNADD synonyms are expanded
+// TestFTSynonymExpansionInSearch verifies FT.SYNUPDATE synonyms are expanded
 // when searching, so a synonym term finds documents containing the other
 // member of the group.
 func TestFTSynonymExpansionInSearch(t *testing.T) {
@@ -131,8 +131,8 @@ func TestFTSynonymExpansionInSearch(t *testing.T) {
 	)); protocol.IsErrorReply(reply) {
 		t.Fatalf("add: %s", reply.ToBytes())
 	}
-	if reply := db.Exec(nil, utils.ToCmdLine("FT.SYNADD", "idx_syn", "quick", "fast")); protocol.IsErrorReply(reply) {
-		t.Fatalf("synadd: %s", reply.ToBytes())
+	if reply := db.Exec(nil, utils.ToCmdLine("FT.SYNUPDATE", "idx_syn", "0", "quick", "fast")); protocol.IsErrorReply(reply) {
+		t.Fatalf("synupdate: %s", reply.ToBytes())
 	}
 
 	reply := db.Exec(nil, utils.ToCmdLine("FT.SEARCH", "idx_syn", "quick"))

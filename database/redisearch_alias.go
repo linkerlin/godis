@@ -25,6 +25,18 @@ func resolveSearchIndex(name string) string {
 	return name
 }
 
+func hasSearchEngine(name string) bool {
+	indexName := resolveSearchIndex(name)
+	searchEnginesMu.RLock()
+	defer searchEnginesMu.RUnlock()
+	_, ok := searchEngines[indexName]
+	return ok
+}
+
+func searchIndexNotFoundReply(name string) redis.Reply {
+	return protocol.MakeErrReply(fmt.Sprintf("SEARCH_INDEX_NOT_FOUND Index not found: %s", name))
+}
+
 func clearAliasesForIndex(indexName string) {
 	searchAliasesMu.Lock()
 	defer searchAliasesMu.Unlock()

@@ -1,6 +1,7 @@
 package database
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -31,8 +32,12 @@ func TestM2iTSMAddAndMRevRange(t *testing.T) {
 
 func TestM2iFTSynAdd(t *testing.T) {
 	db := makeTestDB()
+	asserts.AssertStatusReply(t, db.Exec(nil, utils.ToCmdLine("FT.CREATE", "idx", "SCHEMA", "t", "TEXT")), "OK")
 	r := db.Exec(nil, utils.ToCmdLine("FT.SYNADD", "idx", "hello", "hi", "hey"))
-	asserts.AssertIntReplyGreaterThan(t, r, 0)
+	if !protocol.IsErrorReply(r) || !strings.Contains(string(r.ToBytes()), "No longer supported, use FT.SYNUPDATE") {
+		t.Fatalf("FT.SYNADD: want removed, got %s", r.ToBytes())
+	}
+	asserts.AssertStatusReply(t, db.Exec(nil, utils.ToCmdLine("FT.SYNUPDATE", "idx", "0", "hello", "hi", "hey")), "OK")
 	dump := db.Exec(nil, utils.ToCmdLine("FT.SYNDUMP", "idx"))
 	if protocol.IsErrorReply(dump) {
 		t.Fatalf("FT.SYNDUMP: %s", dump.ToBytes())

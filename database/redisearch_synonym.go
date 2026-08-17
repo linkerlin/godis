@@ -2,10 +2,8 @@
 package database
 
 import (
-	"strconv"
 	"strings"
 	"sync"
-	"sync/atomic"
 
 	"github.com/linkerlin/godis/interface/redis"
 	"github.com/linkerlin/godis/redis/protocol"
@@ -17,9 +15,8 @@ type synonymGroups struct {
 }
 
 var (
-	synonymDBs   = make(map[string]*synonymGroups)
-	synonymDBMu  sync.RWMutex
-	synGroupSeq  int64
+	synonymDBs  = make(map[string]*synonymGroups)
+	synonymDBMu sync.RWMutex
 )
 
 func getOrCreateSynDB(index string) *synonymGroups {
@@ -48,30 +45,20 @@ func dropSynDB(index string) {
 	delete(synonymDBs, index)
 }
 
-// execFTSynAdd creates a new synonym group (deprecated in Redis; returns group id)
+// execFTSynAdd is rejected: Redis 8 / RediSearch 2.0+ removed FT.SYNADD.
 // FT.SYNADD index term [term ...]
-func execFTSynAdd(db *DB, args [][]byte) redis.Reply {
-	if len(args) < 2 {
-		return protocol.MakeErrReply("ERR wrong number of arguments for 'ft.synadd' command")
-	}
-	sdb := getOrCreateSynDB(string(args[0]))
-	id := atomic.AddInt64(&synGroupSeq, 1)
-	groupID := strconv.FormatInt(id, 10)
-	sdb.groups[groupID] = make(map[string]bool)
-	for i := 1; i < len(args); i++ {
-		term := string(args[i])
-		sdb.groups[groupID][term] = true
-		sdb.terms[term] = groupID
-	}
-	db.addAof(prependCmd("ft.synadd", args))
-	return protocol.MakeIntReply(id)
+func execFTSynAdd(_ *DB, _ [][]byte) redis.Reply {
+	return protocol.MakeErrReply("No longer supported, use FT.SYNUPDATE")
 }
 
 // execFTSynUpdate 更新同义词组
 // FT.SYNUPDATE index groupId [SKIPINITIALSCAN] term [term ...]
 func execFTSynUpdate(db *DB, args [][]byte) redis.Reply {
 	if len(args) < 3 {
-		return protocol.MakeErrReply("ERR wrong number of arguments for 'ft.synupdate' command")
+		return protocol.MakeErrReply("ERR wrong number of arguments for 'FT.SYNUPDATE' command")
+	}
+	if !hasSearchEngine(string(args[0])) {
+		return searchIndexNotFoundReply(string(args[0]))
 	}
 	sdb := getOrCreateSynDB(string(args[0]))
 	groupID := string(args[1])
@@ -81,7 +68,11 @@ func execFTSynUpdate(db *DB, args [][]byte) redis.Reply {
 		startIdx = 3
 	}
 	if len(args) <= startIdx {
-		return protocol.MakeErrReply("ERR wrong number of arguments")
+		// Redis 8.10: SKIPINITIALSCAN with no terms is OK (no-op).
+		if startIdx == 3 {
+			return protocol.MakeOkReply()
+		}
+		return protocol.MakeErrReply("ERR wrong number of arguments for 'FT.SYNUPDATE' command")
 	}
 
 	// clear old term mappings for this group
@@ -108,7 +99,10 @@ func execFTSynUpdate(db *DB, args [][]byte) redis.Reply {
 // FT.SYNDUMP index
 func execFTSynDump(db *DB, args [][]byte) redis.Reply {
 	if len(args) != 1 {
-		return protocol.MakeErrReply("ERR wrong number of arguments for 'ft.syndump' command")
+		return protocol.MakeErrReply("ERR wrong number of arguments for 'FT.SYNDUMP' command")
+	}
+	if !hasSearchEngine(string(args[0])) {
+		return searchIndexNotFoundReply(string(args[0]))
 	}
 	sdb := getSynDB(string(args[0]))
 	if sdb == nil {
@@ -145,7 +139,7 @@ func getSynonyms(index, term string) []string {
 }
 
 func init() {
-	registerCommand("FT.SynAdd", execFTSynAdd, writeFirstKey, nil, -3, flagWrite).
+	registerCommand("FT.SynAdd", execFTSynAdd, prepareNoKeys, nil, -1, flagWrite).
 		attachCommandExtra([]string{redisFlagWrite}, 1, 1, 1)
 	registerCommand("FT.SynUpdate", execFTSynUpdate, writeFirstKey, nil, -4, flagWrite).
 		attachCommandExtra([]string{redisFlagWrite}, 1, 1, 1)

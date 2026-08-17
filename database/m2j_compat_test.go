@@ -52,8 +52,10 @@ func TestM2jCFInsertMExists(t *testing.T) {
 
 func TestM2jSynonymPerIndex(t *testing.T) {
 	db := makeTestDB()
-	db.Exec(nil, utils.ToCmdLine("FT.SYNADD", "idx1", "a", "b"))
-	db.Exec(nil, utils.ToCmdLine("FT.SYNADD", "idx2", "c", "d"))
+	asserts.AssertStatusReply(t, db.Exec(nil, utils.ToCmdLine("FT.CREATE", "idx1", "SCHEMA", "t", "TEXT")), "OK")
+	asserts.AssertStatusReply(t, db.Exec(nil, utils.ToCmdLine("FT.CREATE", "idx2", "SCHEMA", "t", "TEXT")), "OK")
+	asserts.AssertStatusReply(t, db.Exec(nil, utils.ToCmdLine("FT.SYNUPDATE", "idx1", "0", "a", "b")), "OK")
+	asserts.AssertStatusReply(t, db.Exec(nil, utils.ToCmdLine("FT.SYNUPDATE", "idx2", "1", "c", "d")), "OK")
 	d1 := db.Exec(nil, utils.ToCmdLine("FT.SYNDUMP", "idx1"))
 	d2 := db.Exec(nil, utils.ToCmdLine("FT.SYNDUMP", "idx2"))
 	if protocol.IsErrorReply(d1) || protocol.IsErrorReply(d2) {

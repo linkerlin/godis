@@ -12,33 +12,51 @@ import (
 	"github.com/linkerlin/godis/redis/protocol"
 )
 
-// execFTAlter FT.ALTER index SCHEMA ADD field type [options ...]
+// execFTAlter FT.ALTER index [SKIPINITIALSCAN] SCHEMA ADD field type [options ...]
 func execFTAlter(db *DB, args [][]byte) redis.Reply {
-	if len(args) < 4 {
-		return protocol.MakeErrReply("ERR wrong number of arguments for 'ft.alter' command")
+	if len(args) < 5 {
+		return protocol.MakeErrReply("ERR wrong number of arguments for 'FT.ALTER' command")
 	}
 	indexName := resolveSearchIndex(string(args[0]))
-	if !strings.EqualFold(string(args[1]), "SCHEMA") || !strings.EqualFold(string(args[2]), "ADD") {
-		return protocol.MakeSyntaxErrReply()
-	}
-
 	searchEnginesMu.RLock()
 	engine, ok := searchEngines[indexName]
 	searchEnginesMu.RUnlock()
 	if !ok || engine == nil {
-		return protocol.MakeErrReply(fmt.Sprintf("SEARCH_INDEX_NOT_FOUND Index not found: %s", string(args[0])))
+		return searchIndexNotFoundReply(string(args[0]))
 	}
 
-	fields, errReply := parseFTSchemaFields(args[3:])
+	i := 1
+	if strings.EqualFold(string(args[i]), "SKIPINITIALSCAN") {
+		i++
+		if i >= len(args) {
+			return protocol.MakeErrReply("ERR wrong number of arguments for 'FT.ALTER' command")
+		}
+	}
+	if !strings.EqualFold(string(args[i]), "SCHEMA") {
+		return protocol.MakeErrReply("ALTER must be followed by SCHEMA")
+	}
+	i++
+	if i >= len(args) {
+		return protocol.MakeErrReply("ERR wrong number of arguments for 'FT.ALTER' command")
+	}
+	if !strings.EqualFold(string(args[i]), "ADD") {
+		return protocol.MakeErrReply("Unknown action passed to ALTER SCHEMA")
+	}
+	i++
+	if i >= len(args) {
+		return protocol.MakeErrReply("ERR wrong number of arguments for 'FT.ALTER' command")
+	}
+
+	fields, errReply := parseFTSchemaFields(args[i:])
 	if errReply != nil {
 		return errReply
 	}
 	if len(fields) == 0 {
-		return protocol.MakeSyntaxErrReply()
+		return protocol.MakeErrReply("ERR wrong number of arguments for 'FT.ALTER' command")
 	}
 
 	if err := engine.AlterAddFields(fields); err != nil {
-		return protocol.MakeErrReply("ERR " + err.Error())
+		return protocol.MakeErrReply("SEARCH_QUERY_BAD " + err.Error())
 	}
 
 	searchIndexMetaMu.Lock()
@@ -306,7 +324,7 @@ func parseFTSchemaFields(args [][]byte) ([]*redisearch.Field, redis.Reply) {
 }
 
 func init() {
-	registerCommand("FT.Alter", execFTAlter, writeFirstKey, nil, -5, flagWrite).
+	registerCommand("FT.Alter", execFTAlter, writeFirstKey, nil, -6, flagWrite).
 		attachCommandExtra([]string{redisFlagWrite}, 1, 1, 1)
 	registerCommand("FT.Explain", execFTExplain, readFirstKey, nil, -3, flagReadOnly).
 		attachCommandExtra([]string{redisFlagReadonly}, 1, 1, 1)

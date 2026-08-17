@@ -1190,6 +1190,90 @@ BITOP-AND-b84|1|BITOP AND sidecar:b84:and:{{ID}} sidecar:b84:b1:{{ID}} sidecar:b
 BITCOUNT-AND-b84|1|BITCOUNT sidecar:b84:and:{{ID}}
 DEL-b84and|3|DEL sidecar:b84:b1:{{ID}} sidecar:b84:b2:{{ID}} sidecar:b84:and:{{ID}}
 
+# --- batch 85: miss GETBIT/COPY/PFCOUNT/BITCOUNT/BITPOS/PTTL/PERSIST/EXPIRETIME/MOVE; HSETNX exist; SMOVE/ZCOUNT/HSTRLEN/LREM/ZREM/HDEL miss; SETRANGE create; INCR/DECR/APPEND new; STRLEN empty; RPUSHX hit; SETNX exist; SINTERCARD/ZINTERCARD 0; UNLINK/TOUCH multi-miss; BITFIELD GET; ZINCRBY/HINCRBY new; SUBSTR; LCS LEN; COPY hit; GETEX; TYPE; ECHO; SISMEMBER miss; XADD/XLEN/XDEL; PFADD/PFCOUNT; SUNIONSTORE ---
+GETBIT-b85miss|0|GETBIT sidecar:b85:bitmiss:{{ID}} 0
+COPY-b85miss|0|COPY sidecar:b85:copymiss:{{ID}} sidecar:b85:copydst:{{ID}}
+PFCOUNT-b85miss|0|PFCOUNT sidecar:b85:pfmiss:{{ID}}
+BITCOUNT-b85miss|0|BITCOUNT sidecar:b85:bitcmiss:{{ID}}
+BITPOS-b85miss|-1|BITPOS sidecar:b85:bitpmiss:{{ID}} 1
+PTTL-b85miss|-2|PTTL sidecar:b85:pttlmiss:{{ID}}
+PERSIST-b85miss|0|PERSIST sidecar:b85:persistmiss:{{ID}}
+EXPIRETIME-b85miss|-2|EXPIRETIME sidecar:b85:etmiss:{{ID}}
+MOVE-b85miss|0|MOVE sidecar:b85:movemiss:{{ID}} 1
+@DEL sidecar:b85:h:{{ID}}
+HSET-b85|1|HSET sidecar:b85:h:{{ID}} f v
+HSETNX-b85exist|0|HSETNX sidecar:b85:h:{{ID}} f x
+DEL-b85h|1|DEL sidecar:b85:h:{{ID}}
+HSTRLEN-b85miss|0|HSTRLEN sidecar:b85:hmiss:{{ID}} f
+HDEL-b85miss|0|HDEL sidecar:b85:hmiss:{{ID}} f
+@DEL sidecar:b85:hi:{{ID}}
+HINCRBY-b85new|3|HINCRBY sidecar:b85:hi:{{ID}} n 3
+DEL-b85hi|1|DEL sidecar:b85:hi:{{ID}}
+SMOVE-b85miss|0|SMOVE sidecar:b85:smiss:{{ID}} sidecar:b85:smiss2:{{ID}} a
+SINTERCARD-b85miss|0|SINTERCARD 1 sidecar:b85:smiss:{{ID}}
+@DEL sidecar:b85:sa:{{ID}}
+@DEL sidecar:b85:su:{{ID}}
+SADD-b85|2|SADD sidecar:b85:sa:{{ID}} a b
+SISMEMBER-b85miss|0|SISMEMBER sidecar:b85:sa:{{ID}} z
+SUNIONSTORE-b85|2|SUNIONSTORE sidecar:b85:su:{{ID}} sidecar:b85:sa:{{ID}}
+DEL-b85s|2|DEL sidecar:b85:sa:{{ID}} sidecar:b85:su:{{ID}}
+ZCOUNT-b85miss|0|ZCOUNT sidecar:b85:zmiss:{{ID}} -inf +inf
+ZREM-b85miss|0|ZREM sidecar:b85:zmiss:{{ID}} a
+ZINTERCARD-b85miss|0|ZINTERCARD 1 sidecar:b85:zmiss:{{ID}}
+@DEL sidecar:b85:zi:{{ID}}
+ZINCRBY-b85|1.5|ZINCRBY sidecar:b85:zi:{{ID}} 1.5 m
+DEL-b85zi|1|DEL sidecar:b85:zi:{{ID}}
+LREM-b85miss|0|LREM sidecar:b85:lmiss:{{ID}} 1 a
+@DEL sidecar:b85:rx:{{ID}}
+RPUSH-b85|1|RPUSH sidecar:b85:rx:{{ID}} a
+RPUSHX-b85hit|2|RPUSHX sidecar:b85:rx:{{ID}} b
+DEL-b85rx|1|DEL sidecar:b85:rx:{{ID}}
+@DEL sidecar:b85:sr:{{ID}}
+SETRANGE-b85|2|SETRANGE sidecar:b85:sr:{{ID}} 0 ab
+DEL-b85sr|1|DEL sidecar:b85:sr:{{ID}}
+@DEL sidecar:b85:incr:{{ID}}
+INCR-b85|1|INCR sidecar:b85:incr:{{ID}}
+DEL-b85incr|1|DEL sidecar:b85:incr:{{ID}}
+@DEL sidecar:b85:decr:{{ID}}
+DECR-b85|-1|DECR sidecar:b85:decr:{{ID}}
+DEL-b85decr|1|DEL sidecar:b85:decr:{{ID}}
+@DEL sidecar:b85:ap:{{ID}}
+APPEND-b85new|1|APPEND sidecar:b85:ap:{{ID}} x
+DEL-b85ap|1|DEL sidecar:b85:ap:{{ID}}
+@DEL sidecar:b85:empty:{{ID}}
+SET-b85nx|OK|SET sidecar:b85:empty:{{ID}} v
+SETNX-b85exist|0|SETNX sidecar:b85:empty:{{ID}} z
+DEL-b85empty|1|DEL sidecar:b85:empty:{{ID}}
+UNLINK-b85miss2|0|UNLINK sidecar:b85:u1:{{ID}} sidecar:b85:u2:{{ID}}
+TOUCH-b85miss2|0|TOUCH sidecar:b85:t1:{{ID}} sidecar:b85:t2:{{ID}}
+@DEL sidecar:b85:bf:{{ID}}
+BITFIELD-b85get|0|BITFIELD sidecar:b85:bf:{{ID}} GET u8 0
+@DEL sidecar:b85:bf:{{ID}}
+@DEL sidecar:b85:sub:{{ID}}
+@DEL sidecar:b85:sub2:{{ID}}
+SET-b85sub|OK|SET sidecar:b85:sub:{{ID}} hello
+SUBSTR-b85|he|SUBSTR sidecar:b85:sub:{{ID}} 0 1
+COPY-b85hit|1|COPY sidecar:b85:sub:{{ID}} sidecar:b85:sub2:{{ID}}
+GETEX-b85|hello|GETEX sidecar:b85:sub:{{ID}} PERSIST
+TYPE-b85|string|TYPE sidecar:b85:sub:{{ID}}
+ECHO-b85|b85|ECHO b85
+DEL-b85sub|2|DEL sidecar:b85:sub:{{ID}} sidecar:b85:sub2:{{ID}}
+@DEL sidecar:b85:l1:{{ID}}
+@DEL sidecar:b85:l2:{{ID}}
+SET-b85l1|OK|SET sidecar:b85:l1:{{ID}} abc
+SET-b85l2|OK|SET sidecar:b85:l2:{{ID}} abd
+LCS-LEN-b85|2|LCS sidecar:b85:l1:{{ID}} sidecar:b85:l2:{{ID}} LEN
+DEL-b85lcs|2|DEL sidecar:b85:l1:{{ID}} sidecar:b85:l2:{{ID}}
+@DEL sidecar:b85:x:{{ID}}
+XADD-b85|1-0|XADD sidecar:b85:x:{{ID}} 1-0 f v
+XLEN-b85|1|XLEN sidecar:b85:x:{{ID}}
+XDEL-b85|1|XDEL sidecar:b85:x:{{ID}} 1-0
+DEL-b85x|1|DEL sidecar:b85:x:{{ID}}
+@DEL sidecar:b85:pf:{{ID}}
+PFADD-b85|1|PFADD sidecar:b85:pf:{{ID}} a
+PFCOUNT-b85|1|PFCOUNT sidecar:b85:pf:{{ID}}
+DEL-b85pf|1|DEL sidecar:b85:pf:{{ID}}
+
 # --- cleanup string / incr keys ---
 DEL|1|DEL sidecar:allowlist:{{ID}}
 EXISTS-after-del|0|EXISTS sidecar:allowlist:{{ID}}

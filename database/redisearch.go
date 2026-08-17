@@ -558,23 +558,28 @@ func execFTCreate(db *DB, args [][]byte) redis.Reply {
 // execFTDropIndex drops an index
 // FT.DROPINDEX index [DD]
 func execFTDropIndex(db *DB, args [][]byte) redis.Reply {
-	if len(args) < 1 || len(args) > 2 {
-		return protocol.MakeErrReply("ERR wrong number of arguments for 'ft.dropindex' command")
+	if len(args) < 1 {
+		return protocol.MakeErrReply("ERR wrong number of arguments for 'FT.DROPINDEX' command")
 	}
 
 	indexName := resolveSearchIndex(string(args[0]))
-	deleteDocs := false
-
-	if len(args) == 2 && strings.ToUpper(string(args[1])) == "DD" {
-		deleteDocs = true
-	}
-
 	searchEnginesMu.Lock()
 	engine, ok := searchEngines[indexName]
 	searchEnginesMu.Unlock()
-
 	if !ok {
-		return protocol.MakeErrReply(fmt.Sprintf("SEARCH_INDEX_NOT_FOUND Index not found: %s", string(args[0])))
+		return searchIndexNotFoundReply(string(args[0]))
+	}
+
+	deleteDocs := false
+	if len(args) >= 2 {
+		if strings.EqualFold(string(args[1]), "DD") {
+			deleteDocs = true
+			if len(args) > 2 {
+				return protocol.MakeErrReply("SEARCH_ARG_UNRECOGNIZED Unknown argument")
+			}
+		} else {
+			return protocol.MakeErrReply("SEARCH_ARG_UNRECOGNIZED Unknown argument")
+		}
 	}
 
 	if err := engine.DropIndex(deleteDocs); err != nil {
