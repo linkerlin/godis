@@ -6,6 +6,7 @@
 
 ### Fixed
 
+- 第七十八批（远期子集续研）：对照 Redis **8.10** QE 对齐 FT.SEARCH/AGGREGATE **LIMIT**（缺参/`requires two`；负/非数字→`needs two numeric`；修负 offset **panic**）+ AGGREGATE **GROUPBY/SORTBY** 未知属性（`No such property` / `not loaded nor in schema`；schema/LOAD/APPLY/REDUCE AS 仍合法）+ R4-1 扩至 **565**（SETRANGE、SUNION/SINTER/SDIFF STORE、SMOVE、ZUNION/ZINTER STORE、HINCRBY、INCRBY、SETBIT/GETBIT、XDEL）；远期仍 7 项，不宣称完整 KNN/DIALECT 或全量 sidecar
 - 第七十七批（远期子集续研）：对照 Redis **8.6** QE 对齐 FT.AGGREGATE **FILTER/APPLY 命令序交错**（多 FILTER；APPLY 间 FILTER）+ APPLY **数值串/布尔强制转换**（floor('3.7')/floor(1==1)）与 **字符串类型校验**（upper(@n)→Null；strlen/substr→Invalid type；substr 负偏移越界→空串；-nan/-inf 线格式）+ R4-1 扩至 **537**（OBJECT ENCODING、SET GET、EXISTS 多键、LTRIM、ZCOUNT/ZINCRBY、HMSET、PEXPIREAT）；远期仍 7 项，不宣称完整 KNN/DIALECT 或全量 sidecar
 - 第七十六批（远期子集续研）：对照 Redis **8.6** QE 纠偏 APPLY `timefmt` **`%P`（小写 am/pm）**、**`%k`/`%l`（空格填充小时）**（上批误标 Null；未知 `%Q` 仍 Null）；R4-1 扩至 **508**（ZADD CH/GT/LT/INCR、SREM、GETRANGE 正索引）；远期仍 7 项，不宣称完整 KNN/DIALECT 或全量 sidecar
 - 第七十五批（远期子集续研）：对照 Redis **8.10** 纠正 APPLY `timefmt`（未知/`%k`/`%l`→Null，非原样保留；`%Z`→`UTC`）并扩 strftime **`%s/%D/%r/%c/%C/%u/%U/%W/%V/%G/%g/%X/%x/%h/%n/%t`**；R4-1 扩至 **492**（EXPIRE XX/GT/LT、ZADD NX/XX、BITCOUNT 字节范围）；远期仍 7 项，不宣称完整 KNN/DIALECT 或全量 sidecar

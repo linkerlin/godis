@@ -728,12 +728,15 @@ func (e *RediSearchEngine) Search(query string, opts *SearchOptions) (*SearchRes
 		return results[i].Document.ID < results[j].Document.ID
 	})
 
-	// Apply pagination
+	// Apply pagination (Offset/Limit must be non-negative; callers validate).
 	total := len(results)
 	if opts != nil {
 		if opts.Limit > 0 {
 			start := opts.Offset
-			end := opts.Offset + opts.Limit
+			if start < 0 {
+				start = 0
+			}
+			end := start + opts.Limit
 			if start > total {
 				start = total
 			}
@@ -929,6 +932,10 @@ func (e *RediSearchEngine) Aggregate(req *AggregationRequest) (*AggregationResul
 	e.mu.RLock()
 	defer e.mu.RUnlock()
 
+	if err := e.validateAggregateGroupBySortBy(req); err != nil {
+		return nil, err
+	}
+
 	deadline := ftDeadline(req.TimeoutMs, req.Deadline)
 
 	var docs []*Document
@@ -1067,10 +1074,13 @@ func (e *RediSearchEngine) Aggregate(req *AggregationRequest) (*AggregationResul
 		groups = groups[:req.SortMax]
 	}
 
-	// Apply LIMIT
+	// Apply LIMIT (Offset/Limit must be non-negative; callers validate).
 	if req.Limit > 0 {
 		start := req.Offset
-		end := req.Offset + req.Limit
+		if start < 0 {
+			start = 0
+		}
+		end := start + req.Limit
 		n := len(groups)
 		if start > n {
 			start = n
@@ -1130,6 +1140,84 @@ func buildAggregatePipelineProps(req *AggregationRequest, sortable map[string]bo
 		props["__score"] = true
 	}
 	return props
+}
+
+// validateAggregateGroupBySortBy mirrors Redis 8.x QE property checks:
+// GROUPBY → SEARCH_PROP_NOT_FOUND No such property `x`
+// SORTBY → SEARCH_PROP_NOT_FOUND Property `x` not loaded nor in schema
+// Allowed: schema fields, LOAD names/aliases, APPLY AS, REDUCE AS, ADDSCORES __score.
+func (e *RediSearchEngine) validateAggregateGroupBySortBy(req *AggregationRequest) error {
+	if req == nil {
+		return nil
+	}
+	schemaOK := make(map[string]bool, len(e.schema))
+	for name := range e.schema {
+		schemaOK[name] = true
+	}
+	loaded := make(map[string]bool)
+	if req.LoadAll {
+		loaded["*"] = true
+	}
+	for _, spec := range req.Load {
+		name := spec.Field
+		if spec.As != "" {
+			name = spec.As
+		}
+		loaded[strings.TrimPrefix(name, "@")] = true
+	}
+	pre, post := req.normalizedSteps()
+	applyAS := make(map[string]bool)
+	for _, step := range append(append([]AggStep{}, pre...), post...) {
+		if step.Apply != nil && step.Apply.As != "" {
+			applyAS[step.Apply.As] = true
+		}
+	}
+	for _, ac := range req.Apply {
+		if ac.As != "" {
+			applyAS[ac.As] = true
+		}
+	}
+	reduceAS := make(map[string]bool)
+	for _, r := range req.Reduce {
+		if r.As != "" {
+			reduceAS[r.As] = true
+		}
+	}
+	groupOK := func(name string) bool {
+		name = strings.TrimPrefix(name, "@")
+		if schemaOK[name] || applyAS[name] || loaded[name] || loaded["*"] {
+			return true
+		}
+		return false
+	}
+	sortOK := func(name string) bool {
+		name = strings.TrimPrefix(name, "@")
+		if schemaOK[name] || applyAS[name] || reduceAS[name] || loaded[name] || loaded["*"] {
+			return true
+		}
+		if req.AddScores && name == "__score" {
+			return true
+		}
+		for _, g := range req.GroupBy {
+			if strings.TrimPrefix(g, "@") == name {
+				return true
+			}
+		}
+		return false
+	}
+	for _, g := range req.GroupBy {
+		name := strings.TrimPrefix(g, "@")
+		if !groupOK(name) {
+			return fmt.Errorf("SEARCH_PROP_NOT_FOUND No such property `%s`", name)
+		}
+	}
+	for _, sk := range req.SortKeys {
+		name := strings.TrimPrefix(sk.Field, "@")
+		if !sortOK(name) {
+			return fmt.Errorf("SEARCH_PROP_NOT_FOUND Property `%s` not loaded nor in schema", name)
+		}
+	}
+	return nil
 }
 
 // pipelineHas reports whether name is available to APPLY/FILTER.

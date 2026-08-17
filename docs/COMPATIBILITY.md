@@ -291,6 +291,6 @@ UNWATCH、WAIT（简版）、BITOP、BITFIELD、SMOVE、LPOS、XCLAIM、SHUTDOWN
 
 ---
 
-**最后更新：** 2026-08-17（第七十七批：FILTER/APPLY **命令序交错** + APPLY **类型强制/校验**（对照 Redis **8.6**）+ R4-1 扩至 **537**；远期仍 **7**：jemalloc / gossip / 模块 RDB·DUMP / FUNCTION DUMP 互通 / 完整 BM25·KNN·DIALECT / R4-1 全量 / R4-2）
+**最后更新：** 2026-08-17（第七十八批：FT **LIMIT** 文案/防 panic + AGGREGATE **GROUPBY/SORTBY** 未知属性（对照 Redis **8.10**）+ R4-1 扩至 **565**；远期仍 **7**：jemalloc / gossip / 模块 RDB·DUMP / FUNCTION DUMP 互通 / 完整 BM25·KNN·DIALECT / R4-1 全量 / R4-2）
 
 

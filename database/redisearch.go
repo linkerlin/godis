@@ -1042,16 +1042,9 @@ func execFTSearch(db *DB, args [][]byte) redis.Reply {
 			})
 			i += 3
 		case "LIMIT":
-			if i+2 >= len(args) {
-				return protocol.MakeSyntaxErrReply()
-			}
-			offset, err := strconv.Atoi(string(args[i+1]))
-			if err != nil {
-				return protocol.MakeErrReply("ERR Invalid offset")
-			}
-			limit, err := strconv.Atoi(string(args[i+2]))
-			if err != nil {
-				return protocol.MakeErrReply("ERR Invalid limit")
+			offset, limit, errMsg := parseFTLimitPair(args, i)
+			if errMsg != "" {
+				return protocol.MakeErrReply(errMsg)
 			}
 			opts.Offset = offset
 			opts.Limit = limit
@@ -1849,16 +1842,9 @@ func execFTAggregate(db *DB, args [][]byte) redis.Reply {
 			continue
 
 		case "LIMIT":
-			if i+2 >= len(args) {
-				return protocol.MakeSyntaxErrReply()
-			}
-			offset, err := strconv.Atoi(string(args[i+1]))
-			if err != nil {
-				return protocol.MakeErrReply("ERR Invalid offset")
-			}
-			limit, err := strconv.Atoi(string(args[i+2]))
-			if err != nil {
-				return protocol.MakeErrReply("ERR Invalid limit")
+			offset, limit, errMsg := parseFTLimitPair(args, i)
+			if errMsg != "" {
+				return protocol.MakeErrReply(errMsg)
 			}
 			req.Offset = offset
 			req.Limit = limit
@@ -1943,6 +1929,21 @@ func execFTAggregate(db *DB, args [][]byte) redis.Reply {
 
 	// Wrap for dual-form RESP2/RESP3 output (RESP3 gets the 8.x map shape).
 	return MakeFTAggregateReply(protocol.MakeMultiBulkReply(reply), int64(result.Total))
+}
+
+// parseFTLimitPair parses LIMIT offset num at args[i]==LIMIT (Redis 8.x).
+// Missing args → "LIMIT requires two arguments"; non-numeric or negative →
+// "LIMIT needs two numeric arguments". Messages use SEARCH_PARSE_ARGS (no ERR).
+func parseFTLimitPair(args [][]byte, i int) (offset, limit int, errMsg string) {
+	if i+2 >= len(args) {
+		return 0, 0, "SEARCH_PARSE_ARGS LIMIT requires two arguments"
+	}
+	off, err1 := strconv.Atoi(string(args[i+1]))
+	lim, err2 := strconv.Atoi(string(args[i+2]))
+	if err1 != nil || err2 != nil || off < 0 || lim < 0 {
+		return 0, 0, "SEARCH_PARSE_ARGS LIMIT needs two numeric arguments"
+	}
+	return off, lim, ""
 }
 
 // validateFTReducer mirrors Redis 8.x FT.AGGREGATE REDUCE arity / name errors

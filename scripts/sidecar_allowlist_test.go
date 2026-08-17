@@ -173,6 +173,21 @@ func TestR41SidecarAllowlistScaffold(t *testing.T) {
 		"HGET-b77|2|HGET",
 		"PEXPIREAT-b77|1|PEXPIREAT",
 		"PEXPIRETIME-b77|2000000000000|PEXPIRETIME",
+		"SETRANGE-b78|5|SETRANGE",
+		"GET-b78str|Hello|GET",
+		"SUNIONSTORE-b78|3|SUNIONSTORE",
+		"SINTERSTORE-b78|1|SINTERSTORE",
+		"SDIFFSTORE-b78|1|SDIFFSTORE",
+		"SMOVE-b78|1|SMOVE",
+		"ZUNIONSTORE-b78|3|ZUNIONSTORE",
+		"ZINTERSTORE-b78|1|ZINTERSTORE",
+		"HINCRBY-b78|8|HINCRBY",
+		"INCRBY-b78|5|INCRBY",
+		"SETBIT-b78|0|SETBIT",
+		"GETBIT-b78|1|GETBIT",
+		"XADD-b78|1-0|XADD",
+		"XDEL-b78|1|XDEL",
+		"XLEN-b78|0|XLEN",
 	} {
 		if !strings.Contains(cases, marker) {
 			t.Fatalf("r4-1-cases.txt missing honesty/assert marker %q", marker)

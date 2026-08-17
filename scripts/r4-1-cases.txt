@@ -784,6 +784,47 @@ PEXPIREAT-b77|1|PEXPIREAT sidecar:b77:pe:{{ID}} 2000000000000
 PEXPIRETIME-b77|2000000000000|PEXPIRETIME sidecar:b77:pe:{{ID}}
 DEL-b77pe|1|DEL sidecar:b77:pe:{{ID}}
 
+# --- batch 78 extras (SETRANGE; set/zset stores; SMOVE; HINCRBY; INCRBY; GETBIT; XDEL) ---
+@DEL sidecar:b78:str:{{ID}}
+SET-b78str|OK|SET sidecar:b78:str:{{ID}} hello
+SETRANGE-b78|5|SETRANGE sidecar:b78:str:{{ID}} 0 H
+GET-b78str|Hello|GET sidecar:b78:str:{{ID}}
+DEL-b78str|1|DEL sidecar:b78:str:{{ID}}
+@DEL sidecar:b78:s1:{{ID}}
+@DEL sidecar:b78:s2:{{ID}}
+@DEL sidecar:b78:dst:{{ID}}
+SADD-b78a|2|SADD sidecar:b78:s1:{{ID}} a b
+SADD-b78b|2|SADD sidecar:b78:s2:{{ID}} b c
+SUNIONSTORE-b78|3|SUNIONSTORE sidecar:b78:dst:{{ID}} sidecar:b78:s1:{{ID}} sidecar:b78:s2:{{ID}}
+SINTERSTORE-b78|1|SINTERSTORE sidecar:b78:dst:{{ID}} sidecar:b78:s1:{{ID}} sidecar:b78:s2:{{ID}}
+SDIFFSTORE-b78|1|SDIFFSTORE sidecar:b78:dst:{{ID}} sidecar:b78:s1:{{ID}} sidecar:b78:s2:{{ID}}
+SMOVE-b78|1|SMOVE sidecar:b78:s1:{{ID}} sidecar:b78:s2:{{ID}} a
+DEL-b78s|3|DEL sidecar:b78:s1:{{ID}} sidecar:b78:s2:{{ID}} sidecar:b78:dst:{{ID}}
+@DEL sidecar:b78:z1:{{ID}}
+@DEL sidecar:b78:z2:{{ID}}
+@DEL sidecar:b78:zd:{{ID}}
+ZADD-b78a|2|ZADD sidecar:b78:z1:{{ID}} 1 a 2 b
+ZADD-b78b|2|ZADD sidecar:b78:z2:{{ID}} 2 b 3 c
+ZUNIONSTORE-b78|3|ZUNIONSTORE sidecar:b78:zd:{{ID}} 2 sidecar:b78:z1:{{ID}} sidecar:b78:z2:{{ID}}
+ZINTERSTORE-b78|1|ZINTERSTORE sidecar:b78:zd:{{ID}} 2 sidecar:b78:z1:{{ID}} sidecar:b78:z2:{{ID}}
+DEL-b78z|3|DEL sidecar:b78:z1:{{ID}} sidecar:b78:z2:{{ID}} sidecar:b78:zd:{{ID}}
+@DEL sidecar:b78:h:{{ID}}
+HSET-b78|1|HSET sidecar:b78:h:{{ID}} f 5
+HINCRBY-b78|8|HINCRBY sidecar:b78:h:{{ID}} f 3
+DEL-b78h|1|DEL sidecar:b78:h:{{ID}}
+@DEL sidecar:b78:n:{{ID}}
+INCRBY-b78|5|INCRBY sidecar:b78:n:{{ID}} 5
+DEL-b78n|1|DEL sidecar:b78:n:{{ID}}
+@DEL sidecar:b78:bit:{{ID}}
+SETBIT-b78|0|SETBIT sidecar:b78:bit:{{ID}} 7 1
+GETBIT-b78|1|GETBIT sidecar:b78:bit:{{ID}} 7
+DEL-b78bit|1|DEL sidecar:b78:bit:{{ID}}
+@DEL sidecar:b78:x:{{ID}}
+XADD-b78|1-0|XADD sidecar:b78:x:{{ID}} 1-0 f v
+XDEL-b78|1|XDEL sidecar:b78:x:{{ID}} 1-0
+XLEN-b78|0|XLEN sidecar:b78:x:{{ID}}
+DEL-b78x|1|DEL sidecar:b78:x:{{ID}}
+
 # --- cleanup string / incr keys ---
 DEL|1|DEL sidecar:allowlist:{{ID}}
 EXISTS-after-del|0|EXISTS sidecar:allowlist:{{ID}}
