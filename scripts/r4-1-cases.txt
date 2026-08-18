@@ -10677,10 +10677,218 @@ TYPE-miss-b138|none|TYPE sidecar:b138:miss:{{ID}}
 EXISTS-miss-b138|0|EXISTS sidecar:b138:miss:{{ID}}
 DBSIZE-b138|>=0|DBSIZE
 
+# --- batch 139 extras (RPOP COUNT 1/LMOVE LEFT LEFT/LINSERT AFTER/LPOS RANK 2·MAXLEN·COUNT RANK/LMPOP RIGHT COUNT 1/BLMOVE RIGHT RIGHT/RPOPLPUSH/LSET/LREM/LTRIM/RPUSHX; ZRANGE BYSCORE LIMIT WS/ZRANGESTORE BYLEX/ZREVRANGEBYLEX/ZPOPMIN/ZUNIONSTORE MAX WEIGHTS/ZINTER MIN WS/ZINTERSTORE MIN/ZDIFF WS/ZMPOP MAX/BZPOPMIN/ZADD NX·XX·CH; BITOP AND/XOR/ANDOR/BITFIELD u16 SAT; GETEX EXAT·PERSIST/SET XX GET; HEXPIRE XX·NX·GT/HPEXPIRE GT 短于现 TTL→0/HGETEX EXAT·PERSIST; SDIFFSTORE/SINTERSTORE; XDEL/XTRIM MINID; GEOSEARCH BYBOX; SORT DESC LIMIT/LCS/PFMERGE) ---
+@DEL sidecar:b139:l:{{ID}}
+RPUSH-b139l|7|RPUSH sidecar:b139:l:{{ID}} ice fog dew mist hail snow rain
+RPOP-COUNT-b139|rain|RPOP sidecar:b139:l:{{ID}} 1
+LRANGE-b139l|ice\nfog\ndew\nmist\nhail\nsnow|LRANGE sidecar:b139:l:{{ID}} 0 -1
+LMOVE-LL-b139|ice|LMOVE sidecar:b139:l:{{ID}} sidecar:b139:l2:{{ID}} LEFT LEFT
+LRANGE-b139l-after|fog\ndew\nmist\nhail\nsnow|LRANGE sidecar:b139:l:{{ID}} 0 -1
+LRANGE-b139l2|ice|LRANGE sidecar:b139:l2:{{ID}} 0 -1
+TYPE-b139l|list|TYPE sidecar:b139:l:{{ID}}
+LLEN-b139l|5|LLEN sidecar:b139:l:{{ID}}
+LINDEX-b139|fog|LINDEX sidecar:b139:l:{{ID}} 0
+DEL-b139l|2|DEL sidecar:b139:l:{{ID}} sidecar:b139:l2:{{ID}}
+@DEL sidecar:b139:ins:{{ID}}
+RPUSH-b139ins|2|RPUSH sidecar:b139:ins:{{ID}} oak elm
+LINSERT-b139|3|LINSERT sidecar:b139:ins:{{ID}} AFTER oak pine
+LRANGE-b139ins|oak\npine\nelm|LRANGE sidecar:b139:ins:{{ID}} 0 -1
+DEL-b139ins|1|DEL sidecar:b139:ins:{{ID}}
+@DEL sidecar:b139:lp:{{ID}}
+RPUSH-b139lp|6|RPUSH sidecar:b139:lp:{{ID}} n o n o n o
+LPOS-RANK2-b139|2|LPOS sidecar:b139:lp:{{ID}} n RANK 2
+LPOS-MAXLEN-b139|0|LPOS sidecar:b139:lp:{{ID}} n MAXLEN 2
+LPOS-COUNT-RANK-b139|2\n4|LPOS sidecar:b139:lp:{{ID}} n COUNT 2 RANK 2
+DEL-b139lp|1|DEL sidecar:b139:lp:{{ID}}
+@DEL sidecar:b139:lmp:{{ID}}
+RPUSH-b139lmp|4|RPUSH sidecar:b139:lmp:{{ID}} 1 2 3 4
+LMPOP-b139|sidecar:b139:lmp:{{ID}}\n4|LMPOP 1 sidecar:b139:lmp:{{ID}} RIGHT COUNT 1
+LLEN-b139lmp|3|LLEN sidecar:b139:lmp:{{ID}}
+DEL-b139lmp|1|DEL sidecar:b139:lmp:{{ID}}
+@DEL sidecar:b139:bl:{{ID}}
+@DEL sidecar:b139:bld:{{ID}}
+RPUSH-b139bl|3|RPUSH sidecar:b139:bl:{{ID}} red green blue
+BLMOVE-RR-b139|blue|BLMOVE sidecar:b139:bl:{{ID}} sidecar:b139:bld:{{ID}} RIGHT RIGHT 0
+RPOPLPUSH-b139|green|RPOPLPUSH sidecar:b139:bl:{{ID}} sidecar:b139:bld:{{ID}}
+LRANGE-b139bl|red|LRANGE sidecar:b139:bl:{{ID}} 0 -1
+LRANGE-b139bld|green\nblue|LRANGE sidecar:b139:bld:{{ID}} 0 -1
+DEL-b139bl|2|DEL sidecar:b139:bl:{{ID}} sidecar:b139:bld:{{ID}}
+@DEL sidecar:b139:lt:{{ID}}
+RPUSH-b139lt|5|RPUSH sidecar:b139:lt:{{ID}} a b c d e
+LSET-b139|OK|LSET sidecar:b139:lt:{{ID}} 4 Z
+LREM-b139|1|LREM sidecar:b139:lt:{{ID}} 1 b
+LTRIM-b139|OK|LTRIM sidecar:b139:lt:{{ID}} 1 3
+LRANGE-b139lt|c\nd\nZ|LRANGE sidecar:b139:lt:{{ID}} 0 -1
+RPUSHX-miss-b139|0|RPUSHX sidecar:b139:lx:{{ID}} v
+RPUSH-lx-b139|1|RPUSH sidecar:b139:lx:{{ID}} q
+RPUSHX-hit-b139|2|RPUSHX sidecar:b139:lx:{{ID}} z
+LPUSHX-hit-b139|3|LPUSHX sidecar:b139:lx:{{ID}} w
+LRANGE-b139lx|w\nq\nz|LRANGE sidecar:b139:lx:{{ID}} 0 -1
+DEL-b139lt|2|DEL sidecar:b139:lt:{{ID}} sidecar:b139:lx:{{ID}}
+@DEL sidecar:b139:zs:{{ID}}
+@DEL sidecar:b139:zrs:{{ID}}
+@DEL sidecar:b139:zu:{{ID}}
+ZADD-b139zs|5|ZADD sidecar:b139:zs:{{ID}} 5 a 10 b 15 c 20 d 25 e
+ZRANGE-BYSCORE-LIM-b139|c\n15\nd\n20|ZRANGE sidecar:b139:zs:{{ID}} 10 20 BYSCORE WITHSCORES LIMIT 1 2
+ZMSCORE-b139|5\n$-1\n20|ZMSCORE sidecar:b139:zs:{{ID}} a miss d
+ZCOUNT-b139|3|ZCOUNT sidecar:b139:zs:{{ID}} (5 20
+ZRANK-b139|2|ZRANK sidecar:b139:zs:{{ID}} c
+ZREVRANK-b139|2|ZREVRANK sidecar:b139:zs:{{ID}} c
+ZADD-b139zlex|4|ZADD sidecar:b139:zlex:{{ID}} 0 e 0 f 0 g 0 h
+ZRANGESTORE-lex-b139|2|ZRANGESTORE sidecar:b139:zrs:{{ID}} sidecar:b139:zlex:{{ID}} [f (h BYLEX
+ZRANGE-zrs-b139|f\ng|ZRANGE sidecar:b139:zrs:{{ID}} 0 -1
+ZREVRANGEBYLEX-b139|g\nf|ZREVRANGEBYLEX sidecar:b139:zlex:{{ID}} (h [e LIMIT 0 2
+ZPOPMIN-b139|a\n5|ZPOPMIN sidecar:b139:zs:{{ID}}
+ZUNIONSTORE-b139|4|ZUNIONSTORE sidecar:b139:zu:{{ID}} 1 sidecar:b139:zs:{{ID}} WEIGHTS 2 AGGREGATE MAX
+ZRANGE-zu-b139|b\n20\nc\n30\nd\n40\ne\n50|ZRANGE sidecar:b139:zu:{{ID}} 0 -1 WITHSCORES
+DEL-b139zs|4|DEL sidecar:b139:zs:{{ID}} sidecar:b139:zrs:{{ID}} sidecar:b139:zu:{{ID}} sidecar:b139:zlex:{{ID}}
+@DEL sidecar:b139:z1:{{ID}}
+@DEL sidecar:b139:z2:{{ID}}
+@DEL sidecar:b139:zi:{{ID}}
+ZADD-b139z1|3|ZADD sidecar:b139:z1:{{ID}} 6 a 14 b 5 c
+ZADD-b139z2|3|ZADD sidecar:b139:z2:{{ID}} 4 b 11 c 7 d
+ZINTER-MIN-b139|b\n4\nc\n5|ZINTER 2 sidecar:b139:z1:{{ID}} sidecar:b139:z2:{{ID}} WEIGHTS 1 1 AGGREGATE MIN WITHSCORES
+ZINTERSTORE-b139|2|ZINTERSTORE sidecar:b139:zi:{{ID}} 2 sidecar:b139:z1:{{ID}} sidecar:b139:z2:{{ID}} WEIGHTS 2 1 AGGREGATE MIN
+ZRANGE-zi-b139|b\n4\nc\n10|ZRANGE sidecar:b139:zi:{{ID}} 0 -1 WITHSCORES
+ZDIFF-WS-b139|a\n6|ZDIFF 2 sidecar:b139:z1:{{ID}} sidecar:b139:z2:{{ID}} WITHSCORES
+ZINTERCARD-b139|2|ZINTERCARD 2 sidecar:b139:z1:{{ID}} sidecar:b139:z2:{{ID}}
+DEL-b139zi|3|DEL sidecar:b139:z1:{{ID}} sidecar:b139:z2:{{ID}} sidecar:b139:zi:{{ID}}
+@DEL sidecar:b139:zm:{{ID}}
+ZADD-b139zm|3|ZADD sidecar:b139:zm:{{ID}} 4 a 22 g 9 c
+ZMPOP-b139|sidecar:b139:zm:{{ID}}\ng\n22|ZMPOP 1 sidecar:b139:zm:{{ID}} MAX COUNT 1
+BZPOPMIN-b139|sidecar:b139:zm:{{ID}}\na\n4|BZPOPMIN sidecar:b139:zm:{{ID}} 0
+ZADD-NX-b139|1|ZADD sidecar:b139:zm:{{ID}} NX 11 b
+ZADD-XX-CH-b139|1|ZADD sidecar:b139:zm:{{ID}} XX CH 16 c
+ZADD-CH-b139|1|ZADD sidecar:b139:zm:{{ID}} CH 5 d
+ZSCORE-b139|16|ZSCORE sidecar:b139:zm:{{ID}} c
+ZSCORE-miss-b139|$-1|ZSCORE sidecar:b139:zm:{{ID}} miss
+DEL-b139zm|1|DEL sidecar:b139:zm:{{ID}}
+@DEL sidecar:b139:b1:{{ID}}
+@DEL sidecar:b139:b2:{{ID}}
+@DEL sidecar:b139:ba:{{ID}}
+@DEL sidecar:b139:bx:{{ID}}
+@DEL sidecar:b139:bo:{{ID}}
+@DEL sidecar:b139:bf:{{ID}}
+SETBIT-b139b1|0|SETBIT sidecar:b139:b1:{{ID}} 4 1
+SETBIT-b139b2a|0|SETBIT sidecar:b139:b2:{{ID}} 4 1
+SETBIT-b139b2b|0|SETBIT sidecar:b139:b2:{{ID}} 7 1
+BITOP-AND-b139|1|BITOP AND sidecar:b139:ba:{{ID}} sidecar:b139:b1:{{ID}} sidecar:b139:b2:{{ID}}
+BITCOUNT-AND-b139|1|BITCOUNT sidecar:b139:ba:{{ID}}
+BITOP-XOR-b139|1|BITOP XOR sidecar:b139:bx:{{ID}} sidecar:b139:b1:{{ID}} sidecar:b139:b2:{{ID}}
+BITCOUNT-XOR-b139|1|BITCOUNT sidecar:b139:bx:{{ID}}
+BITOP-ANDOR-b139|1|BITOP ANDOR sidecar:b139:bo:{{ID}} sidecar:b139:b1:{{ID}} sidecar:b139:b2:{{ID}}
+BITCOUNT-ANDOR-b139|1|BITCOUNT sidecar:b139:bo:{{ID}}
+GETBIT-b139|1|GETBIT sidecar:b139:b2:{{ID}} 7
+BITPOS-b139|4|BITPOS sidecar:b139:b2:{{ID}} 1
+BITFIELD-u16-SAT-b139|65535|BITFIELD sidecar:b139:bf:{{ID}} OVERFLOW SAT INCRBY u16 0 70000
+DEL-b139bit|6|DEL sidecar:b139:b1:{{ID}} sidecar:b139:b2:{{ID}} sidecar:b139:ba:{{ID}} sidecar:b139:bx:{{ID}} sidecar:b139:bo:{{ID}} sidecar:b139:bf:{{ID}}
+@DEL sidecar:b139:st:{{ID}}
+SET-b139st|OK|SET sidecar:b139:st:{{ID}} v EX 60
+GETEX-EXAT-b139|v|GETEX sidecar:b139:st:{{ID}} EXAT 2000000000
+GETEX-PERSIST-b139|v|GETEX sidecar:b139:st:{{ID}} PERSIST
+TTL-persist-b139|-1|TTL sidecar:b139:st:{{ID}}
+SET-sr-b139|OK|SET sidecar:b139:sr:{{ID}} Ok
+SETRANGE-b139|2|SETRANGE sidecar:b139:sr:{{ID}} 0 YZ
+GETRANGE-b139|YZ|GETRANGE sidecar:b139:sr:{{ID}} 0 1
+SUBSTR-b139|Y|SUBSTR sidecar:b139:sr:{{ID}} 0 0
+STRLEN-b139|2|STRLEN sidecar:b139:sr:{{ID}}
+INCRBY-b139|19|INCRBY sidecar:b139:dn:{{ID}} 19
+INCRBYFLOAT-b139|0.8|INCRBYFLOAT sidecar:b139:df:{{ID}} 0.8
+DECRBY-b139|-5|DECRBY sidecar:b139:db:{{ID}} 5
+SET-m1-b139|OK|SET sidecar:b139:m1:{{ID}} 1
+MSETNX-fail-b139|0|MSETNX sidecar:b139:m1:{{ID}} 9 sidecar:b139:m3:{{ID}} 3
+EXPIRE-NX-b139|1|EXPIRE sidecar:b139:st:{{ID}} 19 NX
+SET-ex-b139|OK|SET sidecar:b139:ex:{{ID}} v EX 10
+EXPIRE-XX-b139|1|EXPIRE sidecar:b139:ex:{{ID}} 48 XX
+SET-xxget-b139|OK|SET sidecar:b139:xx:{{ID}} old
+SET-XX-GET-b139|old|SET sidecar:b139:xx:{{ID}} neu XX GET
+SET-keep-b139|OK|SET sidecar:b139:keep:{{ID}} v EX 26
+SET-KEEPTTL-b139|OK|SET sidecar:b139:keep:{{ID}} keep KEEPTTL
+TTL-keep-b139|<=26|TTL sidecar:b139:keep:{{ID}}
+TTL-keep-b139b|>=1|TTL sidecar:b139:keep:{{ID}}
+DEL-b139str|9|DEL sidecar:b139:st:{{ID}} sidecar:b139:sr:{{ID}} sidecar:b139:dn:{{ID}} sidecar:b139:df:{{ID}} sidecar:b139:db:{{ID}} sidecar:b139:m1:{{ID}} sidecar:b139:ex:{{ID}} sidecar:b139:xx:{{ID}} sidecar:b139:keep:{{ID}}
+@DEL sidecar:b139:h:{{ID}}
+HSET-b139|3|HSET sidecar:b139:h:{{ID}} f1 v1 f2 31 f3 v3
+HEXPIRE-XX-b139|0|HEXPIRE sidecar:b139:h:{{ID}} 50 XX FIELDS 1 f1
+HEXPIRE-NX-b139|1|HEXPIRE sidecar:b139:h:{{ID}} 80 NX FIELDS 1 f1
+HEXPIRE-GT-b139|0|HEXPIRE sidecar:b139:h:{{ID}} 25 GT FIELDS 1 f1
+HPEXPIRE-GT-b139|0|HPEXPIRE sidecar:b139:h:{{ID}} 9000 GT FIELDS 1 f1
+HTTL-b139|<=80|HTTL sidecar:b139:h:{{ID}} FIELDS 1 f1
+HTTL-b139b|>=1|HTTL sidecar:b139:h:{{ID}} FIELDS 1 f1
+HGETEX-EXAT-b139|v3|HGETEX sidecar:b139:h:{{ID}} EXAT 2000000000 FIELDS 1 f3
+HGETEX-PERSIST-b139|v3|HGETEX sidecar:b139:h:{{ID}} PERSIST FIELDS 1 f3
+HINCRBY-b139|36|HINCRBY sidecar:b139:h:{{ID}} f2 5
+HSTRLEN-b139|2|HSTRLEN sidecar:b139:h:{{ID}} f1
+HLEN-b139|3|HLEN sidecar:b139:h:{{ID}}
+HMGET-b139|v1\n$-1\nv3|HMGET sidecar:b139:h:{{ID}} f1 miss f3
+HGET-miss-b139|$-1|HGET sidecar:b139:h:{{ID}} miss
+HSETNX-exist-b139|0|HSETNX sidecar:b139:h:{{ID}} f1 xx
+HEXISTS-b139|1|HEXISTS sidecar:b139:h:{{ID}} f3
+HDEL-b139|1|HDEL sidecar:b139:h:{{ID}} f3
+TYPE-b139h|hash|TYPE sidecar:b139:h:{{ID}}
+DEL-b139h|1|DEL sidecar:b139:h:{{ID}}
+@DEL sidecar:b139:sa:{{ID}}
+@DEL sidecar:b139:sb:{{ID}}
+@DEL sidecar:b139:sd:{{ID}}
+@DEL sidecar:b139:ss:{{ID}}
+SADD-sa-b139|3|SADD sidecar:b139:sa:{{ID}} j k l
+SADD-sb-b139|2|SADD sidecar:b139:sb:{{ID}} l m
+SDIFFSTORE-b139|2|SDIFFSTORE sidecar:b139:sd:{{ID}} sidecar:b139:sa:{{ID}} sidecar:b139:sb:{{ID}}
+SCARD-sd-b139|2|SCARD sidecar:b139:sd:{{ID}}
+SINTERSTORE-b139|1|SINTERSTORE sidecar:b139:ss:{{ID}} sidecar:b139:sa:{{ID}} sidecar:b139:sb:{{ID}}
+SUNION-ss-b139|l|SUNION sidecar:b139:ss:{{ID}}
+SISMEMBER-b139|1|SISMEMBER sidecar:b139:sa:{{ID}} j
+DEL-b139s|4|DEL sidecar:b139:sa:{{ID}} sidecar:b139:sb:{{ID}} sidecar:b139:sd:{{ID}} sidecar:b139:ss:{{ID}}
+@DEL sidecar:b139:sp:{{ID}}
+SADD-sp-b139|1|SADD sidecar:b139:sp:{{ID}} only
+SRANDMEMBER-b139|only|SRANDMEMBER sidecar:b139:sp:{{ID}}
+SPOP-b139|only|SPOP sidecar:b139:sp:{{ID}}
+SPOP-miss-b139|$-1|SPOP sidecar:b139:sp:{{ID}}
+@DEL sidecar:b139:x:{{ID}}
+XADD-b139a|10-0|XADD sidecar:b139:x:{{ID}} 10-0 k v
+XADD-b139b|20-0|XADD sidecar:b139:x:{{ID}} 20-0 k w
+XADD-b139c|30-0|XADD sidecar:b139:x:{{ID}} 30-0 k x
+XDEL-b139|1|XDEL sidecar:b139:x:{{ID}} 10-0
+XTRIM-MINID-b139|1|XTRIM sidecar:b139:x:{{ID}} MINID 25-0
+XLEN-b139|1|XLEN sidecar:b139:x:{{ID}}
+XRANGE-b139|30-0\nk\nx|XRANGE sidecar:b139:x:{{ID}} - + COUNT 1
+TYPE-b139x|stream|TYPE sidecar:b139:x:{{ID}}
+DEL-b139x|1|DEL sidecar:b139:x:{{ID}}
+@DEL sidecar:b139:g:{{ID}}
+GEOADD-b139|2|GEOADD sidecar:b139:g:{{ID}} 13.361389 38.115556 Palermo 15.087269 37.502669 Catania
+GEOSEARCH-BYBOX-b139|Catania|GEOSEARCH sidecar:b139:g:{{ID}} FROMLONLAT 15 37.5 BYBOX 120 120 km ASC COUNT 1
+GEOSEARCH-FROMMEMBER-b139|Palermo|GEOSEARCH sidecar:b139:g:{{ID}} FROMMEMBER Palermo BYBOX 400 400 km ASC COUNT 1
+DEL-b139g|1|DEL sidecar:b139:g:{{ID}}
+@DEL sidecar:b139:s1:{{ID}}
+@DEL sidecar:b139:s2:{{ID}}
+@DEL sidecar:b139:sort:{{ID}}
+@DEL sidecar:b139:p1:{{ID}}
+@DEL sidecar:b139:p2:{{ID}}
+@DEL sidecar:b139:pm:{{ID}}
+SET-s1-b139|OK|SET sidecar:b139:s1:{{ID}} keyboard
+SET-s2-b139|OK|SET sidecar:b139:s2:{{ID}} board
+LCS-b139|board|LCS sidecar:b139:s1:{{ID}} sidecar:b139:s2:{{ID}}
+LCS-LEN-b139|5|LCS sidecar:b139:s1:{{ID}} sidecar:b139:s2:{{ID}} LEN
+RPUSH-sort-b139|4|RPUSH sidecar:b139:sort:{{ID}} 18 7 21 3
+SORT-DESC-LIM-b139|21\n18|SORT sidecar:b139:sort:{{ID}} DESC LIMIT 0 2
+PFADD-p1-b139|1|PFADD sidecar:b139:p1:{{ID}} x
+PFADD-p2-b139|1|PFADD sidecar:b139:p2:{{ID}} y
+PFMERGE-b139|OK|PFMERGE sidecar:b139:pm:{{ID}} sidecar:b139:p1:{{ID}} sidecar:b139:p2:{{ID}}
+PFCOUNT-b139|2|PFCOUNT sidecar:b139:pm:{{ID}}
+RENAME-b139|OK|RENAME sidecar:b139:s1:{{ID}} sidecar:b139:s1r:{{ID}}
+RENAMENX-fail-b139|0|RENAMENX sidecar:b139:s2:{{ID}} sidecar:b139:s1r:{{ID}}
+EXISTS-MULTI-b139|2|EXISTS sidecar:b139:s1r:{{ID}} sidecar:b139:s2:{{ID}} sidecar:b139:miss:{{ID}}
+DEL-b139misc|6|DEL sidecar:b139:s1r:{{ID}} sidecar:b139:s2:{{ID}} sidecar:b139:sort:{{ID}} sidecar:b139:p1:{{ID}} sidecar:b139:p2:{{ID}} sidecar:b139:pm:{{ID}}
+PING-b139|p139|PING p139
+ECHO-b139|batch139|ECHO batch139
+TYPE-miss-b139|none|TYPE sidecar:b139:miss:{{ID}}
+EXISTS-miss-b139|0|EXISTS sidecar:b139:miss:{{ID}}
+DBSIZE-b139|>=0|DBSIZE
 
 # --- cleanup string / incr keys ---
 DEL|1|DEL sidecar:allowlist:{{ID}}
 EXISTS-after-del|0|EXISTS sidecar:allowlist:{{ID}}
 DEL-n|1|DEL sidecar:allowlist:n:{{ID}}
+
 
 
