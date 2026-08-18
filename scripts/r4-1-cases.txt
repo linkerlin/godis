@@ -14,7 +14,7 @@
 # Placeholder {{ID}} -> process id (unique keys per run).
 #
 # WANT may embed \n for multi-line --raw (e.g. ZPOPMIN member\nscore).
-# @allowlist PING,ECHO,SET,SETNX,GET,GETDEL,GETSET,GETEX,STRLEN,APPEND,DEL,EXISTS,INCR,DECR,INCRBY,DECRBY,INCRBYFLOAT,TYPE,MSET,MGET,MSETNX,SETRANGE,GETRANGE,SUBSTR,SETEX,PSETEX,UNLINK,HSET,HMSET,HGET,HMGET,HSETNX,HINCRBY,HINCRBYFLOAT,HSTRLEN,HLEN,HEXISTS,HDEL,HEXPIRE,HTTL,HPEXPIRE,HPTTL,HKEYS,HVALS,HRANDFIELD,LPUSH,LPUSHX,RPUSH,RPUSHX,LLEN,LINDEX,LRANGE,LPOP,RPOP,RPOPLPUSH,LSET,LINSERT,LREM,LTRIM,LPOS,LMOVE,LMPOP,SADD,SCARD,SISMEMBER,SMISMEMBER,SMOVE,SREM,SPOP,SRANDMEMBER,SUNION,SUNIONSTORE,SINTERSTORE,SDIFFSTORE,SDIFF,SINTER,SINTERCARD,ZADD,ZINCRBY,ZSCORE,ZMSCORE,ZRANK,ZREVRANK,ZRANGE,ZREVRANGE,ZRANGEBYSCORE,ZREVRANGEBYSCORE,ZRANGEBYLEX,ZRANGESTORE,ZCARD,ZREM,ZCOUNT,ZREMRANGEBYRANK,ZREMRANGEBYSCORE,ZREMRANGEBYLEX,ZUNION,ZUNIONSTORE,ZINTER,ZINTERSTORE,ZINTERCARD,ZDIFFSTORE,ZDIFF,ZPOPMIN,ZPOPMAX,ZMPOP,ZLEXCOUNT,ZRANDMEMBER,TTL,PTTL,PEXPIRE,PEXPIREAT,EXPIRE,EXPIREAT,EXPIRETIME,PEXPIRETIME,PERSIST,TOUCH,RENAME,MOVE,XADD,XLEN,XDEL,XTRIM,XREVRANGE,XRANGE,GEOADD,GEOHASH,GEORADIUS,GEOSEARCH,SETBIT,GETBIT,BITCOUNT,BITPOS,BITOP,BITFIELD,PFADD,PFCOUNT,PFMERGE,COPY,RENAMENX,LCS,OBJECT,DBSIZE,SORT
+# @allowlist PING,ECHO,SET,SETNX,GET,GETDEL,GETSET,GETEX,STRLEN,APPEND,DEL,EXISTS,INCR,DECR,INCRBY,DECRBY,INCRBYFLOAT,TYPE,MSET,MGET,MSETNX,SETRANGE,GETRANGE,SUBSTR,SETEX,PSETEX,UNLINK,HSET,HMSET,HGET,HMGET,HSETNX,HINCRBY,HINCRBYFLOAT,HSTRLEN,HLEN,HEXISTS,HDEL,HEXPIRE,HTTL,HPEXPIRE,HPTTL,HKEYS,HVALS,HRANDFIELD,HGETDEL,HGETEX,LPUSH,LPUSHX,RPUSH,RPUSHX,LLEN,LINDEX,LRANGE,LPOP,RPOP,RPOPLPUSH,LSET,LINSERT,LREM,LTRIM,LPOS,LMOVE,LMPOP,BLMOVE,SADD,SCARD,SISMEMBER,SMISMEMBER,SMOVE,SREM,SPOP,SRANDMEMBER,SUNION,SUNIONSTORE,SINTERSTORE,SDIFFSTORE,SDIFF,SINTER,SINTERCARD,ZADD,ZINCRBY,ZSCORE,ZMSCORE,ZRANK,ZREVRANK,ZRANGE,ZREVRANGE,ZRANGEBYSCORE,ZREVRANGEBYSCORE,ZRANGEBYLEX,ZRANGESTORE,ZCARD,ZREM,ZCOUNT,ZREMRANGEBYRANK,ZREMRANGEBYSCORE,ZREMRANGEBYLEX,ZUNION,ZUNIONSTORE,ZINTER,ZINTERSTORE,ZINTERCARD,ZDIFFSTORE,ZDIFF,ZPOPMIN,ZPOPMAX,ZMPOP,ZLEXCOUNT,ZRANDMEMBER,BZPOPMIN,TTL,PTTL,PEXPIRE,PEXPIREAT,EXPIRE,EXPIREAT,EXPIRETIME,PEXPIRETIME,PERSIST,TOUCH,RENAME,MOVE,XADD,XLEN,XDEL,XTRIM,XREVRANGE,XRANGE,GEOADD,GEOHASH,GEORADIUS,GEOSEARCH,SETBIT,GETBIT,BITCOUNT,BITPOS,BITOP,BITFIELD,PFADD,PFCOUNT,PFMERGE,COPY,RENAMENX,LCS,OBJECT,DBSIZE,SORT,MEMORY
 
 # --- String / ping ---
 PING|PONG|PING
@@ -3102,6 +3102,188 @@ ECHO-b100|batch100|ECHO batch100
 TYPE-b100miss|none|TYPE sidecar:b100:miss:{{ID}}
 EXISTS-b100miss|0|EXISTS sidecar:b100:miss:{{ID}}
 DBSIZE-b100|>=0|DBSIZE
+
+# --- batch 101 extras (LINSERT AFTER/LSET/LTRIM; BLMOVE RIGHT LEFT; LMOVE; LPOS MAXLEN; ZLEX*; ZUNIONSTORE WEIGHTS+MIN; ZINTERSTORE MAX; ZDIFFSTORE/ZRANGESTORE; BITOP AND/OR/DIFF; LCS 串; GETSET; SETEX/PSETEX/KEEPTTL; HPEXPIRE; HGETDEL; 单成员 HRANDFIELD/SPOP; ZPOPMIN; ZREMRANGEBYSCORE; SORT ALPHA DESC; LPUSHX/RPUSHX; SMOVE; MSETNX; XTRIM MINID; GEOSEARCH FROMMEMBER) ---
+@DEL sidecar:b101:l:{{ID}}
+RPUSH-b101l|5|RPUSH sidecar:b101:l:{{ID}} a b c d e
+LINSERT-b101|6|LINSERT sidecar:b101:l:{{ID}} AFTER b X
+LSET-b101|OK|LSET sidecar:b101:l:{{ID}} 2 Y
+LTRIM-b101|OK|LTRIM sidecar:b101:l:{{ID}} 1 4
+LRANGE-b101|b\nY\nc\nd|LRANGE sidecar:b101:l:{{ID}} 0 -1
+LREM-b101|1|LREM sidecar:b101:l:{{ID}} 1 b
+LINDEX-b101|Y|LINDEX sidecar:b101:l:{{ID}} 0
+LLEN-b101|3|LLEN sidecar:b101:l:{{ID}}
+DEL-b101l|1|DEL sidecar:b101:l:{{ID}}
+@DEL sidecar:b101:l2:{{ID}}
+@DEL sidecar:b101:l3:{{ID}}
+RPUSH-b101l2|3|RPUSH sidecar:b101:l2:{{ID}} 1 2 3
+BLMOVE-b101|3|BLMOVE sidecar:b101:l2:{{ID}} sidecar:b101:l3:{{ID}} RIGHT LEFT 0
+LRANGE-b101l3|3|LRANGE sidecar:b101:l3:{{ID}} 0 -1
+LMOVE-b101|1|LMOVE sidecar:b101:l2:{{ID}} sidecar:b101:l3:{{ID}} LEFT RIGHT
+LRANGE-b101l2|2|LRANGE sidecar:b101:l2:{{ID}} 0 -1
+LRANGE-b101l3b|3\n1|LRANGE sidecar:b101:l3:{{ID}} 0 -1
+DEL-b101lm|2|DEL sidecar:b101:l2:{{ID}} sidecar:b101:l3:{{ID}}
+@DEL sidecar:b101:lp:{{ID}}
+RPUSH-b101lp|5|RPUSH sidecar:b101:lp:{{ID}} x a x b x
+LPOS-MAXLEN-b101|0|LPOS sidecar:b101:lp:{{ID}} x MAXLEN 3
+LPOS-RANK-b101|4|LPOS sidecar:b101:lp:{{ID}} x RANK -1
+DEL-b101lp|1|DEL sidecar:b101:lp:{{ID}}
+@DEL sidecar:b101:zlex:{{ID}}
+ZADD-b101zlex|5|ZADD sidecar:b101:zlex:{{ID}} 0 aa 0 ab 0 ba 0 bb 0 ca
+ZRANGEBYLEX-b101|aa\nab|ZRANGEBYLEX sidecar:b101:zlex:{{ID}} [a [b
+ZLEXCOUNT-b101|2|ZLEXCOUNT sidecar:b101:zlex:{{ID}} [aa (ba
+ZREMRANGEBYLEX-b101|2|ZREMRANGEBYLEX sidecar:b101:zlex:{{ID}} [aa [ab
+ZRANGEBYLEX-b101b|ba\nbb\nca|ZRANGEBYLEX sidecar:b101:zlex:{{ID}} - +
+DEL-b101zlex|1|DEL sidecar:b101:zlex:{{ID}}
+@DEL sidecar:b101:z1:{{ID}}
+@DEL sidecar:b101:z2:{{ID}}
+@DEL sidecar:b101:zu:{{ID}}
+@DEL sidecar:b101:zi:{{ID}}
+@DEL sidecar:b101:zd:{{ID}}
+@DEL sidecar:b101:zr:{{ID}}
+ZADD-b101z1|3|ZADD sidecar:b101:z1:{{ID}} 1 a 4 b 6 c
+ZADD-b101z2|2|ZADD sidecar:b101:z2:{{ID}} 2 b 8 d
+ZUNIONSTORE-b101|4|ZUNIONSTORE sidecar:b101:zu:{{ID}} 2 sidecar:b101:z1:{{ID}} sidecar:b101:z2:{{ID}} WEIGHTS 2 1 AGGREGATE MIN
+ZRANGE-zu-b101|a\n2\nb\n2\nd\n8\nc\n12|ZRANGE sidecar:b101:zu:{{ID}} 0 -1 WITHSCORES
+ZINTERSTORE-MAX-b101|1|ZINTERSTORE sidecar:b101:zi:{{ID}} 2 sidecar:b101:z1:{{ID}} sidecar:b101:z2:{{ID}} AGGREGATE MAX
+ZRANGE-zi-b101|b\n4|ZRANGE sidecar:b101:zi:{{ID}} 0 -1 WITHSCORES
+ZDIFFSTORE-b101|2|ZDIFFSTORE sidecar:b101:zd:{{ID}} 2 sidecar:b101:z1:{{ID}} sidecar:b101:z2:{{ID}}
+ZRANGE-zd-b101|a\nc|ZRANGE sidecar:b101:zd:{{ID}} 0 -1
+ZRANGESTORE-b101|2|ZRANGESTORE sidecar:b101:zr:{{ID}} sidecar:b101:z1:{{ID}} 0 1
+ZRANGE-zr-b101|a\nb|ZRANGE sidecar:b101:zr:{{ID}} 0 -1
+ZREVRANGE-b101|c\n6\nb\n4|ZREVRANGE sidecar:b101:z1:{{ID}} 0 1 WITHSCORES
+DEL-b101zst|6|DEL sidecar:b101:z1:{{ID}} sidecar:b101:z2:{{ID}} sidecar:b101:zu:{{ID}} sidecar:b101:zi:{{ID}} sidecar:b101:zd:{{ID}} sidecar:b101:zr:{{ID}}
+@DEL sidecar:b101:b1:{{ID}}
+@DEL sidecar:b101:b2:{{ID}}
+@DEL sidecar:b101:ba:{{ID}}
+@DEL sidecar:b101:bo:{{ID}}
+@DEL sidecar:b101:bd:{{ID}}
+SETBIT-b101b1a|0|SETBIT sidecar:b101:b1:{{ID}} 0 1
+SETBIT-b101b1b|0|SETBIT sidecar:b101:b1:{{ID}} 1 1
+SETBIT-b101b2a|0|SETBIT sidecar:b101:b2:{{ID}} 1 1
+SETBIT-b101b2b|0|SETBIT sidecar:b101:b2:{{ID}} 2 1
+BITOP-AND-b101|1|BITOP AND sidecar:b101:ba:{{ID}} sidecar:b101:b1:{{ID}} sidecar:b101:b2:{{ID}}
+BITCOUNT-b101and|1|BITCOUNT sidecar:b101:ba:{{ID}}
+BITOP-OR-b101|1|BITOP OR sidecar:b101:bo:{{ID}} sidecar:b101:b1:{{ID}} sidecar:b101:b2:{{ID}}
+BITCOUNT-b101or|3|BITCOUNT sidecar:b101:bo:{{ID}}
+BITOP-DIFF-b101|1|BITOP DIFF sidecar:b101:bd:{{ID}} sidecar:b101:b1:{{ID}} sidecar:b101:b2:{{ID}}
+BITCOUNT-b101diff|1|BITCOUNT sidecar:b101:bd:{{ID}}
+GETBIT-b101diff|1|GETBIT sidecar:b101:bd:{{ID}} 0
+DEL-b101bit|5|DEL sidecar:b101:b1:{{ID}} sidecar:b101:b2:{{ID}} sidecar:b101:ba:{{ID}} sidecar:b101:bo:{{ID}} sidecar:b101:bd:{{ID}}
+@DEL sidecar:b101:lcs1:{{ID}}
+@DEL sidecar:b101:lcs2:{{ID}}
+SET-b101lcs1|OK|SET sidecar:b101:lcs1:{{ID}} hello
+SET-b101lcs2|OK|SET sidecar:b101:lcs2:{{ID}} hallo
+LCS-LEN-b101|4|LCS sidecar:b101:lcs1:{{ID}} sidecar:b101:lcs2:{{ID}} LEN
+LCS-b101|hllo|LCS sidecar:b101:lcs1:{{ID}} sidecar:b101:lcs2:{{ID}}
+DEL-b101lcs|2|DEL sidecar:b101:lcs1:{{ID}} sidecar:b101:lcs2:{{ID}}
+@DEL sidecar:b101:gs:{{ID}}
+GETSET-b101miss|$-1|GETSET sidecar:b101:gs:{{ID}} old
+SET-b101gs|OK|SET sidecar:b101:gs:{{ID}} old
+GETSET-b101|old|GETSET sidecar:b101:gs:{{ID}} new
+GET-b101gs|new|GET sidecar:b101:gs:{{ID}}
+DEL-b101gs|1|DEL sidecar:b101:gs:{{ID}}
+@DEL sidecar:b101:sx:{{ID}}
+SETEX-b101|OK|SETEX sidecar:b101:sx:{{ID}} 80 v
+TTL-b101sx|<=80|TTL sidecar:b101:sx:{{ID}}
+TTL-b101sx2|>=1|TTL sidecar:b101:sx:{{ID}}
+RENAMENX-b101|1|RENAMENX sidecar:b101:sx:{{ID}} sidecar:b101:sx2:{{ID}}
+COPY-b101|1|COPY sidecar:b101:sx2:{{ID}} sidecar:b101:sx3:{{ID}}
+GET-b101sx3|v|GET sidecar:b101:sx3:{{ID}}
+DEL-b101sx|2|DEL sidecar:b101:sx2:{{ID}} sidecar:b101:sx3:{{ID}}
+@DEL sidecar:b101:ps:{{ID}}
+PSETEX-b101|OK|PSETEX sidecar:b101:ps:{{ID}} 7000 w
+PTTL-b101ps|<=7000|PTTL sidecar:b101:ps:{{ID}}
+PERSIST-b101|1|PERSIST sidecar:b101:ps:{{ID}}
+TTL-b101ps|-1|TTL sidecar:b101:ps:{{ID}}
+DEL-b101ps|1|DEL sidecar:b101:ps:{{ID}}
+@DEL sidecar:b101:keep:{{ID}}
+SET-b101keep|OK|SET sidecar:b101:keep:{{ID}} v EX 100
+SET-KEEPTTL-b101|OK|SET sidecar:b101:keep:{{ID}} w KEEPTTL
+GET-b101keep|w|GET sidecar:b101:keep:{{ID}}
+TTL-b101keep|<=100|TTL sidecar:b101:keep:{{ID}}
+TTL-b101keep2|>=1|TTL sidecar:b101:keep:{{ID}}
+DEL-b101keep|1|DEL sidecar:b101:keep:{{ID}}
+@DEL sidecar:b101:h:{{ID}}
+HSET-b101|2|HSET sidecar:b101:h:{{ID}} f1 aa f2 bb
+HMSET-b101|OK|HMSET sidecar:b101:h:{{ID}} f3 cc
+HMGET-b101|aa\ncc\n$-1|HMGET sidecar:b101:h:{{ID}} f1 f3 miss
+HPEXPIRE-b101|1|HPEXPIRE sidecar:b101:h:{{ID}} 8000 FIELDS 1 f1
+HPTTL-b101|<=8000|HPTTL sidecar:b101:h:{{ID}} FIELDS 1 f1
+HPTTL-b1012|>=1|HPTTL sidecar:b101:h:{{ID}} FIELDS 1 f1
+DEL-b101h|1|DEL sidecar:b101:h:{{ID}}
+@DEL sidecar:b101:h1:{{ID}}
+HSET-b101h1|1|HSET sidecar:b101:h1:{{ID}} only one
+HRANDFIELD-b101|only|HRANDFIELD sidecar:b101:h1:{{ID}}
+DEL-b101h1|1|DEL sidecar:b101:h1:{{ID}}
+@DEL sidecar:b101:hd:{{ID}}
+HSET-b101hd|1|HSET sidecar:b101:hd:{{ID}} f v
+HGETDEL-b101|v|HGETDEL sidecar:b101:hd:{{ID}} FIELDS 1 f
+HGET-b101hd|$-1|HGET sidecar:b101:hd:{{ID}} f
+@DEL sidecar:b101:s1:{{ID}}
+SADD-b101s1|1|SADD sidecar:b101:s1:{{ID}} only
+SPOP-b101|only|SPOP sidecar:b101:s1:{{ID}}
+@DEL sidecar:b101:zr:{{ID}}
+ZADD-b101zr|1|ZADD sidecar:b101:zr:{{ID}} 1 a
+ZPOPMIN-b101|a\n1|ZPOPMIN sidecar:b101:zr:{{ID}}
+@DEL sidecar:b101:zc:{{ID}}
+ZADD-b101zc|5|ZADD sidecar:b101:zc:{{ID}} 1 a 2 b 3 c 4 d 5 e
+ZREMRANGEBYSCORE-b101|3|ZREMRANGEBYSCORE sidecar:b101:zc:{{ID}} 2 4
+ZRANGE-b101zc|a\ne|ZRANGE sidecar:b101:zc:{{ID}} 0 -1
+DEL-b101zc|1|DEL sidecar:b101:zc:{{ID}}
+@DEL sidecar:b101:sort:{{ID}}
+RPUSH-b101sort|3|RPUSH sidecar:b101:sort:{{ID}} c a b
+SORT-DESC-b101|c\nb\na|SORT sidecar:b101:sort:{{ID}} ALPHA DESC
+DEL-b101sort|1|DEL sidecar:b101:sort:{{ID}}
+@DEL sidecar:b101:lx:{{ID}}
+LPUSHX-b101miss|0|LPUSHX sidecar:b101:lx:{{ID}} z
+RPUSH-b101lx|1|RPUSH sidecar:b101:lx:{{ID}} a
+RPUSHX-b101|2|RPUSHX sidecar:b101:lx:{{ID}} b
+LINDEX-b101lx|b|LINDEX sidecar:b101:lx:{{ID}} -1
+DEL-b101lx|1|DEL sidecar:b101:lx:{{ID}}
+@DEL sidecar:b101:sm1:{{ID}}
+@DEL sidecar:b101:sm2:{{ID}}
+SMOVE-b101miss|0|SMOVE sidecar:b101:sm1:{{ID}} sidecar:b101:sm2:{{ID}} a
+SADD-b101sm1|2|SADD sidecar:b101:sm1:{{ID}} a b
+SADD-b101sm2|1|SADD sidecar:b101:sm2:{{ID}} b
+SMOVE-b101|1|SMOVE sidecar:b101:sm1:{{ID}} sidecar:b101:sm2:{{ID}} a
+SISMEMBER-b101sm|1|SISMEMBER sidecar:b101:sm2:{{ID}} a
+SCARD-b101sm1|1|SCARD sidecar:b101:sm1:{{ID}}
+DEL-b101sm|2|DEL sidecar:b101:sm1:{{ID}} sidecar:b101:sm2:{{ID}}
+@DEL sidecar:b101:m1:{{ID}}
+@DEL sidecar:b101:m2:{{ID}}
+@DEL sidecar:b101:m3:{{ID}}
+MSETNX-b101|1|MSETNX sidecar:b101:m1:{{ID}} 1 sidecar:b101:m2:{{ID}} 2
+MSETNX-b101dup|0|MSETNX sidecar:b101:m1:{{ID}} x sidecar:b101:m3:{{ID}} y
+DEL-b101m|2|DEL sidecar:b101:m1:{{ID}} sidecar:b101:m2:{{ID}}
+@DEL sidecar:b101:x:{{ID}}
+XADD-b101a|10-0|XADD sidecar:b101:x:{{ID}} 10-0 a 1
+XADD-b101b|20-0|XADD sidecar:b101:x:{{ID}} 20-0 a 2
+XADD-b101c|30-0|XADD sidecar:b101:x:{{ID}} 30-0 a 3
+XTRIM-MINID-b101|1|XTRIM sidecar:b101:x:{{ID}} MINID 20-0
+XRANGE-b101|20-0\na\n2|XRANGE sidecar:b101:x:{{ID}} - + COUNT 1
+XLEN-b101|2|XLEN sidecar:b101:x:{{ID}}
+DEL-b101x|1|DEL sidecar:b101:x:{{ID}}
+@DEL sidecar:b101:pf:{{ID}}
+@DEL sidecar:b101:pf0:{{ID}}
+PFCOUNT-b101miss|0|PFCOUNT sidecar:b101:pf0:{{ID}}
+PFADD-b101|1|PFADD sidecar:b101:pf:{{ID}} a
+PFCOUNT-b101multi|1|PFCOUNT sidecar:b101:pf:{{ID}} sidecar:b101:pf0:{{ID}}
+DEL-b101pf|1|DEL sidecar:b101:pf:{{ID}}
+@DEL sidecar:b101:g:{{ID}}
+GEOADD-b101|2|GEOADD sidecar:b101:g:{{ID}} 13.361389 38.115556 Palermo 15.087269 37.502669 Catania
+GEOSEARCH-b101|Palermo|GEOSEARCH sidecar:b101:g:{{ID}} FROMMEMBER Palermo BYRADIUS 200 km ASC COUNT 1
+DEL-b101g|1|DEL sidecar:b101:g:{{ID}}
+@DEL sidecar:b101:dec:{{ID}}
+DECRBY-b101miss|-3|DECRBY sidecar:b101:dec:{{ID}} 3
+SET-b101dec|OK|SET sidecar:b101:dec:{{ID}} 10
+INCRBY-b101|14|INCRBY sidecar:b101:dec:{{ID}} 4
+DEL-b101dec|1|DEL sidecar:b101:dec:{{ID}}
+PING-b101|b101|PING b101
+ECHO-b101|batch101|ECHO batch101
+TYPE-b101miss|none|TYPE sidecar:b101:miss:{{ID}}
+EXISTS-b101miss|0|EXISTS sidecar:b101:miss:{{ID}}
+DBSIZE-b101|>=0|DBSIZE
 
 # --- cleanup string / incr keys ---
 DEL|1|DEL sidecar:allowlist:{{ID}}
