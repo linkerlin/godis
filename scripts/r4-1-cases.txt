@@ -3285,6 +3285,149 @@ TYPE-b101miss|none|TYPE sidecar:b101:miss:{{ID}}
 EXISTS-b101miss|0|EXISTS sidecar:b101:miss:{{ID}}
 DBSIZE-b101|>=0|DBSIZE
 
+# --- batch 102 extras (LPOP/RPOP COUNT; ZRANGE WS/REV; ZREVRANGEBYSCORE LIMIT; ZMSCORE; HMGET/HINCRBY; SMISMEMBER; GETRANGE neg/SETRANGE/SUBSTR; SET NX GET; GETEX EX; BITFIELD u16 SAT; XRANGE/XTRIM; ZUNION WEIGHTS WS; SDIFF/SINTERCARD; LMPOP RIGHT; ZMPOP MAX; LPOS COUNT; COPY/RENAME; EXPIRE GT miss; MGET; INCRBYFLOAT; GEORADIUS; SORT LIMIT; GETDEL) ---
+@DEL sidecar:b102:l:{{ID}}
+RPUSH-b102l|6|RPUSH sidecar:b102:l:{{ID}} a b c d e f
+LPOP-COUNT-b102|a\nb\nc|LPOP sidecar:b102:l:{{ID}} 3
+RPOP-COUNT-b102|f\ne|RPOP sidecar:b102:l:{{ID}} 2
+LRANGE-b102|d|LRANGE sidecar:b102:l:{{ID}} 0 -1
+DEL-b102l|1|DEL sidecar:b102:l:{{ID}}
+@DEL sidecar:b102:z:{{ID}}
+ZADD-b102z|5|ZADD sidecar:b102:z:{{ID}} 1 a 2 b 3 c 4 d 5 e
+ZRANGE-WS-b102|a\n1\nb\n2\nc\n3|ZRANGE sidecar:b102:z:{{ID}} 0 2 WITHSCORES
+ZREVRANGEBYSCORE-b102|d\nc|ZREVRANGEBYSCORE sidecar:b102:z:{{ID}} 5 1 LIMIT 1 2
+ZCOUNT-b102|3|ZCOUNT sidecar:b102:z:{{ID}} 1 3
+ZMSCORE-b102|1\n3\n$-1|ZMSCORE sidecar:b102:z:{{ID}} a c missing
+ZRANGE-REV-b102|e\nd\nc\nb\na|ZRANGE sidecar:b102:z:{{ID}} 0 -1 REV
+DEL-b102z|1|DEL sidecar:b102:z:{{ID}}
+@DEL sidecar:b102:h:{{ID}}
+HSET-b102|3|HSET sidecar:b102:h:{{ID}} a 10 b 20 c 30
+HDEL-b102|1|HDEL sidecar:b102:h:{{ID}} b
+HMGET-b102|10\n30\n$-1|HMGET sidecar:b102:h:{{ID}} a c miss
+HINCRBY-b102|15|HINCRBY sidecar:b102:h:{{ID}} a 5
+HSTRLEN-b102|2|HSTRLEN sidecar:b102:h:{{ID}} a
+HEXISTS-b102|1|HEXISTS sidecar:b102:h:{{ID}} c
+DEL-b102h|1|DEL sidecar:b102:h:{{ID}}
+@DEL sidecar:b102:s:{{ID}}
+SADD-b102|4|SADD sidecar:b102:s:{{ID}} 1 2 3 4
+SREM-b102|2|SREM sidecar:b102:s:{{ID}} 2 4
+SMISMEMBER-b102|1\n0\n1|SMISMEMBER sidecar:b102:s:{{ID}} 1 2 3
+SCARD-b102|2|SCARD sidecar:b102:s:{{ID}}
+DEL-b102s|1|DEL sidecar:b102:s:{{ID}}
+@DEL sidecar:b102:st:{{ID}}
+SET-b102st|OK|SET sidecar:b102:st:{{ID}} foobar
+GETRANGE-b102|bar|GETRANGE sidecar:b102:st:{{ID}} -3 -1
+SETRANGE-b102|6|SETRANGE sidecar:b102:st:{{ID}} 0 FOO
+SUBSTR-b102|FOO|SUBSTR sidecar:b102:st:{{ID}} 0 2
+APPEND-b102|7|APPEND sidecar:b102:st:{{ID}} !
+GETDEL-b102|FOObar!|GETDEL sidecar:b102:st:{{ID}}
+EXISTS-b102st|0|EXISTS sidecar:b102:st:{{ID}}
+@DEL sidecar:b102:nx:{{ID}}
+SET-NX-b102|OK|SET sidecar:b102:nx:{{ID}} v NX
+SET-NX-GET-b102|v|SET sidecar:b102:nx:{{ID}} w NX GET
+GET-b102nx|v|GET sidecar:b102:nx:{{ID}}
+DEL-b102nx|1|DEL sidecar:b102:nx:{{ID}}
+@DEL sidecar:b102:xx:{{ID}}
+SET-b102xx|OK|SET sidecar:b102:xx:{{ID}} v
+SET-XX-GET-b102|v|SET sidecar:b102:xx:{{ID}} w XX GET
+GETEX-EX-b102|w|GETEX sidecar:b102:xx:{{ID}} EX 30
+TTL-b102xx|<=30|TTL sidecar:b102:xx:{{ID}}
+TTL-b102xx2|>=1|TTL sidecar:b102:xx:{{ID}}
+DEL-b102xx|1|DEL sidecar:b102:xx:{{ID}}
+@DEL sidecar:b102:bf:{{ID}}
+BITFIELD-SET-b102|0|BITFIELD sidecar:b102:bf:{{ID}} SET u16 0 1000
+BITFIELD-GET-b102|1000|BITFIELD sidecar:b102:bf:{{ID}} GET u16 0
+BITFIELD-SAT-b102|65535|BITFIELD sidecar:b102:bf:{{ID}} OVERFLOW SAT INCRBY u16 0 70000
+DEL-b102bf|1|DEL sidecar:b102:bf:{{ID}}
+@DEL sidecar:b102:bit:{{ID}}
+SETBIT-b102|0|SETBIT sidecar:b102:bit:{{ID}} 7 1
+BITPOS-b102|7|BITPOS sidecar:b102:bit:{{ID}} 1
+BITCOUNT-b102|1|BITCOUNT sidecar:b102:bit:{{ID}} 0 0
+DEL-b102bit|1|DEL sidecar:b102:bit:{{ID}}
+@DEL sidecar:b102:x:{{ID}}
+XADD-b102a|1-0|XADD sidecar:b102:x:{{ID}} 1-0 f a
+XADD-b102b|2-0|XADD sidecar:b102:x:{{ID}} 2-0 f b
+XADD-b102c|3-0|XADD sidecar:b102:x:{{ID}} 3-0 f c
+XRANGE-b102|1-0\nf\na\n2-0\nf\nb|XRANGE sidecar:b102:x:{{ID}} - + COUNT 2
+XTRIM-b102|1|XTRIM sidecar:b102:x:{{ID}} MAXLEN 2
+XLEN-b102|2|XLEN sidecar:b102:x:{{ID}}
+DEL-b102x|1|DEL sidecar:b102:x:{{ID}}
+@DEL sidecar:b102:z2:{{ID}}
+@DEL sidecar:b102:z3:{{ID}}
+ZADD-b102z2|2|ZADD sidecar:b102:z2:{{ID}} 1 x 5 y
+ZADD-b102z3|2|ZADD sidecar:b102:z3:{{ID}} 2 y 4 z
+ZUNION-WS-b102|x\n2\nz\n4\ny\n12|ZUNION 2 sidecar:b102:z2:{{ID}} sidecar:b102:z3:{{ID}} WEIGHTS 2 1 WITHSCORES
+ZINTER-WS-b102|y\n7|ZINTER 2 sidecar:b102:z2:{{ID}} sidecar:b102:z3:{{ID}} WITHSCORES
+ZDIFF-b102|x|ZDIFF 2 sidecar:b102:z2:{{ID}} sidecar:b102:z3:{{ID}}
+ZINTERCARD-b102|1|ZINTERCARD 2 sidecar:b102:z2:{{ID}} sidecar:b102:z3:{{ID}}
+DEL-b102zu|2|DEL sidecar:b102:z2:{{ID}} sidecar:b102:z3:{{ID}}
+@DEL sidecar:b102:sa:{{ID}}
+@DEL sidecar:b102:sb:{{ID}}
+SADD-b102sa|3|SADD sidecar:b102:sa:{{ID}} p q r
+SADD-b102sb|2|SADD sidecar:b102:sb:{{ID}} q r
+SINTERCARD-b102|2|SINTERCARD 2 sidecar:b102:sa:{{ID}} sidecar:b102:sb:{{ID}}
+SDIFF-b102|p|SDIFF sidecar:b102:sa:{{ID}} sidecar:b102:sb:{{ID}}
+DEL-b102sc|2|DEL sidecar:b102:sa:{{ID}} sidecar:b102:sb:{{ID}}
+@DEL sidecar:b102:lm:{{ID}}
+RPUSH-b102lm|5|RPUSH sidecar:b102:lm:{{ID}} 1 2 3 4 5
+LMPOP-b102|sidecar:b102:lm:{{ID}}\n5\n4|LMPOP 1 sidecar:b102:lm:{{ID}} RIGHT COUNT 2
+@DEL sidecar:b102:zm:{{ID}}
+ZADD-b102zm|4|ZADD sidecar:b102:zm:{{ID}} 1 a 2 b 3 c 4 d
+ZMPOP-b102|sidecar:b102:zm:{{ID}}\nd\n4\nc\n3|ZMPOP 1 sidecar:b102:zm:{{ID}} MAX COUNT 2
+@DEL sidecar:b102:lp:{{ID}}
+RPUSH-b102lp|5|RPUSH sidecar:b102:lp:{{ID}} x a x b x
+LPOS-COUNT-b102|0\n2|LPOS sidecar:b102:lp:{{ID}} x COUNT 2
+LPOS-RANK-b102|0|LPOS sidecar:b102:lp:{{ID}} x RANK 1
+DEL-b102lp|1|DEL sidecar:b102:lp:{{ID}}
+@DEL sidecar:b102:c1:{{ID}}
+@DEL sidecar:b102:c4:{{ID}}
+SET-b102c1|OK|SET sidecar:b102:c1:{{ID}} hello
+COPY-b102|1|COPY sidecar:b102:c1:{{ID}} sidecar:b102:c2:{{ID}}
+RENAME-b102|OK|RENAME sidecar:b102:c2:{{ID}} sidecar:b102:c3:{{ID}}
+RENAMENX-b102|1|RENAMENX sidecar:b102:c3:{{ID}} sidecar:b102:c4:{{ID}}
+GET-b102c4|hello|GET sidecar:b102:c4:{{ID}}
+EXPIRE-b102|1|EXPIRE sidecar:b102:c4:{{ID}} 10
+EXPIRE-GT-b102|1|EXPIRE sidecar:b102:c4:{{ID}} 40 GT
+TTL-b102c4|<=40|TTL sidecar:b102:c4:{{ID}}
+TTL-b102c42|>=1|TTL sidecar:b102:c4:{{ID}}
+DEL-b102c|2|DEL sidecar:b102:c1:{{ID}} sidecar:b102:c4:{{ID}}
+@DEL sidecar:b102:m1:{{ID}}
+@DEL sidecar:b102:m2:{{ID}}
+MSET-b102|OK|MSET sidecar:b102:m1:{{ID}} 1 sidecar:b102:m2:{{ID}} 2
+MGET-b102|1\n$-1\n2|MGET sidecar:b102:m1:{{ID}} sidecar:b102:miss:{{ID}} sidecar:b102:m2:{{ID}}
+TOUCH-b102|2|TOUCH sidecar:b102:m1:{{ID}} sidecar:b102:m2:{{ID}}
+UNLINK-b102|1|UNLINK sidecar:b102:m2:{{ID}}
+EXISTS-b102m2|0|EXISTS sidecar:b102:m2:{{ID}}
+OBJECT-REF-b102|1|OBJECT REFCOUNT sidecar:b102:m1:{{ID}}
+DEL-b102m1|1|DEL sidecar:b102:m1:{{ID}}
+@DEL sidecar:b102:f:{{ID}}
+INCRBYFLOAT-b102|2.25|INCRBYFLOAT sidecar:b102:f:{{ID}} 2.25
+DEL-b102f|1|DEL sidecar:b102:f:{{ID}}
+@DEL sidecar:b102:hf:{{ID}}
+HINCRBYFLOAT-b102|0.5|HINCRBYFLOAT sidecar:b102:hf:{{ID}} n 0.5
+DEL-b102hf|1|DEL sidecar:b102:hf:{{ID}}
+@DEL sidecar:b102:zi:{{ID}}
+ZINCRBY-b102|1.25|ZINCRBY sidecar:b102:zi:{{ID}} 1.25 m
+ZSCORE-b102zi|1.25|ZSCORE sidecar:b102:zi:{{ID}} m
+DEL-b102zi|1|DEL sidecar:b102:zi:{{ID}}
+@DEL sidecar:b102:pf:{{ID}}
+PFADD-b102|1|PFADD sidecar:b102:pf:{{ID}} a b c
+PFCOUNT-b102|3|PFCOUNT sidecar:b102:pf:{{ID}}
+DEL-b102pf|1|DEL sidecar:b102:pf:{{ID}}
+@DEL sidecar:b102:g:{{ID}}
+GEOADD-b102|1|GEOADD sidecar:b102:g:{{ID}} 13.361389 38.115556 Palermo
+GEORADIUS-b102|Palermo|GEORADIUS sidecar:b102:g:{{ID}} 13 38 50 km ASC COUNT 1
+DEL-b102g|1|DEL sidecar:b102:g:{{ID}}
+@DEL sidecar:b102:sort:{{ID}}
+RPUSH-b102sort|4|RPUSH sidecar:b102:sort:{{ID}} 9 1 5 3
+SORT-LIMIT-b102|3\n5|SORT sidecar:b102:sort:{{ID}} LIMIT 1 2
+DEL-b102sort|1|DEL sidecar:b102:sort:{{ID}}
+PING-b102|b102|PING b102
+ECHO-b102|batch102|ECHO batch102
+TYPE-b102miss|none|TYPE sidecar:b102:miss:{{ID}}
+EXISTS-b102miss|0|EXISTS sidecar:b102:miss:{{ID}}
+DBSIZE-b102|>=0|DBSIZE
+
 # --- cleanup string / incr keys ---
 DEL|1|DEL sidecar:allowlist:{{ID}}
 EXISTS-after-del|0|EXISTS sidecar:allowlist:{{ID}}
