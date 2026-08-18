@@ -4079,6 +4079,193 @@ TYPE-b106miss|none|TYPE sidecar:b106:miss:{{ID}}
 EXISTS-b106miss|0|EXISTS sidecar:b106:miss:{{ID}}
 DBSIZE-b106|>=0|DBSIZE
 
+# --- batch 107 extras (RPOP COUNT/LMOVE LEFT LEFT/LPOS RANK/LREM 0/BLMOVE LEFT RIGHT; ZRANGE BYLEX LIMIT/REV WS; ZUNIONSTORE MAX WEIGHTS; ZINTER MIN WS; BITOP DIFF1/ANDOR; BITFIELD i16 WRAP; GETEX PX; SET NX GET; HGETEX PERSIST; HEXPIRE XX; SDIFFSTORE; ZPOPMAX; XTRIM MINID; GEOSEARCH FROMMEMBER; LCS; SORT DESC; ZMPOP MAX; SINTERCARD LIMIT) ---
+@DEL sidecar:b107:l:{{ID}}
+RPUSH-b107l|5|RPUSH sidecar:b107:l:{{ID}} a b c d e
+RPOP-COUNT-b107|e\nd|RPOP sidecar:b107:l:{{ID}} 2
+LRANGE-b107l|a\nb\nc|LRANGE sidecar:b107:l:{{ID}} 0 -1
+LMOVE-LL-b107|a|LMOVE sidecar:b107:l:{{ID}} sidecar:b107:l:{{ID}} LEFT LEFT
+LRANGE-b107ll|a\nb\nc|LRANGE sidecar:b107:l:{{ID}} 0 -1
+LPOS-RANK-b107|2|LPOS sidecar:b107:l:{{ID}} c RANK 1
+LREM-ALL-b107|1|LREM sidecar:b107:l:{{ID}} 0 a
+LRANGE-b107rem|b\nc|LRANGE sidecar:b107:l:{{ID}} 0 -1
+LINDEX-NEG-b107|c|LINDEX sidecar:b107:l:{{ID}} -1
+DEL-b107l|1|DEL sidecar:b107:l:{{ID}}
+@DEL sidecar:b107:l2:{{ID}}
+@DEL sidecar:b107:l2d:{{ID}}
+RPUSH-b107l2|3|RPUSH sidecar:b107:l2:{{ID}} x y z
+BLMOVE-b107|x|BLMOVE sidecar:b107:l2:{{ID}} sidecar:b107:l2d:{{ID}} LEFT RIGHT 0
+LRANGE-b107l2|y\nz|LRANGE sidecar:b107:l2:{{ID}} 0 -1
+LRANGE-b107l2d|x|LRANGE sidecar:b107:l2d:{{ID}} 0 -1
+DEL-b107l2|2|DEL sidecar:b107:l2:{{ID}} sidecar:b107:l2d:{{ID}}
+@DEL sidecar:b107:l3:{{ID}}
+RPUSH-b107l3|4|RPUSH sidecar:b107:l3:{{ID}} 1 2 3 4
+LMPOP-b107|sidecar:b107:l3:{{ID}}\n1|LMPOP 1 sidecar:b107:l3:{{ID}} LEFT COUNT 1
+LLEN-b107l3|3|LLEN sidecar:b107:l3:{{ID}}
+DEL-b107l3|1|DEL sidecar:b107:l3:{{ID}}
+@DEL sidecar:b107:ins:{{ID}}
+RPUSH-b107ins|2|RPUSH sidecar:b107:ins:{{ID}} a c
+LINSERT-b107|3|LINSERT sidecar:b107:ins:{{ID}} BEFORE c b
+LRANGE-b107ins|a\nb\nc|LRANGE sidecar:b107:ins:{{ID}} 0 -1
+LTRIM-b107|OK|LTRIM sidecar:b107:ins:{{ID}} 0 1
+LRANGE-b107trim|a\nb|LRANGE sidecar:b107:ins:{{ID}} 0 -1
+LSET-b107|OK|LSET sidecar:b107:ins:{{ID}} 1 X
+LINDEX-b107|X|LINDEX sidecar:b107:ins:{{ID}} 1
+DEL-b107ins|1|DEL sidecar:b107:ins:{{ID}}
+@DEL sidecar:b107:z:{{ID}}
+ZADD-b107z|5|ZADD sidecar:b107:z:{{ID}} 0 a 0 b 0 c 0 d 0 e
+ZRANGE-BYLEX-b107|b\nc\nd|ZRANGE sidecar:b107:z:{{ID}} [b (e BYLEX
+ZRANGE-BYLEX-LIM-b107|b\nc|ZRANGE sidecar:b107:z:{{ID}} [b (e BYLEX LIMIT 0 2
+ZLEXCOUNT-b107|3|ZLEXCOUNT sidecar:b107:z:{{ID}} [b (e
+ZRANGE-REV-WS-b107|e\n0\nd\n0\nc\n0\nb\n0\na\n0|ZRANGE sidecar:b107:z:{{ID}} 0 -1 REV WITHSCORES
+ZREMRANGEBYLEX-b107|2|ZREMRANGEBYLEX sidecar:b107:z:{{ID}} [c (e
+ZRANGE-after-lexrem-b107|a\nb\ne|ZRANGE sidecar:b107:z:{{ID}} 0 -1
+DEL-b107z|1|DEL sidecar:b107:z:{{ID}}
+@DEL sidecar:b107:zs:{{ID}}
+@DEL sidecar:b107:zu:{{ID}}
+ZADD-b107zs|4|ZADD sidecar:b107:zs:{{ID}} 1 a 2 b 3 c 4 d
+ZRANGEBYSCORE-LIM-b107|b\n2\nc\n3|ZRANGEBYSCORE sidecar:b107:zs:{{ID}} (1 4 WITHSCORES LIMIT 0 2
+ZCOUNT-b107|3|ZCOUNT sidecar:b107:zs:{{ID}} (1 4
+ZUNIONSTORE-b107|4|ZUNIONSTORE sidecar:b107:zu:{{ID}} 1 sidecar:b107:zs:{{ID}} WEIGHTS 2 AGGREGATE MAX
+ZRANGE-zu-b107|a\n2\nb\n4\nc\n6\nd\n8|ZRANGE sidecar:b107:zu:{{ID}} 0 -1 WITHSCORES
+ZPOPMAX-b107|d\n4|ZPOPMAX sidecar:b107:zs:{{ID}}
+ZCARD-b107zs|3|ZCARD sidecar:b107:zs:{{ID}}
+DEL-b107zs|2|DEL sidecar:b107:zs:{{ID}} sidecar:b107:zu:{{ID}}
+@DEL sidecar:b107:zi1:{{ID}}
+@DEL sidecar:b107:zi2:{{ID}}
+ZADD-b107zi1|3|ZADD sidecar:b107:zi1:{{ID}} 1 a 2 b 3 c
+ZADD-b107zi2|3|ZADD sidecar:b107:zi2:{{ID}} 5 b 1 c 9 d
+ZINTER-MIN-b107|c\n1\nb\n2|ZINTER 2 sidecar:b107:zi1:{{ID}} sidecar:b107:zi2:{{ID}} WEIGHTS 1 1 AGGREGATE MIN WITHSCORES
+ZINTERCARD-LIM-b107|1|ZINTERCARD 2 sidecar:b107:zi1:{{ID}} sidecar:b107:zi2:{{ID}} LIMIT 1
+ZDIFF-b107|a|ZDIFF 2 sidecar:b107:zi1:{{ID}} sidecar:b107:zi2:{{ID}}
+DEL-b107zi|2|DEL sidecar:b107:zi1:{{ID}} sidecar:b107:zi2:{{ID}}
+@DEL sidecar:b107:zp:{{ID}}
+ZADD-b107zp|3|ZADD sidecar:b107:zp:{{ID}} 1 a 2 b 3 c
+ZMPOP-MAX-b107|sidecar:b107:zp:{{ID}}\nc\n3|ZMPOP 1 sidecar:b107:zp:{{ID}} MAX COUNT 1
+BZPOPMIN-b107|sidecar:b107:zp:{{ID}}\na\n1|BZPOPMIN sidecar:b107:zp:{{ID}} 0
+ZCARD-b107zp|1|ZCARD sidecar:b107:zp:{{ID}}
+DEL-b107zp|1|DEL sidecar:b107:zp:{{ID}}
+@DEL sidecar:b107:b1:{{ID}}
+@DEL sidecar:b107:b2:{{ID}}
+@DEL sidecar:b107:bd1:{{ID}}
+@DEL sidecar:b107:bao:{{ID}}
+@DEL sidecar:b107:bf:{{ID}}
+SETBIT-b107b1a|0|SETBIT sidecar:b107:b1:{{ID}} 0 1
+SETBIT-b107b1b|0|SETBIT sidecar:b107:b1:{{ID}} 3 1
+SETBIT-b107b2a|0|SETBIT sidecar:b107:b2:{{ID}} 3 1
+SETBIT-b107b2b|0|SETBIT sidecar:b107:b2:{{ID}} 4 1
+BITOP-DIFF1-b107|1|BITOP DIFF1 sidecar:b107:bd1:{{ID}} sidecar:b107:b1:{{ID}} sidecar:b107:b2:{{ID}}
+BITCOUNT-DIFF1-b107|1|BITCOUNT sidecar:b107:bd1:{{ID}}
+GETBIT-DIFF1-b107|1|GETBIT sidecar:b107:bd1:{{ID}} 4
+BITOP-ANDOR-b107|1|BITOP ANDOR sidecar:b107:bao:{{ID}} sidecar:b107:b1:{{ID}} sidecar:b107:b2:{{ID}}
+BITCOUNT-ANDOR-b107|1|BITCOUNT sidecar:b107:bao:{{ID}}
+BITFIELD-WRAP-b107|-25536|BITFIELD sidecar:b107:bf:{{ID}} OVERFLOW WRAP INCRBY i16 0 40000
+DEL-b107bit|5|DEL sidecar:b107:b1:{{ID}} sidecar:b107:b2:{{ID}} sidecar:b107:bd1:{{ID}} sidecar:b107:bao:{{ID}} sidecar:b107:bf:{{ID}}
+@DEL sidecar:b107:st:{{ID}}
+@DEL sidecar:b107:n:{{ID}}
+@DEL sidecar:b107:ex:{{ID}}
+SET-NX-GET-b107|$-1|SET sidecar:b107:st:{{ID}} hello NX GET
+GETEX-PX-b107|hello|GETEX sidecar:b107:st:{{ID}} PX 5000
+PTTL-b107|<=5000|PTTL sidecar:b107:st:{{ID}}
+PTTL-b107b|>=1|PTTL sidecar:b107:st:{{ID}}
+GETSET-b107|hello|GETSET sidecar:b107:st:{{ID}} world
+SETRANGE-b107|5|SETRANGE sidecar:b107:st:{{ID}} 0 Wo
+GETRANGE-b107|Wo|GETRANGE sidecar:b107:st:{{ID}} 0 1
+SUBSTR-b107|ld|SUBSTR sidecar:b107:st:{{ID}} -2 -1
+APPEND-b107|6|APPEND sidecar:b107:st:{{ID}} !
+GET-b107app|World!|GET sidecar:b107:st:{{ID}}
+DECRBY-b107|-3|DECRBY sidecar:b107:n:{{ID}} 3
+INCR-b107|-2|INCR sidecar:b107:n:{{ID}}
+INCRBYFLOAT-b107|-1.5|INCRBYFLOAT sidecar:b107:n:{{ID}} 0.5
+MGET-b107|World!\n$-1\n-1.5|MGET sidecar:b107:st:{{ID}} sidecar:b107:missing:{{ID}} sidecar:b107:n:{{ID}}
+SET-EX-b107|OK|SET sidecar:b107:ex:{{ID}} v EX 100
+EXPIRE-XX-b107|1|EXPIRE sidecar:b107:ex:{{ID}} 50 XX
+TTL-b107|<=50|TTL sidecar:b107:ex:{{ID}}
+TTL-b107b|>=1|TTL sidecar:b107:ex:{{ID}}
+SET-XX-GET-b107|v|SET sidecar:b107:ex:{{ID}} w XX GET
+GETDEL-b107|w|GETDEL sidecar:b107:ex:{{ID}}
+DEL-b107str|2|DEL sidecar:b107:st:{{ID}} sidecar:b107:n:{{ID}}
+@DEL sidecar:b107:h:{{ID}}
+HSET-b107|2|HSET sidecar:b107:h:{{ID}} f1 v1 f2 20
+HSETNX-exist-b107|0|HSETNX sidecar:b107:h:{{ID}} f1 x
+HSETNX-b107|1|HSETNX sidecar:b107:h:{{ID}} f3 v3
+HGETEX-b107|v1|HGETEX sidecar:b107:h:{{ID}} EX 40 FIELDS 1 f1
+HTTL-b107|<=40|HTTL sidecar:b107:h:{{ID}} FIELDS 1 f1
+HTTL-b107b|>=1|HTTL sidecar:b107:h:{{ID}} FIELDS 1 f1
+HEXPIRE-XX-b107|1|HEXPIRE sidecar:b107:h:{{ID}} 80 XX FIELDS 1 f1
+HGETEX-PERSIST-b107|v1|HGETEX sidecar:b107:h:{{ID}} PERSIST FIELDS 1 f1
+HTTL-persist-b107|-1|HTTL sidecar:b107:h:{{ID}} FIELDS 1 f1
+HINCRBY-b107|25|HINCRBY sidecar:b107:h:{{ID}} f2 5
+HINCRBYFLOAT-b107|25.5|HINCRBYFLOAT sidecar:b107:h:{{ID}} f2 0.5
+HMGET-b107|v1\n$-1\n25.5|HMGET sidecar:b107:h:{{ID}} f1 miss f2
+HGETDEL-b107|v3|HGETDEL sidecar:b107:h:{{ID}} FIELDS 1 f3
+DEL-b107h|1|DEL sidecar:b107:h:{{ID}}
+@DEL sidecar:b107:sa:{{ID}}
+@DEL sidecar:b107:sb:{{ID}}
+@DEL sidecar:b107:sd:{{ID}}
+@DEL sidecar:b107:sp:{{ID}}
+SADD-sa-b107|3|SADD sidecar:b107:sa:{{ID}} a b c
+SADD-sb-b107|3|SADD sidecar:b107:sb:{{ID}} b c d
+SDIFFSTORE-b107|1|SDIFFSTORE sidecar:b107:sd:{{ID}} sidecar:b107:sa:{{ID}} sidecar:b107:sb:{{ID}}
+SINTERCARD-LIM-b107|1|SINTERCARD 2 sidecar:b107:sa:{{ID}} sidecar:b107:sb:{{ID}} LIMIT 1
+SMOVE-b107|1|SMOVE sidecar:b107:sa:{{ID}} sidecar:b107:sb:{{ID}} a
+SMISMEMBER-b107|1\n0\n1|SMISMEMBER sidecar:b107:sb:{{ID}} a z b
+SADD-sp-b107|1|SADD sidecar:b107:sp:{{ID}} only
+SPOP-b107|only|SPOP sidecar:b107:sp:{{ID}}
+SPOP-miss-b107|$-1|SPOP sidecar:b107:sp:{{ID}}
+SRANDMEMBER-miss-b107|$-1|SRANDMEMBER sidecar:b107:sp:{{ID}}
+SADD-sp2-b107|1|SADD sidecar:b107:sp:{{ID}} only
+SRANDMEMBER-b107|only|SRANDMEMBER sidecar:b107:sp:{{ID}}
+DEL-b107s|4|DEL sidecar:b107:sa:{{ID}} sidecar:b107:sb:{{ID}} sidecar:b107:sd:{{ID}} sidecar:b107:sp:{{ID}}
+@DEL sidecar:b107:x:{{ID}}
+XADD-b107a|1-0|XADD sidecar:b107:x:{{ID}} 1-0 k v
+XADD-b107b|2-0|XADD sidecar:b107:x:{{ID}} 2-0 k w
+XADD-b107c|3-0|XADD sidecar:b107:x:{{ID}} 3-0 k x
+XTRIM-MINID-b107|1|XTRIM sidecar:b107:x:{{ID}} MINID 2-0
+XLEN-b107|2|XLEN sidecar:b107:x:{{ID}}
+XRANGE-b107|2-0\nk\nw|XRANGE sidecar:b107:x:{{ID}} - + COUNT 1
+XREVRANGE-b107|3-0\nk\nx|XREVRANGE sidecar:b107:x:{{ID}} + - COUNT 1
+XDEL-b107|1|XDEL sidecar:b107:x:{{ID}} 2-0
+DEL-b107x|1|DEL sidecar:b107:x:{{ID}}
+@DEL sidecar:b107:g:{{ID}}
+GEOADD-b107|1|GEOADD sidecar:b107:g:{{ID}} 13.361389 38.115556 Palermo
+GEOSEARCH-b107|Palermo|GEOSEARCH sidecar:b107:g:{{ID}} FROMMEMBER Palermo BYRADIUS 1 km ASC COUNT 1
+DEL-b107g|1|DEL sidecar:b107:g:{{ID}}
+@DEL sidecar:b107:p1:{{ID}}
+@DEL sidecar:b107:p2:{{ID}}
+@DEL sidecar:b107:pm:{{ID}}
+PFADD-p1-b107|1|PFADD sidecar:b107:p1:{{ID}} a
+PFADD-p2-b107|1|PFADD sidecar:b107:p2:{{ID}} a b
+PFMERGE-b107|OK|PFMERGE sidecar:b107:pm:{{ID}} sidecar:b107:p1:{{ID}} sidecar:b107:p2:{{ID}}
+PFCOUNT-b107|2|PFCOUNT sidecar:b107:pm:{{ID}}
+DEL-b107pf|3|DEL sidecar:b107:p1:{{ID}} sidecar:b107:p2:{{ID}} sidecar:b107:pm:{{ID}}
+@DEL sidecar:b107:c1:{{ID}}
+@DEL sidecar:b107:c2:{{ID}}
+@DEL sidecar:b107:lcs1:{{ID}}
+@DEL sidecar:b107:lcs2:{{ID}}
+@DEL sidecar:b107:sort:{{ID}}
+@DEL sidecar:b107:zr:{{ID}}
+SET-c1-b107|OK|SET sidecar:b107:c1:{{ID}} hello
+COPY-b107|1|COPY sidecar:b107:c1:{{ID}} sidecar:b107:c2:{{ID}}
+GET-c2-b107|hello|GET sidecar:b107:c2:{{ID}}
+RENAMENX-b107|1|RENAMENX sidecar:b107:c2:{{ID}} sidecar:b107:c3:{{ID}}
+MOVE-b107|1|MOVE sidecar:b107:c3:{{ID}} 1
+EXISTS-moved-b107|0|EXISTS sidecar:b107:c3:{{ID}}
+SET-lcs1-b107|OK|SET sidecar:b107:lcs1:{{ID}} abcdef
+SET-lcs2-b107|OK|SET sidecar:b107:lcs2:{{ID}} abcdxy
+LCS-b107|abcd|LCS sidecar:b107:lcs1:{{ID}} sidecar:b107:lcs2:{{ID}}
+LCS-LEN-b107|4|LCS sidecar:b107:lcs1:{{ID}} sidecar:b107:lcs2:{{ID}} LEN
+RPUSH-sort-b107|3|RPUSH sidecar:b107:sort:{{ID}} c a b
+SORT-DESC-b107|c\nb\na|SORT sidecar:b107:sort:{{ID}} ALPHA DESC
+ZADD-zr-b107|1|ZADD sidecar:b107:zr:{{ID}} 1 only
+ZRANDMEMBER-b107|only|ZRANDMEMBER sidecar:b107:zr:{{ID}}
+DEL-b107misc|5|DEL sidecar:b107:c1:{{ID}} sidecar:b107:lcs1:{{ID}} sidecar:b107:lcs2:{{ID}} sidecar:b107:sort:{{ID}} sidecar:b107:zr:{{ID}}
+PING-b107|p107|PING p107
+ECHO-b107|batch107|ECHO batch107
+TYPE-miss-b107|none|TYPE sidecar:b107:miss:{{ID}}
+EXISTS-miss-b107|0|EXISTS sidecar:b107:miss:{{ID}}
+DBSIZE-b107|>=0|DBSIZE
+
 # --- cleanup string / incr keys ---
 DEL|1|DEL sidecar:allowlist:{{ID}}
 EXISTS-after-del|0|EXISTS sidecar:allowlist:{{ID}}
