@@ -10,7 +10,7 @@ import (
 )
 
 // Batch 144 R4-1 extras: LPOP COUNT 2, LMOVE RIGHT LEFT, LINSERT BEFORE,
-// LPOS COUNT 0 / RANK -1 / COUNT RANK 1, LMPOP LEFT COUNT 1, BLMOVE LEFT RIGHT,
+// LPOS COUNT 0 / RANK -1 / COUNT RANK 2, LMPOP LEFT COUNT 1, BLMOVE LEFT RIGHT,
 // LSET/LREM/LTRIM/LPUSHX, ZRANGE BYSCORE LIMIT WS, ZRANGESTORE BYSCORE,
 // ZREVRANGEBYSCORE, ZPOPMAX, ZUNIONSTORE MIN WEIGHTS, ZRANGE BYLEX,
 // ZREVRANGEBYLEX, ZREMRANGEBYLEX, ZINTER MAX WS, ZINTERSTORE MAX, ZDIFF WS,
@@ -21,36 +21,36 @@ import (
 func TestR41Batch144Extras(t *testing.T) {
 	db := makeTestDB()
 
-	asserts.AssertIntReply(t, db.Exec(nil, utils.ToCmdLine("RPUSH", "b144l", "11", "22", "33", "44", "55", "66", "77", "88")), 8)
-	asserts.AssertMultiBulkReply(t, db.Exec(nil, utils.ToCmdLine("LPOP", "b144l", "2")), []string{"11", "22"})
-	asserts.AssertMultiBulkReply(t, db.Exec(nil, utils.ToCmdLine("LRANGE", "b144l", "0", "-1")), []string{"33", "44", "55", "66", "77", "88"})
-	asserts.AssertBulkReply(t, db.Exec(nil, utils.ToCmdLine("LMOVE", "b144l", "b144l2", "RIGHT", "LEFT")), "88")
-	asserts.AssertMultiBulkReply(t, db.Exec(nil, utils.ToCmdLine("LRANGE", "b144l", "0", "-1")), []string{"33", "44", "55", "66", "77"})
-	asserts.AssertMultiBulkReply(t, db.Exec(nil, utils.ToCmdLine("LRANGE", "b144l2", "0", "-1")), []string{"88"})
+	asserts.AssertIntReply(t, db.Exec(nil, utils.ToCmdLine("RPUSH", "b144l", "11", "21", "31", "41", "51", "61", "71")), 7)
+	asserts.AssertMultiBulkReply(t, db.Exec(nil, utils.ToCmdLine("LPOP", "b144l", "2")), []string{"11", "21"})
+	asserts.AssertMultiBulkReply(t, db.Exec(nil, utils.ToCmdLine("LRANGE", "b144l", "0", "-1")), []string{"31", "41", "51", "61", "71"})
+	asserts.AssertBulkReply(t, db.Exec(nil, utils.ToCmdLine("LMOVE", "b144l", "b144l2", "RIGHT", "LEFT")), "71")
+	asserts.AssertMultiBulkReply(t, db.Exec(nil, utils.ToCmdLine("LRANGE", "b144l", "0", "-1")), []string{"31", "41", "51", "61"})
+	asserts.AssertMultiBulkReply(t, db.Exec(nil, utils.ToCmdLine("LRANGE", "b144l2", "0", "-1")), []string{"71"})
 
-	asserts.AssertIntReply(t, db.Exec(nil, utils.ToCmdLine("RPUSH", "b144ins", "start", "end")), 2)
-	asserts.AssertIntReply(t, db.Exec(nil, utils.ToCmdLine("LINSERT", "b144ins", "BEFORE", "end", "mid")), 3)
-	asserts.AssertMultiBulkReply(t, db.Exec(nil, utils.ToCmdLine("LRANGE", "b144ins", "0", "-1")), []string{"start", "mid", "end"})
+	asserts.AssertIntReply(t, db.Exec(nil, utils.ToCmdLine("RPUSH", "b144ins", "head", "tail")), 2)
+	asserts.AssertIntReply(t, db.Exec(nil, utils.ToCmdLine("LINSERT", "b144ins", "BEFORE", "tail", "body")), 3)
+	asserts.AssertMultiBulkReply(t, db.Exec(nil, utils.ToCmdLine("LRANGE", "b144ins", "0", "-1")), []string{"head", "body", "tail"})
 
-	asserts.AssertIntReply(t, db.Exec(nil, utils.ToCmdLine("RPUSH", "b144lp", "k", "m", "k", "m", "k", "m")), 6)
-	asserts.AssertMultiBulkReply(t, db.Exec(nil, utils.ToCmdLine("LPOS", "b144lp", "k", "COUNT", "0")), []string{"0", "2", "4"})
-	asserts.AssertIntReply(t, db.Exec(nil, utils.ToCmdLine("LPOS", "b144lp", "k", "RANK", "-1")), 4)
-	asserts.AssertMultiBulkReply(t, db.Exec(nil, utils.ToCmdLine("LPOS", "b144lp", "k", "COUNT", "2", "RANK", "1")), []string{"0", "2"})
+	asserts.AssertIntReply(t, db.Exec(nil, utils.ToCmdLine("RPUSH", "b144lp", "m", "n", "m", "n", "m")), 5)
+	asserts.AssertMultiBulkReply(t, db.Exec(nil, utils.ToCmdLine("LPOS", "b144lp", "m", "COUNT", "0")), []string{"0", "2", "4"})
+	asserts.AssertIntReply(t, db.Exec(nil, utils.ToCmdLine("LPOS", "b144lp", "m", "RANK", "-1")), 4)
+	asserts.AssertMultiBulkReply(t, db.Exec(nil, utils.ToCmdLine("LPOS", "b144lp", "m", "COUNT", "1", "RANK", "2")), []string{"2"})
 
-	asserts.AssertIntReply(t, db.Exec(nil, utils.ToCmdLine("RPUSH", "b144lmp", "aa", "bb", "cc", "dd")), 4)
+	asserts.AssertIntReply(t, db.Exec(nil, utils.ToCmdLine("RPUSH", "b144lmp", "a1", "a2", "a3", "a4")), 4)
 	lmp := db.Exec(nil, utils.ToCmdLine("LMPOP", "1", "b144lmp", "LEFT", "COUNT", "1"))
-	if protocol.IsErrorReply(lmp) || !strings.Contains(string(lmp.ToBytes()), "aa") {
+	if protocol.IsErrorReply(lmp) || !strings.Contains(string(lmp.ToBytes()), "a1") {
 		t.Fatalf("LMPOP LEFT COUNT 1: %s", lmp.ToBytes())
 	}
 	asserts.AssertIntReply(t, db.Exec(nil, utils.ToCmdLine("LLEN", "b144lmp")), 3)
 
-	asserts.AssertIntReply(t, db.Exec(nil, utils.ToCmdLine("RPUSH", "b144bl", "one", "two", "three")), 3)
+	asserts.AssertIntReply(t, db.Exec(nil, utils.ToCmdLine("RPUSH", "b144bl", "in", "out", "hold")), 3)
 	bl := db.Exec(nil, utils.ToCmdLine("BLMOVE", "b144bl", "b144bld", "LEFT", "RIGHT", "0"))
-	if protocol.IsErrorReply(bl) || !strings.Contains(string(bl.ToBytes()), "one") {
+	if protocol.IsErrorReply(bl) || !strings.Contains(string(bl.ToBytes()), "in") {
 		t.Fatalf("BLMOVE LEFT RIGHT: %s", bl.ToBytes())
 	}
-	asserts.AssertMultiBulkReply(t, db.Exec(nil, utils.ToCmdLine("LRANGE", "b144bl", "0", "-1")), []string{"two", "three"})
-	asserts.AssertMultiBulkReply(t, db.Exec(nil, utils.ToCmdLine("LRANGE", "b144bld", "0", "-1")), []string{"one"})
+	asserts.AssertMultiBulkReply(t, db.Exec(nil, utils.ToCmdLine("LRANGE", "b144bl", "0", "-1")), []string{"out", "hold"})
+	asserts.AssertMultiBulkReply(t, db.Exec(nil, utils.ToCmdLine("LRANGE", "b144bld", "0", "-1")), []string{"in"})
 
 	asserts.AssertIntReply(t, db.Exec(nil, utils.ToCmdLine("RPUSH", "b144lt", "p", "q", "r", "s", "t")), 5)
 	asserts.AssertStatusReply(t, db.Exec(nil, utils.ToCmdLine("LSET", "b144lt", "1", "Q")), "OK")
@@ -58,50 +58,50 @@ func TestR41Batch144Extras(t *testing.T) {
 	asserts.AssertStatusReply(t, db.Exec(nil, utils.ToCmdLine("LTRIM", "b144lt", "0", "2")), "OK")
 	asserts.AssertMultiBulkReply(t, db.Exec(nil, utils.ToCmdLine("LRANGE", "b144lt", "0", "-1")), []string{"p", "Q", "s"})
 	asserts.AssertIntReply(t, db.Exec(nil, utils.ToCmdLine("LPUSHX", "b144lx", "v")), 0)
-	asserts.AssertIntReply(t, db.Exec(nil, utils.ToCmdLine("RPUSH", "b144lx", "a")), 1)
-	asserts.AssertIntReply(t, db.Exec(nil, utils.ToCmdLine("LPUSHX", "b144lx", "b")), 2)
+	asserts.AssertIntReply(t, db.Exec(nil, utils.ToCmdLine("RPUSH", "b144lx", "b")), 1)
+	asserts.AssertIntReply(t, db.Exec(nil, utils.ToCmdLine("LPUSHX", "b144lx", "a")), 2)
 	asserts.AssertIntReply(t, db.Exec(nil, utils.ToCmdLine("RPUSHX", "b144lx", "c")), 3)
-	asserts.AssertMultiBulkReply(t, db.Exec(nil, utils.ToCmdLine("LRANGE", "b144lx", "0", "-1")), []string{"b", "a", "c"})
+	asserts.AssertMultiBulkReply(t, db.Exec(nil, utils.ToCmdLine("LRANGE", "b144lx", "0", "-1")), []string{"a", "b", "c"})
 
-	asserts.AssertIntReply(t, db.Exec(nil, utils.ToCmdLine("ZADD", "b144zs", "5", "a", "10", "b", "15", "c", "20", "d", "25", "e")), 5)
-	asserts.AssertMultiBulkReply(t, db.Exec(nil, utils.ToCmdLine("ZRANGE", "b144zs", "10", "20", "BYSCORE", "WITHSCORES", "LIMIT", "1", "2")),
-		[]string{"c", "15", "d", "20"})
-	asserts.AssertIntReply(t, db.Exec(nil, utils.ToCmdLine("ZRANGESTORE", "b144zrs", "b144zs", "10", "25", "BYSCORE")), 4)
+	asserts.AssertIntReply(t, db.Exec(nil, utils.ToCmdLine("ZADD", "b144zs", "9", "a", "14", "b", "19", "c", "24", "d", "29", "e")), 5)
+	asserts.AssertMultiBulkReply(t, db.Exec(nil, utils.ToCmdLine("ZRANGE", "b144zs", "14", "24", "BYSCORE", "WITHSCORES", "LIMIT", "0", "2")),
+		[]string{"b", "14", "c", "19"})
+	asserts.AssertIntReply(t, db.Exec(nil, utils.ToCmdLine("ZRANGESTORE", "b144zrs", "b144zs", "14", "29", "BYSCORE")), 4)
 	asserts.AssertMultiBulkReply(t, db.Exec(nil, utils.ToCmdLine("ZRANGE", "b144zrs", "0", "-1")), []string{"b", "c", "d", "e"})
-	asserts.AssertMultiBulkReply(t, db.Exec(nil, utils.ToCmdLine("ZREVRANGEBYSCORE", "b144zs", "20", "10", "WITHSCORES", "LIMIT", "0", "2")),
-		[]string{"d", "20", "c", "15"})
-	asserts.AssertMultiBulkReply(t, db.Exec(nil, utils.ToCmdLine("ZPOPMAX", "b144zs")), []string{"e", "25"})
+	asserts.AssertMultiBulkReply(t, db.Exec(nil, utils.ToCmdLine("ZREVRANGEBYSCORE", "b144zs", "24", "14", "WITHSCORES", "LIMIT", "1", "2")),
+		[]string{"c", "19", "b", "14"})
+	asserts.AssertMultiBulkReply(t, db.Exec(nil, utils.ToCmdLine("ZPOPMAX", "b144zs")), []string{"e", "29"})
 	asserts.AssertIntReply(t, db.Exec(nil, utils.ToCmdLine("ZUNIONSTORE", "b144zu", "1", "b144zs", "WEIGHTS", "4", "AGGREGATE", "MIN")), 4)
 	asserts.AssertMultiBulkReply(t, db.Exec(nil, utils.ToCmdLine("ZRANGE", "b144zu", "0", "-1", "WITHSCORES")),
-		[]string{"a", "20", "b", "40", "c", "60", "d", "80"})
+		[]string{"a", "36", "b", "56", "c", "76", "d", "96"})
 
-	asserts.AssertIntReply(t, db.Exec(nil, utils.ToCmdLine("ZADD", "b144zlex", "0", "a", "0", "b", "0", "c", "0", "d")), 4)
-	asserts.AssertMultiBulkReply(t, db.Exec(nil, utils.ToCmdLine("ZRANGE", "b144zlex", "[a", "(d", "BYLEX")), []string{"a", "b", "c"})
-	asserts.AssertIntReply(t, db.Exec(nil, utils.ToCmdLine("ZRANGESTORE", "b144zrs2", "b144zlex", "[b", "(d", "BYLEX")), 2)
-	asserts.AssertMultiBulkReply(t, db.Exec(nil, utils.ToCmdLine("ZRANGE", "b144zrs2", "0", "-1")), []string{"b", "c"})
-	asserts.AssertMultiBulkReply(t, db.Exec(nil, utils.ToCmdLine("ZREVRANGEBYLEX", "b144zlex", "(d", "[b")), []string{"c", "b"})
-	asserts.AssertIntReply(t, db.Exec(nil, utils.ToCmdLine("ZREMRANGEBYLEX", "b144zlex", "[a", "(c")), 2)
-	asserts.AssertMultiBulkReply(t, db.Exec(nil, utils.ToCmdLine("ZRANGE", "b144zlex", "0", "-1")), []string{"c", "d"})
+	asserts.AssertIntReply(t, db.Exec(nil, utils.ToCmdLine("ZADD", "b144zlex", "0", "i", "0", "j", "0", "k", "0", "l")), 4)
+	asserts.AssertMultiBulkReply(t, db.Exec(nil, utils.ToCmdLine("ZRANGE", "b144zlex", "[i", "(l", "BYLEX")), []string{"i", "j", "k"})
+	asserts.AssertIntReply(t, db.Exec(nil, utils.ToCmdLine("ZRANGESTORE", "b144zrs2", "b144zlex", "[j", "(l", "BYLEX")), 2)
+	asserts.AssertMultiBulkReply(t, db.Exec(nil, utils.ToCmdLine("ZRANGE", "b144zrs2", "0", "-1")), []string{"j", "k"})
+	asserts.AssertMultiBulkReply(t, db.Exec(nil, utils.ToCmdLine("ZREVRANGEBYLEX", "b144zlex", "(l", "[j")), []string{"k", "j"})
+	asserts.AssertIntReply(t, db.Exec(nil, utils.ToCmdLine("ZREMRANGEBYLEX", "b144zlex", "[i", "(k")), 2)
+	asserts.AssertMultiBulkReply(t, db.Exec(nil, utils.ToCmdLine("ZRANGE", "b144zlex", "0", "-1")), []string{"k", "l"})
 
-	asserts.AssertIntReply(t, db.Exec(nil, utils.ToCmdLine("ZADD", "b144z1", "15", "a", "24", "b", "8", "c")), 3)
-	asserts.AssertIntReply(t, db.Exec(nil, utils.ToCmdLine("ZADD", "b144z2", "6", "b", "4", "c", "20", "d")), 3)
+	asserts.AssertIntReply(t, db.Exec(nil, utils.ToCmdLine("ZADD", "b144z1", "15", "a", "21", "b", "10", "c")), 3)
+	asserts.AssertIntReply(t, db.Exec(nil, utils.ToCmdLine("ZADD", "b144z2", "11", "b", "4", "c", "17", "d")), 3)
 	zi := db.Exec(nil, utils.ToCmdLine("ZINTER", "2", "b144z1", "b144z2", "WEIGHTS", "1", "1", "AGGREGATE", "MAX", "WITHSCORES"))
 	if protocol.IsErrorReply(zi) || !strings.Contains(string(zi.ToBytes()), "c") {
 		t.Fatalf("ZINTER MAX: %s", zi.ToBytes())
 	}
 	asserts.AssertIntReply(t, db.Exec(nil, utils.ToCmdLine("ZINTERSTORE", "b144zi", "2", "b144z1", "b144z2", "WEIGHTS", "4", "1", "AGGREGATE", "MAX")), 2)
 	asserts.AssertMultiBulkReply(t, db.Exec(nil, utils.ToCmdLine("ZRANGE", "b144zi", "0", "-1", "WITHSCORES")),
-		[]string{"c", "32", "b", "96"})
+		[]string{"c", "40", "b", "84"})
 	asserts.AssertIntReply(t, db.Exec(nil, utils.ToCmdLine("ZINTERCARD", "2", "b144z1", "b144z2")), 2)
 
-	asserts.AssertIntReply(t, db.Exec(nil, utils.ToCmdLine("ZADD", "b144zm", "7", "a", "21", "k", "13", "b")), 3)
+	asserts.AssertIntReply(t, db.Exec(nil, utils.ToCmdLine("ZADD", "b144zm", "5", "a", "21", "k", "14", "b")), 3)
 	zmp := db.Exec(nil, utils.ToCmdLine("ZMPOP", "1", "b144zm", "MIN", "COUNT", "1"))
 	if protocol.IsErrorReply(zmp) || !strings.Contains(string(zmp.ToBytes()), "a") {
 		t.Fatalf("ZMPOP MIN: %s", zmp.ToBytes())
 	}
 	asserts.AssertIntReply(t, db.Exec(nil, utils.ToCmdLine("ZADD", "b144zm", "GT", "50", "k")), 0)
-	asserts.AssertIntReply(t, db.Exec(nil, utils.ToCmdLine("ZADD", "b144zm", "LT", "2", "b")), 0)
-	asserts.AssertBulkReply(t, db.Exec(nil, utils.ToCmdLine("ZADD", "b144zm", "INCR", "1.5", "b")), "3.5")
+	asserts.AssertIntReply(t, db.Exec(nil, utils.ToCmdLine("ZADD", "b144zm", "LT", "4", "b")), 0)
+	asserts.AssertBulkReply(t, db.Exec(nil, utils.ToCmdLine("ZADD", "b144zm", "INCR", "1.5", "b")), "5.5")
 	asserts.AssertBulkReply(t, db.Exec(nil, utils.ToCmdLine("ZSCORE", "b144zm", "k")), "50")
 
 	asserts.AssertIntReply(t, db.Exec(nil, utils.ToCmdLine("SETBIT", "b144b1", "1", "1")), 0)
@@ -113,18 +113,18 @@ func TestR41Batch144Extras(t *testing.T) {
 	asserts.AssertIntReply(t, db.Exec(nil, utils.ToCmdLine("BITCOUNT", "b144bx")), 1)
 	asserts.AssertIntReply(t, db.Exec(nil, utils.ToCmdLine("BITOP", "DIFF", "b144bd", "b144b2", "b144b1")), 1)
 	asserts.AssertIntReply(t, db.Exec(nil, utils.ToCmdLine("BITCOUNT", "b144bd")), 1)
-	bf := db.Exec(nil, utils.ToCmdLine("BITFIELD", "b144bf", "SET", "u8", "0", "72"))
+	bf := db.Exec(nil, utils.ToCmdLine("BITFIELD", "b144bf", "SET", "u8", "0", "77"))
 	if protocol.IsErrorReply(bf) || !strings.Contains(string(bf.ToBytes()), "0") {
 		t.Fatalf("BITFIELD SET u8: %s", bf.ToBytes())
 	}
 
-	asserts.AssertStatusReply(t, db.Exec(nil, utils.ToCmdLine("SET", "b144st", "v", "EX", "85")), "OK")
-	asserts.AssertBulkReply(t, db.Exec(nil, utils.ToCmdLine("GETEX", "b144st", "EX", "105")), "v")
+	asserts.AssertStatusReply(t, db.Exec(nil, utils.ToCmdLine("SET", "b144st", "v", "EX", "70")), "OK")
+	asserts.AssertBulkReply(t, db.Exec(nil, utils.ToCmdLine("GETEX", "b144st", "EX", "88")), "v")
 	asserts.AssertBulkReply(t, db.Exec(nil, utils.ToCmdLine("GETEX", "b144st", "PERSIST")), "v")
 	asserts.AssertIntReply(t, db.Exec(nil, utils.ToCmdLine("TTL", "b144st")), -1)
 
-	asserts.AssertIntReply(t, db.Exec(nil, utils.ToCmdLine("HSET", "b144h", "f1", "jj", "f2", "26", "f3", "kk")), 3)
-	hnx := db.Exec(nil, utils.ToCmdLine("HEXPIRE", "b144h", "70", "NX", "FIELDS", "1", "f1"))
+	asserts.AssertIntReply(t, db.Exec(nil, utils.ToCmdLine("HSET", "b144h", "f1", "aa", "f2", "17", "f3", "bb")), 3)
+	hnx := db.Exec(nil, utils.ToCmdLine("HEXPIRE", "b144h", "50", "NX", "FIELDS", "1", "f1"))
 	if protocol.IsErrorReply(hnx) || !strings.Contains(string(hnx.ToBytes()), "1") {
 		t.Fatalf("HEXPIRE NX: %s", hnx.ToBytes())
 	}
@@ -140,11 +140,11 @@ func TestR41Batch144Extras(t *testing.T) {
 	if protocol.IsErrorReply(hlt) || !strings.Contains(string(hlt.ToBytes()), "1") {
 		t.Fatalf("HEXPIRE LT: %s", hlt.ToBytes())
 	}
-	he := db.Exec(nil, utils.ToCmdLine("HGETEX", "b144h", "EX", "45", "FIELDS", "1", "f2"))
-	if protocol.IsErrorReply(he) || !strings.Contains(string(he.ToBytes()), "26") {
+	he := db.Exec(nil, utils.ToCmdLine("HGETEX", "b144h", "EX", "35", "FIELDS", "1", "f2"))
+	if protocol.IsErrorReply(he) || !strings.Contains(string(he.ToBytes()), "17") {
 		t.Fatalf("HGETEX EX: %s", he.ToBytes())
 	}
-	asserts.AssertIntReply(t, db.Exec(nil, utils.ToCmdLine("HINCRBY", "b144h", "f2", "6")), 32)
+	asserts.AssertIntReply(t, db.Exec(nil, utils.ToCmdLine("HINCRBY", "b144h", "f2", "6")), 23)
 	asserts.AssertIntReply(t, db.Exec(nil, utils.ToCmdLine("HLEN", "b144h")), 3)
 
 	asserts.AssertIntReply(t, db.Exec(nil, utils.ToCmdLine("SADD", "b144sa", "g", "h", "i")), 3)
@@ -156,9 +156,9 @@ func TestR41Batch144Extras(t *testing.T) {
 	asserts.AssertBulkReply(t, db.Exec(nil, utils.ToCmdLine("SRANDMEMBER", "b144sp")), "only")
 	asserts.AssertBulkReply(t, db.Exec(nil, utils.ToCmdLine("SPOP", "b144sp")), "only")
 
-	asserts.AssertBulkReply(t, db.Exec(nil, utils.ToCmdLine("XADD", "b144x", "18-0", "k", "v")), "18-0")
-	asserts.AssertBulkReply(t, db.Exec(nil, utils.ToCmdLine("XADD", "b144x", "28-0", "k", "w")), "28-0")
-	asserts.AssertBulkReply(t, db.Exec(nil, utils.ToCmdLine("XADD", "b144x", "38-0", "k", "x")), "38-0")
+	asserts.AssertBulkReply(t, db.Exec(nil, utils.ToCmdLine("XADD", "b144x", "14-0", "k", "v")), "14-0")
+	asserts.AssertBulkReply(t, db.Exec(nil, utils.ToCmdLine("XADD", "b144x", "24-0", "k", "w")), "24-0")
+	asserts.AssertBulkReply(t, db.Exec(nil, utils.ToCmdLine("XADD", "b144x", "34-0", "k", "x")), "34-0")
 	asserts.AssertIntReply(t, db.Exec(nil, utils.ToCmdLine("XTRIM", "b144x", "MAXLEN", "2")), 1)
 	asserts.AssertIntReply(t, db.Exec(nil, utils.ToCmdLine("XLEN", "b144x")), 2)
 
@@ -168,11 +168,11 @@ func TestR41Batch144Extras(t *testing.T) {
 		t.Fatalf("GEOSEARCH BYBOX: %s", gs.ToBytes())
 	}
 
-	asserts.AssertStatusReply(t, db.Exec(nil, utils.ToCmdLine("SET", "b144s1", "landscape")), "OK")
-	asserts.AssertStatusReply(t, db.Exec(nil, utils.ToCmdLine("SET", "b144s2", "scape")), "OK")
-	asserts.AssertBulkReply(t, db.Exec(nil, utils.ToCmdLine("LCS", "b144s1", "b144s2")), "scape")
+	asserts.AssertStatusReply(t, db.Exec(nil, utils.ToCmdLine("SET", "b144s1", "keyboard")), "OK")
+	asserts.AssertStatusReply(t, db.Exec(nil, utils.ToCmdLine("SET", "b144s2", "board")), "OK")
+	asserts.AssertBulkReply(t, db.Exec(nil, utils.ToCmdLine("LCS", "b144s1", "b144s2")), "board")
 	asserts.AssertIntReply(t, db.Exec(nil, utils.ToCmdLine("LCS", "b144s1", "b144s2", "LEN")), 5)
-	asserts.AssertIntReply(t, db.Exec(nil, utils.ToCmdLine("RPUSH", "b144sort", "21", "6", "18", "9", "14")), 5)
+	asserts.AssertIntReply(t, db.Exec(nil, utils.ToCmdLine("RPUSH", "b144sort", "18", "5", "22", "9", "14")), 5)
 	asserts.AssertMultiBulkReply(t, db.Exec(nil, utils.ToCmdLine("SORT", "b144sort", "DESC", "LIMIT", "1", "2")), []string{"18", "14"})
 	asserts.AssertIntReply(t, db.Exec(nil, utils.ToCmdLine("PFADD", "b144p1", "e")), 1)
 	asserts.AssertIntReply(t, db.Exec(nil, utils.ToCmdLine("PFADD", "b144p2", "f")), 1)
