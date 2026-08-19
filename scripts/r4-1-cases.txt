@@ -14325,6 +14325,216 @@ TYPE-miss-b155|none|TYPE sidecar:b155:miss:{{ID}}
 EXISTS-miss-b155|0|EXISTS sidecar:b155:miss:{{ID}}
 DBSIZE-b155|>=0|DBSIZE
 
+# --- batch 156 extras (LPOP COUNT 1/LMOVE RIGHT LEFT/LINSERT BEFORE/LPOS COUNT 0·RANK -1·COUNT RANK/LMPOP LEFT COUNT 2/BLMOVE LEFT RIGHT/LSET/LREM/LTRIM/LPUSHX; ZRANGE BYSCORE LIMIT WS/ZRANGESTORE BYSCORE/ZREVRANGEBYSCORE/ZPOPMAX/ZUNIONSTORE SUM WEIGHTS/ZRANGE BYLEX/ZREVRANGEBYLEX/ZREMRANGEBYLEX/ZINTER MIN WS/ZINTERSTORE MIN/ZDIFF WS/ZMPOP MIN/ZADD GT·LT·INCR; BITOP OR/XOR/ANDOR/BITFIELD SET u8; GETEX PX·PERSIST; HEXPIRE NX·GT·LT/HPEXPIRE GT 短于现 TTL→0/HGETEX PX·PERSIST; SDIFFSTORE/SINTERSTORE; XTRIM MAXLEN; GEOSEARCH BYBOX; SORT DESC LIMIT 1 2/LCS/PFMERGE) ---
+@DEL sidecar:b156:l:{{ID}}
+RPUSH-b156l|7|RPUSH sidecar:b156:l:{{ID}} copper tin zinc nickel cobalt chrome tungsten
+LPOP-COUNT-b156|copper|LPOP sidecar:b156:l:{{ID}} 1
+LRANGE-b156l|tin\nzinc\nnickel\ncobalt\nchrome\ntungsten|LRANGE sidecar:b156:l:{{ID}} 0 -1
+LMOVE-RL-b156|tungsten|LMOVE sidecar:b156:l:{{ID}} sidecar:b156:l2:{{ID}} RIGHT LEFT
+LRANGE-b156l-after|tin\nzinc\nnickel\ncobalt\nchrome|LRANGE sidecar:b156:l:{{ID}} 0 -1
+LRANGE-b156l2|tungsten|LRANGE sidecar:b156:l2:{{ID}} 0 -1
+TYPE-b156l|list|TYPE sidecar:b156:l:{{ID}}
+LLEN-b156l|5|LLEN sidecar:b156:l:{{ID}}
+LINDEX-b156|tin|LINDEX sidecar:b156:l:{{ID}} 0
+DEL-b156l|2|DEL sidecar:b156:l:{{ID}} sidecar:b156:l2:{{ID}}
+@DEL sidecar:b156:ins:{{ID}}
+RPUSH-b156ins|2|RPUSH sidecar:b156:ins:{{ID}} west east
+LINSERT-b156|3|LINSERT sidecar:b156:ins:{{ID}} BEFORE east mid
+LRANGE-b156ins|west\nmid\neast|LRANGE sidecar:b156:ins:{{ID}} 0 -1
+DEL-b156ins|1|DEL sidecar:b156:ins:{{ID}}
+@DEL sidecar:b156:lp:{{ID}}
+RPUSH-b156lp|6|RPUSH sidecar:b156:lp:{{ID}} a b a b a b
+LPOS-COUNT0-b156|0\n2\n4|LPOS sidecar:b156:lp:{{ID}} a COUNT 0
+LPOS-RANK-NEG-b156|4|LPOS sidecar:b156:lp:{{ID}} a RANK -1
+LPOS-COUNT-RANK-b156|0\n2|LPOS sidecar:b156:lp:{{ID}} a COUNT 2 RANK 1
+DEL-b156lp|1|DEL sidecar:b156:lp:{{ID}}
+@DEL sidecar:b156:lmp:{{ID}}
+RPUSH-b156lmp|5|RPUSH sidecar:b156:lmp:{{ID}} g h i j k
+LMPOP-b156|sidecar:b156:lmp:{{ID}}\ng\nh|LMPOP 1 sidecar:b156:lmp:{{ID}} LEFT COUNT 2
+LLEN-b156lmp|3|LLEN sidecar:b156:lmp:{{ID}}
+DEL-b156lmp|1|DEL sidecar:b156:lmp:{{ID}}
+@DEL sidecar:b156:bl:{{ID}}
+@DEL sidecar:b156:bld:{{ID}}
+RPUSH-b156bl|3|RPUSH sidecar:b156:bl:{{ID}} red green blue
+BLMOVE-LR-b156|red|BLMOVE sidecar:b156:bl:{{ID}} sidecar:b156:bld:{{ID}} LEFT RIGHT 0
+LRANGE-b156bl|green\nblue|LRANGE sidecar:b156:bl:{{ID}} 0 -1
+LRANGE-b156bld|red|LRANGE sidecar:b156:bld:{{ID}} 0 -1
+DEL-b156bl|2|DEL sidecar:b156:bl:{{ID}} sidecar:b156:bld:{{ID}}
+@DEL sidecar:b156:lt:{{ID}}
+RPUSH-b156lt|5|RPUSH sidecar:b156:lt:{{ID}} a b c d e
+LSET-b156|OK|LSET sidecar:b156:lt:{{ID}} 1 B
+LREM-b156|1|LREM sidecar:b156:lt:{{ID}} 1 d
+LTRIM-b156|OK|LTRIM sidecar:b156:lt:{{ID}} 0 2
+LRANGE-b156lt|a\nB\nc|LRANGE sidecar:b156:lt:{{ID}} 0 -1
+LPUSHX-miss-b156|0|LPUSHX sidecar:b156:lx:{{ID}} v
+RPUSH-lx-b156|1|RPUSH sidecar:b156:lx:{{ID}} m
+LPUSHX-hit-b156|2|LPUSHX sidecar:b156:lx:{{ID}} l
+RPUSHX-hit-b156|3|RPUSHX sidecar:b156:lx:{{ID}} n
+LRANGE-b156lx|l\nm\nn|LRANGE sidecar:b156:lx:{{ID}} 0 -1
+DEL-b156lt|2|DEL sidecar:b156:lt:{{ID}} sidecar:b156:lx:{{ID}}
+@DEL sidecar:b156:zs:{{ID}}
+@DEL sidecar:b156:zrs:{{ID}}
+@DEL sidecar:b156:zu:{{ID}}
+ZADD-b156zs|5|ZADD sidecar:b156:zs:{{ID}} 9 a 18 b 27 c 36 d 45 e
+ZRANGE-BYSCORE-LIM-b156|c\n27\nd\n36|ZRANGE sidecar:b156:zs:{{ID}} 18 36 BYSCORE WITHSCORES LIMIT 1 2
+ZRANGESTORE-b156|4|ZRANGESTORE sidecar:b156:zrs:{{ID}} sidecar:b156:zs:{{ID}} 18 45 BYSCORE
+ZRANGE-zrs-b156|b\nc\nd\ne|ZRANGE sidecar:b156:zrs:{{ID}} 0 -1
+ZMSCORE-b156|9\n$-1\n36|ZMSCORE sidecar:b156:zs:{{ID}} a miss d
+ZCOUNT-b156|3|ZCOUNT sidecar:b156:zs:{{ID}} (9 36
+ZRANK-b156|2|ZRANK sidecar:b156:zs:{{ID}} c
+ZREVRANK-b156|2|ZREVRANK sidecar:b156:zs:{{ID}} c
+ZREVRANGEBYSCORE-b156|d\n36\nc\n27|ZREVRANGEBYSCORE sidecar:b156:zs:{{ID}} 36 18 WITHSCORES LIMIT 0 2
+ZPOPMAX-b156|e\n45|ZPOPMAX sidecar:b156:zs:{{ID}}
+ZUNIONSTORE-b156|4|ZUNIONSTORE sidecar:b156:zu:{{ID}} 1 sidecar:b156:zs:{{ID}} WEIGHTS 4 AGGREGATE SUM
+ZRANGE-zu-b156|a\n36\nb\n72\nc\n108\nd\n144|ZRANGE sidecar:b156:zu:{{ID}} 0 -1 WITHSCORES
+DEL-b156zs|3|DEL sidecar:b156:zs:{{ID}} sidecar:b156:zrs:{{ID}} sidecar:b156:zu:{{ID}}
+@DEL sidecar:b156:zlex:{{ID}}
+@DEL sidecar:b156:zrs2:{{ID}}
+ZADD-b156zlex|4|ZADD sidecar:b156:zlex:{{ID}} 0 u 0 v 0 w 0 x
+ZRANGE-BYLEX-b156|u\nv\nw|ZRANGE sidecar:b156:zlex:{{ID}} [u (x BYLEX
+ZRANGESTORE-lex-b156|2|ZRANGESTORE sidecar:b156:zrs2:{{ID}} sidecar:b156:zlex:{{ID}} [v (x BYLEX
+ZRANGE-zrs2-b156|v\nw|ZRANGE sidecar:b156:zrs2:{{ID}} 0 -1
+ZREVRANGEBYLEX-b156|w\nv|ZREVRANGEBYLEX sidecar:b156:zlex:{{ID}} (x [v
+ZREMRANGEBYLEX-b156|2|ZREMRANGEBYLEX sidecar:b156:zlex:{{ID}} [u (w
+ZRANGE-zlex-after-b156|w\nx|ZRANGE sidecar:b156:zlex:{{ID}} 0 -1
+DEL-b156zlex|2|DEL sidecar:b156:zlex:{{ID}} sidecar:b156:zrs2:{{ID}}
+@DEL sidecar:b156:z1:{{ID}}
+@DEL sidecar:b156:z2:{{ID}}
+@DEL sidecar:b156:zi:{{ID}}
+ZADD-b156z1|3|ZADD sidecar:b156:z1:{{ID}} 16 a 28 b 10 c
+ZADD-b156z2|3|ZADD sidecar:b156:z2:{{ID}} 22 b 9 c 40 d
+ZINTER-MIN-b156|c\n9\nb\n22|ZINTER 2 sidecar:b156:z1:{{ID}} sidecar:b156:z2:{{ID}} WEIGHTS 1 1 AGGREGATE MIN WITHSCORES
+ZINTERSTORE-b156|2|ZINTERSTORE sidecar:b156:zi:{{ID}} 2 sidecar:b156:z1:{{ID}} sidecar:b156:z2:{{ID}} WEIGHTS 1 3 AGGREGATE MIN
+ZRANGE-zi-b156|c\n10\nb\n28|ZRANGE sidecar:b156:zi:{{ID}} 0 -1 WITHSCORES
+ZDIFF-WS-b156|a\n16|ZDIFF 2 sidecar:b156:z1:{{ID}} sidecar:b156:z2:{{ID}} WITHSCORES
+ZINTERCARD-b156|2|ZINTERCARD 2 sidecar:b156:z1:{{ID}} sidecar:b156:z2:{{ID}}
+DEL-b156zi|3|DEL sidecar:b156:z1:{{ID}} sidecar:b156:z2:{{ID}} sidecar:b156:zi:{{ID}}
+@DEL sidecar:b156:zm:{{ID}}
+ZADD-b156zm|3|ZADD sidecar:b156:zm:{{ID}} 2 a 91 m 16 b
+ZMPOP-b156|sidecar:b156:zm:{{ID}}\na\n2|ZMPOP 1 sidecar:b156:zm:{{ID}} MIN COUNT 1
+ZADD-GT-b156|0|ZADD sidecar:b156:zm:{{ID}} GT 99 m
+ZADD-LT-b156|0|ZADD sidecar:b156:zm:{{ID}} LT 5 b
+ZADD-INCR-b156|9.5|ZADD sidecar:b156:zm:{{ID}} INCR 4.5 b
+ZSCORE-b156|99|ZSCORE sidecar:b156:zm:{{ID}} m
+ZSCORE-miss-b156|$-1|ZSCORE sidecar:b156:zm:{{ID}} miss
+DEL-b156zm|1|DEL sidecar:b156:zm:{{ID}}
+@DEL sidecar:b156:b1:{{ID}}
+@DEL sidecar:b156:b2:{{ID}}
+@DEL sidecar:b156:bo:{{ID}}
+@DEL sidecar:b156:bx:{{ID}}
+@DEL sidecar:b156:bor:{{ID}}
+@DEL sidecar:b156:bf:{{ID}}
+SETBIT-b156b1a|0|SETBIT sidecar:b156:b1:{{ID}} 0 1
+SETBIT-b156b1b|0|SETBIT sidecar:b156:b1:{{ID}} 5 1
+SETBIT-b156b2|0|SETBIT sidecar:b156:b2:{{ID}} 0 1
+BITOP-OR-b156|1|BITOP OR sidecar:b156:bo:{{ID}} sidecar:b156:b1:{{ID}} sidecar:b156:b2:{{ID}}
+BITCOUNT-OR-b156|2|BITCOUNT sidecar:b156:bo:{{ID}}
+BITOP-XOR-b156|1|BITOP XOR sidecar:b156:bx:{{ID}} sidecar:b156:b1:{{ID}} sidecar:b156:b2:{{ID}}
+BITCOUNT-XOR-b156|1|BITCOUNT sidecar:b156:bx:{{ID}}
+BITOP-ANDOR-b156|1|BITOP ANDOR sidecar:b156:bor:{{ID}} sidecar:b156:b1:{{ID}} sidecar:b156:b2:{{ID}}
+BITCOUNT-ANDOR-b156|1|BITCOUNT sidecar:b156:bor:{{ID}}
+GETBIT-b156|1|GETBIT sidecar:b156:b1:{{ID}} 5
+BITPOS-b156|0|BITPOS sidecar:b156:b1:{{ID}} 1
+BITFIELD-SET-u8-b156|0|BITFIELD sidecar:b156:bf:{{ID}} SET u8 0 83
+DEL-b156bit|6|DEL sidecar:b156:b1:{{ID}} sidecar:b156:b2:{{ID}} sidecar:b156:bo:{{ID}} sidecar:b156:bx:{{ID}} sidecar:b156:bor:{{ID}} sidecar:b156:bf:{{ID}}
+@DEL sidecar:b156:st:{{ID}}
+SET-b156st|OK|SET sidecar:b156:st:{{ID}} v PX 71000
+GETEX-PX-b156|v|GETEX sidecar:b156:st:{{ID}} PX 88000
+TTL-b156|<=88|TTL sidecar:b156:st:{{ID}}
+TTL-b156b|>=1|TTL sidecar:b156:st:{{ID}}
+GETEX-PERSIST-b156|v|GETEX sidecar:b156:st:{{ID}} PERSIST
+TTL-persist-b156|-1|TTL sidecar:b156:st:{{ID}}
+SET-sr-b156|OK|SET sidecar:b156:sr:{{ID}} Ok
+SETRANGE-b156|2|SETRANGE sidecar:b156:sr:{{ID}} 0 CD
+GETRANGE-b156|CD|GETRANGE sidecar:b156:sr:{{ID}} 0 1
+SUBSTR-b156|C|SUBSTR sidecar:b156:sr:{{ID}} 0 0
+STRLEN-b156|2|STRLEN sidecar:b156:sr:{{ID}}
+INCRBY-b156|82|INCRBY sidecar:b156:dn:{{ID}} 82
+INCRBYFLOAT-b156|4.25|INCRBYFLOAT sidecar:b156:df:{{ID}} 4.25
+DECRBY-b156|-33|DECRBY sidecar:b156:db:{{ID}} 33
+SET-m1-b156|OK|SET sidecar:b156:m1:{{ID}} 1
+MSETNX-fail-b156|0|MSETNX sidecar:b156:m1:{{ID}} 9 sidecar:b156:m3:{{ID}} 3
+EXPIRE-NX-b156|1|EXPIRE sidecar:b156:st:{{ID}} 38 NX
+SET-ex-b156|OK|SET sidecar:b156:ex:{{ID}} v EX 10
+EXPIRE-XX-b156|1|EXPIRE sidecar:b156:ex:{{ID}} 81 XX
+DEL-b156str|7|DEL sidecar:b156:st:{{ID}} sidecar:b156:sr:{{ID}} sidecar:b156:dn:{{ID}} sidecar:b156:df:{{ID}} sidecar:b156:db:{{ID}} sidecar:b156:m1:{{ID}} sidecar:b156:ex:{{ID}}
+@DEL sidecar:b156:h:{{ID}}
+HSET-b156|3|HSET sidecar:b156:h:{{ID}} f1 rr f2 47 f3 ss
+HEXPIRE-NX-b156|1|HEXPIRE sidecar:b156:h:{{ID}} 70 NX FIELDS 1 f1
+HEXPIRE-GT-b156|0|HEXPIRE sidecar:b156:h:{{ID}} 14 GT FIELDS 1 f1
+HPEXPIRE-GT-b156|0|HPEXPIRE sidecar:b156:h:{{ID}} 2500 GT FIELDS 1 f1
+HEXPIRE-LT-b156|1|HEXPIRE sidecar:b156:h:{{ID}} 28 LT FIELDS 1 f1
+HTTL-b156|<=28|HTTL sidecar:b156:h:{{ID}} FIELDS 1 f1
+HTTL-b156b|>=1|HTTL sidecar:b156:h:{{ID}} FIELDS 1 f1
+HGETEX-PX-b156|47|HGETEX sidecar:b156:h:{{ID}} PX 31000 FIELDS 1 f2
+HGETEX-PERSIST-b156|ss|HGETEX sidecar:b156:h:{{ID}} PERSIST FIELDS 1 f3
+HINCRBY-b156|59|HINCRBY sidecar:b156:h:{{ID}} f2 12
+HSTRLEN-b156|2|HSTRLEN sidecar:b156:h:{{ID}} f1
+HLEN-b156|3|HLEN sidecar:b156:h:{{ID}}
+HMGET-b156|rr\n$-1\nss|HMGET sidecar:b156:h:{{ID}} f1 miss f3
+HGET-miss-b156|$-1|HGET sidecar:b156:h:{{ID}} miss
+HSETNX-exist-b156|0|HSETNX sidecar:b156:h:{{ID}} f1 xx
+HEXISTS-b156|1|HEXISTS sidecar:b156:h:{{ID}} f3
+HDEL-b156|1|HDEL sidecar:b156:h:{{ID}} f3
+TYPE-b156h|hash|TYPE sidecar:b156:h:{{ID}}
+DEL-b156h|1|DEL sidecar:b156:h:{{ID}}
+@DEL sidecar:b156:sa:{{ID}}
+@DEL sidecar:b156:sb:{{ID}}
+@DEL sidecar:b156:sd:{{ID}}
+@DEL sidecar:b156:ss:{{ID}}
+SADD-sa-b156|3|SADD sidecar:b156:sa:{{ID}} ya yb yc
+SADD-sb-b156|2|SADD sidecar:b156:sb:{{ID}} yc yd
+SDIFFSTORE-b156|2|SDIFFSTORE sidecar:b156:sd:{{ID}} sidecar:b156:sa:{{ID}} sidecar:b156:sb:{{ID}}
+SCARD-sd-b156|2|SCARD sidecar:b156:sd:{{ID}}
+SINTERSTORE-b156|1|SINTERSTORE sidecar:b156:ss:{{ID}} sidecar:b156:sa:{{ID}} sidecar:b156:sb:{{ID}}
+SUNION-ss-b156|yc|SUNION sidecar:b156:ss:{{ID}}
+SISMEMBER-b156|1|SISMEMBER sidecar:b156:sa:{{ID}} ya
+DEL-b156s|4|DEL sidecar:b156:sa:{{ID}} sidecar:b156:sb:{{ID}} sidecar:b156:sd:{{ID}} sidecar:b156:ss:{{ID}}
+@DEL sidecar:b156:sp:{{ID}}
+SADD-sp-b156|1|SADD sidecar:b156:sp:{{ID}} only
+SRANDMEMBER-b156|only|SRANDMEMBER sidecar:b156:sp:{{ID}}
+SPOP-b156|only|SPOP sidecar:b156:sp:{{ID}}
+SPOP-miss-b156|$-1|SPOP sidecar:b156:sp:{{ID}}
+@DEL sidecar:b156:x:{{ID}}
+XADD-b156a|26-0|XADD sidecar:b156:x:{{ID}} 26-0 k v
+XADD-b156b|36-0|XADD sidecar:b156:x:{{ID}} 36-0 k w
+XADD-b156c|46-0|XADD sidecar:b156:x:{{ID}} 46-0 k x
+XTRIM-MAXLEN-b156|1|XTRIM sidecar:b156:x:{{ID}} MAXLEN 2
+XLEN-b156|2|XLEN sidecar:b156:x:{{ID}}
+XRANGE-b156|36-0\nk\nw|XRANGE sidecar:b156:x:{{ID}} - + COUNT 1
+TYPE-b156x|stream|TYPE sidecar:b156:x:{{ID}}
+DEL-b156x|1|DEL sidecar:b156:x:{{ID}}
+@DEL sidecar:b156:g:{{ID}}
+GEOADD-b156|2|GEOADD sidecar:b156:g:{{ID}} 13.361389 38.115556 Palermo 15.087269 37.502669 Catania
+GEOSEARCH-BYBOX-b156|Catania|GEOSEARCH sidecar:b156:g:{{ID}} FROMLONLAT 15 37.5 BYBOX 100 100 km ASC COUNT 1
+GEOSEARCH-FROMMEMBER-b156|Palermo|GEOSEARCH sidecar:b156:g:{{ID}} FROMMEMBER Palermo BYBOX 400 400 km ASC COUNT 1
+DEL-b156g|1|DEL sidecar:b156:g:{{ID}}
+@DEL sidecar:b156:s1:{{ID}}
+@DEL sidecar:b156:s2:{{ID}}
+@DEL sidecar:b156:sort:{{ID}}
+@DEL sidecar:b156:p1:{{ID}}
+@DEL sidecar:b156:p2:{{ID}}
+@DEL sidecar:b156:pm:{{ID}}
+SET-s1-b156|OK|SET sidecar:b156:s1:{{ID}} waterfall
+SET-s2-b156|OK|SET sidecar:b156:s2:{{ID}} water
+LCS-b156|water|LCS sidecar:b156:s1:{{ID}} sidecar:b156:s2:{{ID}}
+LCS-LEN-b156|5|LCS sidecar:b156:s1:{{ID}} sidecar:b156:s2:{{ID}} LEN
+RPUSH-sort-b156|5|RPUSH sidecar:b156:sort:{{ID}} 81 19 54 27 42
+SORT-DESC-LIM-b156|54\n42|SORT sidecar:b156:sort:{{ID}} DESC LIMIT 1 2
+PFADD-p1-b156|1|PFADD sidecar:b156:p1:{{ID}} a
+PFADD-p2-b156|1|PFADD sidecar:b156:p2:{{ID}} b
+PFMERGE-b156|OK|PFMERGE sidecar:b156:pm:{{ID}} sidecar:b156:p1:{{ID}} sidecar:b156:p2:{{ID}}
+PFCOUNT-b156|2|PFCOUNT sidecar:b156:pm:{{ID}}
+RENAME-b156|OK|RENAME sidecar:b156:s1:{{ID}} sidecar:b156:s1r:{{ID}}
+RENAMENX-fail-b156|0|RENAMENX sidecar:b156:s2:{{ID}} sidecar:b156:s1r:{{ID}}
+EXISTS-MULTI-b156|2|EXISTS sidecar:b156:s1r:{{ID}} sidecar:b156:s2:{{ID}} sidecar:b156:miss:{{ID}}
+DEL-b156misc|6|DEL sidecar:b156:s1r:{{ID}} sidecar:b156:s2:{{ID}} sidecar:b156:sort:{{ID}} sidecar:b156:p1:{{ID}} sidecar:b156:p2:{{ID}} sidecar:b156:pm:{{ID}}
+PING-b156|p156|PING p156
+ECHO-b156|batch156|ECHO batch156
+TYPE-miss-b156|none|TYPE sidecar:b156:miss:{{ID}}
+EXISTS-miss-b156|0|EXISTS sidecar:b156:miss:{{ID}}
+DBSIZE-b156|>=0|DBSIZE
+
 # --- cleanup string / incr keys ---
 DEL|1|DEL sidecar:allowlist:{{ID}}
 EXISTS-after-del|0|EXISTS sidecar:allowlist:{{ID}}
