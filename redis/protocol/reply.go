@@ -195,7 +195,7 @@ func Try2ErrorReply(reply redis.Reply) error {
 
 // ToBytes marshal redis.Reply
 func (r *StandardErrReply) ToBytes() []byte {
-	return []byte("-" + r.Status + CRLF)
+	return []byte("-" + SanitizeErrText(r.Status) + CRLF)
 }
 
 func (r *StandardErrReply) Error() string {

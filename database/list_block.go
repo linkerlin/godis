@@ -447,6 +447,200 @@ func execLMove(db *DB, args [][]byte) redis.Reply {
 	return protocol.MakeBulkReply(val.([]byte))
 }
 
+// lmovemHowMany is the parsed optional how-many block of LMOVEM/BLMOVEM.
+type lmovemHowMany struct {
+	count   int // COUNT / EXACTLY value
+	exactly bool
+	obo     bool
+}
+
+// parseLMoveMHowMany parses args[idx:] as "[<COUNT n | EXACTLY n> <OBO | BULK>]".
+// Returns (nil, nil) when the block is absent.
+func parseLMoveMHowMany(args [][]byte, idx int) (*lmovemHowMany, redis.Reply) {
+	if idx >= len(args) {
+		return nil, nil
+	}
+	if idx+3 != len(args) {
+		return nil, protocol.MakeSyntaxErrReply()
+	}
+	spec := &lmovemHowMany{}
+	selector := strings.ToUpper(string(args[idx]))
+	if selector != "COUNT" && selector != "EXACTLY" {
+		return nil, protocol.MakeSyntaxErrReply()
+	}
+	spec.exactly = selector == "EXACTLY"
+	n, err := strconv.Atoi(string(args[idx+1]))
+	if err != nil || n <= 0 {
+		return nil, protocol.MakeErrReply("ERR value is out of range, must be positive")
+	}
+	spec.count = n
+	switch strings.ToUpper(string(args[idx+2])) {
+	case "OBO":
+		spec.obo = true
+	case "BULK":
+	default:
+		return nil, protocol.MakeSyntaxErrReply()
+	}
+	return spec, nil
+}
+
+// execLMoveM LMOVEM source destination LEFT|RIGHT LEFT|RIGHT
+// [<COUNT count | EXACTLY exactly> <OBO | BULK>]  (Redis 8.10)
+// Returns the moved elements as an array in destination order; nil when
+// EXACTLY is used and the source holds fewer elements.
+func execLMoveM(db *DB, args [][]byte) redis.Reply {
+	source := string(args[0])
+	destination := string(args[1])
+	srcSide := strings.ToUpper(string(args[2]))
+	dstSide := strings.ToUpper(string(args[3]))
+	if srcSide != "LEFT" && srcSide != "RIGHT" {
+		return protocol.MakeSyntaxErrReply()
+	}
+	if dstSide != "LEFT" && dstSide != "RIGHT" {
+		return protocol.MakeSyntaxErrReply()
+	}
+	if len(args) < 4 || len(args) > 7 {
+		return protocol.MakeErrReply("ERR wrong number of arguments for 'lmovem' command")
+	}
+	spec, errReply := parseLMoveMHowMany(args, 4)
+	if errReply != nil {
+		return errReply
+	}
+
+	srcList, errReply := db.getAsList(source)
+	if errReply != nil {
+		return errReply
+	}
+	if srcList == nil || srcList.Len() == 0 {
+		if spec != nil && spec.exactly {
+			return protocol.MakeNullBulkReply()
+		}
+		return protocol.MakeMultiBulkReply(nil)
+	}
+
+	n := 1
+	if spec != nil {
+		n = spec.count
+		if srcList.Len() < n {
+			if spec.exactly {
+				return protocol.MakeNullBulkReply()
+			}
+			n = srcList.Len()
+		}
+	}
+
+	popped := make([][]byte, 0, n)
+	for i := 0; i < n; i++ {
+		var v interface{}
+		if srcSide == "LEFT" {
+			v = srcList.Remove(0)
+		} else {
+			v = srcList.Remove(srcList.Len() - 1)
+		}
+		popped = append(popped, v.([]byte))
+	}
+	if srcList.Len() == 0 {
+		db.Remove(source)
+	}
+
+	dstList, _, dstErrReply := db.getOrInitList(destination)
+	if dstErrReply != nil {
+		return dstErrReply
+	}
+	obo := spec != nil && spec.obo
+	if obo {
+		for _, v := range popped {
+			if dstSide == "LEFT" {
+				dstList.Insert(0, v)
+			} else {
+				dstList.Add(v)
+			}
+		}
+	} else {
+		// BULK preserves relative order (and is a no-op for same-key moves).
+		if dstSide == "LEFT" {
+			for i := len(popped) - 1; i >= 0; i-- {
+				dstList.Insert(0, popped[i])
+			}
+		} else {
+			for _, v := range popped {
+				dstList.Add(v)
+			}
+		}
+	}
+
+	if spec == nil {
+		db.addAof(utils.ToCmdLine3("lmove", args...))
+	} else {
+		// Replay as EXACTLY <actual moved count> so AOF re-execution moves the
+		// same number of elements regardless of the original COUNT selector.
+		ordering := "BULK"
+		if obo {
+			ordering = "OBO"
+		}
+		db.addAof(CmdLine{[]byte("lmovem"), args[0], args[1], args[2], args[3],
+			[]byte("EXACTLY"), []byte(strconv.Itoa(n)), []byte(ordering)})
+	}
+	signalListWaiters(destination)
+
+	reply := popped
+	if obo && dstSide == "LEFT" {
+		reply = make([][]byte, len(popped))
+		for i, v := range popped {
+			reply[len(popped)-1-i] = v
+		}
+	}
+	return protocol.MakeMultiBulkReply(reply)
+}
+
+// execBLMoveM BLMOVEM source destination LEFT|RIGHT LEFT|RIGHT timeout
+// [<COUNT count | EXACTLY exactly> <OBO | BULK>]  (Redis 8.10)
+// COUNT blocks while source is empty; EXACTLY blocks until source holds
+// enough elements.
+func execBLMoveM(db *DB, args [][]byte) redis.Reply {
+	if len(args) < 5 || len(args) > 8 {
+		return protocol.MakeErrReply("ERR wrong number of arguments for 'blmovem' command")
+	}
+	source := string(args[0])
+	dst := string(args[1])
+	if s := strings.ToUpper(string(args[2])); s != "LEFT" && s != "RIGHT" {
+		return protocol.MakeSyntaxErrReply()
+	}
+	if s := strings.ToUpper(string(args[3])); s != "LEFT" && s != "RIGHT" {
+		return protocol.MakeSyntaxErrReply()
+	}
+	timeout, errReply := parseBlockTimeout(args[4])
+	if errReply != nil {
+		return errReply
+	}
+	// The block is validated here; satisfiability is derived from the reply
+	// shape (nil = EXACTLY unmet, empty array = COUNT unmet).
+	if _, errReply = parseLMoveMHowMany(args, 5); errReply != nil {
+		return errReply
+	}
+
+	// Core LMOVEM args: source/dest/sides plus the how-many block (timeout
+	// at index 4 removed).
+	core := append(append(CmdLine{}, args[:4]...), args[5:]...)
+	lockKeys := []string{source, dst}
+	for {
+		db.RWLocks(lockKeys, nil)
+		result := execLMoveM(db, core)
+		db.RWUnLocks(lockKeys, nil)
+		if _, isNil := result.(*protocol.NullBulkReply); isNil {
+			// EXACTLY not satisfiable yet → wait for source to grow.
+		} else if multi, isMulti := result.(*protocol.MultiBulkReply); !isMulti || len(multi.Args) > 0 {
+			return result
+		}
+		w := registerListWaiter([]string{source})
+		signaled := waitOrTimeout(w.ch, timeout)
+		unregisterListWaiter(w)
+		if r := replyAfterWait(w, signaled); r != nil {
+			return r
+		}
+	}
+}
+
 // execLMPop removes and returns elements from multiple lists
 // LMPOP numkeys key [key ...] LEFT|RIGHT [COUNT count]
 func execLMPop(db *DB, args [][]byte) redis.Reply {
@@ -577,8 +771,12 @@ func init() {
 		attachCommandExtra([]string{redisFlagBlocking}, 1, -2, 1)
 	registerCommand("LMove", execLMove, prepareRPopLPush, undoRPopLPush, 5, flagWrite).
 		attachCommandExtra([]string{redisFlagWrite}, 1, 2, 1)
+	registerCommand("LMoveM", execLMoveM, prepareRPopLPush, nil, -5, flagWrite).
+		attachCommandExtra([]string{redisFlagWrite, redisFlagDenyOOM}, 1, 2, 1)
 	registerCommand("BLMove", execBLMove, nil, nil, 6, flagSpecial).
 		attachCommandExtra([]string{redisFlagBlocking}, 1, 2, 1)
+	registerCommand("BLMoveM", execBLMoveM, nil, nil, -6, flagSpecial).
+		attachCommandExtra([]string{redisFlagWrite, redisFlagDenyOOM, redisFlagBlocking}, 1, 2, 1)
 	registerCommand("LMPop", execLMPop, prepareLMPop, nil, -4, flagWrite).
 		attachCommandExtra([]string{redisFlagWrite}, 1, -2, 1)
 	registerCommand("BLMPop", execBLMPop, nil, nil, -5, flagSpecial).

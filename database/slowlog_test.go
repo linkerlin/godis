@@ -172,8 +172,8 @@ func TestSlowLogger_HandleSlowlogCommand(t *testing.T) {
 				t.Fatalf("Entry %d: Expected MultiRawReply, got %T", i, entryReply)
 			}
 
-			if len(entryMulti.Replies) != 6 {
-				t.Errorf("Entry %d: Expected 6 fields, got %d", i, len(entryMulti.Replies))
+			if len(entryMulti.Replies) != 7 {
+				t.Errorf("Entry %d: Expected 7 fields, got %d", i, len(entryMulti.Replies))
 			}
 
 			// Verify that the first field is ID

@@ -17,6 +17,9 @@ type SlowLogEntry struct {
 	Command    [][]byte
 	PeerId     string
 	ClientName string
+	// Argc is the total argument count including the command name
+	// (Redis 8.10 SLOWLOG GET 7th field).
+	Argc int
 }
 
 // SlowLogger Slow query logger
@@ -64,6 +67,7 @@ func (sl *SlowLogger) Record(start time.Time, args [][]byte, peerAddr, clientNam
 		Command:    args,
 		PeerId:     peerAddr,
 		ClientName: clientName,
+		Argc:       len(args),
 	}
 
 	sl.nextID++
@@ -209,7 +213,7 @@ func (sl *SlowLogger) HandleSlowlogCommand(args [][]byte) redis.Reply {
 			[]byte("    Return top <count> entries from the slowlog (default: 10, -1 mean all)."),
 			[]byte("    Entries are made of:"),
 			[]byte("    id, timestamp, time in microseconds, arguments array, client IP and port,"),
-			[]byte("    client name"),
+			[]byte("    client name, total argument count"),
 			[]byte("LEN"),
 			[]byte("    Return the length of the slowlog."),
 			[]byte("RESET"),
@@ -218,20 +222,21 @@ func (sl *SlowLogger) HandleSlowlogCommand(args [][]byte) redis.Reply {
 			[]byte("    Print this help."),
 		})
 	default:
-		return protocol.MakeErrReply("ERR unknown subcommand '" + subCmd + "'. Try SLOWLOG HELP.")
+		return protocol.MakeErrReply("ERR Unknown subcommand or wrong number of arguments for '" + subCmd + "'. Try SLOWLOG HELP.")
 	}
 }
 
 func formatSlowlogEntries(entries []*SlowLogEntry) redis.Reply {
 	result := make([]redis.Reply, 0, len(entries))
 	for _, log := range entries {
-		logList := make([]redis.Reply, 0, 6)
+		logList := make([]redis.Reply, 0, 7)
 		logList = append(logList, protocol.MakeIntReply(log.ID),
 			protocol.MakeIntReply(log.Timestamp.Unix()),
 			protocol.MakeIntReply(int64(log.Duration)),
 			protocol.MakeMultiBulkReply(log.Command),
 			protocol.MakeBulkReply([]byte(log.PeerId)),
-			protocol.MakeBulkReply([]byte(log.ClientName)))
+			protocol.MakeBulkReply([]byte(log.ClientName)),
+			protocol.MakeIntReply(int64(log.Argc)))
 		result = append(result, protocol.MakeMultiRawReply(logList))
 	}
 	return protocol.MakeMultiRawReply(result)

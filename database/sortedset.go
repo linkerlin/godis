@@ -1448,7 +1448,12 @@ func execZSetOperation(db *DB, args [][]byte, op string, store bool) redis.Reply
 				return protocol.MakeErrReply("ERR syntax error")
 			}
 			aggregate = strings.ToUpper(string(args[idx+1]))
-			if aggregate != "SUM" && aggregate != "MIN" && aggregate != "MAX" {
+			if aggregate != "SUM" && aggregate != "MIN" && aggregate != "MAX" && aggregate != "COUNT" {
+				return protocol.MakeErrReply("ERR syntax error")
+			}
+			// AGGREGATE COUNT (Redis 8.8) applies to UNION/INTER only; ZDIFF
+			// has no AGGREGATE option in Redis.
+			if aggregate == "COUNT" && op == "DIFF" {
 				return protocol.MakeErrReply("ERR syntax error")
 			}
 			idx += 2
@@ -1482,9 +1487,14 @@ func execZSetOperation(db *DB, args [][]byte, op string, store bool) redis.Reply
 			members := set.RangeByRank(0, set.Len(), false)
 			for _, m := range members {
 				score := m.Score * weights[i]
+				if aggregate == "COUNT" {
+					// Original scores are ignored; each input set containing
+					// the member contributes its weight (default 1).
+					score = weights[i]
+				}
 				if existing, ok := result[m.Member]; ok {
 					switch aggregate {
-					case "SUM":
+					case "SUM", "COUNT":
 						result[m.Member] = existing + score
 					case "MIN":
 						if score < existing {
@@ -1508,6 +1518,9 @@ func execZSetOperation(db *DB, args [][]byte, op string, store bool) redis.Reply
 			for _, m := range members {
 				scores := make([]float64, len(sets))
 				scores[0] = m.Score * weights[0]
+				if aggregate == "COUNT" {
+					scores[0] = weights[0]
+				}
 				inAll := true
 				for i := 1; i < len(sets); i++ {
 					if sets[i] == nil {
@@ -1520,6 +1533,9 @@ func execZSetOperation(db *DB, args [][]byte, op string, store bool) redis.Reply
 						break
 					}
 					scores[i] = elem.Score * weights[i]
+					if aggregate == "COUNT" {
+						scores[i] = weights[i]
+					}
 				}
 				if !inAll {
 					continue
@@ -1541,7 +1557,7 @@ func execZSetOperation(db *DB, args [][]byte, op string, store bool) redis.Reply
 						}
 					}
 					result[m.Member] = max
-				default: // SUM
+				default: // SUM and COUNT (weights summed, scores ignored)
 					sum := 0.0
 					for _, s := range scores {
 						sum += s

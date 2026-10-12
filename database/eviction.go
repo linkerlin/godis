@@ -23,19 +23,21 @@ type EvictionManager struct {
 	policy  memory.EvictionPolicy
 	samples int
 
-	mu          sync.Mutex
-	lastAccess  map[string]time.Time
-	accessCount map[string]uint64
+	mu           sync.Mutex
+	lastAccess   map[string]time.Time
+	accessCount  map[string]uint64
+	lastModified map[string]time.Time
 }
 
 // NewEvictionManager creates a new eviction manager
 func NewEvictionManager(db *DB, policy memory.EvictionPolicy) *EvictionManager {
 	return &EvictionManager{
-		db:          db,
-		policy:      policy,
-		samples:     5,
-		lastAccess:  make(map[string]time.Time),
-		accessCount: make(map[string]uint64),
+		db:           db,
+		policy:       policy,
+		samples:      5,
+		lastAccess:   make(map[string]time.Time),
+		accessCount:  make(map[string]uint64),
+		lastModified: make(map[string]time.Time),
 	}
 }
 
@@ -111,6 +113,30 @@ func (em *EvictionManager) SeedFreq(key string, freq uint64) {
 	em.mu.Unlock()
 }
 
+// Modify records a write for LRM accounting (Redis 8.6: the timestamp is
+// only bumped by writes, unlike LRU's read+write Touch).
+func (em *EvictionManager) Modify(keys ...string) {
+	if em == nil || len(keys) == 0 {
+		return
+	}
+	now := time.Now()
+	em.mu.Lock()
+	for _, key := range keys {
+		em.lastModified[key] = now
+	}
+	em.mu.Unlock()
+}
+
+// SeedModify backdates the modification time (testing / RESTORE-style seeding).
+func (em *EvictionManager) SeedModify(key string, agoSec int64) {
+	if em == nil || agoSec < 0 {
+		return
+	}
+	em.mu.Lock()
+	em.lastModified[key] = time.Now().Add(-time.Duration(agoSec) * time.Second)
+	em.mu.Unlock()
+}
+
 // Forget drops metadata when a key is removed.
 func (em *EvictionManager) Forget(key string) {
 	if em == nil {
@@ -119,6 +145,7 @@ func (em *EvictionManager) Forget(key string) {
 	em.mu.Lock()
 	delete(em.lastAccess, key)
 	delete(em.accessCount, key)
+	delete(em.lastModified, key)
 	em.mu.Unlock()
 }
 
@@ -186,6 +213,8 @@ func (em *EvictionManager) selectKey() (string, bool) {
 		return em.selectRandomKey()
 	case memory.AllKeysLRU, memory.VolatileLRU:
 		return em.selectLRUKey()
+	case memory.AllKeysLRM, memory.VolatileLRM:
+		return em.selectLRMKey()
 	case memory.AllKeysLFU, memory.VolatileLFU:
 		return em.selectLFUKey()
 	case memory.VolatileTTL:
@@ -231,6 +260,36 @@ func (em *EvictionManager) selectLRUKey() (string, bool) {
 			}
 		}
 		t, ok := em.lastAccess[key]
+		if !ok {
+			return key, true
+		}
+		if oldest.IsZero() || t.Before(oldest) {
+			oldest = t
+			candidate = key
+		}
+	}
+	if candidate == "" {
+		return "", false
+	}
+	return candidate, true
+}
+
+// selectLRMKey samples keys and picks the one whose last write is oldest.
+// Keys without a recorded modification time count as oldest (never written
+// through a tracked command path).
+func (em *EvictionManager) selectLRMKey() (string, bool) {
+	keys := em.db.data.RandomKeys(em.samples)
+	var candidate string
+	var oldest time.Time
+	em.mu.Lock()
+	defer em.mu.Unlock()
+	for _, key := range keys {
+		if em.policy == memory.VolatileLRM {
+			if _, exists := em.db.ttlMap.GetWithLock(key); !exists {
+				continue
+			}
+		}
+		t, ok := em.lastModified[key]
 		if !ok {
 			return key, true
 		}

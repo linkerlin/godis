@@ -89,3 +89,19 @@
 - `OBJECT ENCODING` 对 HLL 不返回 `hyperloglog`
 - RESTORE 的 IDLETIME/FREQ 被 reindexKey 的内部读取覆盖(reindex 改为 no-touch)
 - 子命令错误后缀/FT 回复类型等断言过时项已随行为修复更新
+
+---
+
+## 6. 2026-10-12 再评估（Redis 8.10）
+
+第 4 节是早期快照。其后的事实以 [`COMPATIBILITY.md`](COMPATIBILITY.md) 为准，其中包括：稀疏 HLL 可以读入并提升为 dense（写出仍是 dense）；FAILOVER 已按设计文档落地。
+
+2026-08-10 关闭的是 Redis 8.4 之前可以单独收口的行为与文案。代码侧停在第一百六十一批（R4-1 allowlist 12502 条），那些用例对照的是既有命令在 Redis 8.10 上的回复。
+
+8.4、8.6、8.8、8.10 的新命令面没有随那次关闭一起完成。差距与下一阶段顺序写在：
+
+- [`COMPATIBILITY.md`](COMPATIBILITY.md)「Redis 8.10 增量」
+- [`../兼容性改进计划.md`](../兼容性改进计划.md)「〇、Redis 8.10 演进方案」
+- [`../TODO.md`](../TODO.md) R5
+
+原有 7 项远期（jemalloc、完整 gossip、官方模块 RDB、FUNCTION DUMP 官方互通、完整 BM25/KNN/DIALECT、R4-1 全量、R4-2）保持不变。R5 另加的明确不做项是 compact hash 模板、`BACKUP`、`CLUSTER MIGRATION`、TLS 证书登录、新词干语言和 C Modules API。

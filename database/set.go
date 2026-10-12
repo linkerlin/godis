@@ -528,6 +528,136 @@ func execSInterCard(db *DB, args [][]byte) redis.Reply {
 	return protocol.MakeIntReply(int64(card))
 }
 
+// parseSetCardOptions parses the tail options shared by SUNIONCARD/SDIFFCARD.
+// Returns (approx, limit, errReply); limit 0 = unlimited.
+func parseSetCardOptions(args [][]byte, numKeys int, allowApprox bool) (bool, int, redis.Reply) {
+	approx := false
+	limit := 0
+	for i := 1 + numKeys; i < len(args); i++ {
+		switch strings.ToUpper(string(args[i])) {
+		case "APPROX":
+			if !allowApprox {
+				return false, 0, protocol.MakeSyntaxErrReply()
+			}
+			approx = true
+		case "LIMIT":
+			if i+1 >= len(args) {
+				return false, 0, protocol.MakeSyntaxErrReply()
+			}
+			n, err := strconv.Atoi(string(args[i+1]))
+			if err != nil || n < 0 {
+				return false, 0, protocol.MakeErrReply("ERR LIMIT can't be negative")
+			}
+			limit = n
+			i++
+		default:
+			return false, 0, protocol.MakeSyntaxErrReply()
+		}
+	}
+	return approx, limit, nil
+}
+
+// parseSetCardKeys parses "numkeys key [key ...]" shared by SUNIONCARD/SDIFFCARD.
+func parseSetCardKeys(args [][]byte, cmd string) ([]string, redis.Reply) {
+	if len(args) < 1 {
+		return nil, protocol.MakeErrReply("ERR wrong number of arguments for '" + cmd + "' command")
+	}
+	numKeys, err := strconv.Atoi(string(args[0]))
+	if err != nil {
+		return nil, protocol.MakeErrReply("ERR value is not an integer or out of range")
+	}
+	if numKeys <= 0 {
+		return nil, protocol.MakeErrReply("ERR numkeys should be greater than 0")
+	}
+	if len(args) < 1+numKeys {
+		return nil, protocol.MakeErrReply("ERR wrong number of arguments for '" + cmd + "' command")
+	}
+	keys := make([]string, numKeys)
+	for i := 0; i < numKeys; i++ {
+		keys[i] = string(args[i+1])
+	}
+	return keys, nil
+}
+
+// execSUnionCard returns the cardinality of the union of multiple sets
+// SUNIONCARD numkeys key [key ...] [APPROX] [LIMIT limit]  (Redis 8.10)
+func execSUnionCard(db *DB, args [][]byte) redis.Reply {
+	keys, errReply := parseSetCardKeys(args, "sunioncard")
+	if errReply != nil {
+		return errReply
+	}
+	_, limit, errReply := parseSetCardOptions(args, len(keys), true)
+	if errReply != nil {
+		return errReply
+	}
+
+	seen := HashSet.Make()
+	card := 0
+	for _, key := range keys {
+		set, errReply := db.getAsSet(key)
+		if errReply != nil {
+			return errReply
+		}
+		if set == nil {
+			continue
+		}
+		set.ForEach(func(member string) bool {
+			if seen.Add(member) > 0 {
+				card++
+			}
+			return limit <= 0 || card < limit
+		})
+		if limit > 0 && card >= limit {
+			break
+		}
+	}
+	return protocol.MakeIntReply(int64(card))
+}
+
+// execSDiffCard returns the cardinality of the difference between the first
+// set and all successive sets.
+// SDIFFCARD numkeys key [key ...] [LIMIT limit]  (Redis 8.10)
+func execSDiffCard(db *DB, args [][]byte) redis.Reply {
+	keys, errReply := parseSetCardKeys(args, "sdiffcard")
+	if errReply != nil {
+		return errReply
+	}
+	_, limit, errReply := parseSetCardOptions(args, len(keys), false)
+	if errReply != nil {
+		return errReply
+	}
+
+	first, errReply := db.getAsSet(keys[0])
+	if errReply != nil {
+		return errReply
+	}
+	if first == nil {
+		return protocol.MakeIntReply(0)
+	}
+	others := make([]*HashSet.Set, 0, len(keys)-1)
+	for _, key := range keys[1:] {
+		set, errReply := db.getAsSet(key)
+		if errReply != nil {
+			return errReply
+		}
+		if set != nil {
+			others = append(others, set)
+		}
+	}
+
+	card := 0
+	first.ForEach(func(member string) bool {
+		for _, o := range others {
+			if o.Has(member) {
+				return true
+			}
+		}
+		card++
+		return limit <= 0 || card < limit
+	})
+	return protocol.MakeIntReply(int64(card))
+}
+
 func init() {
 	registerCommand("SAdd", execSAdd, writeFirstKey, undoSetChange, -3, flagWrite).
 		attachCommandExtra([]string{redisFlagWrite, redisFlagDenyOOM, redisFlagFast}, 1, 1, 1)
@@ -560,5 +690,9 @@ func init() {
 	registerCommand("SMIsMember", execSMIsMember, readFirstKey, nil, -3, flagReadOnly).
 		attachCommandExtra([]string{redisFlagReadonly, redisFlagFast}, 1, 1, 1)
 	registerCommand("SInterCard", execSInterCard, prepareSetCalculate, nil, -3, flagReadOnly).
+		attachCommandExtra([]string{redisFlagReadonly, redisFlagFast}, 1, -1, 1)
+	registerCommand("SUnionCard", execSUnionCard, prepareSetCalculate, nil, -3, flagReadOnly).
+		attachCommandExtra([]string{redisFlagReadonly, redisFlagFast}, 1, -1, 1)
+	registerCommand("SDiffCard", execSDiffCard, prepareSetCalculate, nil, -3, flagReadOnly).
 		attachCommandExtra([]string{redisFlagReadonly, redisFlagFast}, 1, -1, 1)
 }

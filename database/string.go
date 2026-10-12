@@ -127,22 +127,29 @@ func execSet(db *DB, args [][]byte) redis.Reply {
 	ttl := unlimitedTTL
 	keepTTL := false
 	getOld := false
+	// Redis 8.4 conditional options; condition holds the last-seen option
+	// token (NX/XX/IFEQ/IFNE/IFDEQ/IFDNE), condValue its argument for IF*.
+	condition := ""
+	condValue := ""
 	var absExpire int64 = -1 // unix ms; -1 means unset
 
 	// parse options
 	if len(args) > 2 {
 		for i := 2; i < len(args); i++ {
 			arg := strings.ToUpper(string(args[i]))
-			if arg == "NX" {
-				if policy == updatePolicy {
+			if arg == "NX" || arg == "XX" || arg == "IFEQ" || arg == "IFNE" || arg == "IFDEQ" || arg == "IFDNE" {
+				// Condition options are mutually exclusive.
+				if condition != "" {
 					return &protocol.SyntaxErrReply{}
 				}
-				policy = insertPolicy
-			} else if arg == "XX" {
-				if policy == insertPolicy {
-					return &protocol.SyntaxErrReply{}
+				condition = arg
+				if arg != "NX" && arg != "XX" {
+					if i+1 >= len(args) {
+						return &protocol.SyntaxErrReply{}
+					}
+					condValue = string(args[i+1])
+					i++
 				}
-				policy = updatePolicy
 			} else if arg == "GET" {
 				getOld = true
 			} else if arg == "KEEPTTL" {
@@ -190,12 +197,44 @@ func execSet(db *DB, args [][]byte) redis.Reply {
 		}
 	}
 
+	switch condition {
+	case "NX":
+		policy = insertPolicy
+	case "XX":
+		policy = updatePolicy
+		// IF* conditions gate the upsert below.
+	}
+
 	var oldVal []byte
 	if getOld {
 		if bytes, errReply := db.getAsString(key); errReply != nil {
 			return errReply
 		} else if bytes != nil {
 			oldVal = bytes
+		}
+	}
+
+	// Evaluate IF* against the current value. A missing key or a non-string
+	// value counts as "not equal": SET never type-errors without GET.
+	condOK := true
+	if strings.HasPrefix(condition, "IF") {
+		condOK = false
+		cur := ""
+		exists := false
+		if entity, ok := db.GetEntity(key); ok && entity != nil {
+			if b, isStr := entity.Data.([]byte); isStr {
+				cur, exists = string(b), true
+			}
+		}
+		switch condition {
+		case "IFEQ":
+			condOK = exists && cur == condValue
+		case "IFNE":
+			condOK = !exists || cur != condValue
+		case "IFDEQ":
+			condOK = exists && valueDigest([]byte(cur)) == strings.ToLower(condValue)
+		case "IFDNE":
+			condOK = !exists || valueDigest([]byte(cur)) != strings.ToLower(condValue)
 		}
 	}
 
@@ -206,8 +245,10 @@ func execSet(db *DB, args [][]byte) redis.Reply {
 	var result int
 	switch policy {
 	case upsertPolicy:
-		db.PutEntity(key, entity)
-		result = 1
+		if condOK {
+			db.PutEntity(key, entity)
+			result = 1
+		}
 	case insertPolicy:
 		result = db.PutIfAbsent(key, entity)
 	case updatePolicy:
@@ -515,8 +556,8 @@ func execIncrBy(db *DB, args [][]byte) redis.Reply {
 			Data: []byte(strconv.FormatInt(val+delta, 10)),
 		})
 		db.addAof(utils.ToCmdLine3("incrby", args...))
-	notifyKeyspaceEvent(db, "incrby", key)
-	return protocol.MakeIntReply(val + delta)
+		notifyKeyspaceEvent(db, "incrby", key)
+		return protocol.MakeIntReply(val + delta)
 	}
 	db.PutEntity(key, &database.DataEntity{
 		Data: args[1],

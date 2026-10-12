@@ -14,14 +14,15 @@
 | **P1** | 运维与可观测 | 🔄 进行中（非兼容清单） |
 | **P2** | 稳定性与质量门禁 | 🔄 进行中（非兼容清单） |
 | **P3** | 部署与发布 | ⬜ 待开始 |
-| **Redis 8.x 兼容** | 协议/命令/集群深度对齐 | ✅ **里程碑已关闭**（非 100%；远期见下） |
+| **Redis 8.0–8.2 兼容** | 协议/命令/文案可独立项 | ✅ 已关闭（非 100%；远期 7 项见下） |
+| **R5 Redis 8.4–8.10** | 新命令面 | ⬜ 2026-10-12 重开，见下 |
 
 ---
 
 ## 已关闭：Redis 8.x 协议与命令兼容性深度落地
 
 > 来源：[`分析报告.md`](分析报告.md)（2026-06-29）。  
-> **关闭定义（2026-08-10）：** 可独立完成的正确性/兼容小项已扫清；进行中清单仅剩书面标明的**远期非目标**（jemalloc、完整 gossip、官方模块原生 RDB·DUMP、完整 BM25·KNN·DIALECT、FUNCTION DUMP 官方互通等）。**禁止宣称 100% Redis 兼容。** 边界见 [`docs/COMPATIBILITY.md`](docs/COMPATIBILITY.md)。
+> **关闭定义（2026-08-10）：** 8.4 之前可独立完成的正确性/兼容小项已扫清。进行中清单里的书面远期仍是下面 7 项。**该关闭不覆盖 Redis 8.4–8.10 新增命令**；那些项在 R5。**禁止宣称 100% Redis 兼容。** 边界见 [`docs/COMPATIBILITY.md`](docs/COMPATIBILITY.md)。
 
 ### R0 — 协议与命令分发基线（当前迭代）
 
@@ -115,13 +116,50 @@
 
 ### R4 — 测试与文档
 
-- [ ] **R4-1 Redis 8.x 响应比对套件**：CI 中用 Redis 8 sidecar 做参考，diff 关键命令输出。（**远期非目标**；扩大 allowlist：`scripts/r4-1-cases.txt` 驱动 String/Hash/List/Set/ZSet + TTL 稳定项 — `redis-sidecar-diff.sh`/`.ps1`，`--raw`；CI smoke 实跑；**仍非** FT/模块/DUMP/集群全量）
+- [ ] **R4-1 Redis 8.x 响应比对套件**：CI 中用 Redis 8 sidecar 做参考，diff 关键命令输出。（**远期非目标**；allowlist 已到 **12502** 条，`scripts/r4-1-cases.txt`。在 R5 第一波新命令落地前，暂停用同类命令的排列组合继续灌表；新命令各自加一条确定性 sidecar。**仍非** FT/模块/DUMP/集群全量）
 - [ ] **R4-2 覆盖率提升**：`aof`、`pubsub`、`redis/protocol`、`redis/connection`、新数据类型包达到可接受覆盖。（**远期非目标**；**观察式门槛**见 coverall.yml 注释：Coveralls 趋势、无私有 % fail gate）
-- [x] **R4-3 文档同步 + 里程碑关闭**：`CHANGELOG` / `docs/COMPATIBILITY.md` / `TODO.md` / `兼容性改进计划.md` 勾选口径清空至仅剩远期篇；标明明确非目标列表。
+- [x] **R4-3 文档同步 + 里程碑关闭**：`CHANGELOG` / `docs/COMPATIBILITY.md` / `TODO.md` / `兼容性改进计划.md` 勾选口径清空至仅剩远期篇；标明明确非目标列表。2026-10-12 再次同步：基线改为 Redis 8.10，R5 重开。
+
+### R5 — Redis 8.4–8.10 命令面（2026-10-12 重开）
+
+> 差距表：[`docs/COMPATIBILITY.md`](docs/COMPATIBILITY.md)「Redis 8.10 增量」。  
+> 顺序与验收：[`兼容性改进计划.md`](兼容性改进计划.md)「〇、Redis 8.10 演进方案」。  
+> 原则：先补客户端会直接调用、且能落在现有类型上的命令；每项带 arity / 缺键 / 错类型 / 一条成功路径测试。确定性回复再加一条 R4-1 sidecar。
+
+#### 第一波：现有类型上的新命令
+
+- [x] **R5-1 错误回复去掉裸 CR/LF**（Redis 8.10 安全修复）。用户数据进错误文本时，协议帧仍是一行。（`protocol.SanitizeErrText` 在 `StandardErrReply`/`ProtocolErrReply` 的 `ToBytes` 收口；CR/LF 映射为空格，`Error()` 保留原文）
+- [x] **R5-2 `SUNIONCARD` / `SDIFFCARD`**。对齐 `SINTERCARD` 的 `numkeys` 与 `LIMIT`；`SUNIONCARD` 另有 `APPROX`。（`APPROX` 接受并返回精确计数——精确值恒在近似误差界内；文档已注明）
+- [x] **R5-3 `LMOVEM` / `BLMOVEM`**。一次搬多个元素；源列表空则删键。语法以 8.10 命令页为准。（`COUNT`/`EXACTLY` × `OBO`/`BULK`；AOF 以 `EXACTLY 实际条数` 回放保证确定性）
+- [x] **R5-4 `XREAD` / `XREADGROUP` `MAXCOUNT` / `MAXSIZE`**。限制回复条目合计与字节合计。（字节按条目 RESP 线格式估算；`MAXCOUNT<COUNT` 报错文案未对实机校验；顺带修正 `XREADGROUP` 截断后 `LastID` 越过未递送条目的旧问题）
+- [x] **R5-5 `SLOWLOG GET` 第七字段**：参数总个数。可选：`slowlog-entry-max-argc`、`slowlog-entry-max-string-len`。（第七字段=含命令名的参数总数；截断配置仍缺，列第二波后补）
+- [x] **R5-6 `ZUNION` / `ZINTER` / `ZUNIONSTORE` / `ZINTERSTORE` 的 `AGGREGATE COUNT`**。（`WEIGHTS` 语义：每含该成员的输入集贡献其权重）
+- [x] **R5-7 `SET` `IFEQ`/`IFNE`/`IFDEQ`/`IFDNE`，以及 `DELEX`、`DIGEST`**。`DIGEST` 是单键摘要，与 `DEBUG DIGEST` 分开。（XXH3-64 十六进制，与 8.4 命令页示例值一致；非字符串现值按「不相等」处理）
+- [x] **R5-8 `MSETEX`**。（NX/XX 全有或全无；相对过期在 AOF 以绝对 `PEXPIREAT` 回放）
+- [x] **R5-9 命令标志 `script_runner`**。挂到 `EVAL`/`EVALSHA`/`FCALL`/`FUNCTION` 等真正执行脚本的命令上，经 `COMMAND INFO`/`DOCS` 可见。标志原文抄 Redis 8.10。（挂到 `EVAL`/`EVALSHA`/`EVAL_RO`/`EVALSHA_RO`/`FCALL`/`FCALL_RO`）
+- [x] **R5-10 `FT.ALIASLIST`**。（按索引名或别名查询；RESP2 数组 / RESP3 set，按名排序）
+- [x] **R5-11 `volatile-lrm` / `allkeys-lrm`**。写入路径记修改时间，淘汰按修改时间采样。在此之前，错误文案与 `ParseEvictionPolicyStrict` 必须一致（现在文案列出、解析器拒绝）。（两策略可设可选；修改时间在 `execNormalCommand`/`execWithLock` 成功写后按 prepare 声明的写键记录，采样淘汰，无修改记录视为最旧；非 prepare 路径不记账，近似口径已写入兼容文档）
+
+#### 第二波：流、限速、时序、搜索超时
+
+- [ ] **R5-12 `XREADGROUP CLAIM`**。
+- [ ] **R5-13 `XNACK`**。
+- [ ] **R5-14 `XADD` `IDMP` / `IDMPAUTO`**，以及 `stream-idmp-duration`、`stream-idmp-maxsize`。
+- [ ] **R5-15 `INCREX`**。`BYINT`/`BYFLOAT`、上下界、`SATURATE`、过期选项、`ENX`；回复为两元素数组。
+- [ ] **R5-16 时序增量**：`NaN` 样本、`COUNTNAN`/`COUNTALL`、一条命令多个聚合器、`EXCLUDEEMPTY`、`TS.QUERYLABELS`、`TS.NRANGE`/`TS.NREVRANGE`、`TS.READ`（含 `BLOCK`）。
+- [ ] **R5-17 `RETURN_STRICT` 在聚合后处理阶段也截止**。单机引擎即可，不模拟 `search-workers`。
+- [ ] **R5-18 Hash 字段级键空间通知**。先覆盖 `HSET`/`HDEL`/`HEXPIRE` 的字段名；事件名以 Redis 8.8 文档为准。
+
+#### 第三波：新类型，范围写死
+
+- [ ] **R5-19 Array 预览子集**：`ARSET`/`ARMSET`/`ARGET`/`ARMGET`/`ARGETRANGE`/`ARLEN`/`ARCOUNT`/`ARDEL`/`ARDELRANGE`，`TYPE` 返回 `array`，持久化走 Godis opaque。`ARINSERT`/`ARRING`/`AROP`/`ARGREP`/`ARINFO` 等在子集稳定后再开。官方仍标 preview。
+- [ ] **R5-20 JSONPath 分批**：比较与 `!`，然后 `in`/`nin`，然后数值与字符串函数。`JSON.SET FPHA` 在没有同质浮点数组编码之前返回明确错误。
+- [ ] **R5-21 `HOTKEYS`**。采样计数，并在兼容文档写明算法，不声称与 Redis 内部结构相同。
+- [ ] **R5-22 `HIMPORT` 会话 fieldset 写入普通 Hash**。开工前按 8.10 命令页列全子命令。紧凑模板编码不做。
 
 ### 本里程碑明确非目标（勿当缺口重开）
 
-> 可独立项已归零；下列为**书面远期**（2026-08-11 deep8 后仍为 **7** 项）。小步≠远期完成。
+> 8.4 之前的可独立项已归零。下面 7 项仍是书面远期（2026-08-11 之后未变）。R5 是另一份开放清单，不把这 7 项算进 R5，也不把 R5 的小步写成这 7 项已完成。
 
 - jemalloc 级 `used_memory` / 完整 OS 级内存会计（**远期仍开**；已有诚实边界：进程 RSS→`used_memory_rss`；`mem_allocator:go`；`allocator_*=Go MemStats`；负向测禁止假 jemalloc；见 [`docs/COMPATIBILITY.md`](docs/COMPATIBILITY.md)「内存核算 / jemalloc 边界」）
 - 完整 Redis gossip bus；`RESET`/`SAVECONFIG`/`SET-CONFIG-EPOCH`/`CLUSTER FAILOVER`；BUMPEPOCH 真 config epoch（已有：`REPLICATE`/`FORGET`→FSM；ping/pong/meet 计数映射内部 heartbeat/MEET；`cluster_bus_port:0`；非宣称完整 gossip）
@@ -129,6 +167,7 @@
 - 完整 BM25 / 完整 KNN 方言 / 完整 DIALECT（已有：IDF/多字段 WEIGHT/NORM/TANH+FACTOR；KNN `$YIELD_DISTANCE_AS`/HYBRID_POLICY；DIALECT 1/2/3 子集；**非**论文级完整）
 - FUNCTION DUMP 官方二进制互通（远期/非目标）：`GODISFN1` 自洽；官方 `0xF5`/`0xF6`/`REDIS####` 与异己二进制**明确拒绝**（拒绝先于 FLUSH）；**禁止假互通**／不伪造 Redis payload；见 `docs/COMPATIBILITY.md`「官方 FUNCTION DUMP 边界」
 - R4-1 扩大 allowlist（用例表驱动；仍非 FT/模块/DUMP/集群全量）、R4-2 覆盖率专项
+- **R5 明确不做：** compact hash 模板及 `hash_templates` 指标；`BACKUP` / multi-part AOF；`CLUSTER MIGRATION`；TLS 证书登录；Malay/Tagalog 词干；C Modules API；用 SIMD 或 jemalloc 移植去追性能数字
 
 ~~HLL sparse 读取~~ ✅（sparse→dense 解码提升；写出仍 dense）  
 ~~RDB / RDB-preamble 写出 FT 索引定义~~ ✅（Godis opaque `ft` + Load 后回填；纯 AOF rewrite→FT.CREATE）

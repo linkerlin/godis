@@ -15,12 +15,16 @@ const (
 	NoEviction EvictionPolicy = iota
 	// AllKeysLRU evict any key using LRU
 	AllKeysLRU
+	// AllKeysLRM evict any key using least-recently-modified (Redis 8.6)
+	AllKeysLRM
 	// AllKeysLFU evict any key using LFU
 	AllKeysLFU
 	// AllKeysRandom evict random keys
 	AllKeysRandom
 	// VolatileLRU evict keys with expire using LRU
 	VolatileLRU
+	// VolatileLRM evict keys with expire using least-recently-modified (Redis 8.6)
+	VolatileLRM
 	// VolatileLFU evict keys with expire using LFU
 	VolatileLFU
 	// VolatileTTL evict keys with expire using shortest TTL
@@ -36,12 +40,16 @@ func (p EvictionPolicy) String() string {
 		return "noeviction"
 	case AllKeysLRU:
 		return "allkeys-lru"
+	case AllKeysLRM:
+		return "allkeys-lrm"
 	case AllKeysLFU:
 		return "allkeys-lfu"
 	case AllKeysRandom:
 		return "allkeys-random"
 	case VolatileLRU:
 		return "volatile-lru"
+	case VolatileLRM:
+		return "volatile-lrm"
 	case VolatileLFU:
 		return "volatile-lfu"
 	case VolatileTTL:
@@ -60,12 +68,16 @@ func ParseEvictionPolicy(s string) EvictionPolicy {
 		return NoEviction
 	case "allkeys-lru":
 		return AllKeysLRU
+	case "allkeys-lrm":
+		return AllKeysLRM
 	case "allkeys-lfu":
 		return AllKeysLFU
 	case "allkeys-random":
 		return AllKeysRandom
 	case "volatile-lru":
 		return VolatileLRU
+	case "volatile-lrm":
+		return VolatileLRM
 	case "volatile-lfu":
 		return VolatileLFU
 	case "volatile-ttl":
@@ -310,12 +322,16 @@ func ParseEvictionPolicyStrict(s string) (EvictionPolicy, bool) {
 		return NoEviction, true
 	case "allkeys-lru":
 		return AllKeysLRU, true
+	case "allkeys-lrm":
+		return AllKeysLRM, true
 	case "allkeys-lfu":
 		return AllKeysLFU, true
 	case "allkeys-random":
 		return AllKeysRandom, true
 	case "volatile-lru":
 		return VolatileLRU, true
+	case "volatile-lrm":
+		return VolatileLRM, true
 	case "volatile-lfu":
 		return VolatileLFU, true
 	case "volatile-ttl":

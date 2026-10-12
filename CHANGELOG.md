@@ -4,6 +4,31 @@
 
 ## [Unreleased]
 
+### Added
+
+- **R5 第一波（Redis 8.4–8.10 命令面，现有类型上的新命令）**，行为对齐 8.10 命令页，测试见 `database/r5_wave1_test.go`：
+  - `SUNIONCARD numkeys key [key ...] [APPROX] [LIMIT limit]` / `SDIFFCARD numkeys key [key ...] [LIMIT limit]`（8.10；`APPROX` 接受并返回精确计数，恒在 0.81% 近似误差界内）
+  - `LMOVEM source dest LEFT|RIGHT LEFT|RIGHT [<COUNT n|EXACTLY n> <OBO|BULK>]` 与阻塞版 `BLMOVEM`（8.10；AOF 以 `EXACTLY 实际条数` 回放）
+  - `XREAD` / `XREADGROUP` 新增 `MAXCOUNT` / `MAXSIZE` 累计预算（8.10；`MAXSIZE` 按条目 RESP 线格式估算；顺带修正 `XREADGROUP` 截断后组 `LastID` 越过未递送条目的问题）
+  - `SLOWLOG GET` 第七字段：含命令名的参数总个数（8.10）
+  - `ZUNION`/`ZINTER`/`ZUNIONSTORE`/`ZINTERSTORE` `AGGREGATE COUNT`（8.8；`WEIGHTS`=每含该成员的输入集贡献其权重）
+  - `SET key value [IFEQ v|IFNE v|IFDEQ d|IFDNE d]`（8.4；非字符串现值按不相等处理）、`DIGEST key`（XXH3-64 小写十六进制，与命令页示例一致）、`DELEX key [IFEQ|IFNE|IFDEQ|IFDNE …]`（8.4）
+  - `MSETEX numkeys key value [key value ...] [NX|XX] [EX|PX|EXAT|PXAT|KEEPTTL]`（8.4；NX/XX 全有或全无，AOF 相对过期以绝对 `PEXPIREAT` 回放）
+  - 命令标志 `script_runner`（8.10）：挂在 `EVAL`/`EVALSHA`/`EVAL_RO`/`EVALSHA_RO`/`FCALL`/`FCALL_RO`
+  - `FT.ALIASLIST index`（8.10；按索引名或别名查询，RESP2 数组 / RESP3 set）
+  - `volatile-lrm` / `allkeys-lrm` 淘汰策略（8.6）：写路径记修改时间（prepare 声明写键），按修改时间采样淘汰；`CONFIG SET` 文案与 `ParseEvictionPolicyStrict` 已一致
+  - 新增依赖 `github.com/zeebo/xxh3`（`DIGEST`/`IFDEQ`/`IFDNE`）
+
+### Fixed
+
+- **错误回复不再携带裸 CR/LF**（8.10 安全修复）：`StandardErrReply`/`ProtocolErrReply` 序列化时把用户数据中的 CR/LF 映射为空格；`Error()` 保留原文供程序内匹配
+- **测试内存治理**：`ConcurrentDict` 分片 map 改为写入时惰性分配（空字典从每分片一个空 map 头降为纯分片结构；65536 分片字典约 7.4MB→2.5MB，生产 16-DB 空实例约 240MB→约 80MB）；`makeDBWithSize` 的 `versionMap`/`ttlMap` 不再硬编码 65536 分片；测试专用的 `MustNewStandaloneServer` 改用 16 分片小字典（生产路径 `NewStandaloneServer` 不变）。database 包测试二进制 live 堆峰值 **8.9GB→约 0.73GB**，整包耗时 580s→34s
+- `SLOWLOG` 未知子命令文案对齐 Redis（`Unknown subcommand or wrong number of arguments for '<sub>'. Try SLOWLOG HELP.`）
+
+### Changed
+
+- 文档：对照基线改为 Redis Open Source 8.10（2026-09）。8.4–8.10 新命令面重开为 R5；第一波 R5-1～R5-11 已落地，第二/三波清单见 `TODO.md` R5。差距表见 `docs/COMPATIBILITY.md`「Redis 8.10 增量」，顺序见 `兼容性改进计划.md`「〇」。原远期 7 项不变。R4-1 仍为第一百六十一批的 **12502** 条 + 本批新增 R5 确定性样例。
+
 ### Fixed
 
 - 第一百六十一批（远期子集续研）：**R4-1 主攻扩表** 12324→**12502**（RPOP COUNT 3/LMOVE LEFT LEFT/LINSERT AFTER/LPOS RANK 3·MAXLEN·COUNT RANK·COUNT 0/LMPOP RIGHT COUNT 3/BLMOVE RIGHT LEFT/RPOPLPUSH/LSET/LREM/LTRIM/RPUSHX、ZRANGE BYSCORE LIMIT WS、ZRANGESTORE BYLEX、ZREVRANGEBYLEX、ZPOPMIN、ZUNIONSTORE MIN WEIGHTS、ZINTER SUM WS、ZINTERSTORE SUM、ZDIFF WS、ZMPOP MAX、BZPOPMIN、ZADD NX/XX/CH、ZRANGESTORE BYSCORE、ZREVRANGEBYSCORE、ZREMRANGEBYSCORE、ZINCRBY、BITOP AND/XOR/ANDOR/NOT、BITFIELD i8 WRAP、GETEX EXAT/PERSIST、SET XX GET、KEEPTTL、HEXPIRE XX/NX/GT、HPEXPIRE GT 短于现 TTL→0、HGETEX EXAT/PERSIST、SUNIONSTORE/SINTERSTORE、XDEL/XTRIM MINID、GEOSEARCH BYRADIUS/GEORADIUS、SORT ALPHA）；跨 12500；远期仍 7 项，不宣称全量 sidecar

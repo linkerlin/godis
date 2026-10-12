@@ -2,6 +2,7 @@ package database
 
 import (
 	"fmt"
+	"sort"
 	"sync"
 
 	"github.com/linkerlin/godis/datastruct/redisearch"
@@ -116,6 +117,38 @@ func execFTAliasUpdate(db *DB, args [][]byte) redis.Reply {
 	return protocol.MakeOkReply()
 }
 
+// execFTAliasList FT.ALIASLIST index (Redis 8.10)
+// Returns the aliases pointing at the given index (accepts the index name
+// itself or one of its aliases). RESP2: array; RESP3: set.
+func execFTAliasList(db *DB, args [][]byte) redis.Reply {
+	if len(args) != 1 {
+		return protocol.MakeErrReply("ERR wrong number of arguments for 'ft.aliaslist' command")
+	}
+	indexName := resolveSearchIndex(string(args[0]))
+	searchEnginesMu.RLock()
+	_, ok := searchEngines[indexName]
+	searchEnginesMu.RUnlock()
+	if !ok {
+		return searchIndexNotFoundReply(string(args[0]))
+	}
+
+	searchAliasesMu.RLock()
+	aliases := make([]string, 0, 4)
+	for alias, idx := range searchAliases {
+		if idx == indexName {
+			aliases = append(aliases, alias)
+		}
+	}
+	searchAliasesMu.RUnlock()
+	sort.Strings(aliases)
+
+	replies := make([]redis.Reply, len(aliases))
+	for i, a := range aliases {
+		replies[i] = protocol.MakeBulkReply([]byte(a))
+	}
+	return protocol.MakeSetReply(replies)
+}
+
 // execFTTagVals FT.TAGVALS index fieldName
 func execFTTagVals(db *DB, args [][]byte) redis.Reply {
 	if len(args) != 2 {
@@ -152,6 +185,8 @@ func init() {
 		attachCommandExtra([]string{redisFlagWrite}, 0, 0, 0)
 	registerCommand("FT.AliasUpdate", execFTAliasUpdate, prepareNoKeys, nil, 3, flagWrite).
 		attachCommandExtra([]string{redisFlagWrite}, 0, 0, 0)
+	registerCommand("FT.AliasList", execFTAliasList, prepareNoKeys, nil, 2, flagReadOnly).
+		attachCommandExtra([]string{redisFlagReadonly}, 0, 0, 0)
 	registerCommand("FT.TagVals", execFTTagVals, readFirstKey, nil, 3, flagReadOnly).
 		attachCommandExtra([]string{redisFlagReadonly}, 1, 1, 1)
 }

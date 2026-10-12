@@ -801,13 +801,13 @@ func prepareEval(args [][]byte) ([]string, []string) {
 
 func init() {
 	registerCommand("Eval", execEval, prepareEval, nil, -3, flagSpecial).
-		attachCommandExtra([]string{redisFlagNoScript}, 0, 0, 0)
+		attachCommandExtra([]string{redisFlagNoScript, redisFlagScriptRunner}, 0, 0, 0)
 	registerCommand("EvalSha", execEvalSha, prepareEval, nil, -3, flagSpecial).
-		attachCommandExtra([]string{redisFlagNoScript}, 0, 0, 0)
+		attachCommandExtra([]string{redisFlagNoScript, redisFlagScriptRunner}, 0, 0, 0)
 	registerCommand("Eval_RO", execEvalRO, prepareEval, nil, -3, flagReadOnly).
-		attachCommandExtra([]string{redisFlagReadonly, redisFlagNoScript}, 0, 0, 0)
+		attachCommandExtra([]string{redisFlagReadonly, redisFlagNoScript, redisFlagScriptRunner}, 0, 0, 0)
 	registerCommand("EvalSha_RO", execEvalShaRO, prepareEval, nil, -3, flagReadOnly).
-		attachCommandExtra([]string{redisFlagReadonly, redisFlagNoScript}, 0, 0, 0)
+		attachCommandExtra([]string{redisFlagReadonly, redisFlagNoScript, redisFlagScriptRunner}, 0, 0, 0)
 	registerCommand("Script|Exists", execScriptExists, nil, nil, -2, flagAdmin).
 		attachCommandExtra([]string{redisFlagAdmin}, 0, 0, 0)
 	registerCommand("Script|Load", execScriptLoad, nil, nil, 2, flagAdmin).

@@ -82,7 +82,7 @@ func makeDB() *DB {
 func makeDBWithSize(dictSize int) *DB {
 	db := &DB{
 		data:       dict.MakeConcurrent(dictSize),
-		ttlMap:     dict.MakeConcurrent(dictSize),
+		ttlMap:     dict.MakeConcurrent(ttlDictSize),
 		versionMap: dict.MakeConcurrent(dictSize),
 		addAof:     func(line CmdLine) {},
 	}
@@ -242,6 +242,11 @@ func (db *DB) execNormalCommand(c redis.Connection, cmdLine [][]byte) redis.Repl
 	applyCacheHooks(c, cmdName, write, read, failed)
 	if !failed && (cmd.flags&flagReadOnly) == 0 && db.server != nil {
 		db.server.incrDirty()
+		// LRM eviction bookkeeping: bump modification time on successful
+		// writes of the prepare-declared write keys (Redis 8.6).
+		if db.evictionManager != nil {
+			db.evictionManager.Modify(write...)
+		}
 	}
 
 	return result
@@ -272,6 +277,9 @@ func (db *DB) execWithLock(c redis.Connection, cmdLine [][]byte) redis.Reply {
 		result := fun(db, cmdLine[1:])
 		failed := protocol.IsErrorReply(result)
 		applyCacheHooks(c, cmdName, write, read, failed)
+		if !failed && (cmd.flags&flagReadOnly) == 0 && db.evictionManager != nil {
+			db.evictionManager.Modify(write...)
+		}
 		return result
 	}
 	fun := cmd.executor

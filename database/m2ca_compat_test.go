@@ -87,8 +87,8 @@ func TestM2caSlowlogGetClientNameField(t *testing.T) {
 		t.Fatalf("SLOWLOG GET: %T %s", reply, reply.ToBytes())
 	}
 	entry, ok := mr.Replies[0].(*protocol.MultiRawReply)
-	if !ok || len(entry.Replies) != 6 {
-		t.Fatalf("want 6 fields: %T len=%v", mr.Replies[0], len(entry.Replies))
+	if !ok || len(entry.Replies) != 7 {
+		t.Fatalf("want 7 fields: %T len=%v", mr.Replies[0], len(entry.Replies))
 	}
 	addr, ok := entry.Replies[4].(*protocol.BulkReply)
 	if !ok || string(addr.Arg) != "127.0.0.1:9" {

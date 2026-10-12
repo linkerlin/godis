@@ -1,7 +1,7 @@
 # Godis 与 Redis 8.x 兼容性说明
 
-> 本文档描述 Godis **当前实现**与 Redis 8.x 的差异，避免「100% 兼容」的误导性表述。  
-> 详细分项与里程碑见仓库根目录 [`兼容性改进计划.md`](../兼容性改进计划.md)（含 2026-07-24 进度更新）。  
+> 本文档描述 Godis **当前实现**与 Redis 的差异，避免「100% 兼容」的误导性表述。  
+> **对照基线：Redis Open Source 8.10**（[What's new in 8.10](https://redis.io/docs/latest/develop/whats-new/8-10/)，文档发布 2026-09-11）。8.0–8.2 的可独立收口项已关闭；R5 第一波（8.4–8.10 现有类型上的新命令）已落地，剩余增量见下文「Redis 8.10 增量」与 [`兼容性改进计划.md`](../兼容性改进计划.md) 的「〇、Redis 8.10 演进方案」。  
 > 完整命令列表见 [`commands.md`](../commands.md)（部分条目可能尚未与代码同步）。
 
 ## 评估维度
@@ -190,7 +190,7 @@ UNWATCH、WAIT（简版）、BITOP、BITFIELD、SMOVE、LPOS、XCLAIM、SHUTDOWN
 
 ## 兼容里程碑关闭（2026-08-10）
 
-> **关闭口径：** 可独立完成的正确性/兼容小项与 **ERR/CONFIG/HELP 可关闭战役（至第五十五批）** 已扫尽；**不宣称 100% Redis 兼容**。进行中的兼容清单清空到仅剩下列远期非目标（写明「不是假装已实现」）。
+> **关闭口径：** 可独立完成的正确性/兼容小项与 **ERR/CONFIG/HELP 可关闭战役（至第五十五批）** 已扫尽。该关闭覆盖的是 **8.4 之前**可以单独收口的行为与文案。**它不覆盖 Redis 8.4–8.10 新增命令**（见「Redis 8.10 增量」）。**不宣称 100% Redis 兼容**。下列 7 项仍是书面远期非目标。
 
 | 远期非目标 | 现状（诚实） | 本轮小步（非宣称完成） |
 |------------|--------------|------------------------|
@@ -284,6 +284,59 @@ UNWATCH、WAIT（简版）、BITOP、BITFIELD、SMOVE、LPOS、XCLAIM、SHUTDOWN
 
 **远期仍开放：** jemalloc 级 `used_memory` / 完整 OS 级内存会计（见 TODO「明确非目标」）。本边界小步=诚实化+负向测试，**≠** jemalloc 完成。
 
+## Redis 8.10 增量（2026-10-12 再评估）
+
+> 方法：以 Redis 8.4 / 8.6 / 8.8 / 8.10 官方 "What's new" 为命令面清单，在本仓库 `registerCommand` 与相关实现里核对。第一百六十一批（2026-08-19）把 R4-1 allowlist 扩到 **12502** 条，对照的是 **已经存在的命令** 在 Redis 8.10 上的回复；那些用例没有覆盖下面的新命令。
+>
+> 已有、不要再当成缺口：Hash Field TTL、`XDELEX`/`XACKDEL`、`BITOP` 扩展操作、`VRANGE`、`SINTERCARD`、`FT.HYBRID` 的单机子集（`SEARCH` + `VSIM` KNN + RRF/LINEAR + `LIMIT`/`SORTBY`/`PARAMS`）、`FT.AGGREGATE` 单机 `COLLECT`（按组收集文档字段）、`FT.CONFIG` 接受 `ON_TIMEOUT RETURN-STRICT` 这个词。
+
+### 已接通但只是子集
+
+| 能力 | 引入版本 | Godis 现状 |
+|------|----------|------------|
+| `FT.HYBRID` | 8.4 | 单机文本 + 向量 KNN 融合。范围向量、`COMBINE` 之后的 `FILTER`、`EXPLAINSCORE`、`WITHCURSOR`、每分片候选数、`FT.PROFILE HYBRID` 未做 |
+| `COLLECT` | 8.8，8.10 加强 | 单机按组收集已有测试。8.10 的 remote/local reducer 分离未做 |
+| `ON_TIMEOUT RETURN_STRICT` | 8.10 | 配置词存在；超时且没有部分结果时走空结果。后处理管线里的严格截止未做 |
+| `volatile-lrm` / `allkeys-lrm` | 8.6 | **R5-11 已接通**：两策略 `CONFIG SET` 可用；修改时间在命令成功写后按 prepare 声明的写键记录（`execNormalCommand`/`execWithLock`），淘汰为修改时间采样近似，无修改记录的键视为最旧。非 prepare 路径的写不记账（近似口径） |
+| `SET` `IFEQ`/`IFNE`/`IFDEQ`/`IFDNE` | 8.4 | **R5-7 已接通**。非字符串现值按「不相等」处理（`SET` 无 `GET` 时从不报 WRONGTYPE） |
+| `DIGEST` / `DELEX` | 8.4 | **R5-7 已接通**。`DIGEST` 为 XXH3-64 小写十六进制（与 8.4 命令页示例一致）；`DELEX` 无选项时按 `DEL` 单键语义，带选项时要求字符串类型 |
+| `MSETEX` | 8.4 | **R5-8 已接通**。NX/XX 全有或全无；AOF 相对过期以绝对 `PEXPIREAT` 回放 |
+| `AGGREGATE COUNT` | 8.8 | **R5-6 已接通**（`ZUNION`/`ZINTER`/`ZUNIONSTORE`/`ZINTERSTORE`；`ZDIFF` 无此选项）。`WEIGHTS` 语义=每含该成员的输入集贡献其权重 |
+| `SUNIONCARD` / `SDIFFCARD` | 8.10 | **R5-2 已接通**。`APPROX` 被接受但返回精确计数（精确值恒在 ~0.81% 近似误差界内）；`LIMIT` 早停 |
+| `LMOVEM` / `BLMOVEM` | 8.10 | **R5-3 已接通**（`COUNT`/`EXACTLY` × `OBO`/`BULK`）。AOF 以 `EXACTLY 实际条数` 回放保证确定性；`BLMOVEM` 与既有 `BLMOVE` 一样未实现 MULTI 内不阻塞的特例 |
+| `XREAD`/`XREADGROUP` `MAXCOUNT`/`MAXSIZE` | 8.10 | **R5-4 已接通**。`MAXSIZE` 字节按条目 RESP 线格式估算；`MAXCOUNT < COUNT` 的报错文案未对实机校验 |
+| `SLOWLOG GET` 第七字段 | 8.10 | **R5-5 已接通**（含命令名的参数总个数）。`slowlog-entry-max-argc`/`slowlog-entry-max-string-len` 截断配置仍缺 |
+| `script_runner` 命令标志 | 8.10 | **R5-9 已接通**，挂在 `EVAL`/`EVALSHA`/`EVAL_RO`/`EVALSHA_RO`/`FCALL`/`FCALL_RO`，`COMMAND INFO`/`DOCS` 可见 |
+| `FT.ALIASLIST` | 8.10 | **R5-10 已接通**。按索引名或别名查询，RESP2 数组 / RESP3 set，按名排序 |
+| 错误回复里的 `\r\n` | 8.10 | **R5-1 已接通**。`StandardErrReply`/`ProtocolErrReply` 序列化时把用户数据中的 CR/LF 映射为空格（`Error()` 保留原文）；映射为空格 vs Redis 官方实现的处理方式未逐字节比对 |
+
+### 未注册的命令与行为
+
+| 版本 | 缺口 | 说明 |
+|------|------|------|
+| 8.4 | `XREADGROUP … CLAIM` | 同一次读取里领取空闲 PEL。`XCLAIM` / `XAUTOCLAIM` 本身已有 |
+| 8.4 | `CLUSTER MIGRATION` | 原子迁槽。与现有 gossip / ASM 远期项放在一起，本阶段不做 |
+| 8.6 | `XADD` `IDMP` / `IDMPAUTO` | 流幂等。配置 `stream-idmp-duration`、`stream-idmp-maxsize` 也没有 |
+| 8.6 | `HOTKEYS` | 热键检测 |
+| 8.6 | TLS 证书映射用户 | `tls-auth-clients-user`。TLS 仍是存取桩，本阶段不做 |
+| 8.6 | 时序 `NaN`、`COUNTNAN`、`COUNTALL` | 聚合类型现为 avg/sum/min/max/count/first/last/std.*/var.*/range/twa |
+| 8.8 | Array 类型 `AR*` | 预览类型。`ARSET`/`ARMSET`/`ARGET`/`ARMGET`/`ARGETRANGE`/`ARLEN`/`ARCOUNT`/`ARDEL`/`ARDELRANGE`/`ARINSERT`/`ARRING`/`ARSEEK`/`ARINFO`/`AROP`/`ARGREP`/`ARLASTITEMS` 均未注册。官方标明语法可能变 |
+| 8.8 | `INCREX` | 带上下界和过期的原子加减，回复两元素数组 |
+| 8.8 | `XNACK` | 消费者主动释放 PEL |
+| 8.8 | `JSON.SET` `FPHA` | 同质浮点数组的存储提示。当前 JSON 没有这层编码 |
+| 8.8 | 时序一条命令多个聚合器 | `TS.RANGE` / `TS.REVRANGE` / `TS.MRANGE` / `TS.MREVRANGE` |
+| 8.8 | Hash 字段级键空间通知 | 现有通知在键级 |
+| 8.8 | `slowlog-entry-max-argc`、`slowlog-entry-max-string-len` | 慢日志截断（第七字段已接通，见上表） |
+| 8.10 | `TS.NRANGE`、`TS.NREVRANGE`、`TS.READ`、`TS.QUERYLABELS` | 多序列按时间戳分组、可阻塞读、标签枚举 |
+| 8.10 | `TS.MRANGE` / `TS.MREVRANGE` `EXCLUDEEMPTY` | 去掉没有样本的序列 |
+| 8.10 | JSONPath 扩展 | 当前 `parsePath` 只做点号与下标。8.10 增加投影、任意字面量比较、`!`、`size`/`empty`、`in`/`nin`、数值运算、`match`/`search`/`concat`、`first`/`last`/`index`/`append`、`min`/`max`/`avg`/`sum`/`stddev`、`keys`、`count`/`value`、`subsetof`/`anyof`/`noneof` |
+| 8.10 | `HIMPORT` 与 compact hash | 会话 fieldset 批量导入，以及按 schema 共享字段名的内部编码。已知子命令含 `DISCARD`、`DISCARDALL`；开工前按命令页列全，不猜语法。紧凑编码与 `hash_templates` 指标本阶段不做 |
+| 8.10 | `BACKUP` | `START`/`SEAL`/`ABORT`/`LIST`/`STATUS`/`CLEANUP`，基于 multi-part AOF。本阶段不做，也不用 `BGSAVE` 冒充 |
+| 8.10 | 词干 Malay / Tagalog | 归入完整搜索远期项 |
+| 8.10 | 查询超时更严 | 见上表 `RETURN-STRICT` 子集 |
+
+下一阶段的顺序、验收和明确不做项写在 [`兼容性改进计划.md`](../兼容性改进计划.md)「〇、Redis 8.10 演进方案」和 [`TODO.md`](../TODO.md) 的 R5。
+
 ## 测试
 
 - `go test ./...`；兼容批次测试见 `database/m2*_compat_test.go`、`m1_block_tx_bitmap_test.go` 等；RESP3 线格式见 `database/resp3_core_types_test.go`。
@@ -291,7 +344,7 @@ UNWATCH、WAIT（简版）、BITOP、BITFIELD、SMOVE、LPOS、XCLAIM、SHUTDOWN
 
 ---
 
-**最后更新：** 2026-08-19（第一百六十一批：R4-1 扩至 **12502**；跨 12500；远期仍 **7**：jemalloc / gossip / 模块 RDB·DUMP / FUNCTION DUMP 互通 / 完整 BM25·KNN·DIALECT / R4-1 全量 / R4-2）
+**最后更新：** 2026-10-12（R5 第一波落地：错误帧 CR/LF、`SUNIONCARD`/`SDIFFCARD`、`LMOVEM`/`BLMOVEM`、`XREAD`/`XREADGROUP` `MAXCOUNT`/`MAXSIZE`、`SLOWLOG GET` 第七字段、`AGGREGATE COUNT`、`SET` `IF*`、`DELEX`/`DIGEST`（XXH3）、`MSETEX`、`script_runner` 标志、`FT.ALIASLIST`、LRM 淘汰；测试内存治理：并发字典分片 map 惰性分配、测试服务器小字典，database 测试峰值 8.9GB→约 0.7GB、耗时 580s→34s。原远期 7 项不变。）
 
 
 

@@ -817,7 +817,7 @@ func init() {
 	registerCommand("Function|Help", execFunctionHelp, noPrepare, nil, 1, flagReadOnly).
 		attachCommandExtra([]string{redisFlagReadonly}, 0, 0, 0)
 	registerCommand("FCall", execFCall, prepareFirstKey, nil, -3, flagWrite).
-		attachCommandExtra([]string{redisFlagWrite}, 1, 1, 1)
+		attachCommandExtra([]string{redisFlagWrite, redisFlagScriptRunner}, 1, 1, 1)
 	registerCommand("FCall_RO", execFCallRO, prepareFirstKey, nil, -3, flagReadOnly).
-		attachCommandExtra([]string{redisFlagReadonly}, 1, 1, 1)
+		attachCommandExtra([]string{redisFlagReadonly, redisFlagScriptRunner}, 1, 1, 1)
 }

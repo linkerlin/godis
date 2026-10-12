@@ -39,14 +39,14 @@ func computeCapacity(param int) (size int) {
 	return n + 1
 }
 
-// MakeConcurrent creates ConcurrentDict with the given shard count
+// MakeConcurrent creates ConcurrentDict with the given shard count.
+// Shard maps are allocated lazily on first write: a fresh dict costs only
+// the shard structs (~2.5MB for 65536 shards) instead of one empty Go map
+// header (~48B) per shard up front. Reads, deletes and iteration over a nil
+// shard map are legal no-ops.
 func MakeConcurrent(shardCount int) *ConcurrentDict {
 	if shardCount == 1 {
-		table := []*shard{
-			{
-				m: make(map[string]interface{}),
-			},
-		}
+		table := []*shard{{}}
 		return &ConcurrentDict{
 			count:      0,
 			table:      table,
@@ -56,9 +56,7 @@ func MakeConcurrent(shardCount int) *ConcurrentDict {
 	shardCount = computeCapacity(shardCount)
 	table := make([]*shard, shardCount)
 	for i := 0; i < shardCount; i++ {
-		table[i] = &shard{
-			m: make(map[string]interface{}),
-		}
+		table[i] = &shard{}
 	}
 	d := &ConcurrentDict{
 		count:      0,
@@ -66,6 +64,15 @@ func MakeConcurrent(shardCount int) *ConcurrentDict {
 		shardCount: shardCount,
 	}
 	return d
+}
+
+// ensureMap allocates the shard map on first write. Callers hold either the
+// shard mutex or the equivalent external shard lock (the *WithLock variants),
+// so the check-then-set is race-free.
+func (s *shard) ensureMap() {
+	if s.m == nil {
+		s.m = make(map[string]interface{})
+	}
 }
 
 const prime32 = uint32(16777619)
@@ -138,6 +145,7 @@ func (dict *ConcurrentDict) Put(key string, val interface{}) (result int) {
 	s := dict.getShard(index)
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
+	s.ensureMap()
 
 	if _, ok := s.m[key]; ok {
 		s.m[key] = val
@@ -154,6 +162,7 @@ func (dict *ConcurrentDict) PutWithLock(key string, val interface{}) (result int
 	}
 	index := dict.spread(key)
 	s := dict.getShard(index)
+	s.ensureMap()
 
 	if _, ok := s.m[key]; ok {
 		s.m[key] = val
@@ -173,6 +182,7 @@ func (dict *ConcurrentDict) PutIfAbsent(key string, val interface{}) (result int
 	s := dict.getShard(index)
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
+	s.ensureMap()
 
 	if _, ok := s.m[key]; ok {
 		return 0
@@ -188,6 +198,7 @@ func (dict *ConcurrentDict) PutIfAbsentWithLock(key string, val interface{}) (re
 	}
 	index := dict.spread(key)
 	s := dict.getShard(index)
+	s.ensureMap()
 
 	if _, ok := s.m[key]; ok {
 		return 0
@@ -206,6 +217,7 @@ func (dict *ConcurrentDict) PutIfExists(key string, val interface{}) (result int
 	s := dict.getShard(index)
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
+	s.ensureMap()
 
 	if _, ok := s.m[key]; ok {
 		s.m[key] = val
@@ -220,6 +232,7 @@ func (dict *ConcurrentDict) PutIfExistsWithLock(key string, val interface{}) (re
 	}
 	index := dict.spread(key)
 	s := dict.getShard(index)
+	s.ensureMap()
 
 	if _, ok := s.m[key]; ok {
 		s.m[key] = val

@@ -26,6 +26,7 @@ const (
 	redisFlagFast          = "fast"
 	redisFlagMovableKeys   = "movablekeys"
 	redisFlagBlocking      = "blocking"
+	redisFlagScriptRunner  = "script_runner"
 )
 
 func execCommand(args [][]byte) redis.Reply {

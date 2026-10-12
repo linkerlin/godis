@@ -1,5 +1,22 @@
 package protocol
 
+import "strings"
+
+// SanitizeErrText maps CR/LF inside error text to spaces so user-controlled
+// data embedded in an error message cannot inject protocol frames
+// (Redis 8.10 security fix). Error() keeps the original text.
+func SanitizeErrText(s string) string {
+	if !strings.ContainsAny(s, "\r\n") {
+		return s
+	}
+	return strings.Map(func(r rune) rune {
+		if r == '\r' || r == '\n' {
+			return ' '
+		}
+		return r
+	}, s)
+}
+
 // UnknownErrReply represents UnknownErr
 type UnknownErrReply struct{}
 
@@ -78,7 +95,7 @@ type ProtocolErrReply struct {
 
 // ToBytes marshals redis.Reply
 func (r *ProtocolErrReply) ToBytes() []byte {
-	return []byte("-ERR Protocol error: \"" + r.Msg + "\"\r\n")
+	return []byte("-ERR Protocol error: \"" + SanitizeErrText(r.Msg) + "\"\r\n")
 }
 
 func (r *ProtocolErrReply) Error() string {

@@ -76,7 +76,7 @@
 
 | 命令 | 描述 |
 |------|------|
-| SET | 设置字符串值 |
+| SET | 设置字符串值（含 8.4 条件选项 IFEQ/IFNE/IFDEQ/IFDNE） |
 | GET | 获取字符串值 |
 | GETEX | 获取并设置过期 |
 | GETDEL | 获取并删除键 |
@@ -87,6 +87,9 @@
 | SETEX | 设置值并指定过期时间 |
 | PSETEX | 设置值并指定过期时间（毫秒） |
 | MSETNX | 原子性设置多个键值 |
+| MSETEX | 多键赋值并设置共享过期（NX/XX，8.4） |
+| DIGEST | 获取字符串值的 XXH3-64 哈希摘要（8.4） |
+| DELEX | 条件删除（IFEQ/IFNE/IFDEQ/IFDNE，8.4） |
 | APPEND | 追加字符串 |
 | STRLEN | 获取字符串长度 |
 | INCR | 数值加1 |
@@ -126,6 +129,8 @@
 | BRPOPLPUSH | 阻塞式弹出并推入 |
 | LMOVE | 列表间移动元素 |
 | BLMOVE | 阻塞式列表移动 |
+| LMOVEM | 列表间移动多个元素（COUNT/EXACTLY × OBO/BULK，8.10） |
+| BLMOVEM | 阻塞式列表多元素移动（8.10） |
 | LMPOP | 多列表弹出 |
 | BLMPOP | 阻塞式多列表弹出 |
 
@@ -180,10 +185,13 @@
 | SRANDMEMBER | 随机获取指定数量元素 |
 | SINTER | 返回交集 |
 | SINTERSTORE | 存储交集结果 |
+| SINTERCARD | 返回交集元素数量（LIMIT 早停） |
 | SUNION | 返回并集 |
 | SUNIONSTORE | 存储并集结果 |
+| SUNIONCARD | 返回并集元素数量（APPROX/LIMIT，8.10） |
 | SDIFF | 返回差集 |
 | SDIFFSTORE | 存储差集结果 |
+| SDIFFCARD | 返回差集元素数量（LIMIT，8.10） |
 | SSCAN | 迭代集合元素 |
 
 ---
@@ -217,8 +225,8 @@
 | ZUNIONSTORE | 并集计算并存储 |
 | ZINTERSTORE | 交集计算并存储 |
 | ZDIFFSTORE | 差集计算并存储 |
-| ZUNION | 返回并集 |
-| ZINTER | 返回交集 |
+| ZUNION | 返回并集（AGGREGATE SUM/MIN/MAX/COUNT） |
+| ZINTER | 返回交集（AGGREGATE SUM/MIN/MAX/COUNT） |
 | ZDIFF | 返回差集 |
 | ZRANGESTORE | 存储排名范围 |
 | ZSCAN | 迭代有序集合 |
@@ -317,6 +325,10 @@
 | FT.ALTER | 修改索引 |
 | FT.INFO | 索引信息 |
 | FT._LIST | 列出索引 |
+| FT.ALIASADD | 添加索引别名 |
+| FT.ALIASDEL | 删除索引别名 |
+| FT.ALIASUPDATE | 更新索引别名 |
+| FT.ALIASLIST | 列出索引的全部别名（8.10） |
 
 ### 搜索和查询
 | 命令 | 描述 |

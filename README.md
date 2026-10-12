@@ -7,7 +7,7 @@
 <br>
 [![Mentioned in Awesome Go](https://awesome.re/mentioned-badge-flat.svg)](https://github.com/avelino/awesome-go)
 
-**Godis** 是一个用 Go 语言实现的 **Redis 8.x 高覆盖度兼容** 服务器（命令级差异见 [`docs/COMPATIBILITY.md`](docs/COMPATIBILITY.md)）。本项目旨在为尝试使用 Go 语言开发高并发中间件的朋友提供参考。
+**Godis** 是一个用 Go 语言实现的 **Redis 8.x 高覆盖度兼容** 服务器（命令级差异见 [`docs/COMPATIBILITY.md`](docs/COMPATIBILITY.md)）。对照基线是 **Redis 8.10**：8.0–8.2 常用命令覆盖较高，8.4 之后的新命令面按 [`兼容性改进计划.md`](兼容性改进计划.md) 的 R5 推进。本项目旨在为尝试使用 Go 语言开发高并发中间件的朋友提供参考。
 
 ## 关键特性
 

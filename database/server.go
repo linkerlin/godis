@@ -187,9 +187,12 @@ func newServerWithSize(dictSize int) (*Server, error) {
 	return server, nil
 }
 
-// MustNewStandaloneServer creates a standalone server, panics on error (for backward compatibility)
+// MustNewStandaloneServer creates a standalone server, panics on error.
+// Test-support convenience only (production paths use NewStandaloneServer):
+// it uses testDictSize shards so the many servers created (and sometimes
+// leaked) across the test suite stay cheap.
 func MustNewStandaloneServer() *Server {
-	server, err := NewStandaloneServer()
+	server, err := newServerWithSize(testDictSize)
 	if err != nil {
 		logger.Fatal(fmt.Sprintf("failed to create server: %+v", err))
 	}

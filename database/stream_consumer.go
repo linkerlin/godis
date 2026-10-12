@@ -25,14 +25,75 @@ func parseXReadBlockTimeout(arg []byte) (int64, redis.Reply) {
 	return ms, nil
 }
 
+// bulkWireLen returns the RESP wire length of a bulk string of n payload bytes.
+func bulkWireLen(n int64) int64 {
+	digits := 1
+	for v := n; v >= 10; v /= 10 {
+		digits++
+	}
+	return 1 + int64(digits) + 2 + n + 2
+}
+
+// xreadEntryWireBytes estimates the RESP wire size of one entry as emitted in
+// an XREAD/XREADGROUP reply (ID bulk + field/value bulks, framing included).
+// Used by the MAXSIZE cumulative budget (Redis 8.10).
+func xreadEntryWireBytes(e *stream.StreamEntry) int64 {
+	sz := bulkWireLen(int64(len(e.ID.String())))
+	for k, v := range e.Fields {
+		sz += bulkWireLen(int64(len(k))) + bulkWireLen(int64(len(v)))
+	}
+	return sz
+}
+
+// xreadReplyCaps tracks the cumulative MAXCOUNT/MAXSIZE budgets of one
+// XREAD/XREADGROUP invocation (0 = unlimited).
+type xreadReplyCaps struct {
+	maxCount int64
+	maxSize  int64
+	total    int64
+	bytes    int64
+}
+
+// capEntries truncates entries (already capped per-stream by COUNT) to the
+// cumulative budgets. At least one entry is always returned overall.
+func (c *xreadReplyCaps) capEntries(entries []*stream.StreamEntry) []*stream.StreamEntry {
+	if c.maxCount <= 0 && c.maxSize <= 0 {
+		return entries
+	}
+	out := entries[:0]
+	for _, e := range entries {
+		if c.maxCount > 0 && c.total >= c.maxCount {
+			break
+		}
+		sz := xreadEntryWireBytes(e)
+		if c.maxSize > 0 && c.total > 0 && c.bytes+sz > c.maxSize {
+			break
+		}
+		out = append(out, e)
+		c.total++
+		c.bytes += sz
+	}
+	return out
+}
+
+// remaining returns the per-stream entry budget (0 = unlimited).
+func (c *xreadReplyCaps) remaining() int64 {
+	if c.maxCount <= 0 {
+		return 0
+	}
+	return c.maxCount - c.total
+}
+
 // execXRead 从Stream读取数据
-// XREAD [COUNT count] [BLOCK milliseconds] STREAMS key [key ...] id [id ...]
+// XREAD [COUNT count] [MAXCOUNT maxcount] [MAXSIZE maxsize] [BLOCK milliseconds] STREAMS key [key ...] id [id ...]
 func execXRead(db *DB, args [][]byte) redis.Reply {
 	if len(args) < 3 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'xread' command")
 	}
 
 	count := -1
+	maxCount := int64(0)
+	maxSize := int64(0)
 	blockTimeout := time.Duration(-1) // -1 表示不阻塞
 
 	// 解析选项
@@ -51,6 +112,20 @@ func execXRead(db *DB, args [][]byte) redis.Reply {
 			// Redis: COUNT ≤ 0 means unlimited.
 			if c > 0 {
 				count = c
+			}
+			i += 2
+		case "MAXCOUNT", "MAXSIZE":
+			if i+1 >= len(args) {
+				return protocol.MakeSyntaxErrReply()
+			}
+			n, err := strconv.ParseInt(string(args[i+1]), 10, 64)
+			if err != nil || n <= 0 {
+				return protocol.MakeErrReply("ERR value is not an integer or out of range")
+			}
+			if arg == "MAXCOUNT" {
+				maxCount = n
+			} else {
+				maxSize = n
 			}
 			i += 2
 		case "BLOCK":
@@ -110,9 +185,15 @@ parseStreams:
 		}
 	}
 
+	if maxCount > 0 && count > 0 && maxCount < int64(count) {
+		return protocol.MakeErrReply("ERR MAXCOUNT can't be less than COUNT")
+	}
+
 	startTime := time.Now()
+	caps := &xreadReplyCaps{maxCount: maxCount, maxSize: maxSize}
 	for {
 		var buckets []streamReadBucket
+		caps.total, caps.bytes = 0, 0
 
 		for j, key := range keys {
 			s, errReply := db.getAsStream(key)
@@ -133,9 +214,21 @@ parseStreams:
 				}
 			}
 
-			if count > 0 && len(filtered) > count {
-				filtered = filtered[:count]
+			// Per-stream COUNT cap plus the cumulative MAXCOUNT remainder.
+			perStream := int64(count) // -1 = unlimited
+			if caps.maxCount > 0 {
+				rem := caps.remaining()
+				if rem <= 0 {
+					break
+				}
+				if perStream <= 0 || perStream > rem {
+					perStream = rem
+				}
 			}
+			if perStream >= 0 && int64(len(filtered)) > perStream {
+				filtered = filtered[:perStream]
+			}
+			filtered = caps.capEntries(filtered)
 
 			if len(filtered) > 0 {
 				buckets = append(buckets, streamReadBucket{key: key, entries: filtered})
@@ -181,6 +274,8 @@ func execXReadGroup(db *DB, args [][]byte) redis.Reply {
 	consumerName := string(args[2])
 
 	count := -1
+	maxCount := int64(0)
+	maxSize := int64(0)
 	blockTimeout := time.Duration(-1)
 	noAck := false
 
@@ -200,6 +295,20 @@ func execXReadGroup(db *DB, args [][]byte) redis.Reply {
 			// Redis: COUNT ≤ 0 means unlimited.
 			if c > 0 {
 				count = c
+			}
+			i += 2
+		case "MAXCOUNT", "MAXSIZE":
+			if i+1 >= len(args) {
+				return protocol.MakeSyntaxErrReply()
+			}
+			n, err := strconv.ParseInt(string(args[i+1]), 10, 64)
+			if err != nil || n <= 0 {
+				return protocol.MakeErrReply("ERR value is not an integer or out of range")
+			}
+			if arg == "MAXCOUNT" {
+				maxCount = n
+			} else {
+				maxSize = n
 			}
 			i += 2
 		case "BLOCK":
@@ -242,9 +351,15 @@ parseStreams:
 		return reply
 	}
 
+	if maxCount > 0 && count > 0 && maxCount < int64(count) {
+		return protocol.MakeErrReply("ERR MAXCOUNT can't be less than COUNT")
+	}
+
 	startTime := time.Now()
+	caps := &xreadReplyCaps{maxCount: maxCount, maxSize: maxSize}
 	for {
 		var buckets []streamReadBucket
+		caps.total, caps.bytes = 0, 0
 
 		for j, key := range keys {
 			s, errReply := db.getAsStream(key)
@@ -282,11 +397,7 @@ parseStreams:
 						}
 					}
 				}
-
-				// 更新组的LastID
-				if len(entries) > 0 {
-					group.LastID = entries[len(entries)-1].ID
-				}
+				// group.LastID 在截断后按实际递送的末条更新（见下方 caps 处）
 			} else if id == "$" {
 				// 只读取新数据
 				lastID := s.GetLastID()
@@ -326,9 +437,25 @@ parseStreams:
 				}
 			}
 
-			// 应用count限制
-			if count > 0 && len(entries) > count {
-				entries = entries[:count]
+			// Apply the per-stream COUNT cap plus the cumulative
+			// MAXCOUNT/MAXSIZE budgets, then advance the group's LastID to
+			// the last entry actually delivered (not the last collected).
+			perStream := int64(count) // -1 = unlimited
+			if caps.maxCount > 0 {
+				rem := caps.remaining()
+				if rem <= 0 {
+					break
+				}
+				if perStream <= 0 || perStream > rem {
+					perStream = rem
+				}
+			}
+			if perStream >= 0 && int64(len(entries)) > perStream {
+				entries = entries[:perStream]
+			}
+			entries = caps.capEntries(entries)
+			if id == ">" && len(entries) > 0 {
+				group.LastID = entries[len(entries)-1].ID
 			}
 
 			if len(entries) > 0 {
