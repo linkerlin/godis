@@ -1,22 +1,29 @@
 package json
 
-// JSONPath filter expressions — Redis 8.10 batch 1 (R5-20).
+// JSONPath filter expressions — Redis 8.10 batches 1–3a (R5-20).
 //
-// Supported inside `[?( ... )]`: comparisons ==, !=, <, <=, >, >= against any
-// literal (number, 'string', "string", true, false, null, and JSON
-// array/object literals compared by deep equality), ! negation, && and ||,
-// and parentheses. `@` refers to the element under test and may carry a
-// relative path (`.a.b[0]`).
+// Supported inside `[?( ... )]`:
+//   - comparisons ==, !=, <, <=, >, >= against any literal (number, string,
+//     bool, null, JSON array/object by deep equality)
+//   - membership: `lhs in [...]`, `lhs nin [...]` (array literal or an
+//     @-path resolving to an array); a missing left side matches neither
+//   - arithmetic on numbers: binary + - * / % and unary -/+ (a non-numeric
+//     operand or division by zero evaluates to Nothing — condition false,
+//     never an error)
+//   - size/sizeof: length of a string/array/object, optionally followed by
+//     a comparison (default ==); empty: true when the length is 0
+//   - ! negation, && and ||, parentheses; `@` relative paths (`.a.b[0]`);
+//     bare operands test truthiness
 //
-// ponytail: the filter segment must be the LAST path component (a filter
-// mid-path is rejected, not silently mis-evaluated); nested brackets inside
-// the predicate are not supported by the segment splitter. Batch 2 (in/nin)
-// and batch 3 (functions) extend evalCompare/scanOperand.
+// ponytail: comparisons with a missing (nil) operand keep the batch-1
+// convention (@.missing == null is true); functions (match/search/concat/
+// min/…) and top-level projection expressions are batch 3 proper.
 
 import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 )
@@ -80,15 +87,38 @@ const (
 	tkNot
 	tkAnd
 	tkOr
-	tkCmp // == != < <= > >=
-	tkAt  // @ plus relative path, .tok carries the path
-	tkLit // literal, .tok carries parsed JSON value
+	tkCmp   // == != < <= > >= in nin
+	tkArith // + - * / %
+	tkAt    // @ plus relative path, .tok carries the path
+	tkLit   // literal, .val carries the parsed JSON value
+	tkSize  // size / sizeof
+	tkEmpty // empty
 )
 
 type token struct {
 	kind tokenKind
 	tok  string // operator text or @-relative path
 	val  interface{}
+}
+
+var wordOps = map[string]tokenKind{
+	"in":     tkCmp,
+	"nin":    tkCmp,
+	"size":   tkSize,
+	"sizeof": tkSize,
+	"empty":  tkEmpty,
+}
+
+func isWordStart(c byte) bool {
+	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+}
+
+func isWordChar(c byte) bool {
+	return isWordStart(c) || (c >= '0' && c <= '9') || c == '_' || c == '.'
+}
+
+func isArithChar(c byte) bool {
+	return c == '+' || c == '-' || c == '*' || c == '/' || c == '%'
 }
 
 func tokenize(s string) ([]token, error) {
@@ -134,6 +164,9 @@ func tokenize(s string) ([]token, error) {
 		case c == '>':
 			toks = append(toks, token{kind: tkCmp, tok: ">"})
 			i++
+		case c == '+' || c == '-' || c == '*' || c == '/' || c == '%':
+			toks = append(toks, token{kind: tkArith, tok: string(c)})
+			i++
 		case c == '@':
 			j := i + 1
 			for j < len(s) {
@@ -159,8 +192,26 @@ func tokenize(s string) ([]token, error) {
 			}
 			toks = append(toks, token{kind: tkLit, val: s[i+1 : j]})
 			i = j + 1
+		case isWordStart(c):
+			// Bare word: in/nin/size/sizeof/empty operator, or a JSON
+			// literal (true/false/null).
+			j := i
+			for j < len(s) && isWordChar(s[j]) {
+				j++
+			}
+			word := s[i:j]
+			if kind, ok := wordOps[word]; ok {
+				toks = append(toks, token{kind: kind, tok: word})
+			} else {
+				var v interface{}
+				if err := json.Unmarshal([]byte(word), &v); err != nil {
+					return nil, ErrJSONPathSyntax
+				}
+				toks = append(toks, token{kind: tkLit, val: v})
+			}
+			i = j
 		default:
-			// number / true / false / null / JSON composite literal
+			// number / JSON composite literal
 			j := i
 			depth := 0
 			for j < len(s) {
@@ -175,6 +226,8 @@ func tokenize(s string) ([]token, error) {
 					}
 					depth--
 				} else if ch == ' ' && depth == 0 {
+					break
+				} else if depth == 0 && isArithChar(ch) {
 					break
 				}
 				j++
@@ -194,10 +247,10 @@ func tokenize(s string) ([]token, error) {
 	return toks, nil
 }
 
-// ---- parser (precedence: || < && < ! < comparison) ----
+// ---- parser (precedence: || < && < ! < comparison < additive < multiplicative) ----
 
 type predNode struct {
-	op    string // "or","and","not", or comparison operator, "" = operand-only
+	op    string // "or","and","not", comparison, arithmetic, "" = operand-only
 	left  *predNode
 	right *predNode
 	self  *token // operand token when op == ""
@@ -284,22 +337,114 @@ func (p *predParser) parseComparison() (*predNode, error) {
 		p.pos++
 		return inner, nil
 	}
-	if t.kind != tkAt && t.kind != tkLit {
-		return nil, ErrJSONPathSyntax
+
+	lhs, err := p.parseArith()
+	if err != nil {
+		return nil, err
 	}
-	p.pos++
+
 	next := p.peek()
-	if next == nil || next.kind != tkCmp {
-		// Bare operand: truthiness (non-null, non-false, non-zero).
-		return &predNode{self: t}, nil
+	switch {
+	case next == nil:
+		return lhs, nil // bare operand: truthiness
+	case next.kind == tkCmp:
+		p.pos++
+		rhs, err := p.parseArith()
+		if err != nil {
+			return nil, err
+		}
+		return &predNode{op: next.tok, left: lhs, right: rhs}, nil
+	case next.kind == tkSize:
+		p.pos++
+		sizeNode := &predNode{op: "size ==", left: lhs}
+		if cmp := p.peek(); cmp != nil && cmp.kind == tkCmp {
+			p.pos++
+			rhs, err := p.parseArith()
+			if err != nil {
+				return nil, err
+			}
+			sizeNode.right = rhs
+			sizeNode.op = "size " + cmp.tok
+		} else {
+			// `size n` defaults to ==; the comparand is mandatory.
+			rhs, err := p.parseArith()
+			if err != nil {
+				return nil, err
+			}
+			sizeNode.right = rhs
+		}
+		return sizeNode, nil
+	case next.kind == tkEmpty:
+		p.pos++
+		return &predNode{op: "empty", left: lhs}, nil
+	default:
+		return lhs, nil
 	}
-	p.pos++
-	rhs := p.peek()
-	if rhs == nil || (rhs.kind != tkAt && rhs.kind != tkLit) {
+}
+
+// parseArith: additive := multiplicative (('+'|'-') multiplicative)*
+func (p *predParser) parseArith() (*predNode, error) {
+	left, err := p.parseMul()
+	if err != nil {
+		return nil, err
+	}
+	for {
+		t := p.peek()
+		if t == nil || t.kind != tkArith || (t.tok != "+" && t.tok != "-") {
+			return left, nil
+		}
+		p.pos++
+		right, err := p.parseMul()
+		if err != nil {
+			return nil, err
+		}
+		left = &predNode{op: t.tok, left: left, right: right}
+	}
+}
+
+// parseMul: multiplicative := operand (('*'|'/'|'%') operand)*
+func (p *predParser) parseMul() (*predNode, error) {
+	left, err := p.parseOperand()
+	if err != nil {
+		return nil, err
+	}
+	for {
+		t := p.peek()
+		if t == nil || t.kind != tkArith || (t.tok != "*" && t.tok != "/" && t.tok != "%") {
+			return left, nil
+		}
+		p.pos++
+		right, err := p.parseOperand()
+		if err != nil {
+			return nil, err
+		}
+		left = &predNode{op: t.tok, left: left, right: right}
+	}
+}
+
+func (p *predParser) parseOperand() (*predNode, error) {
+	t := p.peek()
+	if t == nil {
 		return nil, ErrJSONPathSyntax
 	}
-	p.pos++
-	return &predNode{op: next.tok, left: &predNode{self: t}, right: &predNode{self: rhs}}, nil
+	switch t.kind {
+	case tkAt, tkLit:
+		p.pos++
+		return &predNode{self: t}, nil
+	case tkArith:
+		if t.tok == "-" || t.tok == "+" {
+			p.pos++
+			inner, err := p.parseOperand()
+			if err != nil {
+				return nil, err
+			}
+			if t.tok == "-" {
+				return &predNode{op: "u-", left: inner}, nil
+			}
+			return inner, nil
+		}
+	}
+	return nil, ErrJSONPathSyntax
 }
 
 // ---- evaluation ----
@@ -313,22 +458,90 @@ func evalNode(n *predNode, elem interface{}) bool {
 	case "not":
 		return !evalNode(n.left, elem)
 	case "":
-		v := operandValue(n.self, elem)
-		return truthy(v)
+		return truthy(nodeValue(n, elem))
+	case "in", "nin":
+		l := nodeValue(n.left, elem)
+		if l == nil {
+			return false // missing operand matches neither in nor nin
+		}
+		arr, ok := nodeValue(n.right, elem).([]interface{})
+		if !ok {
+			return false
+		}
+		found := false
+		for _, cand := range arr {
+			if deepEqual(l, cand) {
+				found = true
+				break
+			}
+		}
+		if n.op == "in" {
+			return found
+		}
+		return !found
+	case "empty":
+		v := nodeValue(n.left, elem)
+		length, ok := lengthOf(v)
+		return ok && length == 0
 	default:
-		l := operandValue(n.left.self, elem)
-		r := operandValue(n.right.self, elem)
+		if strings.HasPrefix(n.op, "size") {
+			if n.right == nil {
+				return false // `size` without a comparand
+			}
+			length, ok := lengthOf(nodeValue(n.left, elem))
+			if !ok {
+				return false
+			}
+			res, err := compare(float64(length), nodeValue(n.right, elem),
+				strings.TrimSpace(n.op[len("size"):]))
+			return err == nil && res
+		}
+		l := nodeValue(n.left, elem)
+		r := nodeValue(n.right, elem)
 		ok, err := compare(l, r, n.op)
 		return err == nil && ok
 	}
 }
 
-// operandValue resolves an operand token against the current element.
-func operandValue(t *token, elem interface{}) interface{} {
-	if t.kind == tkLit {
-		return t.val
+// nodeValue evaluates a value node (operand, arithmetic, unary minus).
+func nodeValue(n *predNode, elem interface{}) interface{} {
+	if n.op == "" {
+		if n.self.kind == tkLit {
+			return n.self.val
+		}
+		return walkRelative(elem, n.self.tok)
 	}
-	return walkRelative(elem, t.tok)
+	if n.op == "u-" {
+		f, ok := toFloat(nodeValue(n.left, elem))
+		if !ok {
+			return nil // Nothing
+		}
+		return -f
+	}
+	lf, lok := toFloat(nodeValue(n.left, elem))
+	rf, rok := toFloat(nodeValue(n.right, elem))
+	if !lok || !rok {
+		return nil // Nothing: non-numeric operand
+	}
+	switch n.op {
+	case "+":
+		return lf + rf
+	case "-":
+		return lf - rf
+	case "*":
+		return lf * rf
+	case "/":
+		if rf == 0 {
+			return nil
+		}
+		return lf / rf
+	case "%":
+		if rf == 0 {
+			return nil
+		}
+		return math.Mod(lf, rf)
+	}
+	return nil
 }
 
 // walkRelative resolves a relative path like ".a.b[0]" ("" = the element
@@ -372,6 +585,20 @@ func truthy(v interface{}) bool {
 	default:
 		return true
 	}
+}
+
+// lengthOf returns the length of a string/array/object (ok=false for other
+// types, including nil).
+func lengthOf(v interface{}) (int, bool) {
+	switch t := v.(type) {
+	case string:
+		return len([]rune(t)), true
+	case []interface{}:
+		return len(t), true
+	case map[string]interface{}:
+		return len(t), true
+	}
+	return 0, false
 }
 
 // compare applies a comparison operator; numbers compare across int/float.
@@ -426,7 +653,7 @@ func toFloat(v interface{}) (float64, bool) {
 	return 0, false
 }
 
-// deepEqual compares JSON-decoded values (composites by reflect; scalars
+// deepEqual compares JSON-decoded values (composites by marshal; scalars
 // with number/string/bool/null equivalence).
 func deepEqual(l, r interface{}) bool {
 	if lf, ok := toFloat(l); ok {
@@ -435,10 +662,9 @@ func deepEqual(l, r interface{}) bool {
 		}
 		return false
 	}
-	if _, ok := l.(string); ok {
-		ls, ok1 := l.(string)
+	if ls, ok1 := l.(string); ok1 {
 		rs, ok2 := r.(string)
-		return ok1 && ok2 && ls == rs
+		return ok2 && ls == rs
 	}
 	if lb, ok := l.(bool); ok {
 		rb, ok2 := r.(bool)

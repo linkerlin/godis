@@ -15730,6 +15730,10 @@ JSONPATH-and|["alice"]|JSON.GET sidecar:r5jp:doc:{{ID}} $.users[?(@.age>20 && @.
 JSONPATH-negate|["carol"]|JSON.GET sidecar:r5jp:doc:{{ID}} $.users[?(!(@.age>29))].name
 JSONPATH-empty|[]|JSON.GET sidecar:r5jp:doc:{{ID}} $.users[?(@.age>99)].name
 JSONPATH-syntax|ERR Path syntax error|JSON.GET sidecar:r5jp:doc:{{ID}} $.users[?(@.age>)]
+JSONPATH-in|["alice","carol"]|JSON.GET sidecar:r5jp:doc:{{ID}} $.users[?(@.name in ["alice","carol"])].name
+JSONPATH-nin|["bob"]|JSON.GET sidecar:r5jp:doc:{{ID}} $.users[?(@.name nin ["alice","carol"])].name
+JSONPATH-arith|["bob"]|JSON.GET sidecar:r5jp:doc:{{ID}} $.users[?(@.age + 10 > 50)].name
+JSONPATH-mod|["alice"]|JSON.GET sidecar:r5jp:doc:{{ID}} $.users[?(@.age % 2 == 0)].name
 
 
 

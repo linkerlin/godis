@@ -131,3 +131,98 @@ func TestR5JPFPHARejected(t *testing.T) {
 		"ERR FPHA is not supported: Godis JSON has no homogeneous float array encoding")
 	testDB.Exec(nil, utils.ToCmdLine("DEL", "r5jp:f", "r5jp:doc"))
 }
+
+// ---- R5-20 batch 2 (in/nin) and 3a (arithmetic, size/empty) ----
+
+func TestR5JPInNin(t *testing.T) {
+	r5jpSetup(t)
+	if got := r5jpGet(t, `$.users[?(@.name in ["alice","carol"])].name`); got != `["alice","carol"]` {
+		t.Errorf("in: %s", got)
+	}
+	if got := r5jpGet(t, `$.users[?(@.name nin ["alice","carol"])].name`); got != `["bob"]` {
+		t.Errorf("nin: %s", got)
+	}
+	// Numeric membership with int/float coercion.
+	if got := r5jpGet(t, "$.users[?(@.age in [30,45])].name"); got != `["alice","bob"]` {
+		t.Errorf("in numbers: %s", got)
+	}
+	// Missing left side matches neither in nor nin.
+	if got := r5jpGet(t, `$.users[?(@.missing in ["x"])]`); got != "[]" {
+		t.Errorf("in missing: %s", got)
+	}
+	if got := r5jpGet(t, `$.users[?(@.missing nin ["x"])]`); got != "[]" {
+		t.Errorf("nin missing: %s", got)
+	}
+	// Non-array right side → no match.
+	if got := r5jpGet(t, `$.users[?(@.name in "alice")]`); got != "[]" {
+		t.Errorf("in non-array: %s", got)
+	}
+}
+
+func TestR5JPArithmetic(t *testing.T) {
+	r5jpSetup(t)
+	// @.price + 100 < 2100 style (bikes example).
+	if got := r5jpGet(t, "$.users[?(@.age + 10 > 50)].name"); got != `["bob"]` {
+		t.Errorf("add: %s", got)
+	}
+	if got := r5jpGet(t, "$.users[?(@.age - 5 == 25)].name"); got != `["alice"]` {
+		t.Errorf("sub: %s", got)
+	}
+	if got := r5jpGet(t, "$.users[?(@.age * 2 == 60)].name"); got != `["alice"]` {
+		t.Errorf("mul: %s", got)
+	}
+	if got := r5jpGet(t, "$.users[?(@.age / 2 == 15)].name"); got != `["alice"]` {
+		t.Errorf("div: %s", got)
+	}
+	if got := r5jpGet(t, "$.users[?(@.age % 2 == 0)].name"); got != `["alice"]` {
+		t.Errorf("mod: %s", got)
+	}
+	// Unary minus and precedence: 2*3+4 == 10.
+	testDB.Exec(nil, utils.ToCmdLine("JSON.SET", "r5jp:n", "$", `[10,16,22]`))
+	r := testDB.Exec(nil, utils.ToCmdLine("JSON.GET", "r5jp:n", "$[?(@ == 2*3+4)]"))
+	b, _ := r.(*protocol.BulkReply)
+	if b == nil || string(b.Arg) != "[10]" {
+		t.Errorf("precedence: %v", r.ToBytes())
+	}
+	// Division by zero → Nothing → no match, no error.
+	if got := r5jpGet(t, "$.users[?(@.age / 0 == 1)].name"); got != "[]" {
+		t.Errorf("div zero: %s", got)
+	}
+	testDB.Exec(nil, utils.ToCmdLine("DEL", "r5jp:n"))
+}
+
+func TestR5JPSizeEmpty(t *testing.T) {
+	r5jpSetup(t)
+	// tags is an array: alice 2, bob 1, carol 2.
+	if got := r5jpGet(t, "$.users[?(@.tags size 2)].name"); got != `["alice","carol"]` {
+		t.Errorf("size ==: %s", got)
+	}
+	if got := r5jpGet(t, "$.users[?(@.tags size > 1)].name"); got != `["alice","carol"]` {
+		t.Errorf("size >: %s", got)
+	}
+	// String length.
+	if got := r5jpGet(t, `$.users[?(@.name size 3)].name`); got != `["bob"]` {
+		t.Errorf("name size 3: %s", got)
+	}
+	// Object member count.
+	if got := r5jpGet(t, "$.users[?(@ size 4)].name"); got != `["alice","bob","carol"]` {
+		t.Errorf("object size 4: %s", got)
+	}
+	// empty over arrays and strings.
+	testDB.Exec(nil, utils.ToCmdLine("JSON.SET", "r5jp:e", "$", `[{"t":[],"s":"x"},{"t":[1],"s":""}]`))
+	r := testDB.Exec(nil, utils.ToCmdLine("JSON.GET", "r5jp:e", "$[?(@.t empty)].s"))
+	b, _ := r.(*protocol.BulkReply)
+	if b == nil || string(b.Arg) != `["x"]` {
+		t.Errorf("empty array: %v", r.ToBytes())
+	}
+	r = testDB.Exec(nil, utils.ToCmdLine("JSON.GET", "r5jp:e", "$[?(@.s empty)].t"))
+	b, _ = r.(*protocol.BulkReply)
+	if b == nil || string(b.Arg) != "[[1]]" {
+		t.Errorf("empty string: %v", r.ToBytes())
+	}
+	// missing field: size/empty are false.
+	if got := r5jpGet(t, "$.users[?(@.missing size 0)].name"); got != "[]" {
+		t.Errorf("missing size: %s", got)
+	}
+	testDB.Exec(nil, utils.ToCmdLine("DEL", "r5jp:e"))
+}
