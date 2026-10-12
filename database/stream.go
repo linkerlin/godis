@@ -51,6 +51,8 @@ func execXAdd(db *DB, args [][]byte) redis.Reply {
 	var opts stream.AddOptions
 	var idStr string
 	var fieldArgs [][]byte
+	// XADD IDMP producer/idempotent IDs (Redis 8.6).
+	idmpProducer, idmpID := "", ""
 
 	// 解析选项
 	i := 1
@@ -61,6 +63,23 @@ func execXAdd(db *DB, args [][]byte) redis.Reply {
 		case "NOMKSTREAM":
 			opts.NoMkStream = true
 			i++
+		case "IDMP", "IDMPAUTO":
+			need := 2 // IDMPAUTO producer-id
+			if arg == "IDMP" {
+				need = 3 // IDMP producer-id idempotent-id
+			}
+			// After the option there must be room for the ID plus at least
+			// one field-value pair.
+			if idmpProducer != "" || i+need+3 > len(args) {
+				return protocol.MakeSyntaxErrReply()
+			}
+			idmpProducer = string(args[i+1])
+			if arg == "IDMP" {
+				idmpID = string(args[i+2])
+				i += 3
+			} else {
+				i += 2
+			}
 		case "MAXLEN":
 			if i+1 >= len(args) {
 				return protocol.MakeSyntaxErrReply()
@@ -197,6 +216,32 @@ func execXAdd(db *DB, args [][]byte) redis.Reply {
 	// 如果stream不存在且NoMkStream为true
 	if s == nil {
 		return &protocol.NullBulkReply{}
+	}
+
+	// XADD IDMP/IDMPAUTO dedup (Redis 8.6): a repeated producer/idempotent
+	// pair returns the original entry ID without appending.
+	if idmpProducer != "" {
+		if idStr != "*" {
+			return protocol.MakeErrReply("ERR IDMP can only be used with an auto-generated ID (*)")
+		}
+		ensureStreamIdmpDefaults(s)
+		iid := idmpID
+		if iid == "" {
+			iid = computeIdmpAutoID(fields)
+		}
+		if origID, ok := s.LookupIdmp(idmpProducer, iid); ok {
+			// Duplicate: nothing changes, so nothing is appended to the AOF.
+			return protocol.MakeBulkReply([]byte(origID.String()))
+		}
+		id, err := s.Add(idStr, fields, &opts)
+		if err != nil {
+			return protocol.MakeErrReply(err.Error())
+		}
+		s.RecordIdmp(idmpProducer, iid, id)
+		db.addAof(utils.ToCmdLine3("xadd", args...))
+		notifyKeyspaceEvent(db, "xadd", key)
+		signalStreamWaiters(key)
+		return protocol.MakeBulkReply([]byte(id.String()))
 	}
 
 	// 添加条目

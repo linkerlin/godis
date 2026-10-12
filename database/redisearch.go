@@ -1427,8 +1427,14 @@ func execFTSearch(db *DB, args [][]byte) redis.Reply {
 	replies := make([]redis.Reply, 0, 1+3*len(results.Results))
 	replies = append(replies, protocol.MakeIntReply(replyTotal))
 
+	// RETURN_STRICT (8.10): stop building the reply once the deadline passes.
+	strictDeadline := ftStrictDeadline(opts.TimeoutMs)
+
 	var cursorRows [][]byte
-	for _, result := range results.Results {
+	for idx, result := range results.Results {
+		if idx%256 == 255 && ftStrictCutoff(strictDeadline) {
+			break
+		}
 		if withCursor {
 			// Pack one document as a single multi-bulk row for cursor paging:
 			// [id, score?, fields...] flattened; COUNT is in documents.
@@ -2049,7 +2055,11 @@ func execFTAggregate(db *DB, args [][]byte) redis.Reply {
 
 	if withCursor {
 		rows := make([][]byte, 0, len(result.Groups))
-		for _, group := range result.Groups {
+		strictDeadline := ftStrictDeadline(req.TimeoutMs)
+		for idx, group := range result.Groups {
+			if idx%256 == 255 && ftStrictCutoff(strictDeadline) {
+				break
+			}
 			rows = append(rows, aggRowBytes(group))
 		}
 		return ftBuildCursorPage(indexName, result.Total, rows, cursorCount, cursorMaxIdle)
@@ -2059,7 +2069,11 @@ func execFTAggregate(db *DB, args [][]byte) redis.Reply {
 	var reply [][]byte
 	reply = append(reply, []byte(strconv.Itoa(result.Total)))
 
-	for _, group := range result.Groups {
+	strictDeadline := ftStrictDeadline(req.TimeoutMs)
+	for idx, group := range result.Groups {
+		if idx%256 == 255 && ftStrictCutoff(strictDeadline) {
+			break
+		}
 		reply = append(reply, aggRowBytes(group))
 	}
 

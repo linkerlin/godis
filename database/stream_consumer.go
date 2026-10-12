@@ -1,6 +1,7 @@
 package database
 
 import (
+	"math"
 	"sort"
 	"strconv"
 	"strings"
@@ -278,6 +279,7 @@ func execXReadGroup(db *DB, args [][]byte) redis.Reply {
 	maxSize := int64(0)
 	blockTimeout := time.Duration(-1)
 	noAck := false
+	claimMinIdle := int64(-1) // XREADGROUP CLAIM min-idle-time ms (8.4); -1 = absent
 
 	// 解析选项
 	i := 3
@@ -296,6 +298,16 @@ func execXReadGroup(db *DB, args [][]byte) redis.Reply {
 			if c > 0 {
 				count = c
 			}
+			i += 2
+		case "CLAIM":
+			if i+1 >= len(args) {
+				return protocol.MakeSyntaxErrReply()
+			}
+			n, err := strconv.ParseInt(string(args[i+1]), 10, 64)
+			if err != nil || n < 0 {
+				return protocol.MakeErrReply("ERR value is not an integer or out of range")
+			}
+			claimMinIdle = n
 			i += 2
 		case "MAXCOUNT", "MAXSIZE":
 			if i+1 >= len(args) {
@@ -382,8 +394,62 @@ parseStreams:
 
 			var entries []*stream.StreamEntry
 			id := ids[j]
+			// XREADGROUP CLAIM (8.4): claimed pending entries form a prefix
+			// of this bucket, delivered before new entries.
+			claimPEs := []*stream.PendingEntry(nil)
+			claimIdle := []int64(nil)
 
 			if id == ">" {
+				if claimMinIdle >= 0 {
+					now := time.Now()
+					type claimCand struct {
+						id    stream.StreamID
+						entry *stream.StreamEntry
+						pe    *stream.PendingEntry
+						idle  int64
+					}
+					var cands []claimCand
+					for pid, pe := range group.Pending {
+						idle := int64(math.MaxInt64)
+						if !pe.DeliveryTime.IsZero() {
+							idle = now.Sub(pe.DeliveryTime).Milliseconds()
+							if idle < 0 {
+								idle = 0
+							}
+						}
+						if idle < claimMinIdle {
+							continue
+						}
+						entry := s.GetEntry(pid)
+						if entry == nil {
+							continue // trimmed payload — approximation: skipped
+						}
+						cands = append(cands, claimCand{id: pid, entry: entry, pe: pe, idle: idle})
+					}
+					sort.Slice(cands, func(a, b int) bool {
+						za, zb := cands[a].pe.DeliveryTime.IsZero(), cands[b].pe.DeliveryTime.IsZero()
+						if za != zb {
+							return za // XNACK-released entries claim first
+						}
+						if za {
+							return cands[a].id.Compare(cands[b].id) < 0
+						}
+						if cands[a].idle != cands[b].idle {
+							return cands[a].idle > cands[b].idle // longer idle first
+						}
+						return cands[a].id.Compare(cands[b].id) < 0
+					})
+					for _, c := range cands {
+						entries = append(entries, c.entry)
+						claimPEs = append(claimPEs, c.pe)
+						if c.pe.DeliveryTime.IsZero() {
+							claimIdle = append(claimIdle, -1)
+						} else {
+							claimIdle = append(claimIdle, c.idle)
+						}
+					}
+				}
+
 				// 读取新消息（从未递送过的）
 				lastID := group.LastID
 				allEntries := s.Range(lastID, stream.StreamID{Timestamp: 1<<63 - 1, Sequence: 1<<63 - 1})
@@ -397,7 +463,7 @@ parseStreams:
 						}
 					}
 				}
-				// group.LastID 在截断后按实际递送的末条更新（见下方 caps 处）
+				// group.LastID 在截断后按实际递送的新条目更新（见下方 caps 处）
 			} else if id == "$" {
 				// 只读取新数据
 				lastID := s.GetLastID()
@@ -438,8 +504,9 @@ parseStreams:
 			}
 
 			// Apply the per-stream COUNT cap plus the cumulative
-			// MAXCOUNT/MAXSIZE budgets, then advance the group's LastID to
-			// the last entry actually delivered (not the last collected).
+			// MAXCOUNT/MAXSIZE budgets. Claimed entries are the prefix, so
+			// entries dropped by the caps are never claimed (their PEL state
+			// is untouched).
 			perStream := int64(count) // -1 = unlimited
 			if caps.maxCount > 0 {
 				rem := caps.remaining()
@@ -454,16 +521,40 @@ parseStreams:
 				entries = entries[:perStream]
 			}
 			entries = caps.capEntries(entries)
-			if id == ">" && len(entries) > 0 {
+			keptClaimed := 0
+			if len(claimPEs) > 0 {
+				keptClaimed = len(entries)
+				if keptClaimed > len(claimPEs) {
+					keptClaimed = len(claimPEs)
+				}
+			}
+			// Advance the group's LastID only over NEW entries (claimed
+			// entries were delivered before and are ≤ LastID).
+			if id == ">" && len(entries) > keptClaimed {
 				group.LastID = entries[len(entries)-1].ID
 			}
 
 			if len(entries) > 0 {
+				// Claim the surviving pending prefix to this consumer
+				// (NOACK does not apply to claimed entries).
+				now := time.Now()
+				for k := 0; k < keptClaimed; k++ {
+					pe := claimPEs[k]
+					if pe.Consumer != "" && pe.Consumer != consumerName {
+						if raw, exists := group.Consumers.Get(pe.Consumer); exists {
+							delete(raw.(*stream.Consumer).Pending, pe.ID)
+						}
+					}
+					pe.Consumer = consumerName
+					pe.DeliveryTime = now
+					pe.DeliveryCount++
+					consumer.Pending[pe.ID] = pe
+					group.Pending[pe.ID] = pe
+				}
 				// 添加到pending（除非NOACK）；历史重读递增 DeliveryCount
 				if !noAck {
-					now := time.Now()
 					historyReread := id != ">" && id != "$"
-					for _, entry := range entries {
+					for _, entry := range entries[keptClaimed:] {
 						if historyReread {
 							if pe, ok := consumer.Pending[entry.ID]; ok {
 								pe.DeliveryCount++
@@ -482,7 +573,16 @@ parseStreams:
 					}
 				}
 
-				buckets = append(buckets, streamReadBucket{key: key, entries: entries})
+				bucket := streamReadBucket{key: key, entries: entries}
+				if keptClaimed > 0 {
+					bucket.claimedCount = keptClaimed
+					bucket.claimIdle = claimIdle[:keptClaimed]
+					bucket.claimDeliver = make([]int, keptClaimed)
+					for k := 0; k < keptClaimed; k++ {
+						bucket.claimDeliver[k] = claimPEs[k].DeliveryCount
+					}
+				}
+				buckets = append(buckets, bucket)
 			}
 		}
 
@@ -908,11 +1008,13 @@ func execXPending(db *DB, args [][]byte) redis.Reply {
 		if consumerFilter != "" && pending.Consumer != consumerFilter {
 			continue
 		}
-		idleMs := now.Sub(pending.DeliveryTime).Milliseconds()
-		if idleMs < 0 {
-			idleMs = 0
+		// XNACK-released entries (delivery time zero) report idle -1,
+		// matching Redis 8.8 XPENDING.
+		idleMs := int64(-1)
+		if !pending.DeliveryTime.IsZero() {
+			idleMs = now.Sub(pending.DeliveryTime).Milliseconds()
 		}
-		if minIdleMs >= 0 && idleMs < minIdleMs {
+		if idleMs >= 0 && minIdleMs >= 0 && idleMs < minIdleMs {
 			continue
 		}
 		if minDeliveryUnixMs >= 0 && pending.DeliveryTime.UnixMilli() < minDeliveryUnixMs {
@@ -929,9 +1031,9 @@ func execXPending(db *DB, args [][]byte) redis.Reply {
 		if i >= count {
 			break
 		}
-		idleMs := now.Sub(row.pending.DeliveryTime).Milliseconds()
-		if idleMs < 0 {
-			idleMs = 0
+		idleMs := int64(-1)
+		if !row.pending.DeliveryTime.IsZero() {
+			idleMs = now.Sub(row.pending.DeliveryTime).Milliseconds()
 		}
 		replies = append(replies, protocol.MakeMultiBulkReply([][]byte{
 			[]byte(row.id.String()),

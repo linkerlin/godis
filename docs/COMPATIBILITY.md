@@ -296,7 +296,16 @@ UNWATCH、WAIT（简版）、BITOP、BITFIELD、SMOVE、LPOS、XCLAIM、SHUTDOWN
 |------|----------|------------|
 | `FT.HYBRID` | 8.4 | 单机文本 + 向量 KNN 融合。范围向量、`COMBINE` 之后的 `FILTER`、`EXPLAINSCORE`、`WITHCURSOR`、每分片候选数、`FT.PROFILE HYBRID` 未做 |
 | `COLLECT` | 8.8，8.10 加强 | 单机按组收集已有测试。8.10 的 remote/local reducer 分离未做 |
-| `ON_TIMEOUT RETURN_STRICT` | 8.10 | 配置词存在；超时且没有部分结果时走空结果。后处理管线里的严格截止未做 |
+| `ON_TIMEOUT RETURN_STRICT` | 8.10 | **R5-17 已接通**：查询引擎超时（8.0 行为）之外，`FT.SEARCH`/`FT.AGGREGATE` 的回复构建循环在 `RETURN_STRICT` 下每 256 条检查截止并返回部分结果。粒度为批级，非逐条；`search-workers` 并行管线不模拟 |
+| `XREADGROUP … CLAIM` | 8.4 | **R5-12 已接通**（`>` 读取前认领空闲 PEL，扩展四字段回复；XNACK 释放条目优先）。被裁剪条目载荷已删（trim 后）时跳过而非返回 nil 载荷（近似） |
+| `XNACK` | 8.8 | **R5-13 已接通**（SILENT/FAIL/FATAL + RETRYCOUNT/FORCE）。释放条目间顺序按 ID 升序近似 FIFO（Redis 为 XNACK 时刻 FIFO） |
+| `XADD` `IDMP`/`IDMPAUTO` + `XCFGSET` | 8.6 | **R5-14 已接通**。`IDMPAUTO` 幂等 ID=条目内容摘要；全局默认 `stream-idmp-duration`/`stream-idmp-maxsize` 为 Godis 自选（300s/10000）；IDMP 记录不持久化（重启清空） |
+| `INCREX` | 8.8 | **R5-15 已接通**（BYINT/BYFLOAT、LBOUND/UBOUND、SATURATE、EX/PX/EXAT/PXAT/PERSIST、ENX）。`LBOUND>UBOUND` 等报错文案未对实机校验 |
+| 时序 `NaN`、`COUNTNAN`、`COUNTALL` | 8.6 | **R5-16 已接通**。聚合器除 countNaN/countAll 忽略 NaN；全 NaN 桶 count=0、其余聚合为 NaN |
+| 时序一条命令多个聚合器 | 8.8 | **R5-16 已接通**（`TS.RANGE`/`TS.REVRANGE`/`TS.MRANGE`/`TS.MREVRANGE`/`TS.NRANGE` 支持逗号分隔聚合器列表，行=时间戳+每聚合器一值） |
+| `TS.NRANGE`、`TS.NREVRANGE` | 8.10 | **R5-16 已接通**（裸 pivot NaN 填充 + 每键聚合器 + COUNT；`LATEST`/`FILTER_BY_TS`/`FILTER_BY_VALUE`/`ALIGN`/`BUCKETTIMESTAMP`/`EMPTY` 明确报不支持） |
+| `TS.QUERYLABELS` | 8.10 | **R5-16 已接通**（`LABELS`/`VALUES label` + FILTER；RESP2 数组 / RESP3 set） |
+| `TS.MRANGE` / `TS.MREVRANGE` `EXCLUDEEMPTY` | 8.10 | **R5-16 已接通** |
 | `volatile-lrm` / `allkeys-lrm` | 8.6 | **R5-11 已接通**：两策略 `CONFIG SET` 可用；修改时间在命令成功写后按 prepare 声明的写键记录（`execNormalCommand`/`execWithLock`），淘汰为修改时间采样近似，无修改记录的键视为最旧。非 prepare 路径的写不记账（近似口径） |
 | `SET` `IFEQ`/`IFNE`/`IFDEQ`/`IFDNE` | 8.4 | **R5-7 已接通**。非字符串现值按「不相等」处理（`SET` 无 `GET` 时从不报 WRONGTYPE） |
 | `DIGEST` / `DELEX` | 8.4 | **R5-7 已接通**。`DIGEST` 为 XXH3-64 小写十六进制（与 8.4 命令页示例一致）；`DELEX` 无选项时按 `DEL` 单键语义，带选项时要求字符串类型 |
@@ -314,21 +323,14 @@ UNWATCH、WAIT（简版）、BITOP、BITFIELD、SMOVE、LPOS、XCLAIM、SHUTDOWN
 
 | 版本 | 缺口 | 说明 |
 |------|------|------|
-| 8.4 | `XREADGROUP … CLAIM` | 同一次读取里领取空闲 PEL。`XCLAIM` / `XAUTOCLAIM` 本身已有 |
 | 8.4 | `CLUSTER MIGRATION` | 原子迁槽。与现有 gossip / ASM 远期项放在一起，本阶段不做 |
-| 8.6 | `XADD` `IDMP` / `IDMPAUTO` | 流幂等。配置 `stream-idmp-duration`、`stream-idmp-maxsize` 也没有 |
 | 8.6 | `HOTKEYS` | 热键检测 |
 | 8.6 | TLS 证书映射用户 | `tls-auth-clients-user`。TLS 仍是存取桩，本阶段不做 |
-| 8.6 | 时序 `NaN`、`COUNTNAN`、`COUNTALL` | 聚合类型现为 avg/sum/min/max/count/first/last/std.*/var.*/range/twa |
 | 8.8 | Array 类型 `AR*` | 预览类型。`ARSET`/`ARMSET`/`ARGET`/`ARMGET`/`ARGETRANGE`/`ARLEN`/`ARCOUNT`/`ARDEL`/`ARDELRANGE`/`ARINSERT`/`ARRING`/`ARSEEK`/`ARINFO`/`AROP`/`ARGREP`/`ARLASTITEMS` 均未注册。官方标明语法可能变 |
-| 8.8 | `INCREX` | 带上下界和过期的原子加减，回复两元素数组 |
-| 8.8 | `XNACK` | 消费者主动释放 PEL |
 | 8.8 | `JSON.SET` `FPHA` | 同质浮点数组的存储提示。当前 JSON 没有这层编码 |
-| 8.8 | 时序一条命令多个聚合器 | `TS.RANGE` / `TS.REVRANGE` / `TS.MRANGE` / `TS.MREVRANGE` |
-| 8.8 | Hash 字段级键空间通知 | 现有通知在键级 |
+| 8.8 | Hash 字段级键空间通知 | **R5-18 延期**：官方文档站拿不到 8.8 字段级事件名的权威清单，按「不猜语法」原则等命令页可得再实现 |
 | 8.8 | `slowlog-entry-max-argc`、`slowlog-entry-max-string-len` | 慢日志截断（第七字段已接通，见上表） |
-| 8.10 | `TS.NRANGE`、`TS.NREVRANGE`、`TS.READ`、`TS.QUERYLABELS` | 多序列按时间戳分组、可阻塞读、标签枚举 |
-| 8.10 | `TS.MRANGE` / `TS.MREVRANGE` `EXCLUDEEMPTY` | 去掉没有样本的序列 |
+| 8.10 | `TS.READ`（含 `BLOCK`） | **R5-16 剩余**：需要 TS 写路径唤醒的阻塞等待注册表 |
 | 8.10 | JSONPath 扩展 | 当前 `parsePath` 只做点号与下标。8.10 增加投影、任意字面量比较、`!`、`size`/`empty`、`in`/`nin`、数值运算、`match`/`search`/`concat`、`first`/`last`/`index`/`append`、`min`/`max`/`avg`/`sum`/`stddev`、`keys`、`count`/`value`、`subsetof`/`anyof`/`noneof` |
 | 8.10 | `HIMPORT` 与 compact hash | 会话 fieldset 批量导入，以及按 schema 共享字段名的内部编码。已知子命令含 `DISCARD`、`DISCARDALL`；开工前按命令页列全，不猜语法。紧凑编码与 `hash_templates` 指标本阶段不做 |
 | 8.10 | `BACKUP` | `START`/`SEAL`/`ABORT`/`LIST`/`STATUS`/`CLEANUP`，基于 multi-part AOF。本阶段不做，也不用 `BGSAVE` 冒充 |
@@ -344,7 +346,7 @@ UNWATCH、WAIT（简版）、BITOP、BITFIELD、SMOVE、LPOS、XCLAIM、SHUTDOWN
 
 ---
 
-**最后更新：** 2026-10-12（R5 第一波落地：错误帧 CR/LF、`SUNIONCARD`/`SDIFFCARD`、`LMOVEM`/`BLMOVEM`、`XREAD`/`XREADGROUP` `MAXCOUNT`/`MAXSIZE`、`SLOWLOG GET` 第七字段、`AGGREGATE COUNT`、`SET` `IF*`、`DELEX`/`DIGEST`（XXH3）、`MSETEX`、`script_runner` 标志、`FT.ALIASLIST`、LRM 淘汰；测试内存治理：并发字典分片 map 惰性分配、测试服务器小字典，database 测试峰值 8.9GB→约 0.7GB、耗时 580s→34s。原远期 7 项不变。）
+**最后更新：** 2026-10-12（R5 第一、二波落地。第一波：错误帧 CR/LF、`SUNIONCARD`/`SDIFFCARD`、`LMOVEM`/`BLMOVEM`、`XREAD`/`XREADGROUP` `MAXCOUNT`/`MAXSIZE`、`SLOWLOG GET` 第七字段、`AGGREGATE COUNT`、`SET` `IF*`、`DELEX`/`DIGEST`（XXH3）、`MSETEX`、`script_runner` 标志、`FT.ALIASLIST`、LRM 淘汰。第二波：`XREADGROUP CLAIM`、`XNACK`、`XADD IDMP`/`XCFGSET`、`INCREX`、时序 NaN/countNaN/countAll/多聚合器/`EXCLUDEEMPTY`/`TS.NRANGE`/`TS.QUERYLABELS`、`RETURN_STRICT` 后处理截止。剩：`TS.READ`、R5-18 字段级通知（事件名未证实）、第三波。测试内存治理：database 测试峰值 8.9GB→约 0.7GB。原远期 7 项不变。）
 
 
 

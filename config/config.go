@@ -224,6 +224,9 @@ type ServerProperties struct {
 	ZSetMaxListpackEntries int   `cfg:"zset-max-listpack-entries"`
 	ZSetMaxListpackValue   int   `cfg:"zset-max-listpack-value"`
 	StreamNodeMaxBytes     int64 `cfg:"stream-node-max-bytes"`
+	// XADD IDMP retention defaults (Redis 8.6): seconds and per-producer cap.
+	StreamIdmpDuration int64 `cfg:"stream-idmp-duration"`
+	StreamIdmpMaxSize  int   `cfg:"stream-idmp-maxsize"`
 	HLLSparseMaxBytes      int   `cfg:"hll-sparse-max-bytes"`
 
 	// Cluster announce / additional encoding / OOM CONFIG stubs (GET/SET only).
@@ -388,6 +391,8 @@ func init() {
 		ZSetMaxListpackEntries: 128,
 		ZSetMaxListpackValue:   64,
 		StreamNodeMaxBytes:     4096,
+		StreamIdmpDuration:     300,
+		StreamIdmpMaxSize:      10000,
 		HLLSparseMaxBytes:      3000,
 		StreamNodeMaxEntries:  100,
 		HashMaxListpackValue:  64,

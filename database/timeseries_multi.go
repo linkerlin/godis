@@ -53,8 +53,9 @@ func execTSMRangeInternal(db *DB, args [][]byte, reverse bool) redis.Reply {
 	// Parse options and filters
 	count := -1
 	withLabels := false
+	excludeEmpty := false
 	var filters []string
-	var aggType timeseries.AggregationType
+	var aggLists [][]timeseries.AggregationType
 	var bucketSize time.Duration
 	useAggregation := false
 
@@ -73,7 +74,11 @@ func execTSMRangeInternal(db *DB, args [][]byte, reverse bool) redis.Reply {
 			if i+2 < len(args) {
 				aggStr := string(args[i+1])
 				bucketMs, _ := strconv.ParseInt(string(args[i+2]), 10, 64)
-				aggType, _ = timeseries.ParseAggregationType(aggStr)
+				aggs, aerr := parseAggList(aggStr)
+				if aerr != nil {
+					return aerr
+				}
+				aggLists = [][]timeseries.AggregationType{aggs}
 				bucketSize = time.Duration(bucketMs) * time.Millisecond
 				useAggregation = true
 				i += 3
@@ -83,11 +88,15 @@ func execTSMRangeInternal(db *DB, args [][]byte, reverse bool) redis.Reply {
 		case "WITHLABELS":
 			withLabels = true
 			i++
+		case "EXCLUDEEMPTY":
+			// Redis 8.10: skip series with no reported samples.
+			excludeEmpty = true
+			i++
 		case "FILTER":
 			i++
 			for i < len(args) {
 				nextArg := strings.ToUpper(string(args[i]))
-				if nextArg == "COUNT" || nextArg == "AGGREGATION" {
+				if nextArg == "COUNT" || nextArg == "AGGREGATION" || nextArg == "EXCLUDEEMPTY" {
 					break
 				}
 				filters = append(filters, string(args[i]))
@@ -113,20 +122,44 @@ func execTSMRangeInternal(db *DB, args [][]byte, reverse bool) redis.Reply {
 			return true
 		}
 
-		// Get data
-		var samples []timeseries.Sample
+		// Get data: with several aggregators (comma list) the buckets align,
+		// so each row carries [timestamp, value-per-aggregator...].
+		type tsRow struct {
+			ts     int64
+			values []float64
+		}
+		var rows []tsRow
+		rowIdx := map[int64]int{}
+		appendRow := func(ts int64, v float64) {
+			if idx, ok := rowIdx[ts]; ok {
+				rows[idx].values = append(rows[idx].values, v)
+				return
+			}
+			rowIdx[ts] = len(rows)
+			rows = append(rows, tsRow{ts: ts, values: []float64{v}})
+		}
 		if useAggregation {
-			samples = ts.RangeWithAggregation(from, to, bucketSize, aggType)
+			for _, agg := range aggLists[0] {
+				for _, s := range ts.RangeWithAggregation(from, to, bucketSize, agg) {
+					appendRow(s.Timestamp, s.Value)
+				}
+			}
 		} else {
-			samples = ts.Range(from, to)
+			for _, s := range ts.Range(from, to) {
+				appendRow(s.Timestamp, s.Value)
+			}
 		}
 
-		if count > 0 && len(samples) > count {
-			samples = samples[:count]
+		if excludeEmpty && len(rows) == 0 {
+			return true // EXCLUDEEMPTY: no reported samples in range
+		}
+
+		if count > 0 && len(rows) > count {
+			rows = rows[:count]
 		}
 		if reverse {
-			for i, j := 0, len(samples)-1; i < j; i, j = i+1, j-1 {
-				samples[i], samples[j] = samples[j], samples[i]
+			for i, j := 0, len(rows)-1; i < j; i, j = i+1, j-1 {
+				rows[i], rows[j] = rows[j], rows[i]
 			}
 		}
 
@@ -144,11 +177,12 @@ func execTSMRangeInternal(db *DB, args [][]byte, reverse bool) redis.Reply {
 			seriesResult = append(seriesResult, protocol.MakeMultiBulkReply(labelPairs).ToBytes())
 		}
 
-		// Add samples
-		for _, s := range samples {
-			pair := [][]byte{
-				[]byte(strconv.FormatInt(s.Timestamp, 10)),
-				[]byte(strconv.FormatFloat(s.Value, 'f', -1, 64)),
+		// Add rows
+		for _, r := range rows {
+			pair := make([][]byte, 0, 1+len(r.values))
+			pair = append(pair, []byte(strconv.FormatInt(r.ts, 10)))
+			for _, v := range r.values {
+				pair = append(pair, formatTSValue(v))
 			}
 			seriesResult = append(seriesResult, protocol.MakeMultiBulkReply(pair).ToBytes())
 		}

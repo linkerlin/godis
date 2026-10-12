@@ -2,6 +2,7 @@ package stream
 
 import (
 	"errors"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -206,6 +207,19 @@ func (cg *ConsumerGroup) DeleteConsumer(name string) (int, error) {
 }
 
 // Stream 流数据结构
+// IdmpRecord tracks one producer-id/idempotent-id pair (XADD IDMP, 8.6).
+type IdmpRecord struct {
+	EntryID   StreamID
+	Timestamp time.Time
+}
+
+// StreamIdmpConfig holds per-stream idempotency retention settings
+// (XCFGSET IDMP-DURATION / IDMP-MAXSIZE).
+type StreamIdmpConfig struct {
+	Duration time.Duration // 0 → keep until evicted by maxsize
+	MaxSize  int           // per producer; <=0 → unlimited
+}
+
 type Stream struct {
 	mu             sync.RWMutex
 	entries        *dict.ConcurrentDict // StreamID.String() -> *StreamEntry (O(1) lookup)
@@ -215,6 +229,10 @@ type Stream struct {
 	maxlen         int64    // 最大长度限制
 	entriesAdded   int64    // 总添加条目数 (用于 XINFO)
 	maxDeletedID   StreamID // XSETID MAXDELETEDID
+
+	// XADD IDMP state (lazily created; producer-id -> idempotent-id -> record).
+	idmp       map[string]map[string]IdmpRecord
+	idmpConfig StreamIdmpConfig
 }
 
 // NewStream 创建新的Stream
@@ -816,4 +834,78 @@ func (s *Stream) GetInfo() map[string]interface{} {
 	}
 
 	return info
+}
+
+// SetIdmpConfig updates per-stream idempotency retention settings.
+func (s *Stream) SetIdmpConfig(cfg StreamIdmpConfig) {
+	s.mu.Lock()
+	s.idmpConfig = cfg
+	s.mu.Unlock()
+}
+
+// IdmpConfig returns the current idempotency retention settings.
+func (s *Stream) IdmpConfig() StreamIdmpConfig {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.idmpConfig
+}
+
+// LookupIdmp returns the original entry ID recorded for (pid, iid), if any.
+func (s *Stream) LookupIdmp(pid, iid string) (StreamID, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	records := s.idmp[pid]
+	if records == nil {
+		return StreamID{}, false
+	}
+	rec, ok := records[iid]
+	if !ok {
+		return StreamID{}, false
+	}
+	if s.idmpConfig.Duration > 0 && time.Since(rec.Timestamp) > s.idmpConfig.Duration {
+		delete(records, iid)
+		return StreamID{}, false
+	}
+	return rec.EntryID, true
+}
+
+// RecordIdmp remembers (pid, iid) -> entryID, evicting expired or oldest
+// records beyond the per-producer max size.
+func (s *Stream) RecordIdmp(pid, iid string, entryID StreamID) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.idmp == nil {
+		s.idmp = make(map[string]map[string]IdmpRecord)
+	}
+	records := s.idmp[pid]
+	if records == nil {
+		records = make(map[string]IdmpRecord)
+		s.idmp[pid] = records
+	}
+	// Expire old records for this producer.
+	if s.idmpConfig.Duration > 0 {
+		now := time.Now()
+		for k, rec := range records {
+			if now.Sub(rec.Timestamp) > s.idmpConfig.Duration {
+				delete(records, k)
+			}
+		}
+	}
+	// Enforce per-producer max size (evict oldest by record timestamp).
+	if s.idmpConfig.MaxSize > 0 && len(records) >= s.idmpConfig.MaxSize {
+		type kv struct {
+			k string
+			t time.Time
+		}
+		all := make([]kv, 0, len(records))
+		for k, rec := range records {
+			all = append(all, kv{k, rec.Timestamp})
+		}
+		sort.Slice(all, func(i, j int) bool { return all[i].t.Before(all[j].t) })
+		for len(records) >= s.idmpConfig.MaxSize {
+			delete(records, all[0].k)
+			all = all[1:]
+		}
+	}
+	records[iid] = IdmpRecord{EntryID: entryID, Timestamp: time.Now()}
 }

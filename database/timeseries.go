@@ -359,7 +359,7 @@ func execTSRangeInternal(db *DB, args [][]byte, reverse bool) redis.Reply {
 
 	// Parse options
 	count := -1
-	var aggType timeseries.AggregationType
+	var aggLists [][]timeseries.AggregationType // 8.8: comma-separated lists
 	var bucketSize time.Duration
 	useAggregation := false
 
@@ -388,10 +388,11 @@ func execTSRangeInternal(db *DB, args [][]byte, reverse bool) redis.Reply {
 				return protocol.MakeErrReply("ERR Time bucket must be an integer")
 			}
 
-			aggType, err = timeseries.ParseAggregationType(aggStr)
-			if err != nil {
-				return protocol.MakeErrReply(fmt.Sprintf("ERR Unknown aggregation type '%s'", aggStr))
+			aggs, aerr := parseAggList(aggStr)
+			if aerr != nil {
+				return aerr
 			}
+			aggLists = [][]timeseries.AggregationType{aggs}
 
 			bucketSize = time.Duration(bucketMs) * time.Millisecond
 			useAggregation = true
@@ -402,39 +403,61 @@ func execTSRangeInternal(db *DB, args [][]byte, reverse bool) redis.Reply {
 		}
 	}
 
-	// Get samples
-	var samples []timeseries.Sample
+	// Get samples: with several aggregators the buckets align on the same
+	// bucketSize, so rows become [timestamp, value-per-aggregator...].
+	type tsRow struct {
+		ts     int64
+		values []float64
+	}
+	var rows []tsRow
+	rowIdx := map[int64]int{}
+	appendRow := func(ts int64, v float64) {
+		if idx, ok := rowIdx[ts]; ok {
+			rows[idx].values = append(rows[idx].values, v)
+			return
+		}
+		rowIdx[ts] = len(rows)
+		rows = append(rows, tsRow{ts: ts, values: []float64{v}})
+	}
 	if useAggregation {
-		samples = ts.RangeWithAggregation(from, to, bucketSize, aggType)
+		for _, agg := range aggLists[0] {
+			for _, s := range ts.RangeWithAggregation(from, to, bucketSize, agg) {
+				appendRow(s.Timestamp, s.Value)
+			}
+		}
 	} else {
-		samples = ts.Range(from, to)
+		for _, s := range ts.Range(from, to) {
+			appendRow(s.Timestamp, s.Value)
+		}
 	}
 
-	// Apply count limit
-	if count > 0 && len(samples) > count {
+	// Apply count limit (per row, not per value).
+	if count > 0 && len(rows) > count {
 		if reverse {
-			samples = samples[len(samples)-count:]
+			rows = rows[len(rows)-count:]
 		} else {
-			samples = samples[:count]
+			rows = rows[:count]
 		}
 	}
 
 	// Reverse if needed
 	if reverse {
-		for i, j := 0, len(samples)-1; i < j; i, j = i+1, j-1 {
-			samples[i], samples[j] = samples[j], samples[i]
+		for i, j := 0, len(rows)-1; i < j; i, j = i+1, j-1 {
+			rows[i], rows[j] = rows[j], rows[i]
 		}
 	}
 
 	// Build reply. RedisTimeSeries returns an array of [timestamp, value] pairs
-	// where timestamp is an integer and value is a bulk number; each pair must be
+	// (plus one extra value per additional aggregator, Redis 8.8) where
+	// timestamp is an integer and values are bulk numbers; each row must be
 	// a nested array (not flattened), otherwise clients like go-redis fail to
 	// parse ("can't parse int reply").
-	replies := make([]redis.Reply, 0, len(samples))
-	for _, s := range samples {
-		pair := []redis.Reply{
-			protocol.MakeIntReply(s.Timestamp),
-			protocol.MakeBulkReply([]byte(strconv.FormatFloat(s.Value, 'f', -1, 64))),
+	replies := make([]redis.Reply, 0, len(rows))
+	for _, r := range rows {
+		pair := make([]redis.Reply, 0, 1+len(r.values))
+		pair = append(pair, protocol.MakeIntReply(r.ts))
+		for _, v := range r.values {
+			pair = append(pair, protocol.MakeBulkReply(formatTSValue(v)))
 		}
 		replies = append(replies, protocol.MakeMultiRawReply(pair))
 	}

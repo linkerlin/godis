@@ -282,6 +282,8 @@ func getConfigMatches(pattern string) []configPair {
 		{"zset-max-listpack-value", strconv.Itoa(getZSetMaxListpackValue())},
 		{"zset-max-ziplist-value", strconv.Itoa(getZSetMaxListpackValue())},
 		{"stream-node-max-bytes", strconv.FormatInt(getStreamNodeMaxBytes(), 10)},
+		{"stream-idmp-duration", strconv.FormatInt(getStreamIdmpDuration(), 10)},
+		{"stream-idmp-maxsize", strconv.Itoa(getStreamIdmpMaxSize())},
 		{"hll-sparse-max-bytes", strconv.Itoa(getHLLSparseMaxBytes())},
 		{"cluster-announce-ip", getClusterAnnounceIP()},
 		{"cluster-announce-port", strconv.Itoa(getClusterAnnouncePort())},
@@ -1287,6 +1289,18 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'stream-node-max-entries') - argument must be between 0 and 9223372036854775807 inclusive")
 			}
 			config.Properties.StreamNodeMaxEntries = n
+		case "stream-idmp-duration":
+			n, err := strconv.ParseInt(value, 10, 64)
+			if err != nil || n < 0 {
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'stream-idmp-duration') - argument must be a non-negative integer")
+			}
+			config.Properties.StreamIdmpDuration = n
+		case "stream-idmp-maxsize":
+			n, err := strconv.Atoi(value)
+			if err != nil || n < 0 {
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'stream-idmp-maxsize') - argument must be a non-negative integer")
+			}
+			config.Properties.StreamIdmpMaxSize = n
 		case "hash-max-listpack-value", "hash-max-ziplist-value":
 			n, err := strconv.Atoi(value)
 			if err != nil || n < 0 {
@@ -2505,4 +2519,18 @@ func configDir() string {
 func init() {
 	registerSpecialCommand("Config", -2, 0).
 		attachCommandExtra([]string{redisFlagAdmin, redisFlagLoading, redisFlagStale}, 0, 0, 0)
+}
+
+func getStreamIdmpDuration() int64 {
+	if config.Properties == nil || config.Properties.StreamIdmpDuration <= 0 {
+		return 300
+	}
+	return config.Properties.StreamIdmpDuration
+}
+
+func getStreamIdmpMaxSize() int {
+	if config.Properties == nil || config.Properties.StreamIdmpMaxSize <= 0 {
+		return 10000
+	}
+	return config.Properties.StreamIdmpMaxSize
 }

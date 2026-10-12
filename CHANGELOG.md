@@ -6,6 +6,21 @@
 
 ### Added
 
+- **R5 第二波（Redis 8.4–8.10 命令面）**，行为对齐命令页，测试 `database/r5_wave2_test.go`：
+  - `XREADGROUP GROUP g c [COUNT n] [MAXCOUNT n] [MAXSIZE n] [BLOCK ms] [CLAIM min-idle-ms] [NOACK] STREAMS …`（8.4）：`>` 读取前认领空闲 PEL——XNACK 释放条目优先、其余按空闲时长降序；认领条目用 `[id, fields, idle-ms, deliveries]` 扩展回复；COUNT/MAXCOUNT/MAXSIZE 覆盖认领+新条目，被预算丢弃的条目不改 PEL；`NOACK` 不作用于认领条目
+  - `XNACK key group <SILENT|FAIL|FATAL> IDS numids id… [RETRYCOUNT n] [FORCE]`（8.8）：释放为无主（delivery time 0，任何 min-idle 立即可认领）；`XPENDING` 明细对释放条目 idle=-1
+  - `XADD key [IDMP pid iid | IDMPAUTO pid] * …`（8.6）：生产者幂等去重（`IDMPAUTO` 幂等 ID=条目内容摘要）；`XCFGSET key IDMP-DURATION n IDMP-MAXSIZE n` 按流配置；全局默认 `stream-idmp-duration`/`stream-idmp-maxsize`（CONFIG 可 GET/SET）
+  - `INCREX key [BYINT n|BYFLOAT f] [LBOUND lo] [UBOUND hi] [SATURATE] [EX|PX|EXAT|PXAT|PERSIST] [ENX]`（8.8）：原子有界增减，回复 `[新值, 实际增量]`；越界默认跳过、`SATURATE` 封顶；AOF 回放实际增量与绝对过期效果
+  - 时序增量（8.6–8.10）：`NaN` 样本 + 聚合器 NaN 语义（除 countNaN/countAll 忽略 NaN，全 NaN 桶 count=0）；`countNaN`/`countAll` 聚合器；`TS.RANGE`/`REVRANGE`/`MRANGE`/`MREVRANGE` 逗号多聚合器；`MRANGE`/`MREVRANGE` `EXCLUDEEMPTY`；`TS.NRANGE`/`TS.NREVRANGE`（按时间戳外连接 pivot，缺值 NaN；`LATEST`/`FILTER_BY_*`/`ALIGN`/`BUCKETTIMESTAMP`/`EMPTY` 明确报不支持）；`TS.QUERYLABELS LABELS|VALUES label [FILTER …]`
+  - `RETURN_STRICT`（8.10）：`FT.SEARCH`/`FT.AGGREGATE` 回复构建循环批级截止，返回部分结果
+
+### Deferred
+
+- R5-16 的 `TS.READ`（含 `BLOCK`）：需 TS 写路径唤醒的阻塞注册表，留下一小步
+- R5-18 Hash 字段级键空间通知：官方文档站当前拿不到 8.8 字段级事件名的权威清单，按「不猜语法」延期
+
+### Added（第一波，前次提交）
+
 - **R5 第一波（Redis 8.4–8.10 命令面，现有类型上的新命令）**，行为对齐 8.10 命令页，测试见 `database/r5_wave1_test.go`：
   - `SUNIONCARD numkeys key [key ...] [APPROX] [LIMIT limit]` / `SDIFFCARD numkeys key [key ...] [LIMIT limit]`（8.10；`APPROX` 接受并返回精确计数，恒在 0.81% 近似误差界内）
   - `LMOVEM source dest LEFT|RIGHT LEFT|RIGHT [<COUNT n|EXACTLY n> <OBO|BULK>]` 与阻塞版 `BLMOVEM`（8.10；AOF 以 `EXACTLY 实际条数` 回放）

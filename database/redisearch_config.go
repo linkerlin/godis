@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/linkerlin/godis/datastruct/redisearch"
 	"github.com/linkerlin/godis/interface/redis"
@@ -212,6 +213,23 @@ func ftTimeoutReply(err error) redis.Reply {
 
 func validFTDialect(d int) bool {
 	return d >= 1 && d <= 4
+}
+
+// ftStrictDeadline converts a TIMEOUT ms value into an absolute deadline
+// (zero value when no timeout was given).
+func ftStrictDeadline(timeoutMs int) time.Time {
+	if timeoutMs > 0 {
+		return time.Now().Add(time.Duration(timeoutMs) * time.Millisecond)
+	}
+	return time.Time{}
+}
+
+// ftStrictCutoff reports whether a RETURN_STRICT (8.10) deadline has passed:
+// the result pipeline must stop and reply with what has been built so far.
+// Cutoff granularity is per document/row in the reply-building loops.
+func ftStrictCutoff(deadline time.Time) bool {
+	return !deadline.IsZero() && time.Now().After(deadline) &&
+		strings.EqualFold(getFTConfigString("ON_TIMEOUT"), "RETURN_STRICT")
 }
 
 func init() {

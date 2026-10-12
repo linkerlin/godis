@@ -98,6 +98,7 @@
 | DECRBY | 数值减N |
 | INCRBYFLOAT | 浮点数加法 |
 | GETRANGE | 获取子字符串 |
+| INCREX | 原子有界增减并管理过期（BYINT/BYFLOAT、LBOUND/UBOUND、SATURATE、ENX，8.8） |
 | SETRANGE | 设置子字符串 |
 | GETBIT | 获取位值 |
 | SETBIT | 设置位值 |
@@ -252,11 +253,13 @@
 
 | 命令 | 描述 |
 |------|------|
-| XADD | 添加条目 |
+| XADD | 添加条目（IDMP/IDMPAUTO 幂等，8.6） |
 | XREAD | 读取条目 |
-| XREADGROUP | 消费者组读取 |
+| XREADGROUP | 消费者组读取（CLAIM 空闲认领，8.4） |
 | XGROUP | 管理消费者组 |
 | XACK | 确认消息 |
+| XNACK | 释放待处理消息回组（8.8） |
+| XCFGSET | 流配置（IDMP-DURATION/IDMP-MAXSIZE，8.6） |
 | XPENDING | 查看待处理消息 |
 | XDEL | 删除条目 |
 | XTRIM | 裁剪流 |
@@ -359,14 +362,17 @@
 | TS.DECRBY | 递减 |
 | TS.CREATERULE | 创建聚合规则 |
 | TS.DELETERULE | 删除聚合规则 |
-| TS.RANGE | 范围查询 |
+| TS.RANGE | 范围查询（支持逗号多聚合器与 countNaN/countAll，8.6–8.8） |
 | TS.REVRANGE | 倒序范围 |
-| TS.MRANGE | 多序列范围 |
+| TS.MRANGE | 多序列范围（EXCLUDEEMPTY，8.10） |
 | TS.MREVRANGE | 多序列倒序范围 |
+| TS.NRANGE | 多序列按时间戳分组外连接（8.10） |
+| TS.NREVRANGE | 同上倒序（8.10） |
 | TS.GET | 获取最新 |
 | TS.MGET | 批量获取最新 |
 | TS.INFO | 序列信息 |
 | TS.QUERYINDEX | 索引查询 |
+| TS.QUERYLABELS | 标签名/标签值枚举（8.10） |
 
 ---
 

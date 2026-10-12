@@ -142,13 +142,13 @@
 
 #### 第二波：流、限速、时序、搜索超时
 
-- [ ] **R5-12 `XREADGROUP CLAIM`**。
-- [ ] **R5-13 `XNACK`**。
-- [ ] **R5-14 `XADD` `IDMP` / `IDMPAUTO`**，以及 `stream-idmp-duration`、`stream-idmp-maxsize`。
-- [ ] **R5-15 `INCREX`**。`BYINT`/`BYFLOAT`、上下界、`SATURATE`、过期选项、`ENX`；回复为两元素数组。
-- [ ] **R5-16 时序增量**：`NaN` 样本、`COUNTNAN`/`COUNTALL`、一条命令多个聚合器、`EXCLUDEEMPTY`、`TS.QUERYLABELS`、`TS.NRANGE`/`TS.NREVRANGE`、`TS.READ`（含 `BLOCK`）。
-- [ ] **R5-17 `RETURN_STRICT` 在聚合后处理阶段也截止**。单机引擎即可，不模拟 `search-workers`。
-- [ ] **R5-18 Hash 字段级键空间通知**。先覆盖 `HSET`/`HDEL`/`HEXPIRE` 的字段名；事件名以 Redis 8.8 文档为准。
+- [x] **R5-12 `XREADGROUP CLAIM`**。（`>` 读取前按 min-idle 认领空闲 PEL：XNACK 释放者优先、其次按空闲时长降序；被认领条目用四字段扩展回复 `[id, fields, idle-ms, deliveries]`；`COUNT`/`MAXCOUNT`/`MAXSIZE` 覆盖认领+新条目合计，被预算丢弃的条目不改 PEL；`NOACK` 不作用于认领条目；非 `>` ID 忽略 `CLAIM`）
+- [x] **R5-13 `XNACK`**。（`SILENT`/`FAIL`/`FATAL` 三模式 + `RETRYCOUNT`/`FORCE`；释放为无主（consumer=""、delivery time 0），任何 min-idle 立即可认领；`XPENDING` 明细行 idle 对释放条目显示 -1；XNACK 释放条目间的顺序按 ID 升序近似 FIFO）
+- [x] **R5-14 `XADD` `IDMP` / `IDMPAUTO`**，以及 `stream-idmp-duration`、`stream-idmp-maxsize`。（`IDMPAUTO` 的幂等 ID 取自条目内容摘要（排序字段 xxh3），同 producer+同内容去重；`XCFGSET key IDMP-DURATION n IDMP-MAXSIZE n` 按流配置，全局默认 `stream-idmp-duration`/`stream-idmp-maxsize`（300s/10000，Godis 自选默认）；IDMP 记录不持久化（重启后去重窗口清空），未过 RDB/AOF 边界）
+- [x] **R5-15 `INCREX`**。`BYINT`/`BYFLOAT`、上下界、`SATURATE`、过期选项、`ENX`；回复为两元素数组。（越界默认跳过回复 `[当前值, 0]`；`SATURATE` 封顶并回报实际增量；AOF 回放实际增量 + 绝对过期效果；`LBOUND>UBOUND` 报错文案未对实机校验）
+- [x] **R5-16 时序增量**：`NaN` 样本、`COUNTNAN`/`COUNTALL`、一条命令多个聚合器、`EXCLUDEEMPTY`、`TS.QUERYLABELS`、`TS.NRANGE`/`TS.NREVRANGE`、`TS.READ`（含 `BLOCK`）。（**缺 `TS.READ`**——需要 TS 写路径唤醒的阻塞等待注册表，留下一小步；聚合器除 countNaN/countAll 外忽略 NaN，全 NaN 桶 count=0 其余为 NaN；`TS.NRANGE`/`TS.NREVRANGE` 支持裸 pivot + 每键聚合器（含逗号多聚合器）+ `COUNT`，`LATEST`/`FILTER_BY_TS`/`FILTER_BY_VALUE`/`ALIGN`/`BUCKETTIMESTAMP`/`EMPTY` 明确报不支持）
+- [x] **R5-17 `RETURN_STRICT` 在聚合后处理阶段也截止**。单机引擎即可，不模拟 `search-workers`。（`FT.SEARCH`/`FT.AGGREGATE` 的回复构建循环每 256 条检查截止，超时返回已构建的部分结果；粒度为阶段边界/批级，非逐条）
+- [ ] **R5-18 Hash 字段级键空间通知**。先覆盖 `HSET`/`HDEL`/`HEXPIRE` 的字段名；事件名以 Redis 8.8 文档为准。（**延期**：官方文档站当前拿不到 8.8 字段级事件名与标志字母的权威清单（keyspace-notifications 页 404，检索仅见键级事件）；按「不猜语法」原则等拿到命令页/发布说明再实现）
 
 #### 第三波：新类型，范围写死
 

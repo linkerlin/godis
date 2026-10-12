@@ -108,6 +108,8 @@ const (
 	VarSAggregation
 	RangeAggregation
 	TwaAggregation // time-weighted average
+	CountNaNAggregation
+	CountAllAggregation
 )
 
 // NewTimeSeries creates a new time series
@@ -445,57 +447,83 @@ func (ts *TimeSeries) GetLabels() map[string]string {
 	return result
 }
 
-// aggregate performs aggregation on a set of values
+// aggregate performs aggregation on a set of values.
+// NaN semantics follow Redis 8.6+: aggregators except countNaN/countAll
+// ignore NaN values; an all-NaN (or empty) bucket yields NaN.
 func aggregate(values []float64, agg AggregationType) float64 {
 	if len(values) == 0 {
 		return math.NaN()
 	}
-	
+
+	if agg == CountAllAggregation {
+		return float64(len(values))
+	}
+
+	// Partition NaN / non-NaN once.
+	nanCount := 0
+	nonNaN := make([]float64, 0, len(values))
+	for _, v := range values {
+		if math.IsNaN(v) {
+			nanCount++
+		} else {
+			nonNaN = append(nonNaN, v)
+		}
+	}
+	if agg == CountNaNAggregation {
+		return float64(nanCount)
+	}
+	if agg == CountAggregation {
+		return float64(len(nonNaN)) // 0 for an all-NaN bucket, per Redis 8.6+
+	}
+	if len(nonNaN) == 0 {
+		return math.NaN()
+	}
+
 	switch agg {
 	case AvgAggregation:
 		var sum float64
-		for _, v := range values {
+		for _, v := range nonNaN {
 			sum += v
 		}
-		return sum / float64(len(values))
-		
+		return sum / float64(len(nonNaN))
+
 	case SumAggregation:
 		var sum float64
-		for _, v := range values {
+		for _, v := range nonNaN {
 			sum += v
 		}
 		return sum
-		
+
 	case CountAggregation:
-		return float64(len(values))
-		
+		return float64(len(nonNaN))
+
 	case MinAggregation:
-		min := values[0]
-		for _, v := range values[1:] {
+		min := nonNaN[0]
+		for _, v := range nonNaN[1:] {
 			if v < min {
 				min = v
 			}
 		}
 		return min
-		
+
 	case MaxAggregation:
-		max := values[0]
-		for _, v := range values[1:] {
+		max := nonNaN[0]
+		for _, v := range nonNaN[1:] {
 			if v > max {
 				max = v
 			}
 		}
 		return max
-		
+
 	case FirstAggregation:
-		return values[0]
-		
+		return nonNaN[0]
+
 	case LastAggregation:
-		return values[len(values)-1]
-		
+		return nonNaN[len(nonNaN)-1]
+
 	case RangeAggregation:
-		min, max := values[0], values[0]
-		for _, v := range values[1:] {
+		min, max := nonNaN[0], nonNaN[0]
+		for _, v := range nonNaN[1:] {
 			if v < min {
 				min = v
 			}
@@ -504,41 +532,41 @@ func aggregate(values []float64, agg AggregationType) float64 {
 			}
 		}
 		return max - min
-		
+
 	case StdPAggregation, StdSAggregation:
-		avg := aggregate(values, AvgAggregation)
+		avg := aggregate(nonNaN, AvgAggregation)
 		var sum float64
-		for _, v := range values {
+		for _, v := range nonNaN {
 			diff := v - avg
 			sum += diff * diff
 		}
-		divisor := float64(len(values))
+		divisor := float64(len(nonNaN))
 		if agg == StdSAggregation {
-			divisor = float64(len(values) - 1)
+			divisor = float64(len(nonNaN) - 1)
 		}
 		if divisor <= 0 {
 			return 0
 		}
 		return math.Sqrt(sum / divisor)
-		
+
 	case VarPAggregation, VarSAggregation:
-		avg := aggregate(values, AvgAggregation)
+		avg := aggregate(nonNaN, AvgAggregation)
 		var sum float64
-		for _, v := range values {
+		for _, v := range nonNaN {
 			diff := v - avg
 			sum += diff * diff
 		}
-		divisor := float64(len(values))
+		divisor := float64(len(nonNaN))
 		if agg == VarSAggregation {
-			divisor = float64(len(values) - 1)
+			divisor = float64(len(nonNaN) - 1)
 		}
 		if divisor <= 0 {
 			return 0
 		}
 		return sum / divisor
-		
+
 	default:
-		return values[0]
+		return nonNaN[0]
 	}
 }
 
@@ -571,6 +599,10 @@ func AggregationTypeToString(agg AggregationType) string {
 		return "range"
 	case TwaAggregation:
 		return "twa"
+	case CountNaNAggregation:
+		return "countNaN"
+	case CountAllAggregation:
+		return "countAll"
 	default:
 		return ""
 	}
@@ -605,6 +637,10 @@ func ParseAggregationType(s string) (AggregationType, error) {
 		return RangeAggregation, nil
 	case "twa":
 		return TwaAggregation, nil
+	case "countnan":
+		return CountNaNAggregation, nil
+	case "countall":
+		return CountAllAggregation, nil
 	default:
 		return 0, ErrUnknownAggregation
 	}
