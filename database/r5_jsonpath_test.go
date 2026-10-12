@@ -25,10 +25,15 @@ func r5jpSetup(t *testing.T) {
 
 func r5jpGet(t *testing.T, path string) string {
 	t.Helper()
-	r := testDB.Exec(nil, utils.ToCmdLine("JSON.GET", "r5jp:doc", path))
+	return r5jpGetKey(t, "r5jp:doc", path)
+}
+
+func r5jpGetKey(t *testing.T, key, path string) string {
+	t.Helper()
+	r := testDB.Exec(nil, utils.ToCmdLine("JSON.GET", key, path))
 	b, ok := r.(*protocol.BulkReply)
 	if !ok {
-		t.Fatalf("JSON.GET %s: %s", path, r.ToBytes())
+		t.Fatalf("JSON.GET %s %s: %s", key, path, r.ToBytes())
 	}
 	return string(b.Arg)
 }
@@ -225,4 +230,86 @@ func TestR5JPSizeEmpty(t *testing.T) {
 		t.Errorf("missing size: %s", got)
 	}
 	testDB.Exec(nil, utils.ToCmdLine("DEL", "r5jp:e"))
+}
+
+// ---- R5-20 batch 3: filter functions and top-level projections ----
+
+func TestR5JPFilterFunctions(t *testing.T) {
+	r5jpSetup(t)
+	// length() on array/object/string.
+	if got := r5jpGet(t, "$.users[?(@.tags.length() == 2)].name"); got != `["alice","carol"]` {
+		t.Errorf("length array: %s", got)
+	}
+	if got := r5jpGet(t, "$.users[?(@.name.length() == 3)].name"); got != `["bob"]` {
+		t.Errorf("length string: %s", got)
+	}
+	// first/last postfix word forms (doc examples: @.colors first == "black").
+	if got := r5jpGet(t, `$.users[?(@.tags first == "a")].name`); got != `["alice","bob"]` {
+		t.Errorf("first word: %s", got)
+	}
+	if got := r5jpGet(t, `$.users[?(@.tags last == "c")].name`); got != `["carol"]` {
+		t.Errorf("last word: %s", got)
+	}
+	// Aggregations over an array field (r5jp:s root is an array).
+	testDB.Exec(nil, utils.ToCmdLine("JSON.SET", "r5jp:s", "$", `[{"nums":[1,2,3]},{"nums":[10,20]}]`))
+	if got := r5jpGetKey(t, "r5jp:s", "$[?(@.nums.sum() > 10)].nums"); got != "[[10,20]]" {
+		t.Errorf("sum: %s", got)
+	}
+	if got := r5jpGetKey(t, "r5jp:s", "$[?(@.nums.avg() == 2)].nums"); got != "[[1,2,3]]" {
+		t.Errorf("avg: %s", got)
+	}
+	if got := r5jpGetKey(t, "r5jp:s", "$[?(@.nums.min() == 1)].nums"); got != "[[1,2,3]]" {
+		t.Errorf("min: %s", got)
+	}
+	if got := r5jpGetKey(t, "r5jp:s", "$[?(@.nums.max() == 20)].nums"); got != "[[10,20]]" {
+		t.Errorf("max: %s", got)
+	}
+	// match (anchored whole-string) vs search (partial) on strings.
+	if got := r5jpGet(t, `$.users[?(@.name.match("alice"))].name`); got != `["alice"]` {
+		t.Errorf("match whole: %s", got)
+	}
+	if got := r5jpGet(t, `$.users[?(@.name.match("^a.*e$"))].name`); got != `["alice"]` {
+		t.Errorf("match anchors: %s", got)
+	}
+	if got := r5jpGet(t, `$.users[?(@.name.match("a"))].name`); got != "[]" {
+		t.Errorf("match partial no: %s", got)
+	}
+	if got := r5jpGet(t, `$.users[?(@.name.search("o"))].name`); got != `["bob","carol"]` {
+		t.Errorf("search partial: %s", got)
+	}
+	// concat in a comparison (word form with argument).
+	if got := r5jpGet(t, `$.users[?(@.name concat "!" == "bob!")].age`); got != "[45]" {
+		t.Errorf("concat: %s", got)
+	}
+	// Numeric functions (r5jp:abs root is an array).
+	testDB.Exec(nil, utils.ToCmdLine("JSON.SET", "r5jp:abs", "$", `[{"v":-4.2},{"v":3}]`))
+	if got := r5jpGetKey(t, "r5jp:abs", "$[?(@.v.abs() > 4)].v"); got != "[-4.2]" {
+		t.Errorf("abs: %s", got)
+	}
+	testDB.Exec(nil, utils.ToCmdLine("DEL", "r5jp:s", "r5jp:abs"))
+}
+
+func TestR5JPTopLevelProjection(t *testing.T) {
+	testDB.Exec(nil, utils.ToCmdLine("DEL", "r5jp:nums"))
+	testDB.Exec(nil, utils.ToCmdLine("JSON.SET", "r5jp:nums", "$", `[3,1,2]`))
+	r := testDB.Exec(nil, utils.ToCmdLine("JSON.GET", "r5jp:nums", "min($)"))
+	b, ok := r.(*protocol.BulkReply)
+	if !ok {
+		t.Fatalf("min($): %s", r.ToBytes())
+	}
+	if string(b.Arg) != "1" {
+		t.Errorf("min($) = %s, want 1", b.Arg)
+	}
+	r = testDB.Exec(nil, utils.ToCmdLine("JSON.GET", "r5jp:nums", "sum($)"))
+	if b, ok = r.(*protocol.BulkReply); !ok || string(b.Arg) != "6" {
+		t.Errorf("sum($): %v", r.ToBytes())
+	}
+	// length over an absolute path; unknown function → syntax error.
+	r = testDB.Exec(nil, utils.ToCmdLine("JSON.GET", "r5jp:nums", "length($)"))
+	if b, ok = r.(*protocol.BulkReply); !ok || string(b.Arg) != "3" {
+		t.Errorf("length($): %v", r.ToBytes())
+	}
+	asserts.AssertErrReply(t, testDB.Exec(nil, utils.ToCmdLine(
+		"JSON.GET", "r5jp:nums", "nosuchfn($)")), "ERR Path syntax error")
+	testDB.Exec(nil, utils.ToCmdLine("DEL", "r5jp:nums"))
 }

@@ -6,6 +6,10 @@
 
 ### Added
 
+- **R5-20 JSONPath 批次 3 主体（Redis 8.10）**，测试 `database/r5_jsonpath_test.go`：
+  - 过滤内函数（方法形 `@.recv.fn(arg)` 与词形后缀均可）：`length()`（串按 rune/数组/对象）、`abs()`/`ceiling()`/`floor()`、`first`/`last`（数组首尾）、`min()`/`max()`/`avg()`/`sum()`/`stddev()`（数值数组聚合，stddev 为样本口径）、`keys()`（对象键排序数组）、`match()`（全串锚定正则）/`search()`（部分匹配）、`concat()`（词形带参 `@.id concat ":"`）
+  - 顶层投影 `fn($)` / `fn($.path)`：单函数单绝对路径（`min($)`/`sum($)`/`length($)`/`count`/`value` 等）；未知函数或 Nothing 结果回 `ERR Path syntax error`
+  - 仍缺（已在兼容文档列明）：`index()`/`append()`、`~`、`subsetof`/`anyof`/`noneof`、嵌套函数、`[*]` 通配顶层投影、nodelist 多值语义
 - **R5-20 JSONPath 批次 2/3a（Redis 8.10）**，测试 `database/r5_jsonpath_test.go`：
   - `in` / `nin` 成员判定（数组字面量或 @-路径数组；缺失左值两者皆不匹配，非数组右值不匹配）
   - 算术：二元 `+ - * / %` 与一元 `-`（乘除模优先于加减；非数值操作数、除/模零得 Nothing→条件为假，不报错）

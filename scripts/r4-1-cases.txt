@@ -15734,6 +15734,16 @@ JSONPATH-in|["alice","carol"]|JSON.GET sidecar:r5jp:doc:{{ID}} $.users[?(@.name 
 JSONPATH-nin|["bob"]|JSON.GET sidecar:r5jp:doc:{{ID}} $.users[?(@.name nin ["alice","carol"])].name
 JSONPATH-arith|["bob"]|JSON.GET sidecar:r5jp:doc:{{ID}} $.users[?(@.age + 10 > 50)].name
 JSONPATH-mod|["alice"]|JSON.GET sidecar:r5jp:doc:{{ID}} $.users[?(@.age % 2 == 0)].name
+# --- R5-20 batch 3: filter functions and top-level projections ---
+JSONPATH-length-fn|["alice","carol"]|JSON.GET sidecar:r5jp:doc:{{ID}} $.users[?(@.tags.length() == 2)].name
+JSONPATH-first|["alice","bob"]|JSON.GET sidecar:r5jp:doc:{{ID}} $.users[?(@.tags first == "a")].name
+JSONPATH-match|["alice"]|JSON.GET sidecar:r5jp:doc:{{ID}} $.users[?(@.name.match("alice"))].name
+JSONPATH-search|["bob","carol"]|JSON.GET sidecar:r5jp:doc:{{ID}} $.users[?(@.name.search("o"))].name
+JSONPATH-concat|[45]|JSON.GET sidecar:r5jp:doc:{{ID}} $.users[?(@.name concat "!" == "bob!")].age
+@CMD JSON.SET sidecar:r5jp:proj:{{ID}} $ [3,1,2]
+JSONPATH-proj-min|1|JSON.GET sidecar:r5jp:proj:{{ID}} min($)
+JSONPATH-proj-sum|6|JSON.GET sidecar:r5jp:proj:{{ID}} sum($)
+JSONPATH-proj-length|3|JSON.GET sidecar:r5jp:proj:{{ID}} length($)
 
 
 

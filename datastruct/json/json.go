@@ -531,6 +531,14 @@ func (jv *JSONValue) ToString() (string, error) {
 
 // getPath traverses the JSON structure following the path
 func (jv *JSONValue) getPath(path string) (interface{}, error) {
+	// Top-level projection expression (8.10 batch 3): `fn($.path)` —
+	// the function applies to the single resolved value. ponytail: one
+	// function over one absolute path; nested calls and wildcards are not
+	// supported.
+	if v, ok, err := jv.tryProjection(path); ok || err != nil {
+		return v, err
+	}
+
 	parts := parsePath(path)
 
 	for i, part := range parts {
@@ -567,6 +575,37 @@ func (jv *JSONValue) getPath(path string) (interface{}, error) {
 	}
 
 	return walkParts(jv.data, parts)
+}
+
+// tryProjection parses a top-level `fn($.path)` expression; ok=false for
+// plain paths.
+func (jv *JSONValue) tryProjection(path string) (interface{}, bool, error) {
+	path = strings.TrimSpace(path)
+	open := strings.IndexByte(path, '(')
+	if open <= 0 || !strings.HasSuffix(path, ")") {
+		return nil, false, nil
+	}
+	fn := path[:open]
+	for i := 0; i < len(fn); i++ {
+		c := fn[i]
+		if !(c == '_' || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+			(i > 0 && c >= '0' && c <= '9')) {
+			return nil, false, nil
+		}
+	}
+	inner := strings.TrimSpace(path[open+1 : len(path)-1])
+	if !strings.HasPrefix(inner, "$") {
+		return nil, false, ErrJSONPathSyntax
+	}
+	val, err := jv.getPath(inner)
+	if err != nil {
+		return nil, true, err
+	}
+	result := applyFunction(fn, val, nil, nil)
+	if result == nil {
+		return nil, true, ErrJSONPathSyntax
+	}
+	return result, true, nil
 }
 
 // walkParts resolves parts against current, returning the single value.

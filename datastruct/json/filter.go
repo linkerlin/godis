@@ -24,6 +24,8 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -87,12 +89,15 @@ const (
 	tkNot
 	tkAnd
 	tkOr
-	tkCmp   // == != < <= > >= in nin
-	tkArith // + - * / %
-	tkAt    // @ plus relative path, .tok carries the path
-	tkLit   // literal, .val carries the parsed JSON value
-	tkSize  // size / sizeof
-	tkEmpty // empty
+	tkCmp    // == != < <= > >= in nin
+	tkArith  // + - * / %
+	tkAt     // @ plus relative path, .tok carries the path
+	tkLit    // literal, .val carries the parsed JSON value
+	tkSize   // size / sizeof
+	tkEmpty  // empty
+	tkFirst  // first (postfix value transform)
+	tkLast   // last (postfix value transform)
+	tkFnWord // concat / match / search (postfix, one required argument)
 )
 
 type token struct {
@@ -107,6 +112,11 @@ var wordOps = map[string]tokenKind{
 	"size":   tkSize,
 	"sizeof": tkSize,
 	"empty":  tkEmpty,
+	"first":  tkFirst,
+	"last":   tkLast,
+	"concat": tkFnWord,
+	"match":  tkFnWord,
+	"search": tkFnWord,
 }
 
 func isWordStart(c byte) bool {
@@ -343,42 +353,57 @@ func (p *predParser) parseComparison() (*predNode, error) {
 		return nil, err
 	}
 
-	next := p.peek()
-	switch {
-	case next == nil:
-		return lhs, nil // bare operand: truthiness
-	case next.kind == tkCmp:
-		p.pos++
-		rhs, err := p.parseArith()
-		if err != nil {
-			return nil, err
-		}
-		return &predNode{op: next.tok, left: lhs, right: rhs}, nil
-	case next.kind == tkSize:
-		p.pos++
-		sizeNode := &predNode{op: "size ==", left: lhs}
-		if cmp := p.peek(); cmp != nil && cmp.kind == tkCmp {
+	for {
+		next := p.peek()
+		switch {
+		case next == nil:
+			return lhs, nil // bare operand: truthiness
+		case next.kind == tkFirst, next.kind == tkLast:
+			// Postfix value transform (`@.colors first == "black"`); the
+			// comparison (if any) applies to the transformed value.
+			p.pos++
+			lhs = &predNode{op: "fn:" + next.tok, left: lhs}
+		case next.kind == tkFnWord:
+			// Postfix call with one argument: `@.id concat ":" == "bike:1:"`.
+			p.pos++
+			arg, err := p.parseArith()
+			if err != nil {
+				return nil, err
+			}
+			lhs = &predNode{op: "fn:" + next.tok, left: lhs, right: arg}
+		case next.kind == tkCmp:
 			p.pos++
 			rhs, err := p.parseArith()
 			if err != nil {
 				return nil, err
 			}
-			sizeNode.right = rhs
-			sizeNode.op = "size " + cmp.tok
-		} else {
-			// `size n` defaults to ==; the comparand is mandatory.
-			rhs, err := p.parseArith()
-			if err != nil {
-				return nil, err
+			return &predNode{op: next.tok, left: lhs, right: rhs}, nil
+		case next.kind == tkSize:
+			p.pos++
+			sizeNode := &predNode{op: "size ==", left: lhs}
+			if cmp := p.peek(); cmp != nil && cmp.kind == tkCmp {
+				p.pos++
+				rhs, err := p.parseArith()
+				if err != nil {
+					return nil, err
+				}
+				sizeNode.right = rhs
+				sizeNode.op = "size " + cmp.tok
+			} else {
+				// `size n` defaults to ==; the comparand is mandatory.
+				rhs, err := p.parseArith()
+				if err != nil {
+					return nil, err
+				}
+				sizeNode.right = rhs
 			}
-			sizeNode.right = rhs
+			return sizeNode, nil
+		case next.kind == tkEmpty:
+			p.pos++
+			return &predNode{op: "empty", left: lhs}, nil
+		default:
+			return lhs, nil
 		}
-		return sizeNode, nil
-	case next.kind == tkEmpty:
-		p.pos++
-		return &predNode{op: "empty", left: lhs}, nil
-	default:
-		return lhs, nil
 	}
 }
 
@@ -428,7 +453,38 @@ func (p *predParser) parseOperand() (*predNode, error) {
 		return nil, ErrJSONPathSyntax
 	}
 	switch t.kind {
-	case tkAt, tkLit:
+	case tkAt:
+		p.pos++
+		// Method call form: `@.recv.fn()` or `@.recv.fn(arg)` — the
+		// function name is the last dot-segment of the @-path.
+		if call := p.peek(); call != nil && call.kind == tkLParen {
+			dot := strings.LastIndex(t.tok, ".")
+			if dot <= 0 {
+				return nil, ErrJSONPathSyntax
+			}
+			fn, recv := t.tok[dot+1:], t.tok[:dot]
+			p.pos++ // consume '('
+			var arg *predNode
+			if argTok := p.peek(); argTok != nil && argTok.kind != tkRParen {
+				var err error
+				arg, err = p.parseArith()
+				if err != nil {
+					return nil, err
+				}
+			}
+			closing := p.peek()
+			if closing == nil || closing.kind != tkRParen {
+				return nil, ErrJSONPathSyntax
+			}
+			p.pos++
+			return &predNode{
+				op:    "fn:" + fn,
+				left:  &predNode{self: &token{kind: tkAt, tok: recv}},
+				right: arg,
+			}, nil
+		}
+		return &predNode{self: t}, nil
+	case tkLit:
 		p.pos++
 		return &predNode{self: t}, nil
 	case tkArith:
@@ -484,6 +540,11 @@ func evalNode(n *predNode, elem interface{}) bool {
 		length, ok := lengthOf(v)
 		return ok && length == 0
 	default:
+		// A bare function node (e.g. `@.name.match("x")` as the whole
+		// predicate) evaluates to the function result's truthiness.
+		if strings.HasPrefix(n.op, "fn:") {
+			return truthy(nodeValue(n, elem))
+		}
 		if strings.HasPrefix(n.op, "size") {
 			if n.right == nil {
 				return false // `size` without a comparand
@@ -518,6 +579,9 @@ func nodeValue(n *predNode, elem interface{}) interface{} {
 		}
 		return -f
 	}
+	if fn, ok := strings.CutPrefix(n.op, "fn:"); ok {
+		return applyFunction(fn, nodeValue(n.left, elem), n.right, elem)
+	}
 	lf, lok := toFloat(nodeValue(n.left, elem))
 	rf, rok := toFloat(nodeValue(n.right, elem))
 	if !lok || !rok {
@@ -542,6 +606,166 @@ func nodeValue(n *predNode, elem interface{}) interface{} {
 		return math.Mod(lf, rf)
 	}
 	return nil
+}
+
+// applyFunction evaluates one JSONPath function over recv (8.10 batch 3):
+// length/abs/ceiling/floor on number/string/array/object; first/last on
+// arrays (postfix word form routes here too); min/max/avg/sum/stddev on
+// arrays of numbers; keys on objects; match/search (regexp, anchored vs
+// partial) and concat on strings. Unknown or mistyped calls yield Nothing.
+func applyFunction(fn string, recv interface{}, argNode *predNode, elem interface{}) interface{} {
+	numsOf := func(v interface{}) ([]float64, bool) {
+		arr, ok := v.([]interface{})
+		if !ok {
+			return nil, false
+		}
+		nums := make([]float64, 0, len(arr))
+		for _, e := range arr {
+			f, ok := toFloat(e)
+			if !ok {
+				return nil, false
+			}
+			nums = append(nums, f)
+		}
+		return nums, true
+	}
+
+	switch fn {
+	case "length":
+		if n, ok := lengthOf(recv); ok {
+			return float64(n)
+		}
+		return nil
+	case "abs", "ceiling", "floor":
+		f, ok := toFloat(recv)
+		if !ok {
+			return nil
+		}
+		switch fn {
+		case "abs":
+			return math.Abs(f)
+		case "ceiling":
+			return math.Ceil(f)
+		default:
+			return math.Floor(f)
+		}
+	case "first", "last":
+		arr, ok := recv.([]interface{})
+		if !ok || len(arr) == 0 {
+			return nil
+		}
+		if fn == "first" {
+			return arr[0]
+		}
+		return arr[len(arr)-1]
+	case "min", "max", "avg", "sum", "stddev":
+		nums, ok := numsOf(recv)
+		if !ok || len(nums) == 0 {
+			return nil
+		}
+		switch fn {
+		case "min":
+			m := nums[0]
+			for _, x := range nums[1:] {
+				if x < m {
+					m = x
+				}
+			}
+			return m
+		case "max":
+			m := nums[0]
+			for _, x := range nums[1:] {
+				if x > m {
+					m = x
+				}
+			}
+			return m
+		case "sum":
+			s := 0.0
+			for _, x := range nums {
+				s += x
+			}
+			return s
+		case "avg":
+			s := 0.0
+			for _, x := range nums {
+				s += x
+			}
+			return s / float64(len(nums))
+		default: // stddev (sample)
+			m := 0.0
+			for _, x := range nums {
+				m += x
+			}
+			m /= float64(len(nums))
+			var sq float64
+			for _, x := range nums {
+				sq += (x - m) * (x - m)
+			}
+			if len(nums) < 2 {
+				return nil
+			}
+			return math.Sqrt(sq / float64(len(nums)-1))
+		}
+	case "keys":
+		obj, ok := recv.(map[string]interface{})
+		if !ok {
+			return nil
+		}
+		keys := make([]interface{}, 0, len(obj))
+		for k := range obj {
+			keys = append(keys, k)
+		}
+		sortStrings(keys)
+		return keys
+	case "match", "search":
+		s, ok := recv.(string)
+		if !ok || argNode == nil {
+			return nil
+		}
+		pattern, ok := nodeValue(argNode, elem).(string)
+		if !ok {
+			return nil
+		}
+		re, err := regexp.Compile(pattern)
+		if err != nil {
+			return nil
+		}
+		if fn == "match" {
+			// Whole-string (anchored) match.
+			anchored, aerr := regexp.Compile(`^(?:` + pattern + `)$`)
+			if aerr != nil {
+				return nil
+			}
+			return anchored.MatchString(s)
+		}
+		return re.MatchString(s)
+	case "concat":
+		s, ok := recv.(string)
+		if !ok || argNode == nil {
+			return nil
+		}
+		arg, ok := nodeValue(argNode, elem).(string)
+		if !ok {
+			return nil
+		}
+		return s + arg
+	case "count":
+		arr, ok := recv.([]interface{})
+		if !ok {
+			return nil
+		}
+		return float64(len(arr))
+	case "value":
+		return recv
+	}
+	return nil
+}
+
+func sortStrings(keys []interface{}) {
+	sort.Slice(keys, func(i, j int) bool {
+		return keys[i].(string) < keys[j].(string)
+	})
 }
 
 // walkRelative resolves a relative path like ".a.b[0]" ("" = the element
