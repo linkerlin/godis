@@ -6,6 +6,11 @@
 
 ### Added
 
+- **R5-20 JSONPath 批次 1（Redis 8.10）**，测试 `database/r5_jsonpath_test.go`：
+  - `[?(…)]` 过滤表达式（读侧，`JSON.GET`）：`==`/`!=`/`<`/`<=`/`>`/`>=` 对任意字面量——数字、字符串、布尔、null 及 JSON 数组/对象（深度相等）；`!` 否定、`&&`/`||`、括号；`@` 相对路径（`.a.b[0]`）；裸操作数按真值判定
+  - 过滤后剩余路径逐元素投影（未命中丢弃）；`parsePath` 改括号深度计数，嵌套方括号字面量（`@.tags==["a","b"]`）保留在段内
+  - 过滤语法错误回复 `ERR Path syntax error`（旧式路径未命中仍回 null）；`JSON.SET FPHA` 明确拒绝（无同质浮点数组编码，不静默忽略）
+  - 批次 2（`in`/`nin`）与批次 3（数值/字符串函数等）待开
 - **R5-19 Array 预览子集（Redis 8.8，官方 preview）**，9 条命令页全部核实、测试断言取自官方示例（`database/r5_array_test.go`）：
   - `ARSET key index value…` / `ARMSET key index value…`：稀疏槽位写入，返回新填充槽数
   - `ARGET key index`（空槽/缺键/越界→nil）、`ARMGET key index…`（按请求顺序，未置位→nil）

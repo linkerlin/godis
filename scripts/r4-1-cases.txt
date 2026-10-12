@@ -15721,5 +15721,15 @@ ARDELRANGE-count|2|ARCOUNT sidecar:r5ar:5:{{ID}}
 ARDEL|2|ARDEL sidecar:r5ar:5:{{ID}} 0 4
 ARDEL-after|0|ARCOUNT sidecar:r5ar:5:{{ID}}
 
+# --- R5-20 JSONPath batch 1 (8.10): [?(…)] filter expressions ---
+@CMD JSON.SET sidecar:r5jp:doc:{{ID}} $ {"users":[{"name":"alice","age":30},{"name":"bob","age":45},{"name":"carol","age":25}]}
+JSONPATH-gt|["alice","bob"]|JSON.GET sidecar:r5jp:doc:{{ID}} $.users[?(@.age>29)].name
+JSONPATH-eq|"bob"|JSON.GET sidecar:r5jp:doc:{{ID}} $.users[?(@.name=="bob")].name
+JSONPATH-not|["alice","carol"]|JSON.GET sidecar:r5jp:doc:{{ID}} $.users[?(@.name!="bob")].name
+JSONPATH-and|["alice"]|JSON.GET sidecar:r5jp:doc:{{ID}} $.users[?(@.age>20 && @.age<40)].name
+JSONPATH-negate|["carol"]|JSON.GET sidecar:r5jp:doc:{{ID}} $.users[?(!(@.age>29))].name
+JSONPATH-empty|[]|JSON.GET sidecar:r5jp:doc:{{ID}} $.users[?(@.age>99)].name
+JSONPATH-syntax|ERR Path syntax error|JSON.GET sidecar:r5jp:doc:{{ID}} $.users[?(@.age>)]
+
 
 

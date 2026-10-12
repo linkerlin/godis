@@ -60,11 +60,11 @@ func convertNumbers(v interface{}) interface{} {
 func (jv *JSONValue) Get(path string) (interface{}, error) {
 	jv.mu.RLock()
 	defer jv.mu.RUnlock()
-	
+
 	if path == "$" || path == "." || path == "" {
 		return jv.data, nil
 	}
-	
+
 	return jv.getPath(path)
 }
 
@@ -72,7 +72,7 @@ func (jv *JSONValue) Get(path string) (interface{}, error) {
 func (jv *JSONValue) Set(path string, value interface{}, nx bool, xx bool) (bool, error) {
 	jv.mu.Lock()
 	defer jv.mu.Unlock()
-	
+
 	if path == "$" || path == "." || path == "" {
 		if xx && jv.data != nil {
 			return true, nil // Already exists, don't change
@@ -83,7 +83,7 @@ func (jv *JSONValue) Set(path string, value interface{}, nx bool, xx bool) (bool
 		jv.data = value
 		return true, nil
 	}
-	
+
 	return jv.setPath(path, value, nx, xx)
 }
 
@@ -91,12 +91,12 @@ func (jv *JSONValue) Set(path string, value interface{}, nx bool, xx bool) (bool
 func (jv *JSONValue) Del(path string) (bool, error) {
 	jv.mu.Lock()
 	defer jv.mu.Unlock()
-	
+
 	if path == "$" || path == "." || path == "" {
 		jv.data = nil
 		return true, nil
 	}
-	
+
 	return jv.delPath(path)
 }
 
@@ -104,7 +104,7 @@ func (jv *JSONValue) Del(path string) (bool, error) {
 func (jv *JSONValue) Type(path string) (string, error) {
 	jv.mu.RLock()
 	defer jv.mu.RUnlock()
-	
+
 	val, err := jv.getPath(path)
 	if err != nil {
 		return "", err
@@ -112,7 +112,7 @@ func (jv *JSONValue) Type(path string) (string, error) {
 	if val == nil {
 		return "null", nil
 	}
-	
+
 	switch val.(type) {
 	case map[string]interface{}:
 		return "object", nil
@@ -133,12 +133,12 @@ func (jv *JSONValue) Type(path string) (string, error) {
 func (jv *JSONValue) NumIncrBy(path string, increment float64) (float64, error) {
 	jv.mu.Lock()
 	defer jv.mu.Unlock()
-	
+
 	val, err := jv.getPath(path)
 	if err != nil {
 		return 0, err
 	}
-	
+
 	var num float64
 	switch v := val.(type) {
 	case float64:
@@ -152,7 +152,7 @@ func (jv *JSONValue) NumIncrBy(path string, increment float64) (float64, error) 
 	default:
 		return 0, fmt.Errorf("value at path is not a number")
 	}
-	
+
 	newVal := num + increment
 	jv.setPath(path, newVal, false, false)
 	return newVal, nil
@@ -364,17 +364,17 @@ func countJSONFields(v interface{}) int {
 func (jv *JSONValue) StrAppend(path string, appendStr string) (int, error) {
 	jv.mu.Lock()
 	defer jv.mu.Unlock()
-	
+
 	val, err := jv.getPath(path)
 	if err != nil {
 		return 0, err
 	}
-	
+
 	str, ok := val.(string)
 	if !ok {
 		return 0, fmt.Errorf("value at path is not a string")
 	}
-	
+
 	newStr := str + appendStr
 	jv.setPath(path, newStr, false, false)
 	return len(newStr), nil
@@ -384,17 +384,17 @@ func (jv *JSONValue) StrAppend(path string, appendStr string) (int, error) {
 func (jv *JSONValue) ArrAppend(path string, values ...interface{}) (int, error) {
 	jv.mu.Lock()
 	defer jv.mu.Unlock()
-	
+
 	val, err := jv.getPath(path)
 	if err != nil {
 		return 0, err
 	}
-	
+
 	arr, ok := val.([]interface{})
 	if !ok {
 		return 0, fmt.Errorf("value at path is not an array")
 	}
-	
+
 	arr = append(arr, values...)
 	jv.setPath(path, arr, false, false)
 	return len(arr), nil
@@ -404,21 +404,21 @@ func (jv *JSONValue) ArrAppend(path string, values ...interface{}) (int, error) 
 func (jv *JSONValue) ArrInsert(path string, index int, values ...interface{}) (int, error) {
 	jv.mu.Lock()
 	defer jv.mu.Unlock()
-	
+
 	val, err := jv.getPath(path)
 	if err != nil {
 		return 0, err
 	}
-	
+
 	arr, ok := val.([]interface{})
 	if !ok {
 		return 0, fmt.Errorf("value at path is not an array")
 	}
-	
+
 	if index < 0 || index > len(arr) {
 		return 0, fmt.Errorf("index out of bounds")
 	}
-	
+
 	arr = append(arr[:index], append(values, arr[index:]...)...)
 	jv.setPath(path, arr, false, false)
 	return len(arr), nil
@@ -428,29 +428,29 @@ func (jv *JSONValue) ArrInsert(path string, index int, values ...interface{}) (i
 func (jv *JSONValue) ArrPop(path string, index int) (interface{}, error) {
 	jv.mu.Lock()
 	defer jv.mu.Unlock()
-	
+
 	val, err := jv.getPath(path)
 	if err != nil {
 		return nil, err
 	}
-	
+
 	arr, ok := val.([]interface{})
 	if !ok {
 		return nil, fmt.Errorf("value at path is not an array")
 	}
-	
+
 	if len(arr) == 0 {
 		return nil, fmt.Errorf("array is empty")
 	}
-	
+
 	if index < 0 {
 		index = len(arr) + index
 	}
-	
+
 	if index < 0 || index >= len(arr) {
 		return nil, fmt.Errorf("index out of bounds")
 	}
-	
+
 	elem := arr[index]
 	arr = append(arr[:index], arr[index+1:]...)
 	jv.setPath(path, arr, false, false)
@@ -461,17 +461,17 @@ func (jv *JSONValue) ArrPop(path string, index int) (interface{}, error) {
 func (jv *JSONValue) ArrLen(path string) (int, error) {
 	jv.mu.RLock()
 	defer jv.mu.RUnlock()
-	
+
 	val, err := jv.getPath(path)
 	if err != nil {
 		return 0, err
 	}
-	
+
 	arr, ok := val.([]interface{})
 	if !ok {
 		return 0, fmt.Errorf("value at path is not an array")
 	}
-	
+
 	return len(arr), nil
 }
 
@@ -479,17 +479,17 @@ func (jv *JSONValue) ArrLen(path string) (int, error) {
 func (jv *JSONValue) ObjKeys(path string) ([]string, error) {
 	jv.mu.RLock()
 	defer jv.mu.RUnlock()
-	
+
 	val, err := jv.getPath(path)
 	if err != nil {
 		return nil, err
 	}
-	
+
 	obj, ok := val.(map[string]interface{})
 	if !ok {
 		return nil, fmt.Errorf("value at path is not an object")
 	}
-	
+
 	keys := make([]string, 0, len(obj))
 	for k := range obj {
 		keys = append(keys, k)
@@ -501,17 +501,17 @@ func (jv *JSONValue) ObjKeys(path string) ([]string, error) {
 func (jv *JSONValue) ObjLen(path string) (int, error) {
 	jv.mu.RLock()
 	defer jv.mu.RUnlock()
-	
+
 	val, err := jv.getPath(path)
 	if err != nil {
 		return 0, err
 	}
-	
+
 	obj, ok := val.(map[string]interface{})
 	if !ok {
 		return 0, fmt.Errorf("value at path is not an object")
 	}
-	
+
 	return len(obj), nil
 }
 
@@ -519,7 +519,7 @@ func (jv *JSONValue) ObjLen(path string) (int, error) {
 func (jv *JSONValue) ToBytes() ([]byte, error) {
 	jv.mu.RLock()
 	defer jv.mu.RUnlock()
-	
+
 	return json.Marshal(jv.data)
 }
 
@@ -532,13 +532,54 @@ func (jv *JSONValue) ToString() (string, error) {
 // getPath traverses the JSON structure following the path
 func (jv *JSONValue) getPath(path string) (interface{}, error) {
 	parts := parsePath(path)
-	current := jv.data
-	
+
+	for i, part := range parts {
+		// JSONPath filter segment (8.10 batch 1): applies to array
+		// elements; any remaining path components project over each match
+		// (misses dropped).
+		if IsFilterPart(part) {
+			arr, ok := jv.data.([]interface{})
+			if i > 0 {
+				base, err := walkParts(jv.data, parts[:i])
+				if err != nil {
+					return nil, err
+				}
+				arr, ok = base.([]interface{})
+			}
+			if !ok {
+				return nil, ErrJSONPathSyntax
+			}
+			matches, err := ApplyFilter(arr, part)
+			if err != nil {
+				return nil, err
+			}
+			if i == len(parts)-1 {
+				return matches, nil
+			}
+			out := make([]interface{}, 0, len(matches))
+			for _, m := range matches {
+				if v, err := walkParts(m, parts[i+1:]); err == nil {
+					out = append(out, v)
+				}
+			}
+			return out, nil
+		}
+	}
+
+	return walkParts(jv.data, parts)
+}
+
+// walkParts resolves parts against current, returning the single value.
+func walkParts(current interface{}, parts []string) (interface{}, error) {
 	for _, part := range parts {
 		if current == nil {
 			return nil, fmt.Errorf("path not found")
 		}
-		
+		if IsFilterPart(part) {
+			// Only the first filter segment is handled by getPath.
+			return nil, ErrJSONPathSyntax
+		}
+
 		switch c := current.(type) {
 		case map[string]interface{}:
 			val, ok := c[part]
@@ -559,7 +600,7 @@ func (jv *JSONValue) getPath(path string) (interface{}, error) {
 			return nil, fmt.Errorf("cannot traverse into %T", current)
 		}
 	}
-	
+
 	return current, nil
 }
 
@@ -570,14 +611,14 @@ func (jv *JSONValue) setPath(path string, value interface{}, nx, xx bool) (bool,
 		jv.data = value
 		return true, nil
 	}
-	
+
 	// Navigate to parent
 	parent := jv.data
 	for i := 0; i < len(parts)-1; i++ {
 		if parent == nil {
 			return false, fmt.Errorf("path not found")
 		}
-		
+
 		switch p := parent.(type) {
 		case map[string]interface{}:
 			val, ok := p[parts[i]]
@@ -600,7 +641,7 @@ func (jv *JSONValue) setPath(path string, value interface{}, nx, xx bool) (bool,
 			return false, fmt.Errorf("cannot traverse into %T", parent)
 		}
 	}
-	
+
 	// Set the value
 	lastPart := parts[len(parts)-1]
 	switch p := parent.(type) {
@@ -639,14 +680,14 @@ func (jv *JSONValue) delPath(path string) (bool, error) {
 		jv.data = nil
 		return true, nil
 	}
-	
+
 	// Navigate to parent
 	parent := jv.data
 	for i := 0; i < len(parts)-1; i++ {
 		if parent == nil {
 			return false, nil
 		}
-		
+
 		switch p := parent.(type) {
 		case map[string]interface{}:
 			val, ok := p[parts[i]]
@@ -667,7 +708,7 @@ func (jv *JSONValue) delPath(path string) (bool, error) {
 			return false, fmt.Errorf("cannot traverse into %T", parent)
 		}
 	}
-	
+
 	// Delete the value
 	lastPart := parts[len(parts)-1]
 	switch p := parent.(type) {
@@ -698,31 +739,37 @@ func parsePath(path string) []string {
 	// Remove leading $. or .
 	path = strings.TrimPrefix(path, "$")
 	path = strings.TrimPrefix(path, ".")
-	
+
 	if path == "" {
 		return nil
 	}
-	
+
 	// Split by . for object keys
-	// Handle array indices like .foo[0].bar
+	// Handle array indices like .foo[0].bar; nested brackets (JSONPath
+	// filter literals such as [?(@.a==[1,2])]) stay inside their segment.
 	var parts []string
 	current := ""
-	inBracket := false
-	
+	depth := 0
+
 	for i, ch := range path {
 		if ch == '[' {
-			if current != "" {
+			if depth == 0 && current != "" {
 				parts = append(parts, current)
 				current = ""
 			}
-			inBracket = true
+			depth++
+			if depth > 1 {
+				current += string(ch) // keep nested (filter literal) brackets
+			}
 		} else if ch == ']' {
-			if current != "" {
+			depth--
+			if depth > 0 {
+				current += string(ch)
+			} else if current != "" {
 				parts = append(parts, current)
 				current = ""
 			}
-			inBracket = false
-		} else if ch == '.' && !inBracket {
+		} else if ch == '.' && depth == 0 {
 			if current != "" {
 				parts = append(parts, current)
 				current = ""
@@ -735,6 +782,6 @@ func parsePath(path string) []string {
 			}
 		}
 	}
-	
+
 	return parts
 }

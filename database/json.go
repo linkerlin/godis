@@ -3,6 +3,7 @@ package database
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -50,6 +51,10 @@ func execJSONSet(db *DB, args [][]byte) redis.Reply {
 			nx = true
 		case "XX":
 			xx = true
+		case "FPHA":
+			// 8.8 homogeneous float-array storage hint: Godis has no such
+			// encoding — reject explicitly instead of accepting and ignoring.
+			return protocol.MakeErrReply("ERR FPHA is not supported: Godis JSON has no homogeneous float array encoding")
 		default:
 			return &protocol.SyntaxErrReply{}
 		}
@@ -133,9 +138,16 @@ func execJSONGet(db *DB, args [][]byte) redis.Reply {
 	if len(paths) == 1 {
 		val, err := jv.Get(paths[0])
 		if err != nil {
+			// Filter syntax errors are real errors; missing legacy paths
+			// keep the historical null reply.
+			if errors.Is(err, godisjson.ErrJSONPathSyntax) {
+				return protocol.MakeErrReply(err.Error())
+			}
 			return &protocol.NullBulkReply{}
 		}
-		val = wrapEnhancedJSONPathValue(paths[0], val)
+		if !godisjson.PathHasFilter(paths[0]) {
+			val = wrapEnhancedJSONPathValue(paths[0], val)
+		}
 		result, err := marshalJSONGet(val, opts)
 		if err != nil {
 			return protocol.MakeErrReply(fmt.Sprintf("ERR %v", err))
@@ -152,7 +164,9 @@ func execJSONGet(db *DB, args [][]byte) redis.Reply {
 		if err != nil {
 			continue
 		}
-		val = wrapEnhancedJSONPathValue(path, val)
+		if !godisjson.PathHasFilter(path) {
+			val = wrapEnhancedJSONPathValue(path, val)
+		}
 		if !first {
 			b.WriteByte(',')
 		}

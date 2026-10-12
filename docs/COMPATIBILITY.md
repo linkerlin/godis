@@ -333,7 +333,7 @@ UNWATCH、WAIT（简版）、BITOP、BITFIELD、SMOVE、LPOS、XCLAIM、SHUTDOWN
 | 8.8 | Hash 字段级键空间通知 | **R5-18 延期**：官方文档站拿不到 8.8 字段级事件名的权威清单，按「不猜语法」原则等命令页可得再实现 |
 | 8.8 | `slowlog-entry-max-argc`、`slowlog-entry-max-string-len` | 慢日志截断（第七字段已接通，见上表） |
 | 8.10 | `TS.READ`（含 `BLOCK`） | **R5-16 剩余**：需要 TS 写路径唤醒的阻塞等待注册表 |
-| 8.10 | JSONPath 扩展 | 当前 `parsePath` 只做点号与下标。8.10 增加投影、任意字面量比较、`!`、`size`/`empty`、`in`/`nin`、数值运算、`match`/`search`/`concat`、`first`/`last`/`index`/`append`、`min`/`max`/`avg`/`sum`/`stddev`、`keys`、`count`/`value`、`subsetof`/`anyof`/`noneof` |
+| 8.10 | JSONPath 扩展 | **R5-20 批次 1 已接通**：`[?(…)]` 过滤（任意字面量比较含 JSON 数组/对象深度相等、`!`、`&&`/`||`、括号、`@` 相对路径、过滤后投影）；`JSON.SET FPHA` 明确拒绝。**仍缺**：顶层投影表达式、`in`/`nin`、`size`/`empty`、数值运算、`match`/`search`/`concat`、`first`/`last`/`index`/`append`、`min`/`max`/`avg`/`sum`/`stddev`、`keys`、`count`/`value`、`subsetof`/`anyof`/`noneof`（批次 2/3） |
 | 8.10 | compact hash 模板 | `HIMPORT` fieldset 导入已接通（见上表）；按 schema 共享字段名的内部编码与 `hash_templates` 指标本阶段不做（见 0.4） |
 | 8.10 | `BACKUP` | `START`/`SEAL`/`ABORT`/`LIST`/`STATUS`/`CLEANUP`，基于 multi-part AOF。本阶段不做，也不用 `BGSAVE` 冒充 |
 | 8.10 | 词干 Malay / Tagalog | 归入完整搜索远期项 |
@@ -348,4 +348,4 @@ UNWATCH、WAIT（简版）、BITOP、BITFIELD、SMOVE、LPOS、XCLAIM、SHUTDOWN
 
 ---
 
-**最后更新：** 2026-10-12（R5 三波全部推进。第一波：错误帧 CR/LF、`SUNIONCARD`/`SDIFFCARD`、`LMOVEM`/`BLMOVEM`、`XREAD`/`XREADGROUP` `MAXCOUNT`/`MAXSIZE`、`SLOWLOG GET` 第七字段、`AGGREGATE COUNT`、`SET` `IF*`、`DELEX`/`DIGEST`（XXH3）、`MSETEX`、`script_runner` 标志、`FT.ALIASLIST`、LRM 淘汰。第二波：`XREADGROUP CLAIM`、`XNACK`、`XADD IDMP`/`XCFGSET`、`INCREX`、时序 NaN/countNaN/countAll/多聚合器/`EXCLUDEEMPTY`/`TS.NRANGE`/`TS.QUERYLABELS`、`RETURN_STRICT`。第三波：`HOTKEYS`（Godis 采样口径）、`HIMPORT`（fieldset→普通 Hash）、Array preview 九命令 + `TYPE array` + Godis opaque。剩：`TS.READ`、R5-18 字段级通知（事件名未证实）、JSONPath 分批（R5-20）、Array 扩展命令。测试内存治理：database 测试峰值 8.9GB→约 0.7GB。原远期 7 项不变。）
+**最后更新：** 2026-10-12（R5 三波全部推进。第一波：错误帧 CR/LF、`SUNIONCARD`/`SDIFFCARD`、`LMOVEM`/`BLMOVEM`、`XREAD`/`XREADGROUP` `MAXCOUNT`/`MAXSIZE`、`SLOWLOG GET` 第七字段、`AGGREGATE COUNT`、`SET IF*`、`DELEX`/`DIGEST`（XXH3）、`MSETEX`、`script_runner` 标志、`FT.ALIASLIST`、LRM 淘汰。第二波：`XREADGROUP CLAIM`、`XNACK`、`XADD IDMP`/`XCFGSET`、`INCREX`、时序 NaN/countNaN/countAll/多聚合器/`EXCLUDEEMPTY`/`TS.NRANGE`/`TS.QUERYLABELS`、`RETURN_STRICT`。第三波：`HOTKEYS`（Godis 采样口径）、`HIMPORT`（fieldset→普通 Hash）、Array preview 九命令 + `TYPE array` + Godis opaque、JSONPath 批次 1（`[?(…)]` 过滤 + 投影 + `FPHA` 拒绝）。剩：JSONPath 批次 2/3、`TS.READ`、R5-18 字段级通知（事件名未证实）、Array 扩展命令。测试内存治理：database 测试峰值 8.9GB→约 0.7GB。原远期 7 项不变。）

@@ -277,7 +277,7 @@
 | 命令 | 描述 |
 |------|------|
 | JSON.SET | 设置 JSON 值 |
-| JSON.GET | 获取 JSON 值 |
+| JSON.GET | 获取 JSON 值（`[?(…)]` 过滤表达式批次 1：比较/`!`/`&&`/`||`/投影，8.10） |
 | JSON.DEL | 删除 JSON 值 |
 | JSON.MGET | 批量获取 |
 | JSON.TYPE | 获取 JSON 类型 |
