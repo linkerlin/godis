@@ -107,16 +107,21 @@ type token struct {
 }
 
 var wordOps = map[string]tokenKind{
-	"in":     tkCmp,
-	"nin":    tkCmp,
-	"size":   tkSize,
-	"sizeof": tkSize,
-	"empty":  tkEmpty,
-	"first":  tkFirst,
-	"last":   tkLast,
-	"concat": tkFnWord,
-	"match":  tkFnWord,
-	"search": tkFnWord,
+	"in":       tkCmp,
+	"nin":      tkCmp,
+	"size":     tkSize,
+	"sizeof":   tkSize,
+	"empty":    tkEmpty,
+	"first":    tkFirst,
+	"last":     tkLast,
+	"concat":   tkFnWord,
+	"match":    tkFnWord,
+	"search":   tkFnWord,
+	"subsetof": tkFnWord,
+	"anyof":    tkFnWord,
+	"noneof":   tkFnWord,
+	"append":   tkFnWord,
+	"index":    tkFnWord,
 }
 
 func isWordStart(c byte) bool {
@@ -226,7 +231,17 @@ func tokenize(s string) ([]token, error) {
 			depth := 0
 			for j < len(s) {
 				ch := s[j]
-				if ch == '{' || ch == '[' {
+				if ch == '\'' || ch == '"' {
+					// Quoted string inside a composite literal: skip whole.
+					q := ch
+					j++
+					for j < len(s) && s[j] != q {
+						j++
+					}
+					if j >= len(s) {
+						return nil, ErrJSONPathSyntax
+					}
+				} else if ch == '{' || ch == '[' {
 					depth++
 				} else if ch == ')' || ch == '&' || ch == '|' {
 					break
@@ -750,6 +765,59 @@ func applyFunction(fn string, recv interface{}, argNode *predNode, elem interfac
 			return nil
 		}
 		return s + arg
+	case "subsetof", "anyof", "noneof":
+		// Set relations on array/nodelist (8.10): subset = every element
+		// present; anyof = at least one shared; noneof = no shared element.
+		arr, ok := recv.([]interface{})
+		if !ok || argNode == nil {
+			return nil
+		}
+		set, ok := nodeValue(argNode, elem).([]interface{})
+		if !ok {
+			return nil
+		}
+		contains := func(v interface{}) bool {
+			for _, s := range set {
+				if deepEqual(v, s) {
+					return true
+				}
+			}
+			return false
+		}
+		matched := 0
+		for _, v := range arr {
+			if contains(v) {
+				matched++
+			}
+		}
+		switch fn {
+		case "subsetof":
+			return matched == len(arr)
+		case "anyof":
+			return matched > 0
+		default: // noneof
+			return matched == 0
+		}
+	case "index":
+		// Array access by position; out-of-range / non-numeric → Nothing.
+		arr, ok := recv.([]interface{})
+		if !ok || argNode == nil {
+			return nil
+		}
+		idx, ok := toFloat(nodeValue(argNode, elem))
+		if !ok || idx < 0 || idx >= float64(len(arr)) {
+			return nil
+		}
+		return arr[int(idx)]
+	case "append":
+		// Query-time projection: recv array + one appended value
+		// (read-only; the stored document is untouched).
+		arr, ok := recv.([]interface{})
+		if !ok || argNode == nil {
+			return nil
+		}
+		out := append(append([]interface{}(nil), arr...), nodeValue(argNode, elem))
+		return out
 	case "count":
 		arr, ok := recv.([]interface{})
 		if !ok {

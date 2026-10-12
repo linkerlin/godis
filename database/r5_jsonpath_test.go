@@ -313,3 +313,51 @@ func TestR5JPTopLevelProjection(t *testing.T) {
 		"JSON.GET", "r5jp:nums", "nosuchfn($)")), "ERR Path syntax error")
 	testDB.Exec(nil, utils.ToCmdLine("DEL", "r5jp:nums"))
 }
+
+// ---- R5-20 tail: subsetof/anyof/noneof, index(), append() ----
+
+func TestR5JPSetRelationsAndArrayFns(t *testing.T) {
+	// Doc-style: colors subsets.
+	testDB.Exec(nil, utils.ToCmdLine("DEL", "r5jp:c"))
+	testDB.Exec(nil, utils.ToCmdLine("JSON.SET", "r5jp:c", "$", `[
+		{"id":1,"colors":["black","silver"]},
+		{"id":2,"colors":["red","gold"]},
+		{"id":3,"colors":["black"]}
+	]`))
+	// subsetof: every element within the given set.
+	if got := r5jpGetKey(t, "r5jp:c", "$[?(@.colors subsetof [\"black\",\"silver\",\"white\"])].id"); got != "[1,3]" {
+		t.Errorf("subsetof: %s", got)
+	}
+	// anyof: at least one shared element.
+	if got := r5jpGetKey(t, "r5jp:c", `$[?(@.colors anyof ["red","white"])].id`); got != "[2]" {
+		t.Errorf("anyof: %s", got)
+	}
+	// noneof: no shared elements.
+	if got := r5jpGetKey(t, "r5jp:c", `$[?(@.colors noneof ["white","gold"])].id`); got != "[1,3]" {
+		t.Errorf("noneof: %s", got)
+	}
+	// index(n) array access; out-of-range → Nothing → no match.
+	if got := r5jpGetKey(t, "r5jp:c", `$[?(@.colors.index(0) == "black")].id`); got != "[1,3]" {
+		t.Errorf("index(0): %s", got)
+	}
+	if got := r5jpGetKey(t, "r5jp:c", `$[?(@.colors.index(5) == "x")].id`); got != "[]" {
+		t.Errorf("index oob: %s", got)
+	}
+	// append(): query-time projection adds a value after the elements.
+	if got := r5jpGetKey(t, "r5jp:c", `$[?(@.colors.append("teal") anyof ["teal"])].id`); got != "[1,2,3]" {
+		t.Errorf("append in filter: %s", got)
+	}
+	testDB.Exec(nil, utils.ToCmdLine("DEL", "r5jp:c"))
+}
+
+func TestR5JPAppendProjection(t *testing.T) {
+	// append() in a filter is read-only (doc untouched); array root.
+	testDB.Exec(nil, utils.ToCmdLine("DEL", "r5jp:ap"))
+	testDB.Exec(nil, utils.ToCmdLine("JSON.SET", "r5jp:ap", "$", `[{"colors":["black"]}]`))
+	// Stored document unchanged after append-in-filter (nodelist of one
+	// match whose value is the colors array → [["black"]]).
+	if got := r5jpGetKey(t, "r5jp:ap", `$[?(@.colors.append("teal") anyof ["teal"])].colors`); got != `[["black"]]` {
+		t.Errorf("append read-only: %s", got)
+	}
+	testDB.Exec(nil, utils.ToCmdLine("DEL", "r5jp:ap"))
+}
