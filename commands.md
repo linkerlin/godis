@@ -352,6 +352,22 @@
 
 ---
 
+## Array 命令（Redis 8.8 预览）
+
+| 命令 | 描述 |
+|------|------|
+| ARSET | 从下标起连续写入值（8.8 预览） |
+| ARMSET | 多组下标-值写入 |
+| ARGET | 读下标（空槽/缺键/越界→nil） |
+| ARMGET | 批量读下标 |
+| ARGETRANGE | 读区间（含端点，start>end 倒序） |
+| ARLEN | 长度（max index+1） |
+| ARCOUNT | 非空槽数量 |
+| ARDEL | 按下标删除 |
+| ARDELRANGE | 按区间删除（重叠只计一次） |
+
+---
+
 ## Time Series 命令 (Redis 8.x)
 
 | 命令 | 描述 |

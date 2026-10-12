@@ -6,6 +6,14 @@
 
 ### Added
 
+- **R5-19 Array 预览子集（Redis 8.8，官方 preview）**，9 条命令页全部核实、测试断言取自官方示例（`database/r5_array_test.go`）：
+  - `ARSET key index value…` / `ARMSET key index value…`：稀疏槽位写入，返回新填充槽数
+  - `ARGET key index`（空槽/缺键/越界→nil）、`ARMGET key index…`（按请求顺序，未置位→nil）
+  - `ARGETRANGE key start end`（含端点；start>end 倒序；跨度内越界下标输出 nil 元素）
+  - `ARLEN`（max index+1）/ `ARCOUNT`（非空槽数，O(1) 维护）
+  - `ARDEL key index…` / `ARDelRange key start end…`（重叠区间按元素只计一次）
+  - `TYPE` 返回 `array`；持久化走 Godis opaque（类型码 `array`，DUMP/RESTORE/RDB 自动生效）；AOF 回放完整命令行；`MEMORY USAGE` 粗估覆盖
+  - 子集口径：全部删空后保留键（`ARLEN` 不变）；`ARINSERT`/`ARRING`/`ARSEEK`/`AROP`/`ARGREP`/`ARINFO`/`ARLASTITEMS` 待子集稳定后再开
 - **R5 第三波首批（Redis 8.6/8.10 命令面）**，行为对齐命令页，测试 `database/r5_wave3_test.go`：
   - `HOTKEYS START METRICS n [CPU] [NET] [COUNT k] [DURATION s] [SAMPLE r] | STOP | GET | RESET`（8.6）：热键跟踪。指标为 Godis 采样计账——CPU=命令微秒按键分摊、NET=参数字节数（非 Redis 按槽概率结构，`total-cpu-time-user-ms` 无 user/sys 拆分，已在兼容文档写明）；`SLOTS` 非集群报错；`DURATION` 惰性到期
   - `HIMPORT PREPARE name field… | SET key name value… | DISCARD name | DISCARDALL`（8.10）：连接级会话 fieldset，批量写入普通 Hash（走 HSET 路径：锁/AOF/索引/通知一致）；`RESET` 清空会话；无断连钩子，每连接上限 128 个 fieldset；compact hash 编码不做

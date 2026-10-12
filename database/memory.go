@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/linkerlin/godis/datastruct/array"
 	"github.com/linkerlin/godis/datastruct/dict"
 	godisjson "github.com/linkerlin/godis/datastruct/json"
 	"github.com/linkerlin/godis/datastruct/list"
@@ -170,6 +171,8 @@ func estimateEntityBytes(key string, data interface{}, samples int) int64 {
 		size += estimateListBytes(v, samples)
 	case *stream.Stream:
 		size += int64(v.Len() * 64)
+	case *array.Array:
+		size += v.Len() * 32 // slot slice + bytes; ponytail: coarse per-slot estimate
 	case *dict.ExpireDict:
 		size += estimateExpireDictBytes(v, samples)
 	case dict.Dict:

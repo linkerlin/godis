@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/linkerlin/godis/datastruct/array"
 	"github.com/linkerlin/godis/datastruct/dict"
 	godisjson "github.com/linkerlin/godis/datastruct/json"
 	"github.com/linkerlin/godis/datastruct/probabilistic"
@@ -42,7 +43,13 @@ const (
 	opaqueTopK       = "topk"
 	opaqueTDigest    = "tdigest"
 	opaqueFTIndex    = "ft"
+	opaqueArray      = "array"
 )
+
+// dumpArray persists an Array as sparse index/value pairs (8.8 preview).
+type dumpArray struct {
+	Slots [][]byte `json:"s"`
+}
 
 // FTIndexBlob is a decoded FT index definition (FT.CREATE args) pending engine
 // rebuild on RDB load. Not a runtime searchable engine.
@@ -168,6 +175,9 @@ func EncodeOpaque(entity *database.DataEntity) (payload []byte, ok bool) {
 	case *dict.ExpireDict:
 		typ = opaqueExpireDict
 		raw, err = json.Marshal(dumpExpireDict(v))
+	case *array.Array:
+		typ = opaqueArray
+		raw, err = json.Marshal(dumpArray{Slots: v.Slots()})
 	case *probabilistic.BloomFilter:
 		typ = opaqueBloom
 		raw, err = json.Marshal(v.MarshalBinary()) // base64 JSON string; binary is not RawMessage-safe
@@ -246,6 +256,12 @@ func DecodeOpaque(payload []byte) (entity *database.DataEntity, ok bool) {
 			return nil, false
 		}
 		return &database.DataEntity{Data: ed}, true
+	case opaqueArray:
+		var d dumpArray
+		if err := json.Unmarshal(env.Data, &d); err != nil {
+			return nil, false
+		}
+		return &database.DataEntity{Data: array.Restore(d.Slots)}, true
 	case opaqueBloom:
 		var bin []byte
 		if err := json.Unmarshal(env.Data, &bin); err != nil {

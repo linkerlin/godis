@@ -308,6 +308,7 @@ UNWATCH、WAIT（简版）、BITOP、BITFIELD、SMOVE、LPOS、XCLAIM、SHUTDOWN
 | `TS.MRANGE` / `TS.MREVRANGE` `EXCLUDEEMPTY` | 8.10 | **R5-16 已接通** |
 | `HOTKEYS` | 8.6 | **R5-21 已接通**（`START`/`STOP`/`GET`/`RESET`）。指标口径为 Godis 采样计数：CPU=命令微秒按键分摊、NET=参数字节数，**非** Redis 的按槽概率结构与 user/sys 拆分；`SLOTS` 非集群报错；`DURATION` 惰性到期 |
 | `HIMPORT` | 8.10 | **R5-22 已接通**（`PREPARE`/`SET`/`DISCARD`/`DISCARDALL`，fieldset 按连接隔离、`RESET` 清空、每连接上限 128）。写入普通 Hash——compact hash 模板编码明确不做（见 0.4） |
+| Array 类型 `AR*` | 8.8 | **R5-19 已接通（preview 子集）**：`ARSET`/`ARMSET`/`ARGET`/`ARMGET`/`ARGETRANGE`/`ARLEN`/`ARCOUNT`/`ARDEL`/`ARDELRANGE`，`TYPE`→`array`，持久化走 Godis opaque `array`。官方仍标 preview，语法可能变。`ARINSERT`/`ARRING`/`ARSEEK`/`AROP`/`ARGREP`/`ARINFO`/`ARLASTITEMS` 未做；子集口径：全删空后保留键、`ARGETRANGE` 请求跨度内越界下标为 nil 元素 |
 | `volatile-lrm` / `allkeys-lrm` | 8.6 | **R5-11 已接通**：两策略 `CONFIG SET` 可用；修改时间在命令成功写后按 prepare 声明的写键记录（`execNormalCommand`/`execWithLock`），淘汰为修改时间采样近似，无修改记录的键视为最旧。非 prepare 路径的写不记账（近似口径） |
 | `SET` `IFEQ`/`IFNE`/`IFDEQ`/`IFDNE` | 8.4 | **R5-7 已接通**。非字符串现值按「不相等」处理（`SET` 无 `GET` 时从不报 WRONGTYPE） |
 | `DIGEST` / `DELEX` | 8.4 | **R5-7 已接通**。`DIGEST` 为 XXH3-64 小写十六进制（与 8.4 命令页示例一致）；`DELEX` 无选项时按 `DEL` 单键语义，带选项时要求字符串类型 |
@@ -327,7 +328,7 @@ UNWATCH、WAIT（简版）、BITOP、BITFIELD、SMOVE、LPOS、XCLAIM、SHUTDOWN
 |------|------|------|
 | 8.4 | `CLUSTER MIGRATION` | 原子迁槽。与现有 gossip / ASM 远期项放在一起，本阶段不做 |
 | 8.6 | TLS 证书映射用户 | `tls-auth-clients-user`。TLS 仍是存取桩，本阶段不做 |
-| 8.8 | Array 类型 `AR*` | 预览类型。`ARSET`/`ARMSET`/`ARGET`/`ARMGET`/`ARGETRANGE`/`ARLEN`/`ARCOUNT`/`ARDEL`/`ARDELRANGE`/`ARINSERT`/`ARRING`/`ARSEEK`/`ARINFO`/`AROP`/`ARGREP`/`ARLASTITEMS` 均未注册。官方标明语法可能变 |
+| 8.8 | Array `ARINSERT`/`ARRING`/`ARSEEK`/`ARINFO`/`AROP`/`ARGREP`/`ARLASTITEMS` | 基础九命令已接通（见上表）；这些扩展命令在子集稳定后再开 |
 | 8.8 | `JSON.SET` `FPHA` | 同质浮点数组的存储提示。当前 JSON 没有这层编码 |
 | 8.8 | Hash 字段级键空间通知 | **R5-18 延期**：官方文档站拿不到 8.8 字段级事件名的权威清单，按「不猜语法」原则等命令页可得再实现 |
 | 8.8 | `slowlog-entry-max-argc`、`slowlog-entry-max-string-len` | 慢日志截断（第七字段已接通，见上表） |
@@ -347,10 +348,4 @@ UNWATCH、WAIT（简版）、BITOP、BITFIELD、SMOVE、LPOS、XCLAIM、SHUTDOWN
 
 ---
 
-**最后更新：** 2026-10-12（R5 第一、二波 + 第三波首批落地。第一波：错误帧 CR/LF、`SUNIONCARD`/`SDIFFCARD`、`LMOVEM`/`BLMOVEM`、`XREAD`/`XREADGROUP` `MAXCOUNT`/`MAXSIZE`、`SLOWLOG GET` 第七字段、`AGGREGATE COUNT`、`SET` `IF*`、`DELEX`/`DIGEST`（XXH3）、`MSETEX`、`script_runner` 标志、`FT.ALIASLIST`、LRM 淘汰。第二波：`XREADGROUP CLAIM`、`XNACK`、`XADD IDMP`/`XCFGSET`、`INCREX`、时序 NaN/countNaN/countAll/多聚合器/`EXCLUDEEMPTY`/`TS.NRANGE`/`TS.QUERYLABELS`、`RETURN_STRICT` 后处理截止。第三波首批：`HOTKEYS`（Godis 采样口径）、`HIMPORT`（fieldset→普通 Hash）。剩：`TS.READ`、R5-18 字段级通知（事件名未证实）、Array `AR*`、JSONPath 分批。测试内存治理：database 测试峰值 8.9GB→约 0.7GB。原远期 7 项不变。）
-
-
-
-
-
-
+**最后更新：** 2026-10-12（R5 三波全部推进。第一波：错误帧 CR/LF、`SUNIONCARD`/`SDIFFCARD`、`LMOVEM`/`BLMOVEM`、`XREAD`/`XREADGROUP` `MAXCOUNT`/`MAXSIZE`、`SLOWLOG GET` 第七字段、`AGGREGATE COUNT`、`SET` `IF*`、`DELEX`/`DIGEST`（XXH3）、`MSETEX`、`script_runner` 标志、`FT.ALIASLIST`、LRM 淘汰。第二波：`XREADGROUP CLAIM`、`XNACK`、`XADD IDMP`/`XCFGSET`、`INCREX`、时序 NaN/countNaN/countAll/多聚合器/`EXCLUDEEMPTY`/`TS.NRANGE`/`TS.QUERYLABELS`、`RETURN_STRICT`。第三波：`HOTKEYS`（Godis 采样口径）、`HIMPORT`（fieldset→普通 Hash）、Array preview 九命令 + `TYPE array` + Godis opaque。剩：`TS.READ`、R5-18 字段级通知（事件名未证实）、JSONPath 分批（R5-20）、Array 扩展命令。测试内存治理：database 测试峰值 8.9GB→约 0.7GB。原远期 7 项不变。）

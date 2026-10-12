@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/linkerlin/godis/aof"
+	"github.com/linkerlin/godis/datastruct/array"
 	"github.com/linkerlin/godis/datastruct/dict"
 	godisjson "github.com/linkerlin/godis/datastruct/json"
 	"github.com/linkerlin/godis/datastruct/list"
@@ -88,6 +89,8 @@ func getType(db *DB, key string) string {
 		return "zset"
 	case *stream.Stream:
 		return "stream"
+	case *array.Array:
+		return "array"
 	case *vector.VectorSet:
 		return "vectorset"
 	case *godisjson.JSONValue:
