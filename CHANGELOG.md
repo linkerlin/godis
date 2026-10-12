@@ -6,6 +6,9 @@
 
 ### Added
 
+- **R5 第三波首批（Redis 8.6/8.10 命令面）**，行为对齐命令页，测试 `database/r5_wave3_test.go`：
+  - `HOTKEYS START METRICS n [CPU] [NET] [COUNT k] [DURATION s] [SAMPLE r] | STOP | GET | RESET`（8.6）：热键跟踪。指标为 Godis 采样计账——CPU=命令微秒按键分摊、NET=参数字节数（非 Redis 按槽概率结构，`total-cpu-time-user-ms` 无 user/sys 拆分，已在兼容文档写明）；`SLOTS` 非集群报错；`DURATION` 惰性到期
+  - `HIMPORT PREPARE name field… | SET key name value… | DISCARD name | DISCARDALL`（8.10）：连接级会话 fieldset，批量写入普通 Hash（走 HSET 路径：锁/AOF/索引/通知一致）；`RESET` 清空会话；无断连钩子，每连接上限 128 个 fieldset；compact hash 编码不做
 - **R5 第二波（Redis 8.4–8.10 命令面）**，行为对齐命令页，测试 `database/r5_wave2_test.go`：
   - `XREADGROUP GROUP g c [COUNT n] [MAXCOUNT n] [MAXSIZE n] [BLOCK ms] [CLAIM min-idle-ms] [NOACK] STREAMS …`（8.4）：`>` 读取前认领空闲 PEL——XNACK 释放条目优先、其余按空闲时长降序；认领条目用 `[id, fields, idle-ms, deliveries]` 扩展回复；COUNT/MAXCOUNT/MAXSIZE 覆盖认领+新条目，被预算丢弃的条目不改 PEL；`NOACK` 不作用于认领条目
   - `XNACK key group <SILENT|FAIL|FATAL> IDS numids id… [RETRYCOUNT n] [FORCE]`（8.8）：释放为无主（delivery time 0，任何 min-idle 立即可认领）；`XPENDING` 明细对释放条目 idle=-1

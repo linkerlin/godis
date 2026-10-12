@@ -152,10 +152,10 @@
 
 #### 第三波：新类型，范围写死
 
-- [ ] **R5-19 Array 预览子集**：`ARSET`/`ARMSET`/`ARGET`/`ARMGET`/`ARGETRANGE`/`ARLEN`/`ARCOUNT`/`ARDEL`/`ARDELRANGE`，`TYPE` 返回 `array`，持久化走 Godis opaque。`ARINSERT`/`ARRING`/`AROP`/`ARGREP`/`ARINFO` 等在子集稳定后再开。官方仍标 preview。
+- [ ] **R5-19 Array 预览子集**：`ARSET`/`ARMSET`/`ARGET`/`ARMGET`/`ARGETRANGE`/`ARLEN`/`ARCOUNT`/`ARDEL`/`ARDELRANGE`，`TYPE` 返回 `array`，持久化走 Godis opaque。`ARINSERT`/`ARRING`/`AROP`/`ARGREP`/`ARINFO` 等在子集稳定后再开。官方仍标 preview。（ARSET 语法已核实：稀疏槽位、返回新填充槽数；其余 8 条命令页待批量抓取后实现）
 - [ ] **R5-20 JSONPath 分批**：比较与 `!`，然后 `in`/`nin`，然后数值与字符串函数。`JSON.SET FPHA` 在没有同质浮点数组编码之前返回明确错误。
-- [ ] **R5-21 `HOTKEYS`**。采样计数，并在兼容文档写明算法，不声称与 Redis 内部结构相同。
-- [ ] **R5-22 `HIMPORT` 会话 fieldset 写入普通 Hash**。开工前按 8.10 命令页列全子命令。紧凑模板编码不做。
+- [x] **R5-21 `HOTKEYS`**。采样计数，并在兼容文档写明算法，不声称与 Redis 内部结构相同。（`START METRICS n [CPU][NET] [COUNT k][DURATION s][SAMPLE r]`/`STOP`/`GET`/`RESET`；指标口径=命令耗时按键分摊 + 参数字节数，与 Redis 的按槽概率结构不同；`SLOTS` 在非集群明确报错；`DURATION` 到期惰性停止；`total-cpu-time-user-ms` 亦为 Godis 计账、无 user/sys 拆分）
+- [x] **R5-22 `HIMPORT` 会话 fieldset 写入普通 Hash**。开工前按 8.10 命令页列全子命令。紧凑模板编码不做。（子命令=`PREPARE`/`SET`/`DISCARD`/`DISCARDALL`，按命令页实现；fieldset 按连接隔离、`RESET` 清空；无断连钩子故每连接上限 128 个 fieldset；`SET` 走 HSET 路径写普通 Hash，compact hash 不做）
 
 ### 本里程碑明确非目标（勿当缺口重开）
 

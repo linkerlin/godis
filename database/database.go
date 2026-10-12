@@ -156,6 +156,9 @@ func (db *DB) Exec(c redis.Connection, cmdLine [][]byte) redis.Reply {
 	if cmdName == "client" {
 		return execClientConn(c, db, cmdLine[1:])
 	}
+	if cmdName == "himport" {
+		return execHImportConn(c, db, cmdLine[1:])
+	}
 	if cmdName == "acl" {
 		return execACLConn(c, db, cmdLine[1:])
 	}
@@ -239,6 +242,9 @@ func (db *DB) execNormalCommand(c redis.Connection, cmdLine [][]byte) redis.Repl
 	usec := uint64(time.Since(start).Microseconds())
 	failed := protocol.IsErrorReply(result)
 	RecordCommand(cmdName, usec, failed)
+	if !failed {
+		recordHotkeys(cmdLine, write, read, usec)
+	}
 	applyCacheHooks(c, cmdName, write, read, failed)
 	if !failed && (cmd.flags&flagReadOnly) == 0 && db.server != nil {
 		db.server.incrDirty()

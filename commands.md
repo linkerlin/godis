@@ -37,6 +37,7 @@
 | SLOWLOG GET | 慢查询日志 |
 | SLOWLOG LEN | 慢查询条数 |
 | SLOWLOG RESET | 清空慢查询 |
+| HOTKEYS | 热键跟踪（START/STOP/GET/RESET；Godis 采样口径，8.6） |
 | MEMORY USAGE/STATS/DOCTOR/HELP/PURGE/MALLOC-STATS | 内存诊断（Go MemStats / 进程 RSS；非 jemalloc） |
 
 ---
@@ -147,6 +148,7 @@
 | HMGET | 获取多个字段 |
 | HGETALL | 获取所有字段和值 |
 | HDEL | 删除字段 |
+| HIMPORT | 会话 fieldset 批量导入普通 Hash（PREPARE/SET/DISCARD/DISCARDALL，8.10） |
 | HLEN | 获取字段数量 |
 | HEXISTS | 检查字段是否存在 |
 | HKEYS | 获取所有字段名 |

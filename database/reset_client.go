@@ -25,6 +25,8 @@ func execReset(c redis.Connection, db *DB) redis.Reply {
 	c.SetClientName("")
 	c.SetTrackingID("")
 	c.SetProtocolVersion(2)
+	// HIMPORT session fieldsets are connection-scoped (Redis 8.10).
+	ClearHImportSession(c.GetClientID())
 	// Deauthenticate: reset to the default user (Redis resetCommand).
 	c.SetACLUser("")
 	c.SetPassword("")
