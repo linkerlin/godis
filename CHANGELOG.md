@@ -6,6 +6,12 @@
 
 ### Added
 
+- **`TS.READ`（Redis 8.10，R5-16 收尾）**，测试 `database/r5_tsread_test.go`：
+  - `TS.READ key timestamp [BLOCK ms min_count] [MAX_COUNT n]`：游标读（`>=` 含端点，旧→新）
+  - 游标哨兵 `-`（最早样本）/`+`（最新样本，含端点）/`$`（最新+1，只读新增）——命令开始时一次解析，阻塞期间游标稳定（与 XREAD `$` 同法）
+  - `BLOCK`：专用等待注册表——TS.ADD/TS.MADD/TS.INCRBY/TS.DECRBY 追加即唤醒；键删除（removeKey 通用钩子）立即回空数组；超时**部分刷新**（返回已有样本，可为空数组，不是错误）；`BLOCK 0` 无限等；`min_count ≤ MAX_COUNT` 校验
+  - 阻塞循环不持有命令级读锁（noPrepare，避免与写方死锁）；CLIENT UNBLOCK ERROR 模式回 UNBLOCKED 错误、超时模式回空数组
+  - MULTI/LUA 内 BLOCK 不特判（与既有阻塞命令同口径，已在兼容文档注明）
 - **R5-20 JSONPath 批次 3 主体（Redis 8.10）**，测试 `database/r5_jsonpath_test.go`：
   - 过滤内函数（方法形 `@.recv.fn(arg)` 与词形后缀均可）：`length()`（串按 rune/数组/对象）、`abs()`/`ceiling()`/`floor()`、`first`/`last`（数组首尾）、`min()`/`max()`/`avg()`/`sum()`/`stddev()`（数值数组聚合，stddev 为样本口径）、`keys()`（对象键排序数组）、`match()`（全串锚定正则）/`search()`（部分匹配）、`concat()`（词形带参 `@.id concat ":"`）
   - 顶层投影 `fn($)` / `fn($.path)`：单函数单绝对路径（`min($)`/`sum($)`/`length($)`/`count`/`value` 等）；未知函数或 Nothing 结果回 `ERR Path syntax error`

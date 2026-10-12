@@ -368,6 +368,7 @@ func (db *DB) removeKey(key string, notifyDel bool) {
 	db.ttlMap.Remove(key)
 	taskKey := genExpireTask(key)
 	timewheel.Cancel(taskKey)
+	signalTSWaiters(key) // TS.READ blocked clients reply empty on key removal
 	if db.evictionManager != nil {
 		db.evictionManager.Forget(key)
 	}

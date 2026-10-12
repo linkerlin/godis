@@ -217,6 +217,7 @@ func execTSAdd(db *DB, args [][]byte) redis.Reply {
 	}
 
 	db.addAof(prependCmd("ts.add", args))
+	signalTSWaiters(key) // wake blocked TS.READ clients
 	return protocol.MakeIntReply(tsTimestamp)
 }
 
@@ -264,6 +265,7 @@ func execTSMAdd(db *DB, args [][]byte) redis.Reply {
 			return protocol.MakeErrReply(fmt.Sprintf("ERR %v", err))
 		}
 		results = append(results, []byte(strconv.FormatInt(tsTimestamp, 10)))
+		signalTSWaiters(key) // wake blocked TS.READ clients
 	}
 	db.addAof(prependCmd("ts.madd", args))
 	return protocol.MakeMultiBulkReply(results)
@@ -652,6 +654,7 @@ func execTSIncrDecr(db *DB, args [][]byte, isIncr bool) redis.Reply {
 		aofCmd = "ts.incrby"
 	}
 	db.addAof(prependCmd(aofCmd, args))
+	signalTSWaiters(key) // wake blocked TS.READ clients
 	return protocol.MakeIntReply(tsTimestamp)
 }
 

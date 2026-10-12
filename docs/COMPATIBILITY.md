@@ -305,6 +305,7 @@ UNWATCH、WAIT（简版）、BITOP、BITFIELD、SMOVE、LPOS、XCLAIM、SHUTDOWN
 | 时序一条命令多个聚合器 | 8.8 | **R5-16 已接通**（`TS.RANGE`/`TS.REVRANGE`/`TS.MRANGE`/`TS.MREVRANGE`/`TS.NRANGE` 支持逗号分隔聚合器列表，行=时间戳+每聚合器一值） |
 | `TS.NRANGE`、`TS.NREVRANGE` | 8.10 | **R5-16 已接通**（裸 pivot NaN 填充 + 每键聚合器 + COUNT；`LATEST`/`FILTER_BY_TS`/`FILTER_BY_VALUE`/`ALIGN`/`BUCKETTIMESTAMP`/`EMPTY` 明确报不支持） |
 | `TS.QUERYLABELS` | 8.10 | **R5-16 已接通**（`LABELS`/`VALUES label` + FILTER；RESP2 数组 / RESP3 set） |
+| `TS.READ` | 8.10 | **已接通（R5-16 收尾）**：游标 `-`/`+`/`$` 命令开始时一次解析；`BLOCK ms min_count`（TS.ADD/TS.MADD/TS.INCRBY/TS.DECRBY 追加唤醒、键删除立即回空数组、超时部分刷新——都不是错误）；`MAX_COUNT` 分页；MULTI/LUA 内 BLOCK 不特判（与既有阻塞命令同口径） |
 | `TS.MRANGE` / `TS.MREVRANGE` `EXCLUDEEMPTY` | 8.10 | **R5-16 已接通** |
 | `HOTKEYS` | 8.6 | **R5-21 已接通**（`START`/`STOP`/`GET`/`RESET`）。指标口径为 Godis 采样计数：CPU=命令微秒按键分摊、NET=参数字节数，**非** Redis 的按槽概率结构与 user/sys 拆分；`SLOTS` 非集群报错；`DURATION` 惰性到期 |
 | `HIMPORT` | 8.10 | **R5-22 已接通**（`PREPARE`/`SET`/`DISCARD`/`DISCARDALL`，fieldset 按连接隔离、`RESET` 清空、每连接上限 128）。写入普通 Hash——compact hash 模板编码明确不做（见 0.4） |
@@ -332,7 +333,6 @@ UNWATCH、WAIT（简版）、BITOP、BITFIELD、SMOVE、LPOS、XCLAIM、SHUTDOWN
 | 8.8 | `JSON.SET` `FPHA` | 同质浮点数组的存储提示。当前 JSON 没有这层编码 |
 | 8.8 | Hash 字段级键空间通知 | **R5-18 延期**：官方文档站拿不到 8.8 字段级事件名的权威清单，按「不猜语法」原则等命令页可得再实现 |
 | 8.8 | `slowlog-entry-max-argc`、`slowlog-entry-max-string-len` | 慢日志截断（第七字段已接通，见上表） |
-| 8.10 | `TS.READ`（含 `BLOCK`） | **R5-16 剩余**：需要 TS 写路径唤醒的阻塞等待注册表 |
 | 8.10 | JSONPath 扩展 | **R5-20 批次 1+2/3a+3 主体已接通**：`[?(…)]` 过滤（任意字面量比较含 JSON 数组/对象深度相等、`!`、`&&`/`||`、括号、`@` 相对路径、过滤后投影）；`in`/`nin`；算术 `+ - * / %` 与一元 `-`；`size`/`sizeof`/`empty`；过滤内函数 `length()`/`abs()`/`ceiling()`/`floor()`/`first`/`last`/`min()`/`max()`/`avg()`/`sum()`/`stddev()`/`keys()`/`match()`（全串锚定）/`search()`/`concat()`（方法形与词形后缀）；顶层投影 `fn($)`；`JSON.SET FPHA` 明确拒绝。**仍缺**：`index()`/`append()`、`~`、`subsetof`/`anyof`/`noneof`、嵌套函数与 `[*]` 通配顶层投影、nodelist 多值语义 |
 | 8.10 | compact hash 模板 | `HIMPORT` fieldset 导入已接通（见上表）；按 schema 共享字段名的内部编码与 `hash_templates` 指标本阶段不做（见 0.4） |
 | 8.10 | `BACKUP` | `START`/`SEAL`/`ABORT`/`LIST`/`STATUS`/`CLEANUP`，基于 multi-part AOF。本阶段不做，也不用 `BGSAVE` 冒充 |
@@ -348,4 +348,4 @@ UNWATCH、WAIT（简版）、BITOP、BITFIELD、SMOVE、LPOS、XCLAIM、SHUTDOWN
 
 ---
 
-**最后更新：** 2026-10-12（R5 三波全部推进。第一波：错误帧 CR/LF、`SUNIONCARD`/`SDIFFCARD`、`LMOVEM`/`BLMOVEM`、`XREAD`/`XREADGROUP` `MAXCOUNT`/`MAXSIZE`、`SLOWLOG GET` 第七字段、`AGGREGATE COUNT`、`SET IF*`、`DELEX`/`DIGEST`（XXH3）、`MSETEX`、`script_runner` 标志、`FT.ALIASLIST`、LRM 淘汰。第二波：`XREADGROUP CLAIM`、`XNACK`、`XADD IDMP`/`XCFGSET`、`INCREX`、时序 NaN/countNaN/countAll/多聚合器/`EXCLUDEEMPTY`/`TS.NRANGE`/`TS.QUERYLABELS`、`RETURN_STRICT`。第三波：`HOTKEYS`（Godis 采样口径）、`HIMPORT`（fieldset→普通 Hash）、Array preview 九命令 + `TYPE array` + Godis opaque、JSONPath 批次 1+2/3a+3 主体（过滤/投影、`in`/`nin`、算术、`size`/`empty`、过滤内函数族、顶层 `fn($)`、`FPHA` 拒绝）。剩：JSONPath nodelist/嵌套/`index`/`append`/`subsetof` 族、`TS.READ`、R5-18 字段级通知（事件名未证实）、Array 扩展命令。测试内存治理：database 测试峰值 8.9GB→约 0.7GB。原远期 7 项不变。）
+**最后更新：** 2026-10-12（R5 三波全部推进、`TS.READ` 收尾。第一波：错误帧 CR/LF、`SUNIONCARD`/`SDIFFCARD`、`LMOVEM`/`BLMOVEM`、`XREAD`/`XREADGROUP` `MAXCOUNT`/`MAXSIZE`、`SLOWLOG GET` 第七字段、`AGGREGATE COUNT`、`SET IF*`、`DELEX`/`DIGEST`（XXH3）、`MSETEX`、`script_runner` 标志、`FT.ALIASLIST`、LRM 淘汰。第二波：`XREADGROUP CLAIM`、`XNACK`、`XADD IDMP`/`XCFGSET`、`INCREX`、时序 NaN/countNaN/countAll/多聚合器/`EXCLUDEEMPTY`/`TS.NRANGE`/`TS.QUERYLABELS`/`TS.READ`（含 BLOCK）、`RETURN_STRICT`。第三波：`HOTKEYS`（Godis 采样口径）、`HIMPORT`（fieldset→普通 Hash）、Array preview 九命令 + `TYPE array` + Godis opaque、JSONPath 批次 1+2/3a+3 主体（过滤/投影、`in`/`nin`、算术、`size`/`empty`、过滤内函数族、顶层 `fn($)`、`FPHA` 拒绝）。剩：JSONPath nodelist/嵌套/`index`/`append`/`subsetof` 族、R5-18 字段级通知（事件名未证实）、Array 扩展命令。测试内存治理：database 测试峰值 8.9GB→约 0.7GB。原远期 7 项不变。）

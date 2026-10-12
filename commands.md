@@ -391,6 +391,7 @@
 | TS.INFO | 序列信息 |
 | TS.QUERYINDEX | 索引查询 |
 | TS.QUERYLABELS | 标签名/标签值枚举（8.10） |
+| TS.READ | 游标批量读（`-`/`+`/`$` 哨兵、BLOCK/MAX_COUNT，8.10） |
 
 ---
 
