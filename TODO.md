@@ -117,7 +117,7 @@
 ### R4 — 测试与文档
 
 - [ ] **R4-1 Redis 8.x 响应比对套件**：CI 中用 Redis 8 sidecar 做参考，diff 关键命令输出。（**远期非目标**；allowlist 已到 **12,623** 条，`scripts/r4-1-cases.txt`。runner 已修 `@CMD` 前缀、引号感知分词、`R41_CONTINUE=1` 收集模式；真实 Redis 8.10 全量 **12,623 断言 0 失败**。R5 收口后补 Array 扩展 8 命令与 JSONPath `[*]`/`..`/nodelist 共 37 条新样例；`ARINFO`（map 字段序）、subkey 通知（需 Pub/Sub）、GEOHASH 末位精度、CLAIM idle 抖动等以 `@skip` 诚实标注。**仍非** FT/模块/DUMP/集群全量）
-- [ ] **R4-2 覆盖率提升**：`aof`、`pubsub`、`redis/protocol`、`redis/connection`、新数据类型包达到可接受覆盖。（**远期非目标**；**观察式门槛**见 coverall.yml 注释：Coveralls 趋势、无私有 % fail gate。当前直接单测：`datastruct/array` **87.4%**（Set/Get/Del/Range/Insert/Ring/State/RestoreState）、`datastruct/json` **43.5%**（通配/递归/投影/nodelist/过滤器）、`aof` **42.4%**（Save/Close 幂等、Listener 回调、AOF 回放、FsyncAlways）；`pubsub` 93.1%、`redis/protocol` 82.3%、`redis/connection` 85.1%；仍待提升：`datastruct/stream` 44.7%、`datastruct/timeseries` 19.3%）
+- [ ] **R4-2 覆盖率提升**：`aof`、`pubsub`、`redis/protocol`、`redis/connection`、新数据类型包达到可接受覆盖。（**远期非目标**；**观察式门槛**见 coverall.yml 注释：Coveralls 趋势、无私有 % fail gate。当前直接单测：`datastruct/array` **87.4%**（Set/Get/Del/Range/Insert/Ring/State/RestoreState）、`datastruct/json` **43.5%**（通配/递归/投影/nodelist/过滤器）、`aof` **42.4%**（Save/Close 幂等、Listener 回调、AOF 回放、FsyncAlways）、`datastruct/timeseries` **57.5%**（Add/Get/GetLast/Del/Trim/Info/标签/保留期/降采样/聚合器解析）；`pubsub` 93.1%、`redis/protocol` 82.3%、`redis/connection` 85.1%；仍待提升：`datastruct/stream` 44.7%）
 - [x] **R4-3 文档同步 + 里程碑关闭**：`CHANGELOG` / `docs/COMPATIBILITY.md` / `TODO.md` / `兼容性改进计划.md` 勾选口径清空至仅剩远期篇；标明明确非目标列表。2026-10-12 再次同步：基线改为 Redis 8.10，R5 重开。
 
 ### R5 — Redis 8.4–8.10 命令面（2026-10-12 重开）
