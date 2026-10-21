@@ -141,7 +141,7 @@ func (e *Engine) parseLibrary(name, code string) (*Library, error) {
 	// }
 
 	// Simple regex-based parsing for function registrations
-	registerPattern := regexp.MustCompile(`(?s)redis\.register_function\s*\(\s*['"]([^'"]+)['"]\s*,\s*(function\s*\([^)]*\)[^}]+)\s*\)`)
+	registerPattern := regexp.MustCompile(`(?s)redis\.register_function\s*\(\s*['"]([^'"]+)['"]\s*,\s*(function\s*\([^)]*\).*?\bend)\s*\)`)
 	matches := registerPattern.FindAllStringSubmatch(code, -1)
 
 	for _, match := range matches {
@@ -161,7 +161,7 @@ func (e *Engine) parseLibrary(name, code string) (*Library, error) {
 	}
 
 	// Parse table-style registrations with flags
-	tablePattern := regexp.MustCompile(`(?s)redis\.register_function\s*\{\s*name\s*=\s*['"]([^'"]+)['"]\s*,\s*callback\s*=\s*(function\s*\([^)]*\)[^}]+)\s*(?:,\s*flags\s*=\s*\{([^}]*)\})?\s*\}`)
+	tablePattern := regexp.MustCompile(`(?s)redis\.register_function\s*\{\s*name\s*=\s*['"]([^'"]+)['"]\s*,\s*callback\s*=\s*(function\s*\([^)]*\).*?\bend)\s*(?:,\s*flags\s*=\s*\{([^}]*)\})?\s*\}`)
 	tableMatches := tablePattern.FindAllStringSubmatch(code, -1)
 
 	for _, match := range tableMatches {
@@ -461,12 +461,12 @@ func extractDescription(code string) string {
 		if inComment {
 			if strings.HasSuffix(trimmed, "]]") {
 				trimmed = strings.TrimSuffix(trimmed, "]]")
-				desc = append(desc, trimmed)
+				desc = append(desc, strings.TrimSpace(trimmed))
 				break
 			}
-			desc = append(desc, trimmed)
+			desc = append(desc, strings.TrimSpace(trimmed))
 		}
 	}
 
-	return strings.Join(desc, " ")
+	return strings.TrimSpace(strings.Join(desc, " "))
 }

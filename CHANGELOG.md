@@ -114,6 +114,7 @@
 
 ### Fixed
 
+- **functions 包测试与注册解析（2026-10-21）**：新增 `functions/engine_test.go`，覆盖库加载/替换/删除/清空、函数查询、Stats、Call/SetDBExec、KillRunningFunction 空状态、shebang/描述/SHA/执行脚本辅助函数；包覆盖率 **0% → 93.6%**。同时修正命名式 `redis.register_function(name, function...)` 的贪婪正则（多个函数不再被合并成一个匹配），并收紧表式 `flags` 解析与首行描述空白。
 - **replication masterChan 竞态（2026-10-21）**：`loadMasterRDB` 在 `slaveStatus.mutex` 内快照 `masterChan`，并处理 channel 已关闭/空 payload；`parsePsyncHandshake` 同样防 nil payload。修复 `TestFailoverPromotesReplica` 中 `stopSlaveWithMutex` 写 `masterChan` 与加载 RDB 读取的 DATA RACE。
 - **Connection Write/Close 竞态（2026-10-21）**：`sendingData` 的 `sync.WaitGroup` 会在 `Close` 等待时与 masterCron 的 `Write` 同时 `Add`，触发 `TestSlaveCloseAfterReplicationDoesNotHang` 的 DATA RACE。改为 `writeMu` + 在途写计数 + 空闲 channel：`Close` 先关闭写入入口，再等待在途写（10s 超时），`Write` 对已关闭连接返回 `net.ErrClosed`；连接池复用重置写状态。
 - **failover/AOF 测试收尾（2026-10-21）**：`startTestReplicaPair` 的 TCP 监听关闭函数等待 accept 循环与在途 handler 退出后才恢复全局配置，消除 `TestFailoverPromotesReplica` 的 DATA RACE；`bindPersister` 的 `addAof` 增加 nil persister 防御；`TestM2tConfigBoolAndSet` 使用临时 AOF 并在清理时关闭 persister，避免改写仓库内 `database/appendonly.aof`。
