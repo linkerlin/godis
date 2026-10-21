@@ -1,6 +1,9 @@
 package list
 
-import "container/list"
+import (
+	"container/list"
+	"sync"
+)
 
 // pageSize must be even
 const pageSize = 1024
@@ -8,6 +11,7 @@ const pageSize = 1024
 // QuickList is a linked list of page (which type is []interface{})
 // QuickList has better performance than LinkedList of Add, Range and memory usage
 type QuickList struct {
+	mu   sync.Mutex
 	data *list.List // list of []interface{}
 	size int
 }
@@ -28,6 +32,13 @@ func NewQuickList() *QuickList {
 
 // Add adds value to the tail
 func (ql *QuickList) Add(val interface{}) {
+	ql.mu.Lock()
+	defer ql.mu.Unlock()
+	ql.add(val)
+}
+
+// add is Add without locking; caller must hold ql.mu.
+func (ql *QuickList) add(val interface{}) {
 	ql.size++
 	if ql.data.Len() == 0 { // empty list
 		page := make([]interface{}, 0, pageSize)
@@ -161,6 +172,8 @@ func (iter *iterator) atBegin() bool {
 
 // Get returns value at the given index
 func (ql *QuickList) Get(index int) (val interface{}) {
+	ql.mu.Lock()
+	defer ql.mu.Unlock()
 	iter := ql.find(index)
 	return iter.get()
 }
@@ -172,13 +185,17 @@ func (iter *iterator) set(val interface{}) {
 
 // Set updates value at the given index, the index should between [0, list.size]
 func (ql *QuickList) Set(index int, val interface{}) {
+	ql.mu.Lock()
+	defer ql.mu.Unlock()
 	iter := ql.find(index)
 	iter.set(val)
 }
 
 func (ql *QuickList) Insert(index int, val interface{}) {
+	ql.mu.Lock()
+	defer ql.mu.Unlock()
 	if index == ql.size { // insert at
-		ql.Add(val)
+		ql.add(val)
 		return
 	}
 	iter := ql.find(index)
@@ -251,18 +268,24 @@ func (iter *iterator) remove() interface{} {
 
 // Remove removes value at the given index
 func (ql *QuickList) Remove(index int) interface{} {
+	ql.mu.Lock()
+	defer ql.mu.Unlock()
 	iter := ql.find(index)
 	return iter.remove()
 }
 
 // Len returns the number of elements in list
 func (ql *QuickList) Len() int {
+	ql.mu.Lock()
+	defer ql.mu.Unlock()
 	return ql.size
 }
 
 // RemoveLast removes the last element and returns its value
 func (ql *QuickList) RemoveLast() interface{} {
-	if ql.Len() == 0 {
+	ql.mu.Lock()
+	defer ql.mu.Unlock()
+	if ql.size == 0 {
 		return nil
 	}
 	ql.size--
@@ -280,6 +303,11 @@ func (ql *QuickList) RemoveLast() interface{} {
 
 // RemoveAllByVal removes all elements with the given val
 func (ql *QuickList) RemoveAllByVal(expected Expected) int {
+	ql.mu.Lock()
+	defer ql.mu.Unlock()
+	if ql.size == 0 {
+		return 0
+	}
 	iter := ql.find(0)
 	removed := 0
 	for !iter.atEnd() {
@@ -296,6 +324,8 @@ func (ql *QuickList) RemoveAllByVal(expected Expected) int {
 // RemoveByVal removes at most `count` values of the specified value in this list
 // scan from left to right
 func (ql *QuickList) RemoveByVal(expected Expected, count int) int {
+	ql.mu.Lock()
+	defer ql.mu.Unlock()
 	if ql.size == 0 {
 		return 0
 	}
@@ -316,6 +346,8 @@ func (ql *QuickList) RemoveByVal(expected Expected, count int) int {
 }
 
 func (ql *QuickList) ReverseRemoveByVal(expected Expected, count int) int {
+	ql.mu.Lock()
+	defer ql.mu.Unlock()
 	if ql.size == 0 {
 		return 0
 	}
@@ -340,7 +372,9 @@ func (ql *QuickList) ForEach(consumer Consumer) {
 	if ql == nil {
 		panic("list is nil")
 	}
-	if ql.Len() == 0 {
+	ql.mu.Lock()
+	defer ql.mu.Unlock()
+	if ql.size == 0 {
 		return
 	}
 	iter := ql.find(0)
@@ -358,23 +392,30 @@ func (ql *QuickList) ForEach(consumer Consumer) {
 }
 
 func (ql *QuickList) Contains(expected Expected) bool {
-	contains := false
-	ql.ForEach(func(i int, actual interface{}) bool {
-		if expected(actual) {
-			contains = true
+	ql.mu.Lock()
+	defer ql.mu.Unlock()
+	if ql.size == 0 {
+		return false
+	}
+	iter := ql.find(0)
+	for {
+		if expected(iter.get()) {
+			return true
+		}
+		if !iter.next() {
 			return false
 		}
-		return true
-	})
-	return contains
+	}
 }
 
 // Range returns elements which index within [start, stop)
 func (ql *QuickList) Range(start int, stop int) []interface{} {
-	if start < 0 || start >= ql.Len() {
+	ql.mu.Lock()
+	defer ql.mu.Unlock()
+	if start < 0 || start >= ql.size {
 		panic("`start` out of range")
 	}
-	if stop < start || stop > ql.Len() {
+	if stop < start || stop > ql.size {
 		panic("`stop` out of range")
 	}
 	sliceSize := stop - start

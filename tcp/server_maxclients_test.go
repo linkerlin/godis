@@ -3,6 +3,7 @@ package tcp
 import (
 	"bufio"
 	"net"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -14,8 +15,8 @@ func TestListenAndServeRejectsAtMaxClients(t *testing.T) {
 	config.Properties = &config.ServerProperties{MaxClients: 1}
 	defer func() {
 		config.Properties = old
-		ClientCounter = 0
-		RejectedConnections = 0
+		atomic.StoreInt32(&ClientCounter, 0)
+		atomic.StoreUint64(&RejectedConnections, 0)
 	}()
 
 	closeChan := make(chan struct{})
@@ -24,7 +25,15 @@ func TestListenAndServeRejectsAtMaxClients(t *testing.T) {
 		t.Fatal(err)
 	}
 	addr := listener.Addr().String()
-	go ListenAndServe(listener, MakeEchoHandler(), closeChan)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		ListenAndServe(listener, MakeEchoHandler(), closeChan)
+	}()
+	defer func() {
+		_ = listener.Close()
+		<-done
+	}()
 
 	conn1, err := net.Dial("tcp", addr)
 	if err != nil {

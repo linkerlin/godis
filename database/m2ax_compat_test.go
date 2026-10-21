@@ -46,7 +46,11 @@ func TestM2axObjectEncodingInt(t *testing.T) {
 func TestM2axProtoMaxBulkLen(t *testing.T) {
 	old := config.Properties.ProtoMaxBulkLen
 	config.Properties.ProtoMaxBulkLen = 16
-	defer func() { config.Properties.ProtoMaxBulkLen = old }()
+	config.SetProtoMaxBulkLen(16)
+	defer func() {
+		config.Properties.ProtoMaxBulkLen = old
+		config.SetProtoMaxBulkLen(old)
+	}()
 
 	// Bulk longer than 16 should fail parse
 	payload := "$20\r\n01234567890123456789\r\n"

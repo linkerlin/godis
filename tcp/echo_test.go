@@ -5,6 +5,7 @@ import (
 	"math/rand"
 	"net"
 	"strconv"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -61,7 +62,15 @@ func TestClientCounter(t *testing.T) {
 		return
 	}
 	addr := listener.Addr().String()
-	go ListenAndServe(listener, MakeEchoHandler(), closeChan)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		ListenAndServe(listener, MakeEchoHandler(), closeChan)
+	}()
+	defer func() {
+		_ = listener.Close()
+		<-done
+	}()
 
 	sleepUntil := time.Now().Add(3 * time.Second)
 	subtime := func() time.Duration {
@@ -82,7 +91,7 @@ func TestClientCounter(t *testing.T) {
 	}
 
 	time.Sleep(3 * time.Second)
-	if ClientCounter != 0 {
-		t.Errorf("client counter error: %d", ClientCounter)
+	if atomic.LoadInt32(&ClientCounter) != 0 {
+		t.Errorf("client counter error: %d", atomic.LoadInt32(&ClientCounter))
 	}
 }

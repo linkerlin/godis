@@ -25,6 +25,7 @@ func TestACLFileSaveLoadOnRestart(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewTestServer: %v", err)
 	}
+	defer server.Close()
 
 	c := connection.NewFakeConn()
 	ret := server.Exec(c, utils.ToCmdLine("ACL", "SETUSER", "app", "on", "nopass", "-@all", "+get", "~app:*"))
@@ -33,10 +34,11 @@ func TestACLFileSaveLoadOnRestart(t *testing.T) {
 	ret = server.Exec(c, utils.ToCmdLine("ACL", "SAVE"))
 	asserts.AssertStatusReply(t, ret, "OK")
 
-	_, err = NewTestServer()
+	server2, err := NewTestServer()
 	if err != nil {
 		t.Fatalf("restart server: %v", err)
 	}
+	defer server2.Close()
 
 	user, ok := aclEngine.GetUser("app")
 	if !ok {

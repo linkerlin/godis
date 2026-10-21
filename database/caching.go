@@ -222,18 +222,17 @@ func InvalidateKeyFrom(key string, writerID string) {
 	}
 	clientCache.mu.RUnlock()
 
-	// Send invalidation to all clients
+	// Send invalidation to all clients. Keep RLock while enqueueing: enqueue is
+	// non-blocking, and DisableTracking closes the queue under the write lock.
 	for _, clientID := range clientIDs {
 		clientCache.mu.RLock()
 		queue, ok := clientCache.invalidationQueues[clientID]
 		mode := clientCache.trackingMode[clientID]
 		noloop := clientCache.noLoop[clientID]
-		clientCache.mu.RUnlock()
-
 		if writerID != "" && noloop && clientID == writerID {
+			clientCache.mu.RUnlock()
 			continue
 		}
-
 		if ok {
 			select {
 			case queue <- []string{key}:
@@ -241,6 +240,7 @@ func InvalidateKeyFrom(key string, writerID string) {
 				// Queue full, skip
 			}
 		}
+		clientCache.mu.RUnlock()
 
 		// For BCAST mode, don't remove tracking
 		if mode != "bcast" {

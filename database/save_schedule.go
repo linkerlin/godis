@@ -62,7 +62,7 @@ func (server *Server) DirtyChanges() int64 {
 
 // checkSavePoints triggers BGSAVE when any save point is satisfied (PE-4).
 func (server *Server) checkSavePoints() {
-	server.checkSavePointsWith(config.Properties.Save)
+	server.checkSavePointsWith(config.GetSaveConfig())
 }
 
 // checkSavePointsWith evaluates save rules from cfg (e.g. "3600 1 300 100").

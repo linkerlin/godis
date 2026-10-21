@@ -1384,11 +1384,13 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'proto-max-bulk-len') - argument must be between 1048576 and 9223372036854775807 inclusive")
 			}
 			config.Properties.ProtoMaxBulkLen = n
+			config.SetProtoMaxBulkLen(n)
 		case "save":
 			if !validSaveParams(value) {
 				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'save') - Invalid save parameters")
 			}
 			config.Properties.Save = value
+			config.SetSaveConfig(value)
 		case "tcp-backlog":
 			n, err := strconv.Atoi(value)
 			if err != nil || n < 0 {

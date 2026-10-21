@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/cockroachdb/errors"
@@ -293,6 +294,35 @@ func (p *ServerProperties) RaftAnnounceAddress() string {
 var Properties *ServerProperties
 var EachTimeServerInfo *ServerInfo
 
+// saveConfig mirrors Properties.Save for the background save scheduler.
+// CONFIG SET save is hot-reloadable while the cron goroutine reads it, so the
+// value is stored atomically instead of racing on the Properties struct.
+var saveConfig atomic.Value
+var protoMaxBulkLen atomic.Int64
+
+// SetProtoMaxBulkLen publishes proto-max-bulk-len atomically for the parser.
+func SetProtoMaxBulkLen(n int64) {
+	protoMaxBulkLen.Store(n)
+}
+
+// GetProtoMaxBulkLen returns the last published proto-max-bulk-len (0 = default).
+func GetProtoMaxBulkLen() int64 {
+	return protoMaxBulkLen.Load()
+}
+
+// SetSaveConfig publishes the current "save <sec> <changes>" rule atomically.
+func SetSaveConfig(s string) {
+	saveConfig.Store(s)
+}
+
+// GetSaveConfig returns the last published save rule.
+func GetSaveConfig() string {
+	if v, ok := saveConfig.Load().(string); ok {
+		return v
+	}
+	return ""
+}
+
 func init() {
 	// A few stats we don't want to reset: server startup time, and peak mem.
 	EachTimeServerInfo = &ServerInfo{
@@ -404,6 +434,8 @@ func init() {
 		LuaTimeLimit:                    5000,
 		RunID:                           utils.RandString(40),
 	}
+	SetSaveConfig(Properties.Save)
+	SetProtoMaxBulkLen(Properties.ProtoMaxBulkLen)
 }
 
 func parse(src io.Reader) (*ServerProperties, error) {
@@ -495,6 +527,8 @@ func SetupConfig(configFilename string) error {
 
 	Properties = config
 	Properties.RunID = utils.RandString(40)
+	SetSaveConfig(config.Save)
+	SetProtoMaxBulkLen(config.ProtoMaxBulkLen)
 	configFilePath, err = filepath.Abs(configFilename)
 	if err != nil {
 		return errors.Wrap(err, "get config file absolute path failed")

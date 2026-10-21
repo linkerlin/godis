@@ -23,8 +23,8 @@ const (
 )
 
 func maxBulkStringLen() int64 {
-	if config.Properties != nil && config.Properties.ProtoMaxBulkLen > 0 {
-		return config.Properties.ProtoMaxBulkLen
+	if n := config.GetProtoMaxBulkLen(); n > 0 {
+		return n
 	}
 	return defaultMaxBulkStringLen
 }

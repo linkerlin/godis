@@ -193,12 +193,15 @@ func (l *Limiter) monitor() {
 
 // shouldEvict checks if memory eviction should be triggered
 func (l *Limiter) shouldEvict() bool {
-	if l.maxMemory <= 0 {
+	l.mu.RLock()
+	maxMemory := l.maxMemory
+	l.mu.RUnlock()
+	if maxMemory <= 0 {
 		return false
 	}
 
 	memUsed := l.getMemoryUsage()
-	return memUsed >= l.maxMemory
+	return memUsed >= maxMemory
 }
 
 // getMemoryUsage returns current memory usage
@@ -216,12 +219,16 @@ func (l *Limiter) getMemoryUsage() int64 {
 
 // EvictIfNeeded performs eviction if memory limit is exceeded
 func (l *Limiter) EvictIfNeeded() bool {
-	if l.maxMemory <= 0 || l.policy == NoEviction {
+	l.mu.RLock()
+	maxMemory := l.maxMemory
+	policy := l.policy
+	l.mu.RUnlock()
+	if maxMemory <= 0 || policy == NoEviction {
 		return false
 	}
 
 	// Try to free enough memory (10% of maxmemory)
-	target := l.maxMemory / 10
+	target := maxMemory / 10
 	freed := int64(0)
 
 	for freed < target && l.shouldEvict() {
@@ -234,8 +241,10 @@ func (l *Limiter) EvictIfNeeded() bool {
 			l.evictCallback(key)
 		}
 
+		l.mu.Lock()
 		l.stats.EvictedKeys++
 		l.stats.EvictedByPolicy[l.policy.String()]++
+		l.mu.Unlock()
 
 		// Estimate freed memory (simplified)
 		freed += 1024 // Assume 1KB per key
@@ -259,13 +268,17 @@ func (l *Limiter) selectKeyToEvict() (string, bool) {
 
 // CheckWriteAllowed checks if a write operation should be allowed
 func (l *Limiter) CheckWriteAllowed(writeSize int64) error {
-	if l.maxMemory <= 0 {
+	l.mu.RLock()
+	maxMemory := l.maxMemory
+	policy := l.policy
+	l.mu.RUnlock()
+	if maxMemory <= 0 {
 		return nil
 	}
 
-	if l.policy == NoEviction {
+	if policy == NoEviction {
 		memUsed := l.getMemoryUsage()
-		if memUsed+writeSize > l.maxMemory {
+		if memUsed+writeSize > maxMemory {
 			return ErrMemoryLimitExceeded
 		}
 	}

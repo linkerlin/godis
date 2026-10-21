@@ -37,6 +37,10 @@ type Connection struct {
 	mu    sync.Mutex
 	flags uint64
 
+	// stateMu guards small mutable connection state read by other goroutines
+	// (CLIENT LIST, replication ACK paths, ...).
+	stateMu sync.RWMutex
+
 	// closeMu makes Close idempotent and safe against concurrent callers
 	// (e.g. the connection handler and replication slave cleanup).
 	closeMu sync.Mutex
@@ -145,7 +149,9 @@ func (c *Connection) Close() error {
 	c.lastActive = time.Time{}
 	c.localAddr = ""
 	c.clientID = 0
+	c.stateMu.Lock()
 	c.lastCommand = ""
+	c.stateMu.Unlock()
 	connPool.Put(c)
 	return nil
 }
@@ -245,10 +251,14 @@ func (c *Connection) GetTrackingID() string {
 }
 
 func (c *Connection) SetLastCommand(cmd string) {
+	c.stateMu.Lock()
 	c.lastCommand = cmd
+	c.stateMu.Unlock()
 }
 
 func (c *Connection) GetLastCommand() string {
+	c.stateMu.RLock()
+	defer c.stateMu.RUnlock()
 	return c.lastCommand
 }
 

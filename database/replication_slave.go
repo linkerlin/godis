@@ -395,13 +395,20 @@ func (server *Server) loadMasterRDB(configVersion int32) error {
 }
 
 func (server *Server) receiveAOF(ctx context.Context, configVersion int32) error {
-	conn := connection.NewConn(server.slaveStatus.masterConn)
+	server.slaveStatus.mutex.Lock()
+	masterConn := server.slaveStatus.masterConn
+	masterChan := server.slaveStatus.masterChan
+	server.slaveStatus.mutex.Unlock()
+	if masterConn == nil || masterChan == nil {
+		return errors.New("master connection is not available")
+	}
+	conn := connection.NewConn(masterConn)
 	conn.SetMaster()
 	server.slaveStatus.running.Add(1)
 	defer server.slaveStatus.running.Done()
 	for {
 		select {
-		case payload, open := <-server.slaveStatus.masterChan:
+		case payload, open := <-masterChan:
 			if !open {
 				return errors.New("master channel unexpected close")
 			}

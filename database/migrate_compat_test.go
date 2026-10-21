@@ -35,12 +35,17 @@ func startMigrateTargetServer(t *testing.T) (addr string, cleanup func()) {
 		t.Fatalf("listen: %v", err)
 	}
 	closeChan := make(chan struct{})
+	done := make(chan struct{})
 	h := &migrateTestHandler{db: server}
-	go tcp.ListenAndServe(ln, h, closeChan)
+	go func() {
+		defer close(done)
+		tcp.ListenAndServe(ln, h, closeChan)
+	}()
 	addr = ln.Addr().String()
 	cleanup = func() {
 		close(closeChan)
 		_ = ln.Close()
+		<-done
 		server.Close()
 		config.Properties = old
 	}
