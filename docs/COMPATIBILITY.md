@@ -25,7 +25,7 @@
 
 **RediSearch Phase B（2026-07-29）：** FT.AGGREGATE `WITHCURSOR [COUNT n]` + `FT.CURSOR READ/DEL`（内存游标表，按 COUNT 分页，耗尽返回游标 0，空闲 1 分钟惰性回收）；FT.AGGREGATE `APPLY <expr> AS <name>` 最小表达式子集（`@field` 引用、数字字面量、`+ - * /` 标准优先级、括号、一元负号、非数值 `+` 退化为字符串拼接），按出现位置分为 GROUPBY 前（作用于逐文档字段，供后续 REDUCE 引用）与 GROUPBY 后（作用于结果行）；顺带修正：无 GROUPBY 且无 REDUCE 时按文档逐行返回（此前会错误地把所有文档折叠成一个空字段分组）。**FT.SEARCH WITHCURSOR** 已续研落地（复用 FT.CURSOR 表）。
 
-仍延期：精确 jemalloc 级 `used_memory`（现已贴近 `MemStats.Alloc` 峰值跟踪 + 进程 RSS→`used_memory_rss`，`allocator_*` 为 Go MemStats 镜像、仍非 jemalloc）、FUNCTION DUMP 官方互通、完整 BM25/完整 DIALECT/完整 KNN 方言等（见计划文档；**FT+KNN 最小路径**已接通；**Q8 图内 int8 距离**与 **BIN Hamming** 已落地；**GEOSHAPE 强制 DIALECT≥3**）。
+仍延期：精确 jemalloc 级 `used_memory`（现已贴近 `MemStats.Alloc` 峰值跟踪 + 进程 RSS→`used_memory_rss`，`allocator_*` 为 Go MemStats 镜像、仍非 jemalloc）、完整 BM25/完整 DIALECT/完整 KNN 方言等（见计划文档；**FT+KNN 最小路径**已接通；**Q8 图内 int8 距离**与 **BIN Hamming** 已落地；**GEOSHAPE 强制 DIALECT≥3**；**FUNCTION DUMP 官方互通已落地**）。
 
 **兼容续研批次（2026-07-29）：** WAITAOF 真等待（本地 AOF fsync + 副本 ACK 循环）；LATENCY 命令路径采样 + HISTOGRAM；`notify-keyspace-events` 最小 K/E/g/$/x/e/A 发射；MIGRATE（DUMP→RESTORE→DEL，COPY/REPLACE/AUTH/KEYS）；LFU 对数计数逼近 Redis；FT.SEARCH WITHCURSOR（复用 FT.CURSOR 表）。
 
@@ -65,7 +65,7 @@
 | Hash field TTL 持久化 | ✅ RDB/DUMP 经 Godis opaque（非 Redis 互通） |
 | CONFIG RESETSTAT | ✅ 清零 INFO/cmd/net/rejected 计数 |
 | CONFIG REWRITE | ✅ 写回配置文件（无配置文件时报错） |
-| FUNCTION DUMP | ✅ Godis `GODISFN1`（非 Redis 互通；官方 `0xF5`/`0xF6`/`REDIS####` 与异己二进制明确 ERR） |
+| FUNCTION DUMP | ✅ Redis RDB 风格官方格式（`0xF5` + RDB string + version/CRC64；支持 LZF 读取）；旧 `GODISFN1` RESTORE 兼容；与 Redis 8.10 双向实测通过 |
 | CLIENT TRACKING | ✅ RESP3 本地 Push；RESP2 需 REDIRECT；GETREDIR 正确；`CLIENT CACHING` 仅 OPTIN/OPTOUT（YES↔OPTIN、NO↔OPTOUT） |
 | RESTORE IDLETIME/FREQ | ✅ 写入 eviction 元数据 |
 | PING message | ✅ Bulk 回复（对齐 Redis） |
@@ -190,14 +190,13 @@ UNWATCH、WAIT（简版）、BITOP、BITFIELD、SMOVE、LPOS、XCLAIM、SHUTDOWN
 
 ## 兼容里程碑关闭（2026-08-10）
 
-> **关闭口径：** 可独立完成的正确性/兼容小项与 **ERR/CONFIG/HELP 可关闭战役（至第五十五批）** 已扫尽。该关闭覆盖的是 **8.4 之前**可以单独收口的行为与文案。**它不覆盖 Redis 8.4–8.10 新增命令**（见「Redis 8.10 增量」）。**不宣称 100% Redis 兼容**。下列 7 项仍是书面远期非目标。
+> **关闭口径：** 可独立完成的正确性/兼容小项与 **ERR/CONFIG/HELP 可关闭战役（至第五十五批）** 已扫尽。该关闭覆盖的是 **8.4 之前**可以单独收口的行为与文案。**它不覆盖 Redis 8.4–8.10 新增命令**（见「Redis 8.10 增量」）。**不宣称 100% Redis 兼容**。下列 6 项仍是书面远期非目标。
 
 | 远期非目标 | 现状（诚实） | 本轮小步（非宣称完成） |
 |------------|--------------|------------------------|
 | jemalloc / 真 OS RSS | `used_memory`≈`MemStats.Alloc` 峰值 + per-key dataset；`mem_allocator:go`；`allocator_*`=`HeapAlloc`/`HeapSys`/`Sys`（**非** jemalloc arenas）；`MEMORY STATS` `allocator=go` + `process.rss` | RSS 优先真进程；**绝不**写 jemalloc；详见下节「内存核算 / jemalloc 边界」 |
 | 完整 Redis gossip bus | MEET→Raft/FSM join；**REPLICATE/FORGET 接 FSM**（非 gossip）；BUMPEPOCH=`BUMPED 0`；无 CLUSTERMSG 二进制 bus | **`cluster_bus_port:0`**；ping/pong + **meet_sent（MEET 发起）/meet_received（`cluster.join` 本地 apply）** 映射内部 RPC（非宣称已有 gossip bus）；RESET/SAVECONFIG/CLUSTER FAILOVER/真 epoch/`fail` 传播仍延期 |
 | 官方模块原生 RDB·DUMP 互通 | Stream/JSON/Vector/TS/概率结构/FT 走 Godis opaque `GODIS1`；见「官方模块 RDB/DUMP 边界」 | RESTORE / LoadRDB **明确 ERR**（模块 type 标记 / ModuleTypeObject；兼拒绝矩阵）；**不**与 Redis 模块 RDB 互通；远期仍开放 |
-| FUNCTION DUMP 官方互通 | Godis `GODISFN1` 自洽（含多库 FLUSH/REPLACE/APPEND 往返测）；**显式拒绝**官方 `0xF5`/`0xF6`/`REDIS####`；截断/异己二进制明确 ERR；兼旧文本 | 见「官方 FUNCTION DUMP 边界」；**禁止假互通** |
 | 完整 BM25 / 完整 KNN 方言 / 完整 DIALECT | BM25STD：WEIGHT + 文档长度 + **可测 IDF** + **多字段加权求和**；NORM min-max；**TANH + BM25STD_TANH_FACTOR**（缺参/`must be between 1 and 10000`；整数 >10000 仍接受）；**FT.CONFIG**（`SEARCH_PARSE_ARGS`/`SEARCH_VALUE_BAD`/`SEARCH_OPTION_INVALID`/`EXCESSARGS`；**ON_TIMEOUT RETURN-STRICT**；HELP 空体）；**FT._LIST** 字典序；**FT.ALIASADD** `SEARCH_INDEX_EXISTS`/`SEARCH_ALIAS_CONFLICT`；KNN：`AS`/`$YIELD_DISTANCE_AS`、**HYBRID_POLICY**（子句与 **`$HYBRID_POLICY` 属性块**）、**BATCH_SIZE**（接受/缺值 ERR）、**EPSILON**（距离阈值）、**`$EF_RUNTIME`** 属性块、空预过滤；**VECTOR_RANGE**（DIALECT≥2；**`$radius` PARAM**；**`$YIELD_DISTANCE_AS`**；**`$EPSILON` 仅 HNSW/SVS**（FLAT→Invalid option）；拒 **`$EF_RUNTIME`/hybrid 属性/未知键**；`($r)` Redis 拒→不实现）；**查询属性 `$weight`**（乘分子集）+ `$slop`/`$inorder`；拒非法/未知/`$phonetic:true`；**FORMAT**（STRING；拒 JSON；EXPAND→DIALECT≥3+RESP3+ON JSON）；**FT.AGGREGATE 多字段 SORTBY** + **SORTBY … MAX**；**LOAD … AS** / **`@__key`** ；**无 LOAD 仅 SORTABLE**（对齐 Redis 空行）；**FT.CREATE FILTER**；**WITHCURSOR MAXIDLE** + **COUNT** `Bad arguments for COUNT:…`；**SCORER** 校验（缺参/`No such scorer`；大小写敏感）；**FT.TAGVALS**（`No such field`/`Not a tag field`）；**LANGUAGE**（缺参/`No such language`；大小写不敏感）；**RETURN/INKEYS/LOAD/PARAMS** `SEARCH_PARSE_ARGS` 文案 + 负值边界；**HIGHLIGHT** 缺参；**GEOFILTER** `SEARCH_PARSE_ARGS` `<lon/lat/radius>`/`Unknown distance unit`/`requires 5` + **`SEARCH_SYNTAX Invalid GeoFilter lat/lon`**；**FILTER** `Bad lower/upper range`/`requires 3`；**SLOP** convert（负值接受）；**EXPANDER** 缺参/任意名；**AGGREGATE APPLY**（缺参/`AS needs argument`；无 AS→别名=表达式）+ **GROUPBY** nargs 文案 + AGGREGATE **FILTER** 缺参；**SEARCH_ARG_UNRECOGNIZED** 未知选项位次；裸 **WITHCOUNT**；裸 **REDUCE→UNRECOGNIZED**；CREATE **STOPWORDS/TEMPORARY** PARSE_ARGS（**TEMPORARY 0** 立即无索引）；CREATE **PREFIX/ON/LANGUAGE/SCORE/INDEXALL/FILTER**/无 SCHEMA 文案；**SCORE**∈[0,1]|NaN；**LANGUAGE_FIELD/SCORE_FIELD/PAYLOAD_FIELD** 缺参；SCHEMA **Fields arguments are missing** / **Field type** / **WEIGHT**/SEPARATOR/PHONETIC/VECTOR algo·count 文案；**FT.ALTER** `ALTER must be followed by SCHEMA` / `Unknown action` / `SEARCH_QUERY_BAD Duplicate field` / **SKIPINITIALSCAN**；**DROPINDEX** 未知参 `SEARCH_ARG_UNRECOGNIZED Unknown argument`；**FT.SYNADD** `No longer supported, use FT.SYNUPDATE`；SYNUPDATE/SYNDUMP 缺索引 `INDEX_NOT_FOUND`；**TIMEOUT** `SEARCH_PARSE_ARGS` 前缀；**CURSOR READ COUNT** `Bad value for COUNT`/负值排空；**TIMEOUT** 非法/缺参文案 + **soft 中途取消保留部分结果** / **ON_TIMEOUT RETURN|FAIL**（CONFIG）；DIALECT 1/2/3 子集（GEOSHAPE≥3；**tag 空格/多字段 `@f1\|f2` 强制 ≥2**）；AGGREGATE APPLY：UTC 时间族、`parsetime`/`geodistance`、**`matched_terms([max])` 多值**、**`split` 字符集 sep/strip**、**`format` PARSE_ARGS**、**`to_str`/`to_number`**；**FT.AGGREGATE ADDSCORES**（`@__score`；BM25STD 自洽）；**FT.SEARCH WITHOUTCOUNT**；**EXPLAINSCORE**（需 WITHSCORES；BM25/TFIDF/DOCSCORE/DISMAX 子集；b 与 Redis 默认不同）+ **SORTBY WITHCOUNT** 接受 | **非**论文级完整 BM25（无 slop 罚分进打分、无全局 NORM over collection、无 stemmer 变体进 `matched_terms`）；`$weight` 非 Redis 字节级项贡献；EXPAND 非完整 JSON 树；非完整 KNN/DIALECT 4；VECTOR_RANGE 无 HNSW 近似扫描语义；DIALECT 4 排序优化仍未完整；ADDSCORES/EXPLAINSCORE 非字节级对齐 RediSearch；见 REDISEARCH_ALIGNMENT |
 
 | ~~Vector 图内真 int8 距离~~ | **VADD Q8/BIN 真存储**；**BIN→图内 Hamming**；**Q8→图内 int8 距离**（无搜索态 f32 缓冲）；FT VECTOR 窄类型解码已有 | ✅ 2026-08-11 deep6；VEMB 仍可显示反量化近似 |
@@ -234,12 +233,12 @@ UNWATCH、WAIT（简版）、BITOP、BITFIELD、SMOVE、LPOS、XCLAIM、SHUTDOWN
 | FT.SEARCH WITHOUTCOUNT | 领先整数=本页返回文档数（LIMIT 截断时可验） | 非完整 DIALECT 4 其它语义 |
 | FT.SEARCH EXPLAINSCORE | BM25STD/TFIDF/DOCSCORE/DISMAX 嵌套 simple-string 线格式（自洽 b=0.09）；RESP3 `score` 嵌套树 | 非 RediSearch 字节级；HAMMING 仅简叶 |
 
-### Godis opaque / FUNCTION 信封边界（非 Redis 互通）
+### Godis opaque / legacy FUNCTION 信封边界
 
 | Magic | 用途 | 互通 |
 |-------|------|------|
 | `GODIS1\0` + JSON `{t,d}` | DUMP/RDB/AOF 扩展类型（stream/json/vector/ts/hexpire/bloom/cuckoo/cms/topk/tdigest/**ft**） | 仅 Godis↔Godis |
-| `GODISFN1` + 长度前缀库列表 | FUNCTION DUMP/RESTORE | 仅 Godis↔Godis（兼旧文本 RESTORE；截断 GODISFN1 / 异己二进制→ERR） |
+| `GODISFN1` + 长度前缀库列表 | **旧版** FUNCTION DUMP（RESTORE 仍兼容） | 仅 Godis↔Godis legacy；新 DUMP 已改用官方 RDB 格式 |
 
 ### 官方模块 RDB/DUMP 边界
 
@@ -253,18 +252,21 @@ UNWATCH、WAIT（简版）、BITOP、BITFIELD、SMOVE、LPOS、XCLAIM、SHUTDOWN
 
 负向测：`database/dump_test.go`（`TestRestoreRejectsOfficialModuleTypeMarkers` / `TestRestoreRejectsSyntheticModuleDUMP`）、`database/module_rdb_boundary_test.go`（`TestLoadRDBRejectsOfficialModuleType`）。合成字节夹具，不依赖下载 Redis。
 
-### 官方 FUNCTION DUMP 边界
+### FUNCTION DUMP 官方互通
 
-> **禁止假互通。** Godis **不**解析、**不**接受官方 Redis `FUNCTION DUMP` 二进制；也不把 `GODISFN1` 伪装成 Redis wire。
+> **已实现（2026-10-21）。** `FUNCTION DUMP` 写出 Redis RDB 风格二进制：每个库 `0xF5`（`RDB_OPCODE_FUNCTION2`）+ RDB string 编码的完整库代码，尾部 2 字节 RDB 版本 + 8 字节 CRC64-Jones。`FUNCTION RESTORE` 同时接受官方格式、旧 `GODISFN1` 与旧文本库 dump。
 
 | 载荷形态 | Godis 行为 |
 |----------|------------|
-| Godis `GODISFN1` 信封 | DUMP 写出 / RESTORE 严格解析；截断、坏长度、尾随垃圾→明确 ERR |
-| 官方 Redis DUMP（首字节 `0xF5`=`RDB_OPCODE_FUNCTION2` 或 `0xF6`=`FUNCTION_PRE_GA`；或误投完整 `REDIS####` RDB 头） | **立即 ERR**（文案含 official / `0xF5`/`0xF6`）；**不**静默 OK；拒绝发生在 FLUSH **之前** |
-| 其它异己二进制（NUL / 非法 UTF-8 / 高比例控制字节） | ERR（要求 GODISFN1；标明非 Redis official） |
-| 旧版纯文本库 dump（`#!lua name=…`） | 仍接受（Godis 兼容路径，非 Redis 二进制） |
+| 官方 Redis FUNCTION DUMP | 校验 CRC/版本（接受 RDB 版本 1–16）；解析 raw/6-bit/14-bit/32-bit/64-bit string、整数编码与 **LZF**；校验通过后按 `FLUSH`/`APPEND`/`REPLACE` 加载 |
+| Godis 写出的 DUMP | 官方格式；版本 11（Redis 8.10 接受 ≤15）；未压缩 raw string，Redis 可直接 `FUNCTION RESTORE` |
+| `0xF6` PRE_GA | `ERR Pre-GA function format not supported`（与 Redis 一致） |
+| 坏 CRC / 截断 / 版本越界 | `ERR DUMP payload version or checksum are wrong`；拒绝先于 FLUSH |
+| 完整 `REDIS####` RDB / 异己二进制 | 明确 `ERR`；不静默 OK |
+| 旧 `GODISFN1` | RESTORE 仍接受（截断/尾随垃圾→ERR） |
+| 旧纯文本库 dump（`#!lua name=…`） | 仍接受（Godis 兼容路径） |
 
-远期「FUNCTION DUMP 官方互通」仍为**非目标**；本边界仅诚实拒绝，不宣称完成互通。
+实测双向互通（Redis 8.10.0）：Godis DUMP → Redis RESTORE → `FCALL` 通过；Redis DUMP（LZF 压缩）→ Godis RESTORE → `FCALL` 通过；空 dump 双向通过。单元测试：`database/function_dump_godisfn1_test.go`（含 Redis 8.10 LZF 夹具）。
 
 ### 内存核算 / jemalloc 边界
 
@@ -348,4 +350,4 @@ UNWATCH、WAIT（简版）、BITOP、BITFIELD、SMOVE、LPOS、XCLAIM、SHUTDOWN
 
 ---
 
-**最后更新：** 2026-10-21（R4-1 真实 Redis 8.10 全量 **12,623 断言 0 失败**；修复 sidecar runner 的 `@CMD`/引号分词/continue 模式、`ARLASTITEMS` 普通数组索引区间语义、JSONPath 顶层投影单元素数组与 `.0` 浮点格式、`ZPOPMAX`/`ZMPOP MAX` 降序、LCS tie-break、`+inf` score border、TS 错误码 `TSDB:`、HOTKEYS STOP 幂等、XREADGROUP CLAIM 回复 delivery count。R5-20 JSONPath 最后一块 `[*]`/`..` 通配/递归下降投影与 nodelist 多值语义已接通，R5-20 关闭；测试 `TestR5JPWildcardAndRecursive`。R5-18 Hash 字段级 subkey notifications 已按官方 8.8 文档接通：S/T/I/V 四通道、`<len>:<field>` 编码、HSET/HMSET/HSETNX/HDEL/HGETDEL/HGETEX/HINCRBY/HINCRBYFLOAT/HEXPIRE 族/HPERSIST/HSETEX 与主动/惰性过期；测试 `database/subkey_notify_test.go`。R5-19 Array preview 扩展 8 命令（`ARINSERT`/`ARNEXT`/`ARSEEK`/`ARINFO`/`ARLASTITEMS`/`AROP`/`ARGREP`/`ARRING`）已接通，共 17 命令，opaque 持久化含 cursor/插入序，测试 `database/r5_array_ext_test.go`。R5 三波其余项见下：第一波：错误帧 CR/LF、`SUNIONCARD`/`SDIFFCARD`、`LMOVEM`/`BLMOVEM`、`XREAD`/`XREADGROUP` `MAXCOUNT`/`MAXSIZE`、`SLOWLOG GET` 第七字段、`AGGREGATE COUNT`、`SET IF*`、`DELEX`/`DIGEST`（XXH3）、`MSETEX`、`script_runner` 标志、`FT.ALIASLIST`、LRM 淘汰。第二波：`XREADGROUP CLAIM`、`XNACK`、`XADD IDMP`/`XCFGSET`、`INCREX`、时序 NaN/countNaN/countAll/多聚合器/`EXCLUDEEMPTY`/`TS.NRANGE`/`TS.QUERYLABELS`/`TS.READ`（含 BLOCK）、`RETURN_STRICT`。第三波：`HOTKEYS`（Godis 采样口径）、`HIMPORT`（fieldset→普通 Hash）、Array preview 17 命令 + `TYPE array` + Godis opaque、JSONPath 批次 1+2/3a+3+通配/递归/nodelist 全量（含 `~`、嵌套函数、`FPHA` 拒绝）。测试内存治理：database 测试峰值 8.9GB→约 0.7GB。原远期 7 项不变。）
+**最后更新：** 2026-10-21（R4-1 真实 Redis 8.10 全量 **12,623 断言 0 失败**；修复 sidecar runner 的 `@CMD`/引号分词/continue 模式、`ARLASTITEMS` 普通数组索引区间语义、JSONPath 顶层投影单元素数组与 `.0` 浮点格式、`ZPOPMAX`/`ZMPOP MAX` 降序、LCS tie-break、`+inf` score border、TS 错误码 `TSDB:`、HOTKEYS STOP 幂等、XREADGROUP CLAIM 回复 delivery count。R5-20 JSONPath 最后一块 `[*]`/`..` 通配/递归下降投影与 nodelist 多值语义已接通，R5-20 关闭；测试 `TestR5JPWildcardAndRecursive`。R5-18 Hash 字段级 subkey notifications 已按官方 8.8 文档接通：S/T/I/V 四通道、`<len>:<field>` 编码、HSET/HMSET/HSETNX/HDEL/HGETDEL/HGETEX/HINCRBY/HINCRBYFLOAT/HEXPIRE 族/HPERSIST/HSETEX 与主动/惰性过期；测试 `database/subkey_notify_test.go`。R5-19 Array preview 扩展 8 命令（`ARINSERT`/`ARNEXT`/`ARSEEK`/`ARINFO`/`ARLASTITEMS`/`AROP`/`ARGREP`/`ARRING`）已接通，共 17 命令，opaque 持久化含 cursor/插入序，测试 `database/r5_array_ext_test.go`。R5 三波其余项见下：第一波：错误帧 CR/LF、`SUNIONCARD`/`SDIFFCARD`、`LMOVEM`/`BLMOVEM`、`XREAD`/`XREADGROUP` `MAXCOUNT`/`MAXSIZE`、`SLOWLOG GET` 第七字段、`AGGREGATE COUNT`、`SET IF*`、`DELEX`/`DIGEST`（XXH3）、`MSETEX`、`script_runner` 标志、`FT.ALIASLIST`、LRM 淘汰。第二波：`XREADGROUP CLAIM`、`XNACK`、`XADD IDMP`/`XCFGSET`、`INCREX`、时序 NaN/countNaN/countAll/多聚合器/`EXCLUDEEMPTY`/`TS.NRANGE`/`TS.QUERYLABELS`/`TS.READ`（含 BLOCK）、`RETURN_STRICT`。第三波：`HOTKEYS`（Godis 采样口径）、`HIMPORT`（fieldset→普通 Hash）、Array preview 17 命令 + `TYPE array` + Godis opaque、JSONPath 批次 1+2/3a+3+通配/递归/nodelist 全量（含 `~`、嵌套函数、`FPHA` 拒绝）。测试内存治理：database 测试峰值 8.9GB→约 0.7GB。FUNCTION DUMP 官方互通已完成（Redis RDB 风格 `0xF5` + RDB string + version/CRC64；RESTORE 支持 LZF 与旧 `GODISFN1`；Redis 8.10 双向实测）；原远期 6 项不变。）

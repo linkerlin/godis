@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"sort"
 	"strings"
 	"sync/atomic"
 	"unicode/utf8"
@@ -337,28 +338,26 @@ func execFunctionStats(db *DB, args [][]byte) redis.Reply {
 	return m
 }
 
-// Godis FUNCTION DUMP envelope (godis-internal; not Redis wire-compatible).
+// GODISFN1 is the legacy Godis-internal FUNCTION DUMP envelope. New dumps use
+// the Redis wire format (see function_dump_rdb.go); RESTORE still accepts this
+// envelope for backward compatibility.
 // Format: magic "GODISFN1" || u32be count || repeated (u32be nameLen||name||u32be engLen||eng||u32be codeLen||code)
-// Official Redis FUNCTION DUMP/RESTORE binary interchange is a non-goal; keep GODISFN1 only.
-// RESTORE also accepts the legacy plain-text library dump for older Godis payloads.
+// RESTORE also accepts a legacy plain-text library dump.
 // Corrupt GODISFN1 (truncated / bad lengths) returns ERR — never silent fallthrough.
-// Official Redis dumps (RDB opcode 0xF5/0xF6, or REDIS#### RDB magic) and other
-// non-GODISFN1 binary blobs return a clear non-interop ERR — never forged accept.
 var functionDumpMagic = []byte("GODISFN1")
 
 // Redis rdb.h: RDB_OPCODE_FUNCTION2=245, RDB_OPCODE_FUNCTION_PRE_GA=246.
-// Official FUNCTION DUMP payloads start with one of these opcodes (then RDB-encoded
-// libraries + 2-byte RDB version + 8-byte CRC64). We detect the leading byte only.
+// Official FUNCTION DUMP payloads start with these opcodes followed by
+// RDB-encoded library code, then a 2-byte RDB version and an 8-byte CRC64.
 const (
 	rdbOpcodeFunction2     byte = 0xF5
 	rdbOpcodeFunctionPreGA byte = 0xF6
 )
 
-const errFunctionRestoreOfficialRedis = "ERR FUNCTION RESTORE rejects Redis official FUNCTION DUMP (RDB opcode 0xF5/0xF6 or REDIS####); Godis uses GODISFN1 only - no forged interop"
-const errFunctionRestoreForeignBinary = "ERR FUNCTION RESTORE expects Godis GODISFN1 dump (not Redis official FUNCTION DUMP binary)"
-const errFunctionRestoreCorruptGodis = "ERR FUNCTION RESTORE payload is truncated or corrupt (GODISFN1; Godis-internal format, not Redis official)"
+const errFunctionRestoreForeignBinary = "ERR FUNCTION RESTORE expects a Redis FUNCTION DUMP, GODISFN1, or legacy library text"
+const errFunctionRestoreCorruptGodis = "ERR FUNCTION RESTORE payload is truncated or corrupt (GODISFN1)"
 
-// execFunctionDump dumps all functions
+// execFunctionDump dumps all functions in the Redis wire format.
 // FUNCTION DUMP
 func execFunctionDump(db *DB, args [][]byte) redis.Reply {
 	if len(args) != 0 {
@@ -368,31 +367,19 @@ func execFunctionDump(db *DB, args [][]byte) redis.Reply {
 	scriptExecMu.Lock()
 	defer scriptExecMu.Unlock()
 
-	if funcEngine == nil {
-		return protocol.MakeBulkReply([]byte{})
-	}
-
-	names := funcEngine.ListLibraries()
-	var body []byte
-	body = append(body, functionDumpMagic...)
-	var countBuf [4]byte
-	binary.BigEndian.PutUint32(countBuf[:], uint32(len(names)))
-	body = append(body, countBuf[:]...)
-	for _, name := range names {
-		lib, _ := funcEngine.GetLibrary(name)
-		if lib == nil {
-			continue
+	libs := make([]functionLibraryDump, 0)
+	if funcEngine != nil {
+		names := funcEngine.ListLibraries()
+		sort.Strings(names)
+		for _, name := range names {
+			lib, _ := funcEngine.GetLibrary(name)
+			if lib == nil {
+				continue
+			}
+			libs = append(libs, functionLibraryDump{Name: lib.Name, Code: lib.Code})
 		}
-		eng := lib.Engine
-		if eng == "" {
-			eng = "LUA"
-		}
-		body = appendLengthPrefixed(body, []byte(lib.Name))
-		body = appendLengthPrefixed(body, []byte(eng))
-		body = appendLengthPrefixed(body, []byte(lib.Code))
 	}
-
-	return protocol.MakeBulkReply(body)
+	return protocol.MakeBulkReply(encodeFunctionDump(libs))
 }
 
 func appendLengthPrefixed(dst, val []byte) []byte {
@@ -455,11 +442,11 @@ func parseFunctionDumpBinaryStrict(payload []byte) (libs map[string]string, ok b
 	return libs, true
 }
 
-// looksLikeRedisOfficialFunctionDump detects Redis wire FUNCTION DUMP headers.
-// Official format (redis/src/functions.c createFunctionDumpPayload): payload begins
-// with RDB_OPCODE_FUNCTION2 (0xF5) or PRE_GA (0xF6); full RDB mistaken as dump
-// often starts with "REDIS" + 4-digit version. Detection is prefix-only — we do
-// not parse or accept the body.
+// looksLikeRedisOfficialFunctionDump detects Redis wire headers that are not
+// acceptable as a standalone function dump: full RDB ("REDIS####") or a
+// FUNCTION/PRE_GA opcode at the start. Official FUNCTION DUMP payloads are
+// parsed by decodeFunctionDump; this helper is only used for foreign-binary
+// rejection (e.g. a complete RDB file mistakenly passed to FUNCTION RESTORE).
 func looksLikeRedisOfficialFunctionDump(payload []byte) bool {
 	if len(payload) == 0 {
 		return false
@@ -482,7 +469,7 @@ func looksLikeRedisOfficialFunctionDump(payload []byte) bool {
 }
 
 // looksLikeNonGodisBinary rejects opaque binary that is neither GODISFN1 nor
-// legacy text library dump — including Redis official FUNCTION DUMP bytes.
+// legacy text library dump, and is not a supported official FUNCTION DUMP.
 func looksLikeNonGodisBinary(payload []byte) bool {
 	if len(payload) == 0 {
 		return false
@@ -540,23 +527,45 @@ func execFunctionRestore(db *DB, args [][]byte) redis.Reply {
 	}
 
 	// Classify payload before FLUSH so a rejected foreign dump cannot wipe libs.
-	var libs map[string]string
+	var libs []functionLibraryDump
 	switch {
 	case bytes.HasPrefix(payload, functionDumpMagic):
 		parsed, ok := parseFunctionDumpBinaryStrict(payload)
 		if !ok {
 			return protocol.MakeErrReply(errFunctionRestoreCorruptGodis)
 		}
+		libs = make([]functionLibraryDump, 0, len(parsed))
+		for name, code := range parsed {
+			libs = append(libs, functionLibraryDump{Name: name, Code: code})
+		}
+	case looksLikeFunctionDump(payload):
+		parsed, err := decodeFunctionDump(payload)
+		if err != nil {
+			return makeFunctionDumpError(err)
+		}
 		libs = parsed
-	case looksLikeRedisOfficialFunctionDump(payload):
-		return protocol.MakeErrReply(errFunctionRestoreOfficialRedis)
 	case looksLikeNonGodisBinary(payload):
 		return protocol.MakeErrReply(errFunctionRestoreForeignBinary)
 	default:
-		libs = parseLibraryDump(string(payload))
-		if len(libs) == 0 {
+		parsed := parseLibraryDump(string(payload))
+		if len(parsed) == 0 {
 			// Redis rejects non-dump garbage with the DUMP checksum ERR (not silent OK).
 			return protocol.MakeErrReply("ERR DUMP payload version or checksum are wrong")
+		}
+		libs = make([]functionLibraryDump, 0, len(parsed))
+		for name, code := range parsed {
+			libs = append(libs, functionLibraryDump{Name: name, Code: code})
+		}
+	}
+	sort.Slice(libs, func(i, j int) bool { return libs[i].Name < libs[j].Name })
+
+	// APPEND must be all-or-nothing on library-name collisions. Check before
+	// loading anything so a multi-library payload cannot partially apply.
+	if policy == "APPEND" {
+		for _, lib := range libs {
+			if _, exists := funcEngine.GetLibrary(lib.Name); exists {
+				return protocol.MakeErrReply(fmt.Sprintf("ERR library '%s' already exists", lib.Name))
+			}
 		}
 	}
 
@@ -564,9 +573,9 @@ func execFunctionRestore(db *DB, args [][]byte) redis.Reply {
 		funcEngine.FlushAll()
 	}
 
-	for name, code := range libs {
+	for _, lib := range libs {
 		replace := policy == "REPLACE" || policy == "FLUSH"
-		_, err := funcEngine.LoadLibrary(name, code, replace)
+		_, err := funcEngine.LoadLibrary(lib.Name, lib.Code, replace)
 		if err != nil {
 			// APPEND must fail on name collision (do not swallow); REPLACE/FLUSH replace=true.
 			return protocol.MakeErrReply(fmt.Sprintf("ERR %v", err))

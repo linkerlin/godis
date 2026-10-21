@@ -187,7 +187,8 @@ OK
    - **`SUNIONCARD ... APPROX`**：Redis 8.10 允许用近似计数加速并集基数统计；Godis 接受 `APPROX` 参数并直接返回精确值——毕竟精确值永远落在任何合法的近似误差界之内。
 
 3. **哪些地方我们宁可报错，也绝不假装互通？**
-   - **RDB 模块二进制与 `FUNCTION DUMP`**：五大基础类型与 HyperLogLog 的 RDB 可以跟 Redis 互通。但 JSON、Vector、TimeSeries、概率结构、Array 以及 RediSearch 索引定义，在持久化时走的是 Godis 自家的 `GODIS1` 信封；`FUNCTION DUMP` 走的是 `GODISFN1` 信封。如果你把官方 Redis 模块生成的二进制 `DUMP` 载荷或 `0xF5`/`0xF6` 函数载荷喂给 Godis 的 `RESTORE`，Godis 会在清空任何现有数据**之前**直接报错拒绝，绝不假装看懂然后静默丢掉你的数据。
+   - **RDB 模块二进制**：五大基础类型与 HyperLogLog 的 RDB 可以跟 Redis 互通。但 JSON、Vector、TimeSeries、概率结构、Array 以及 RediSearch 索引定义，在持久化时走的是 Godis 自家的 `GODIS1` 信封。如果你把官方 Redis 模块生成的二进制 `DUMP` 载荷喂给 Godis 的 `RESTORE`，Godis 会在清空任何现有数据**之前**直接报错拒绝，绝不假装看懂然后静默丢掉你的数据。
+   - **`FUNCTION DUMP` 已改为官方互通（不是拒绝项）**：Godis 写出 Redis RDB 风格 `0xF5` + RDB string + version/CRC64 载荷；`FUNCTION RESTORE` 支持官方格式（含 LZF 压缩），并兼容旧 `GODISFN1`。已用 Redis 8.10 做双向 DUMP→RESTORE→`FCALL` 验证。
 
 4. **哪些功能我们明确没做（或仅提供子集）？**
    - **事务（`MULTI`/`EXEC`）**：已对齐 Redis 标准行为——入队时语法错误会中止事务（`EXECABORT`），但运行期单条命令报错（比如对字符串做 `LPUSH`）不会回滚前面已经成功的命令，而是把错误放进结果数组继续往下跑。

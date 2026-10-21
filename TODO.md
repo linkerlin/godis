@@ -14,7 +14,7 @@
 | **P1** | 运维与可观测 | ✅ 已完成 |
 | **P2** | 稳定性与质量门禁 | ✅ 已完成 |
 | **P3** | 部署与发布 | ✅ 已完成 |
-| **Redis 8.0–8.2 兼容** | 协议/命令/文案可独立项 | ✅ 已关闭（非 100%；远期 7 项见下） |
+| **Redis 8.0–8.2 兼容** | 协议/命令/文案可独立项 | ✅ 已关闭（非 100%；远期 6 项见下） |
 | **R5 Redis 8.4–8.10** | 新命令面 | ✅ 已关闭（2026-10-21，R5-1～R5-22） |
 
 ---
@@ -22,7 +22,7 @@
 ## 已关闭：Redis 8.x 协议与命令兼容性深度落地
 
 > 来源：[`分析报告.md`](分析报告.md)（2026-06-29）。  
-> **关闭定义（2026-08-10）：** 8.4 之前可独立完成的正确性/兼容小项已扫清。进行中清单里的书面远期仍是下面 7 项。**该关闭不覆盖 Redis 8.4–8.10 新增命令**；那些项在 R5。**禁止宣称 100% Redis 兼容。** 边界见 [`docs/COMPATIBILITY.md`](docs/COMPATIBILITY.md)。
+> **关闭定义（2026-08-10）：** 8.4 之前可独立完成的正确性/兼容小项已扫清。进行中清单里的书面远期仍是下面 6 项。**该关闭不覆盖 Redis 8.4–8.10 新增命令**；那些项在 R5。**禁止宣称 100% Redis 兼容。** 边界见 [`docs/COMPATIBILITY.md`](docs/COMPATIBILITY.md)。
 
 ### R0 — 协议与命令分发基线（当前迭代）
 
@@ -159,17 +159,17 @@
 
 ### 本里程碑明确非目标（勿当缺口重开）
 
-> 8.4 之前的可独立项已归零。下面 7 项仍是书面远期（2026-08-11 之后未变）。R5 是另一份开放清单，不把这 7 项算进 R5，也不把 R5 的小步写成这 7 项已完成。
+> 8.4 之前的可独立项已归零。下面 6 项仍是书面远期。R5 是另一份开放清单，不把这 6 项算进 R5，也不把 R5 的小步写成这 6 项已完成。
 
 - jemalloc 级 `used_memory` / 完整 OS 级内存会计（**远期仍开**；已有诚实边界：进程 RSS→`used_memory_rss`；`mem_allocator:go`；`allocator_*=Go MemStats`；负向测禁止假 jemalloc；见 [`docs/COMPATIBILITY.md`](docs/COMPATIBILITY.md)「内存核算 / jemalloc 边界」）
 - 完整 Redis gossip bus；`RESET`/`SAVECONFIG`/`SET-CONFIG-EPOCH`/`CLUSTER FAILOVER`；BUMPEPOCH 真 config epoch（已有：`REPLICATE`/`FORGET`→FSM；ping/pong/meet 计数映射内部 heartbeat/MEET；`cluster_bus_port:0`；非宣称完整 gossip）
-- 官方模块原生 RDB·DUMP 互通（Godis opaque / `GODISFN1` 自洽即可；RESTORE/LoadRDB 对官方模块 type **明确 ERR**；含 FT 官方模块 RDB；**不**伪造互通）
+- 官方模块原生 RDB·DUMP 互通（Godis opaque `GODIS1` 自洽即可；RESTORE/LoadRDB 对官方模块 type **明确 ERR**；含 FT 官方模块 RDB；**不**伪造互通）
 - 完整 BM25 / 完整 KNN 方言 / 完整 DIALECT（已有：IDF/多字段 WEIGHT/NORM/TANH+FACTOR；KNN `$YIELD_DISTANCE_AS`/HYBRID_POLICY；DIALECT 1/2/3 子集；**非**论文级完整）
-- FUNCTION DUMP 官方二进制互通（远期/非目标）：`GODISFN1` 自洽；官方 `0xF5`/`0xF6`/`REDIS####` 与异己二进制**明确拒绝**（拒绝先于 FLUSH）；**禁止假互通**／不伪造 Redis payload；见 `docs/COMPATIBILITY.md`「官方 FUNCTION DUMP 边界」
 - R4-1 扩大 allowlist（用例表驱动；仍非 FT/模块/DUMP/集群全量）、R4-2 覆盖率专项
 - **R5 明确不做：** compact hash 模板及 `hash_templates` 指标；`BACKUP` / multi-part AOF；`CLUSTER MIGRATION`；TLS 证书登录；Malay/Tagalog 词干；C Modules API；用 SIMD 或 jemalloc 移植去追性能数字
 
 ~~HLL sparse 读取~~ ✅（sparse→dense 解码提升；写出仍 dense）  
+~~FUNCTION DUMP 官方互通~~ ✅（2026-10-21：官方 `0xF5` + RDB string + version/CRC64，读取支持 LZF；旧 `GODISFN1` RESTORE 兼容；Redis 8.10 双向实测）
 ~~RDB / RDB-preamble 写出 FT 索引定义~~ ✅（Godis opaque `ft` + Load 后回填；纯 AOF rewrite→FT.CREATE）
 ~~BIN 仅反量化 f32 搜索~~ ✅（deep5：图内 Hamming）  
 ~~Vector 图内真 int8 距离~~ ✅（deep6：Q8→图内 int8 码距离；BIN→Hamming）

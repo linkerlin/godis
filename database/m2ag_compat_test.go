@@ -99,8 +99,8 @@ func TestM2agFunctionDumpRestoreBinary(t *testing.T) {
 
 	dump := db.Exec(nil, utils.ToCmdLine("FUNCTION", "DUMP"))
 	bulk, ok := dump.(*protocol.BulkReply)
-	if !ok || len(bulk.Arg) < 8 || string(bulk.Arg[:8]) != "GODISFN1" {
-		t.Fatalf("DUMP magic missing: %v", dump.ToBytes())
+	if !ok || len(bulk.Arg) < 10 || bulk.Arg[0] != rdbOpcodeFunction2 {
+		t.Fatalf("DUMP want official RDB FUNCTION payload, got %v", dump.ToBytes())
 	}
 
 	flush := db.Exec(nil, utils.ToCmdLine("FUNCTION", "FLUSH"))

@@ -26,12 +26,12 @@ func startTestReplicaPair(t *testing.T) (*Server, *Server, func()) {
 	t.Helper()
 	old := config.Properties
 	config.Properties = &config.ServerProperties{
-		Databases:          1,
-		AppendOnly:         false,
-		Bind:               "127.0.0.1",
-		Port:               0,
-		ReplicaReadOnly:    true,
-		RDBFilename:        filepath.Join(t.TempDir(), "dump.rdb"),
+		Databases:       1,
+		AppendOnly:      false,
+		Bind:            "127.0.0.1",
+		Port:            0,
+		ReplicaReadOnly: true,
+		RDBFilename:     filepath.Join(t.TempDir(), "dump.rdb"),
 	}
 	master, err := NewTestServer()
 	if err != nil {
@@ -124,17 +124,24 @@ func startTCPListener(t *testing.T, server *Server) (addr string, closeFn func()
 	}
 	var mu sync.Mutex
 	conns := make(map[net.Conn]struct{})
+	var handlers sync.WaitGroup
+	acceptDone := make(chan struct{})
 	closeFn = sync.OnceFunc(func() {
 		_ = ln.Close()
+		<-acceptDone
 		mu.Lock()
 		for c := range conns {
 			_ = c.Close()
 		}
 		conns = nil
 		mu.Unlock()
+		// Server.Exec reads global config; wait for in-flight handlers before
+		// callers restore config.Properties.
+		handlers.Wait()
 	})
 	t.Cleanup(closeFn)
 	go func() {
+		defer close(acceptDone)
 		for {
 			conn, err := ln.Accept()
 			if err != nil {
@@ -148,7 +155,9 @@ func startTCPListener(t *testing.T, server *Server) (addr string, closeFn func()
 			}
 			conns[conn] = struct{}{}
 			mu.Unlock()
+			handlers.Add(1)
 			go func(c net.Conn) {
+				defer handlers.Done()
 				defer func() {
 					mu.Lock()
 					delete(conns, c)
@@ -321,10 +330,10 @@ func TestFailoverPromotesReplica(t *testing.T) {
 func TestFailoverRequiresReplicas(t *testing.T) {
 	old := config.Properties
 	config.Properties = &config.ServerProperties{
-		Databases:        1,
-		AppendOnly:       false,
-		ReplicaReadOnly:  true,
-		RDBFilename:      filepath.Join(t.TempDir(), "dump.rdb"),
+		Databases:       1,
+		AppendOnly:      false,
+		ReplicaReadOnly: true,
+		RDBFilename:     filepath.Join(t.TempDir(), "dump.rdb"),
 	}
 	defer func() { config.Properties = old }()
 	server, err := NewTestServer()

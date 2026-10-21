@@ -1,7 +1,6 @@
 package database
 
 import (
-	"strings"
 	"testing"
 
 	"github.com/linkerlin/godis/lib/utils"
@@ -9,7 +8,7 @@ import (
 	"github.com/linkerlin/godis/redis/protocol/asserts"
 )
 
-// Batch 60: GODISFN1 multi-library DUMP ↔ RESTORE self-consistency (not Redis wire).
+// Batch 60: official FUNCTION DUMP multi-library DUMP ↔ RESTORE.
 func TestGodisFN1MultiLibFlushRoundTrip(t *testing.T) {
 	db := makeTestDB()
 	InitFunctionsEngine(db)
@@ -26,8 +25,8 @@ func TestGodisFN1MultiLibFlushRoundTrip(t *testing.T) {
 
 	dump := db.Exec(nil, utils.ToCmdLine("FUNCTION", "DUMP"))
 	bulk, ok := dump.(*protocol.BulkReply)
-	if !ok || !strings.HasPrefix(string(bulk.Arg), "GODISFN1") {
-		t.Fatalf("DUMP want GODISFN1, got %T %s", dump, dump.ToBytes())
+	if !ok || len(bulk.Arg) < 10 || bulk.Arg[0] != rdbOpcodeFunction2 {
+		t.Fatalf("DUMP want official RDB FUNCTION payload, got %T %s", dump, dump.ToBytes())
 	}
 
 	_ = db.Exec(nil, utils.ToCmdLine("FUNCTION", "FLUSH"))

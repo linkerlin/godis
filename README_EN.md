@@ -187,7 +187,8 @@ Before you use or study Godis, here is the unvarnished ledger of what is real, w
    - **`SUNIONCARD ... APPROX`**: Godis accepts the `APPROX` keyword and returns the exact cardinality—which is always within 0% error of the true answer.
 
 3. **Where We Refuse to Fake Interoperability**
-   - **Module RDB Payloads & `FUNCTION DUMP`**: Core types and HyperLogLog (`HYLL`) interoperate with Redis. Extended types (JSON, Vector, TimeSeries, Probabilistic structures, Array, RediSearch index definitions) persist via Godis's own `GODIS1` envelope, and `FUNCTION DUMP` uses `GODISFN1`. If you feed an official Redis module RDB payload or `0xF5`/`0xF6` binary function dump into `RESTORE`, Godis explicitly rejects it with an `ERR` **before** touching existing state—never silently corrupting or dropping your data.
+   - **Module RDB Payloads**: Core types and HyperLogLog (`HYLL`) interoperate with Redis. Extended types (JSON, Vector, TimeSeries, Probabilistic structures, Array, RediSearch index definitions) persist via Godis's own `GODIS1` envelope. If you feed an official Redis module RDB payload into `RESTORE`, Godis explicitly rejects it with an `ERR` **before** touching existing state—never silently corrupting or dropping your data.
+   - **`FUNCTION DUMP` is now officially interoperable (not a rejection case)**: Godis emits the Redis RDB-style `0xF5` + RDB string + version/CRC64 payload; `FUNCTION RESTORE` accepts the official format (including LZF-compressed code) and still accepts legacy `GODISFN1`. Verified bidirectionally with Redis 8.10 via DUMP→RESTORE→`FCALL`.
 
 4. **What Is a Subset or Explicitly Out of Scope**
    - **Transactions (`MULTI`/`EXEC`)**: Aligned with standard Redis semantics—syntax errors during queueing abort the transaction (`EXECABORT`), while runtime errors on individual commands (like `LPUSH` on a string key) are returned as elements in the reply array without rolling back prior commands.

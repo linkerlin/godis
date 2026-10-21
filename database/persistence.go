@@ -185,7 +185,7 @@ func (server *Server) bindPersister(persister *aof.Persister) {
 			if atomic.LoadInt32(&singleDB.suppressAof) > 0 {
 				return
 			}
-			if config.Properties.AppendOnly { // config may be changed during runtime
+			if config.Properties.AppendOnly && server.persister != nil { // config may be changed during runtime
 				server.persister.SaveCmdLine(singleDB.index, line)
 			}
 		}

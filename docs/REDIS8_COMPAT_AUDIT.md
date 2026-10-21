@@ -104,4 +104,4 @@
 - [`../兼容性改进计划.md`](../兼容性改进计划.md)「〇、Redis 8.10 演进方案」
 - [`../TODO.md`](../TODO.md) R5
 
-原有 7 项远期（jemalloc、完整 gossip、官方模块 RDB、FUNCTION DUMP 官方互通、完整 BM25/KNN/DIALECT、R4-1 全量、R4-2）保持不变。R5 另加的明确不做项是 compact hash 模板、`BACKUP`、`CLUSTER MIGRATION`、TLS 证书登录、新词干语言和 C Modules API。
+原有 6 项远期（jemalloc、完整 gossip、官方模块 RDB、完整 BM25/KNN/DIALECT、R4-1 全量、R4-2）保持不变；`FUNCTION DUMP` 官方互通已于 2026-10-21 完成。R5 另加的明确不做项是 compact hash 模板、`BACKUP`、`CLUSTER MIGRATION`、TLS 证书登录、新词干语言和 C Modules API。

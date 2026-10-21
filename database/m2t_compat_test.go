@@ -1,6 +1,7 @@
 package database
 
 import (
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -16,9 +17,16 @@ func TestM2tConfigBoolAndSet(t *testing.T) {
 	c := connection.NewFakeConn()
 	oldMaxMemory := config.Properties.Maxmemory
 	oldMaxClients := config.Properties.MaxClients
+	oldAppendFilename := config.Properties.AppendFilename
+	config.Properties.AppendFilename = filepath.Join(t.TempDir(), "m2t-appendonly.aof")
 	t.Cleanup(func() {
 		config.Properties.Maxmemory = oldMaxMemory
 		config.Properties.MaxClients = oldMaxClients
+		config.Properties.AppendFilename = oldAppendFilename
+		if server.persister != nil {
+			server.persister.Close()
+			server.persister = nil
+		}
 		server.GetMemLimiter().SetMaxMemory(oldMaxMemory)
 	})
 

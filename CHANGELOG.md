@@ -8,6 +8,12 @@
 
 ### Added
 
+- **FUNCTION DUMP / RESTORE 官方互通（2026-10-21）**：
+  - `FUNCTION DUMP` 改为 Redis RDB 风格二进制：每个库 `0xF5`（`RDB_OPCODE_FUNCTION2`）+ RDB string 编码的完整库代码，尾部 2 字节 RDB 版本 + 8 字节 CRC64-Jones；库名排序保证确定性
+  - `FUNCTION RESTORE` 解析官方载荷：CRC/版本校验（接受版本 1–16）、raw/6-bit/14-bit/32-bit/64-bit string、整数编码与 LZF 解压；`0xF6` PRE_GA、坏 CRC、截断、完整 RDB/异己二进制均在 FLUSH 前明确 ERR
+  - 保留旧 `GODISFN1` 与旧文本库 dump 的 RESTORE 兼容；APPEND 库名冲突预检，避免多库载荷部分加载
+  - 与真实 Redis 8.10.0 双向验证：Godis DUMP → Redis RESTORE → `FCALL`、Redis DUMP（LZF）→ Godis RESTORE → `FCALL`、空 dump 双向均通过
+  - 测试：`database/function_dump_godisfn1_test.go`（含 Redis 8.10 LZF 夹具）
 - **P1-2 结构化 JSON 日志（可选）**：新增 `log-format text|json` 配置与 `CONFIG GET/SET log-format` 热切换；JSON 模式每行输出 `time`/`level`/`caller`/`msg`，`logfile` 重配置和每日轮转保留 JSON 模式；启动日志可用 `jq`/Loki/ELK 直接采集。测试 `lib/logger/logger_test.go` 与 `TestConfigLogFormat`。
 - **R4-2 覆盖率：Array/JSON/AOF 直接单测**：
   - `datastruct/array` 0% → **87.4%**：Set/Get/Del/DelRanges/Range、Insert/NextIndex/cursor 耗尽、RingInsert 环绕与截断、LastItems 普通/环形语义、State/RestoreState 往返（含 order/cursor/ring_size）
@@ -105,6 +111,7 @@
 
 ### Fixed
 
+- **failover/AOF 测试收尾（2026-10-21）**：`startTestReplicaPair` 的 TCP 监听关闭函数等待 accept 循环与在途 handler 退出后才恢复全局配置，消除 `TestFailoverPromotesReplica` 的 DATA RACE；`bindPersister` 的 `addAof` 增加 nil persister 防御；`TestM2tConfigBoolAndSet` 使用临时 AOF 并在清理时关闭 persister，避免改写仓库内 `database/appendonly.aof`。
 - **随机测试顺序全仓通过（`go test -shuffle=on`，2026-10-21）**：清理测试间全局状态泄漏，连续 4 个随机种子均通过：
   - Lua `redis.set_error_handler` 改为每次脚本执行开始时重置（此前会泄漏到后续 `EVAL`，把错误静默改写为 `handled`）
   - `maxmemory`/`requirepass`/ACL default 密码/active-expire 开关/Lua error handler 在测试结束后恢复；低内存与 `DEBUG SET-ACTIVE-EXPIRE` 测试不再影响后续用例
@@ -134,7 +141,7 @@
 
 ### Changed
 
-- CI：`go test` 开启 `-shuffle=on` 以持续校验测试顺序无关性；主 workflow 的 race 步骤由 `lib/validate`/`redis/parser`/`acl`/`aof` 子集扩展为全仓 `go test -race ./...`；nightly race 同步扩展为全仓并开启 `-shuffle=on`。
+- CI：`go test` 开启 `-shuffle=on` 以持续校验测试顺序无关性；主 workflow 的 race 步骤由 `lib/validate`/`redis/parser`/`acl`/`aof` 子集扩展为全仓 `go test -race -timeout 30m ./...`；nightly race 同步扩展为全仓并开启 `-shuffle=on` 与 30 分钟超时。
 - 文档：对照基线改为 Redis Open Source 8.10（2026-09）。8.4–8.10 新命令面重开为 R5；第一波 R5-1～R5-11 已落地，第二/三波清单见 `TODO.md` R5。差距表见 `docs/COMPATIBILITY.md`「Redis 8.10 增量」，顺序见 `兼容性改进计划.md`「〇」。原远期 7 项不变。R4-1 仍为第一百六十一批的 **12502** 条 + 本批新增 R5 确定性样例。
 
 ### Fixed

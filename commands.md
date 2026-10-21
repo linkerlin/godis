@@ -669,7 +669,7 @@ Godis 支持 Redis 键空间通知机制，可通过配置启用。
 | Redis Cluster gossip bus | **远期/非目标**：`CLUSTER MEET` 仅为 Raft/FSM 加入；无 gossip ping |
 | CLUSTER BUMPEPOCH 真 epoch | **远期**：现为 `BUMPED 0` no-op（FSM 无 configEpoch） |
 | CLUSTER REPLICATE / FORGET / RESET / SAVECONFIG / SET-CONFIG-EPOCH / CLUSTER FAILOVER | 明确 `ERR … is not supported` |
-| jemalloc 级 used_memory / 模块原生 RDB 互通 / 完整 BM25·KNN / FUNCTION DUMP 官方互通 | **远期/非目标**（见 COMPATIBILITY） |
+| jemalloc 级 used_memory / 模块原生 RDB 互通 / 完整 BM25·KNN | **远期/非目标**（见 COMPATIBILITY） |
 | FT.SYNADD | Redis 8 已移除；`No longer supported, use FT.SYNUPDATE` |
 
 ## 其它说明
