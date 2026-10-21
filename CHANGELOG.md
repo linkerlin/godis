@@ -6,6 +6,7 @@
 
 ### Added
 
+- **P3-2 Docker / Compose 示例**：多阶段 `Dockerfile`（Go 1.25 Alpine 构建 → Alpine 3.21 运行，非 root UID 10001）、`docker-compose.yml`、`.dockerignore`；默认加载镜像内 `/etc/godis/godis.conf`，`/data` 为工作/日志卷；README 中英文与 `docs/OPERATIONS.md` 补充构建、挂载配置和 metrics 说明。已本地构建并用容器内 RESP 完成 PING/SET/GET 冒烟。
 - **R4-1 sidecar 扩表：R5 新命令确定性样例（2026-10-21）**，`scripts/r4-1-cases.txt` 12,502 → **12,623** 条：
   - Array 扩展：ARINSERT/ARNEXT/ARSEEK 游标、ARLASTITEMS 写入序、AROP 聚合/位运算、ARGREP 的 MATCH/EXACT/AND/RE/LIMIT/GLOB、ARRING 环形覆盖
   - JSONPath：`[*]`/`..` 投影、`sum()`/`length()` over nodelist、空结果、`@.tags[*]` 与 `@..price` 过滤

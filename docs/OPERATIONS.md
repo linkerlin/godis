@@ -65,3 +65,24 @@ go build -o godis ./
 CONFIG=scripts/ci-smoke.conf ./godis &
 bash scripts/smoke-test.sh
 ```
+
+## Docker / Compose
+
+镜像采用多阶段构建：`golang:1.25-alpine` 编译静态二进制，运行层为 `alpine:3.21`，以 UID 10001 的非 root 用户运行。
+
+```bash
+docker build -t godis .
+docker run --rm -p 6399:6399 -v godis-data:/data godis
+```
+
+或使用 `docker-compose.yml`：
+
+```bash
+docker compose up -d --build
+docker compose logs -f godis
+```
+
+- `CONFIG` 默认指向镜像内 `/etc/godis/godis.conf`（由仓库 `example.conf` 复制）
+- `/data` 是工作目录/日志卷；如启用 AOF/RDB，请把配置中的 `dir` 指向该卷
+- 自定义配置：`-v "$PWD/my.conf:/etc/godis/godis.conf:ro"`
+- 需要 Prometheus 指标时，在配置中设置 `metrics-addr 0.0.0.0:9090` 并额外暴露 `9090` 端口

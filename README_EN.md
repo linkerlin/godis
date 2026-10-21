@@ -53,6 +53,23 @@ CONFIG=example.conf ./godis
 ./godis -c example.conf -p 6399
 ```
 
+Docker works too (the image runs as a non-root user; `/data` is the working/log volume):
+
+```bash
+docker build -t godis .
+docker run --rm -p 6399:6399 -v godis-data:/data godis
+# or
+docker compose up -d
+```
+
+Mount a custom config at `/etc/godis/godis.conf`:
+
+```bash
+docker run --rm -p 6399:6399 \
+  -v "$PWD/my.conf:/etc/godis/godis.conf:ro" \
+  -v godis-data:/data godis
+```
+
 ### 2. Five 10-Second Terminal Demos
 
 Connect with `redis-cli -p 6399` and try these out. Each one strips the jargon off a modern Redis 8.x mechanism:

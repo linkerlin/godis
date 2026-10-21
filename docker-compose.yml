@@ -1,0 +1,13 @@
+services:
+  godis:
+    build: .
+    image: godis:local
+    container_name: godis
+    ports:
+      - "6399:6399"
+    volumes:
+      - godis-data:/data
+    restart: unless-stopped
+
+volumes:
+  godis-data:

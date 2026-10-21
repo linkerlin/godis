@@ -289,7 +289,7 @@
 ### P3-2 配置与示例
 
 - [x] `example.conf` 补充 `maxmemory` 说明（metrics/aclfile/acllog 已补充）
-- [ ] Docker / docker-compose 示例（可选）
+- [x] Docker / docker-compose 示例（可选）：`Dockerfile` 多阶段构建、非 root 运行、`/data` 卷；`docker-compose.yml` 一键启动；`.dockerignore`；README/OPERATIONS 使用说明。已本地 `docker build` 并通过容器内 PING/SET/GET 冒烟。
 
 ### P3-3 Fork 维护
 

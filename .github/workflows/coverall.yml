@@ -74,3 +74,10 @@ jobs:
     - uses: shogo82148/actions-goveralls@v1
       with:
         path-to-profile: profile.cov
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Build Docker image
+      run: docker build -t godis:ci .

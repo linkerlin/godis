@@ -53,6 +53,23 @@ CONFIG=example.conf ./godis
 ./godis -c example.conf -p 6399
 ```
 
+也可以直接用 Docker（镜像以非 root 用户运行，`/data` 为工作/日志卷）：
+
+```bash
+docker build -t godis .
+docker run --rm -p 6399:6399 -v godis-data:/data godis
+# 或者
+docker compose up -d
+```
+
+自定义配置可挂载到 `/etc/godis/godis.conf`：
+
+```bash
+docker run --rm -p 6399:6399 \
+  -v "$PWD/my.conf:/etc/godis/godis.conf:ro" \
+  -v godis-data:/data godis
+```
+
 ### 2. 做五个 10 秒钟的小实验
 
 现在打开 `redis-cli -p 6399`，试试下面这五件事。它们能让你一眼看穿 Redis 8.x 最有意思的几个机制：

@@ -1,0 +1,16 @@
+.git
+.github
+.idea
+.vscode
+.golangci.yml
+godis
+godis.exe
+target/
+logs/
+tmp/
+coverage/
+coverage.out
+profile.cov
+*.log
+*.local.conf
+演进方案.md
