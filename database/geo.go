@@ -242,7 +242,15 @@ func execGeoRadius(db *DB, args [][]byte) redis.Reply {
 	if len(args) < 5 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'georadius' command")
 	}
-	return execGeoRadiusViaSearch(db, args[0], false, args[1], args[2], args[3], args[4], args[5:])
+	return execGeoRadiusViaSearch(db, args[0], false, args[1], args[2], args[3], args[4], args[5:], false)
+}
+
+// execGeoRadiusRO is GEORADIUS without STORE/STOREDIST.
+func execGeoRadiusRO(db *DB, args [][]byte) redis.Reply {
+	if len(args) < 5 {
+		return protocol.MakeErrReply("ERR wrong number of arguments for 'georadius_ro' command")
+	}
+	return execGeoRadiusViaSearch(db, args[0], false, args[1], args[2], args[3], args[4], args[5:], true)
 }
 
 // execGeoRadiusByMember returns members within max distance of given member's location
@@ -251,11 +259,52 @@ func execGeoRadiusByMember(db *DB, args [][]byte) redis.Reply {
 	if len(args) < 4 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'georadiusbymember' command")
 	}
-	return execGeoRadiusViaSearch(db, args[0], true, args[1], nil, args[2], args[3], args[4:])
+	return execGeoRadiusViaSearch(db, args[0], true, args[1], nil, args[2], args[3], args[4:], false)
+}
+
+// execGeoRadiusByMemberRO is GEORADIUSBYMEMBER without STORE/STOREDIST.
+func execGeoRadiusByMemberRO(db *DB, args [][]byte) redis.Reply {
+	if len(args) < 4 {
+		return protocol.MakeErrReply("ERR wrong number of arguments for 'georadiusbymember_ro' command")
+	}
+	return execGeoRadiusViaSearch(db, args[0], true, args[1], nil, args[2], args[3], args[4:], true)
+}
+
+// prepareGeoRadius locks the source for read and STORE/STOREDIST destinations
+// for write. GEORADIUS is a write command because either option can mutate.
+func prepareGeoRadius(args [][]byte) ([]string, []string) {
+	return prepareGeoRadiusStoreKeys(args, 5)
+}
+
+func prepareGeoRadiusByMember(args [][]byte) ([]string, []string) {
+	return prepareGeoRadiusStoreKeys(args, 4)
+}
+
+func prepareGeoRadiusStoreKeys(args [][]byte, optStart int) ([]string, []string) {
+	if len(args) == 0 {
+		return nil, nil
+	}
+	source := string(args[0])
+	read := []string{source}
+	var write []string
+	for i := optStart; i+1 < len(args); i++ {
+		switch strings.ToUpper(string(args[i])) {
+		case "STORE", "STOREDIST":
+			write = append(write, string(args[i+1]))
+			i++
+		}
+	}
+	for _, dest := range write {
+		if dest == source {
+			read = nil
+			break
+		}
+	}
+	return write, read
 }
 
 // execGeoRadiusViaSearch maps GEORADIUS* onto GEOSEARCH / GEOSEARCHSTORE (haversine + options).
-func execGeoRadiusViaSearch(db *DB, key []byte, fromMember bool, a, b, radius, unit []byte, opts [][]byte) redis.Reply {
+func execGeoRadiusViaSearch(db *DB, key []byte, fromMember bool, a, b, radius, unit []byte, opts [][]byte, readOnly bool) redis.Reply {
 	// Redis GEORADIUS*: radius is validated before lon/lat / key lookup.
 	if _, err := strconv.ParseFloat(string(radius), 64); err != nil {
 		return protocol.MakeErrReply("ERR need numeric radius")
@@ -295,10 +344,16 @@ func execGeoRadiusViaSearch(db *DB, key []byte, fromMember bool, a, b, radius, u
 			if i+1 >= len(opts) {
 				return protocol.MakeSyntaxErrReply()
 			}
+			if readOnly {
+				return protocol.MakeSyntaxErrReply()
+			}
 			storeKey = opts[i+1]
 			i += 2
 		case "STOREDIST":
 			if i+1 >= len(opts) {
+				return protocol.MakeSyntaxErrReply()
+			}
+			if readOnly {
 				return protocol.MakeSyntaxErrReply()
 			}
 			storeDistKey = opts[i+1]
@@ -715,10 +770,14 @@ func init() {
 		attachCommandExtra([]string{redisFlagReadonly}, 1, 1, 1)
 	registerCommand("GeoHash", execGeoHash, readFirstKey, nil, -2, flagReadOnly).
 		attachCommandExtra([]string{redisFlagReadonly}, 1, 1, 1)
-	registerCommand("GeoRadius", execGeoRadius, readFirstKey, nil, -6, flagReadOnly).
+	registerCommand("GeoRadius", execGeoRadius, prepareGeoRadius, nil, -6, flagWrite).
 		attachCommandExtra([]string{redisFlagWrite, redisFlagMovableKeys}, 1, 1, 1)
-	registerCommand("GeoRadiusByMember", execGeoRadiusByMember, readFirstKey, nil, -5, flagReadOnly).
+	registerCommand("GeoRadius_RO", execGeoRadiusRO, readFirstKey, nil, -6, flagReadOnly).
+		attachCommandExtra([]string{redisFlagReadonly}, 1, 1, 1)
+	registerCommand("GeoRadiusByMember", execGeoRadiusByMember, prepareGeoRadiusByMember, nil, -5, flagWrite).
 		attachCommandExtra([]string{redisFlagWrite, redisFlagMovableKeys}, 1, 1, 1)
+	registerCommand("GeoRadiusByMember_RO", execGeoRadiusByMemberRO, readFirstKey, nil, -5, flagReadOnly).
+		attachCommandExtra([]string{redisFlagReadonly}, 1, 1, 1)
 	registerCommand("GeoSearch", execGeoSearch, readFirstKey, nil, -2, flagReadOnly).
 		attachCommandExtra([]string{redisFlagReadonly}, 1, 1, 1)
 	registerCommand("GeoSearchStore", execGeoSearchStore, prepareGeoSearchStore, rollbackFirstKey, -3, flagWrite).

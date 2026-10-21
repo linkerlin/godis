@@ -2,6 +2,7 @@ package database
 
 import (
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/linkerlin/godis/lib/utils"
@@ -45,6 +46,64 @@ func TestGeoRadiusByMember(t *testing.T) {
 	))
 	result := execGeoRadiusByMember(testDB, utils.ToCmdLine(key, pivot, "100", "km"))
 	asserts.AssertMultiBulkReplySize(t, result, 2)
+}
+
+func TestGeoRadiusReadOnlyVariants(t *testing.T) {
+	execFlushDB(testDB, utils.ToCmdLine())
+	key := "geo:ro"
+	if r := testDB.Exec(nil, utils.ToCmdLine("GEOADD", key,
+		"13.361389", "38.115556", "p1",
+		"15.087269", "37.502669", "p2",
+		"13.583333", "37.316667", "p3",
+	)); protocol.IsErrorReply(r) {
+		t.Fatalf("GEOADD: %s", r.ToBytes())
+	}
+
+	checkMembers := func(r redisReply, want ...string) {
+		t.Helper()
+		multi, ok := r.(*protocol.MultiBulkReply)
+		if !ok || len(multi.Args) != len(want) {
+			t.Fatalf("want %d members, got %T %s", len(want), r, r.ToBytes())
+		}
+		for i, w := range want {
+			if string(multi.Args[i]) != w {
+				t.Fatalf("member[%d]=%q want %q: %s", i, multi.Args[i], w, r.ToBytes())
+			}
+		}
+	}
+
+	checkMembers(testDB.Exec(nil, utils.ToCmdLine("GEORADIUS_RO", key, "15", "37", "200", "km", "ASC")), "p2", "p3", "p1")
+	checkMembers(testDB.Exec(nil, utils.ToCmdLine("GEORADIUSBYMEMBER_RO", key, "p3", "100", "km", "ASC")), "p3", "p1")
+
+	for _, cmd := range [][]string{
+		{"GEORADIUS_RO", key, "15", "37", "200", "km", "STORE", "geo:ro:out"},
+		{"GEORADIUSBYMEMBER_RO", key, "p3", "100", "km", "STOREDIST", "geo:ro:out"},
+	} {
+		r := testDB.Exec(nil, utils.ToCmdLine(cmd...))
+		if !protocol.IsErrorReply(r) || !strings.Contains(string(r.ToBytes()), "syntax error") {
+			t.Fatalf("%v: want syntax error, got %s", cmd, r.ToBytes())
+		}
+	}
+	if r := testDB.Exec(nil, utils.ToCmdLine("EXISTS", "geo:ro:out")); r.(*protocol.IntReply).Code != 0 {
+		t.Fatalf("_RO STORE must not create destination: %s", r.ToBytes())
+	}
+
+	// The writable variants still store into the destination.
+	asserts.AssertIntReply(t, testDB.Exec(nil, utils.ToCmdLine(
+		"GEORADIUS", key, "15", "37", "200", "km", "STORE", "geo:ro:out",
+	)), 3)
+	asserts.AssertIntReply(t, testDB.Exec(nil, utils.ToCmdLine("ZCARD", "geo:ro:out")), 3)
+	asserts.AssertIntReply(t, testDB.Exec(nil, utils.ToCmdLine(
+		"GEORADIUSBYMEMBER", key, "p3", "100", "km", "STOREDIST", "geo:ro:dist",
+	)), 2)
+	asserts.AssertIntReply(t, testDB.Exec(nil, utils.ToCmdLine("ZCARD", "geo:ro:dist")), 2)
+
+	// COMMAND metadata exposes the read-only variants.
+	list := testDB.Exec(nil, utils.ToCmdLine("COMMAND", "LIST", "FILTERBY", "PATTERN", "georadius*_ro"))
+	text := string(list.ToBytes())
+	if !strings.Contains(text, "georadius_ro") || !strings.Contains(text, "georadiusbymember_ro") {
+		t.Fatalf("COMMAND LIST missing _RO variants: %s", text)
+	}
 }
 
 func TestGeoPos(t *testing.T) {

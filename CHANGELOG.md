@@ -8,7 +8,8 @@
 
 ### Added
 
-- **R5-19 收尾：`ARSCAN`（Redis 8.8 Array preview，2026-10-21）**：`ARSCAN key start end [LIMIT n]` 按区间返回 index-value 对，支持 start>end 反向、自动裁剪越界区间、跳过空槽、LIMIT 正数校验；Array preview 由 17 补到 **18 命令**，`datastruct/array` 增加单锁 `Scan` 与直接单测；R4-1 sidecar 增加 ARSCAN/反向/LIMIT/空结果 5 条断言，真实 Redis 8.10 全量 **12,628 断言 0 失败**。
+- **`GEORADIUS_RO` / `GEORADIUSBYMEMBER_RO`（2026-10-21）**：补齐 Redis 只读地理半径命令，支持 `WITHCOORD`/`WITHDIST`/`WITHHASH`/`COUNT n [ANY]`/`ASC|DESC`；`STORE`/`STOREDIST` 在只读变体上返回 `ERR syntax error` 且不写目标键。同时修正 `GEORADIUS`/`GEORADIUSBYMEMBER` 的命令标志与动态锁：带 `STORE`/`STOREDIST` 时按写命令处理并写锁目标键，不再错误地注册为只读。新增 Go 测试与 6 条 R4-1 sidecar 断言，真实 Redis 8.10 全量 **12,634 断言 0 失败**。
+- **R5-19 收尾：`ARSCAN`（Redis 8.8 Array preview，2026-10-21）**：`ARSCAN key start end [LIMIT n]` 按区间返回 index-value 对，支持 start>end 反向、自动裁剪越界区间、跳过空槽、LIMIT 正数校验；Array preview 由 17 补到 **18 命令**，`datastruct/array` 增加单锁 `Scan` 与直接单测；R4-1 sidecar 增加 ARSCAN/反向/LIMIT/空结果 5 条断言，真实 Redis 8.10 全量 **12,634 断言 0 失败**。
 - **FUNCTION DUMP / RESTORE 官方互通（2026-10-21）**：
   - `FUNCTION DUMP` 改为 Redis RDB 风格二进制：每个库 `0xF5`（`RDB_OPCODE_FUNCTION2`）+ RDB string 编码的完整库代码，尾部 2 字节 RDB 版本 + 8 字节 CRC64-Jones；库名排序保证确定性
   - `FUNCTION RESTORE` 解析官方载荷：CRC/版本校验（接受版本 1–16）、raw/6-bit/14-bit/32-bit/64-bit string、整数编码与 LZF 解压；`0xF6` PRE_GA、坏 CRC、截断、完整 RDB/异己二进制均在 FLUSH 前明确 ERR
@@ -23,7 +24,7 @@
   - `datastruct/timeseries` 19.3% → **57.5%**：Add/Get/GetLast/Del/Trim/Info、6 种 duplicate policy、保留期裁剪、标签、降采样规则、聚合器字符串往返
   - `datastruct/stream` 44.7% → **85.8%**：元数据 setter/Info、消费者组与 PEL、Claim/AutoClaim、DeleteEx ACKED/DELREF、IDMP 记录/过期/驱逐
 - **P3-2 Docker / Compose 示例**：多阶段 `Dockerfile`（Go 1.25 Alpine 构建 → Alpine 3.21 运行，非 root UID 10001）、`docker-compose.yml`、`.dockerignore`；默认加载镜像内 `/etc/godis/godis.conf`，`/data` 为工作/日志卷；README 中英文与 `docs/OPERATIONS.md` 补充构建、挂载配置和 metrics 说明。已本地构建并用容器内 RESP 完成 PING/SET/GET 冒烟。
-- **R4-1 sidecar 扩表：R5 新命令确定性样例（2026-10-21）**，`scripts/r4-1-cases.txt` 12,502 → **12,628** 条：
+- **R4-1 sidecar 扩表：R5 新命令确定性样例（2026-10-21）**，`scripts/r4-1-cases.txt` 12,502 → **12,634** 条：
   - Array 扩展：ARINSERT/ARNEXT/ARSEEK 游标、ARLASTITEMS 写入序、AROP 聚合/位运算、ARGREP 的 MATCH/EXACT/AND/RE/LIMIT/GLOB、ARRING 环形覆盖、**ARSCAN 范围扫描/LIMIT/反向（+5 sidecar 断言）**
   - JSONPath：`[*]`/`..` 投影、`sum()`/`length()` over nodelist、空结果、`@.tags[*]` 与 `@..price` 过滤
   - `ARINFO`（map 字段序不稳定）与 subkey 通知（需 Pub/Sub 订阅者）以 `@skip` 诚实标注；`sidecar_allowlist_test.go` 增加对应 marker
@@ -127,7 +128,7 @@
   - 客户端缓存失效入队移到 `RLock` 内（非阻塞 send），避免 `DisableTracking` 关闭队列时的 send-on-closed 竞态
   - `save` 与 `proto-max-bulk-len` 用原子值供后台 cron/parser 读取，CONFIG SET 热更新不再与读取方竞争
   - tcp/migrate 测试等待 accept 循环退出后再恢复全局配置；tcp 计数器改用 atomic
-- **R4-1 真实 Redis 8.10 sidecar 全量对拍修复（12,628 断言 0 失败）**：
+- **R4-1 真实 Redis 8.10 sidecar 全量对拍修复（12,634 断言 0 失败）**：
   - runner：`@CMD` 初始化命令此前未剥离标记（实际未执行）；改为引号感知分词（JSON/带空格路径），新增 `R41_CONTINUE=1` 收集全部失败而不是遇错即停
   - Array：`ARLASTITEMS` 普通/稀疏数组按最高下标返回（含空槽），仅 `ARRING` 环形模式按写入序；opaque 持久化保留 cursor/order
   - JSONPath：顶层投影 `fn($)` 返回单元素数组（`[6.0]`/`[3]`），float 保留 `.0`；`length()` over 通配 nodelist 返回 `[]`；`append()`/词形 `first`/`last`/`concat` 属于 Godis 扩展（Redis 8.10 仅方法形）
