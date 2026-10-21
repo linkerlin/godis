@@ -134,6 +134,7 @@
 
 ### Changed
 
+- CI：`go test` 开启 `-shuffle=on` 以持续校验测试顺序无关性；race 步骤由 `lib/validate`/`redis/parser`/`acl`/`aof` 子集扩展为全仓 `go test -race ./...`。
 - 文档：对照基线改为 Redis Open Source 8.10（2026-09）。8.4–8.10 新命令面重开为 R5；第一波 R5-1～R5-11 已落地，第二/三波清单见 `TODO.md` R5。差距表见 `docs/COMPATIBILITY.md`「Redis 8.10 增量」，顺序见 `兼容性改进计划.md`「〇」。原远期 7 项不变。R4-1 仍为第一百六十一批的 **12502** 条 + 本批新增 R5 确定性样例。
 
 ### Fixed
