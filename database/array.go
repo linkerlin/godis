@@ -47,7 +47,7 @@ func execARSet(db *DB, args [][]byte) redis.Reply {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'arset' command")
 	}
 	index, err := strconv.ParseInt(string(args[1]), 10, 64)
-	if err != nil || index < 0 {
+	if err != nil || index < 0 || index+int64(len(args)-3) > array.MaxIndex {
 		return protocol.MakeErrReply("ERR value is not an integer or out of range")
 	}
 	arr, _, errReply := db.getOrInitArray(string(args[0]))
@@ -75,7 +75,7 @@ func execARMSet(db *DB, args [][]byte) redis.Reply {
 	pairs := make([]pair, 0, (len(args)-1)/2)
 	for i := 1; i+1 < len(args); i += 2 {
 		idx, err := strconv.ParseInt(string(args[i]), 10, 64)
-		if err != nil || idx < 0 {
+		if err != nil || idx < 0 || idx > array.MaxIndex {
 			return protocol.MakeErrReply("ERR value is not an integer or out of range")
 		}
 		pairs = append(pairs, pair{idx, args[i+1]})

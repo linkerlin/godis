@@ -74,8 +74,10 @@ func Serve(addr string, handler *Handler) error {
 }
 
 func (h *Handler) closeClient(client *connection.Connection) {
-	_ = client.Close()
+	// Run cleanup before Close resets clientID/trackingID: AfterClientClose
+	// needs them to drop tracking state and HIMPORT session fieldsets.
 	h.db.AfterClientClose(client)
+	_ = client.Close()
 	h.activeConn.Delete(client)
 	database.UnregisterClient(client)
 }
@@ -87,8 +89,6 @@ func (h *Handler) Handle(ctx context.Context, conn net.Conn) {
 		_ = conn.Close()
 		return
 	}
-	h.inFlight.Add(1)
-	defer h.inFlight.Done()
 
 	client := connection.NewConn(conn)
 	h.activeConn.Store(client, struct{}{})
@@ -139,6 +139,9 @@ func (h *Handler) Handle(ctx context.Context, conn net.Conn) {
 			logger.Error("require multi bulk protocol")
 			continue
 		}
+		// Disable idle read deadline while a command (possibly blocking like BLPOP) is executing.
+		_ = conn.SetReadDeadline(time.Time{})
+		h.inFlight.Add(1)
 		result := h.db.Exec(client, r.Args)
 		cmdName := ""
 		if len(r.Args) > 0 {
@@ -160,6 +163,7 @@ func (h *Handler) Handle(ctx context.Context, conn net.Conn) {
 				stats.RecordOutput(len(unknownErrReplyBytes))
 			}
 		}
+		h.inFlight.Done()
 		refreshIdleDeadline()
 	}
 }

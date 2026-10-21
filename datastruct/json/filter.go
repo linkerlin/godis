@@ -98,6 +98,7 @@ const (
 	tkFirst  // first (postfix value transform)
 	tkLast   // last (postfix value transform)
 	tkFnWord // concat / match / search (postfix, one required argument)
+	tkFnCall // prefix function call fn(...)
 )
 
 type token struct {
@@ -122,6 +123,23 @@ var wordOps = map[string]tokenKind{
 	"noneof":   tkFnWord,
 	"append":   tkFnWord,
 	"index":    tkFnWord,
+}
+
+var prefixFnNames = map[string]bool{
+	"length":  true,
+	"abs":     true,
+	"ceiling": true,
+	"floor":   true,
+	"first":   true,
+	"last":    true,
+	"min":     true,
+	"max":     true,
+	"avg":     true,
+	"sum":     true,
+	"stddev":  true,
+	"keys":    true,
+	"count":   true,
+	"value":   true,
 }
 
 func isWordStart(c byte) bool {
@@ -186,7 +204,7 @@ func tokenize(s string) ([]token, error) {
 			j := i + 1
 			for j < len(s) {
 				ch := s[j]
-				if ch == '.' || ch == '[' || ch == ']' ||
+				if ch == '.' || ch == '[' || ch == ']' || ch == '~' ||
 					(ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') ||
 					(ch >= '0' && ch <= '9') || ch == '_' || ch == '-' {
 					j++
@@ -208,14 +226,20 @@ func tokenize(s string) ([]token, error) {
 			toks = append(toks, token{kind: tkLit, val: s[i+1 : j]})
 			i = j + 1
 		case isWordStart(c):
-			// Bare word: in/nin/size/sizeof/empty operator, or a JSON
-			// literal (true/false/null).
+			// Bare word: prefix function call fn(...), in/nin/size/sizeof/empty
+			// operator, or a JSON literal (true/false/null).
 			j := i
 			for j < len(s) && isWordChar(s[j]) {
 				j++
 			}
 			word := s[i:j]
-			if kind, ok := wordOps[word]; ok {
+			k := j
+			for k < len(s) && (s[k] == ' ' || s[k] == '\t') {
+				k++
+			}
+			if k < len(s) && s[k] == '(' && prefixFnNames[word] {
+				toks = append(toks, token{kind: tkFnCall, tok: word})
+			} else if kind, ok := wordOps[word]; ok {
 				toks = append(toks, token{kind: kind, tok: word})
 			} else {
 				var v interface{}
@@ -350,17 +374,18 @@ func (p *predParser) parseComparison() (*predNode, error) {
 		return nil, ErrJSONPathSyntax
 	}
 	if t.kind == tkLParen {
+		saved := p.pos
 		p.pos++
-		inner, err := p.parseOr()
-		if err != nil {
-			return nil, err
+		if inner, err := p.parseOr(); err == nil {
+			if closing := p.peek(); closing != nil && closing.kind == tkRParen {
+				p.pos++
+				next := p.peek()
+				if next == nil || next.kind == tkAnd || next.kind == tkOr || next.kind == tkRParen {
+					return inner, nil
+				}
+			}
 		}
-		closing := p.peek()
-		if closing == nil || closing.kind != tkRParen {
-			return nil, ErrJSONPathSyntax
-		}
-		p.pos++
-		return inner, nil
+		p.pos = saved
 	}
 
 	lhs, err := p.parseArith()
@@ -468,6 +493,39 @@ func (p *predParser) parseOperand() (*predNode, error) {
 		return nil, ErrJSONPathSyntax
 	}
 	switch t.kind {
+	case tkLParen:
+		p.pos++
+		inner, err := p.parseArith()
+		if err != nil {
+			return nil, err
+		}
+		closing := p.peek()
+		if closing == nil || closing.kind != tkRParen {
+			return nil, ErrJSONPathSyntax
+		}
+		p.pos++
+		return inner, nil
+	case tkFnCall:
+		fn := t.tok
+		p.pos++
+		open := p.peek()
+		if open == nil || open.kind != tkLParen {
+			return nil, ErrJSONPathSyntax
+		}
+		p.pos++
+		arg, err := p.parseArith()
+		if err != nil {
+			return nil, err
+		}
+		closing := p.peek()
+		if closing == nil || closing.kind != tkRParen {
+			return nil, ErrJSONPathSyntax
+		}
+		p.pos++
+		return &predNode{
+			op:   "fn:" + fn,
+			left: arg,
+		}, nil
 	case tkAt:
 		p.pos++
 		// Method call form: `@.recv.fn()` or `@.recv.fn(arg)` — the
@@ -846,6 +904,15 @@ func walkRelative(start interface{}, rel string) interface{} {
 		}
 		switch c := current.(type) {
 		case map[string]interface{}:
+			if part == "~" {
+				keys := make([]interface{}, 0, len(c))
+				for k := range c {
+					keys = append(keys, k)
+				}
+				sortStrings(keys)
+				current = keys
+				continue
+			}
 			v, ok := c[part]
 			if !ok {
 				return nil

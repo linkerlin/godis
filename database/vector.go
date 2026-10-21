@@ -506,21 +506,21 @@ func prepareVSKey(args [][]byte) ([]string, []string) {
 func init() {
 	registerCommand("VSAdd", execVSAdd, prepareVSKey, nil, -4, flagWrite).
 		attachCommandExtra([]string{redisFlagWrite, redisFlagDenyOOM}, 1, 1, 1)
-	registerCommand("VSGet", execVSGet, prepareVSKey, nil, 3, flagReadOnly).
+	registerCommand("VSGet", execVSGet, readFirstKey, nil, 3, flagReadOnly).
 		attachCommandExtra([]string{redisFlagReadonly, redisFlagFast}, 1, 1, 1)
 	registerCommand("VSDel", execVSDel, prepareVSKey, nil, -3, flagWrite).
 		attachCommandExtra([]string{redisFlagWrite}, 1, 1, 1)
 	registerCommand("VSDropIndex", execVSDropIndex, prepareVSKey, nil, 2, flagWrite).
 		attachCommandExtra([]string{redisFlagWrite}, 1, 1, 1)
-	registerCommand("VSSearch", execVSSearch, prepareVSKey, nil, -3, flagReadOnly).
+	registerCommand("VSSearch", execVSSearch, readFirstKey, nil, -3, flagReadOnly).
 		attachCommandExtra([]string{redisFlagReadonly}, 1, 1, 1)
-	registerCommand("VSQuery", execVSQuery, prepareVSKey, nil, -3, flagReadOnly).
+	registerCommand("VSQuery", execVSQuery, readFirstKey, nil, -3, flagReadOnly).
 		attachCommandExtra([]string{redisFlagReadonly}, 1, 1, 1)
-	registerCommand("VSRange", execVSRange, prepareVSKey, nil, 5, flagReadOnly).
+	registerCommand("VSRange", execVSRange, readFirstKey, nil, 5, flagReadOnly).
 		attachCommandExtra([]string{redisFlagReadonly}, 1, 1, 1)
-	registerCommand("VSLen", execVSLen, prepareVSKey, nil, 2, flagReadOnly).
+	registerCommand("VSLen", execVSLen, readFirstKey, nil, 2, flagReadOnly).
 		attachCommandExtra([]string{redisFlagReadonly, redisFlagFast}, 1, 1, 1)
-	registerCommand("VSCard", execVSCard, prepareVSKey, nil, 2, flagReadOnly).
+	registerCommand("VSCard", execVSCard, readFirstKey, nil, 2, flagReadOnly).
 		attachCommandExtra([]string{redisFlagReadonly, redisFlagFast}, 1, 1, 1)
 	// Dotted aliases documented in AGENTS.md / commands.md
 	registerCommand("VS.Add", execVSAdd, prepareVSKey, nil, -4, flagWrite).

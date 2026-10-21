@@ -19,20 +19,21 @@ func (db *DB) wireExpireDict(hashKey string, ed *dict.ExpireDict) {
 	if ed == nil {
 		return
 	}
-	ed.SetTimeWheel(timewheel.Default())
-	ed.SetJobPrefix(fmt.Sprintf("hexpire:%d:%s:", db.index, hashKey))
-	ed.SetAllowActiveExpire(func() bool { return activeExpireEnabled.Load() })
-	// Time-wheel jobs run off the command path: take the DB key write lock
-	// (same check-lock-check pattern as key-level ExpireAt).
-	ed.SetActiveExpireGuard(func(run func()) {
-		keys := []string{hashKey}
-		db.RWLocks(keys, nil)
-		defer db.RWUnLocks(keys, nil)
-		run()
-	})
-	ed.SetOnExpired(func(field string) {
-		db.onHashFieldExpired(hashKey, field)
-	})
+	prefix := fmt.Sprintf("hexpire:%d:%s:", db.index, hashKey)
+	ed.Wire(
+		timewheel.Default(),
+		prefix,
+		func() bool { return activeExpireEnabled.Load() },
+		func(run func()) {
+			keys := []string{hashKey}
+			db.RWLocks(keys, nil)
+			defer db.RWUnLocks(keys, nil)
+			run()
+		},
+		func(field string) {
+			db.onHashFieldExpired(hashKey, field)
+		},
+	)
 }
 
 // onHashFieldExpired propagates a TTL-driven field deletion (AOF HDEL + notify).
@@ -247,6 +248,12 @@ func execHGetEx(db *DB, args [][]byte) redis.Reply {
 		}
 		if changed {
 			db.addAof(utils.ToCmdLine3("hgetex", args...))
+			if persist {
+				notifyKeyspaceEvent(db, "hpersist", key)
+			} else if !expireAt.IsZero() {
+				notifyKeyspaceEvent(db, "hexpire", key)
+			}
+			reindexHash(db, key)
 		}
 		return protocol.MakeMultiBulkReply(out)
 	}
@@ -347,6 +354,11 @@ func execHSetEx(db *DB, args [][]byte) redis.Reply {
 			}
 		}
 		db.addAof(utils.ToCmdLine3("hsetex", args...))
+		notifyKeyspaceEvent(db, "hset", key)
+		if !expireAt.IsZero() {
+			notifyKeyspaceEvent(db, "hexpire", key)
+		}
+		reindexHash(db, key)
 		return protocol.MakeIntReply(1)
 	}
 
@@ -388,6 +400,14 @@ func execHGetDel(db *DB, args [][]byte) redis.Reply {
 	}
 	if deleted {
 		db.addAof(utils.ToCmdLine3("hgetdel", args...))
+		notifyKeyspaceEvent(db, "hdel", key)
+		if ed.Len() == 0 {
+			// db.Remove emits the generic "del" notification itself.
+			db.Remove(key)
+			removeHashFromIndex(db, key)
+		} else {
+			reindexHash(db, key)
+		}
 	}
 	return protocol.MakeMultiBulkReply(out)
 }
@@ -506,6 +526,7 @@ func execHPersist(db *DB, args [][]byte) redis.Reply {
 
 	if changed {
 		db.addAof(utils.ToCmdLine3("hpersist", args...))
+		notifyKeyspaceEvent(db, "hpersist", key)
 		reindexHash(db, key)
 	}
 
@@ -641,6 +662,8 @@ func execHExpireFamily(db *DB, args [][]byte, cmd string, at bool, unit time.Dur
 	results := make([]redis.Reply, len(fields))
 	now := time.Now()
 	mutated := false // tracks whether any field was deleted or had its TTL set
+	expiredImmediate := false
+	expireSet := false
 	for i, fieldBytes := range fields {
 		field := string(fieldBytes)
 		_, remaining, exists := ed.GetWithExpire(field)
@@ -682,12 +705,14 @@ func execHExpireFamily(db *DB, args [][]byte, cmd string, at bool, unit time.Dur
 		if !expireAt.After(now) {
 			ed.Delete(field)
 			mutated = true // field content removed → needs reindex
+			expiredImmediate = true
 			results[i] = protocol.MakeIntReply(2)
 			continue
 		}
 
 		if ed.Expire(field, expireAt) {
 			mutated = true // TTL change re-evaluated against index per Redis
+			expireSet = true
 			results[i] = protocol.MakeIntReply(1)
 		} else {
 			results[i] = protocol.MakeIntReply(0)
@@ -702,7 +727,15 @@ func execHExpireFamily(db *DB, args [][]byte, cmd string, at bool, unit time.Dur
 		if db.addAof != nil {
 			db.addAof(utils.ToCmdLine3(cmd, args...))
 		}
+		if expireSet {
+			notifyKeyspaceEvent(db, "hexpire", key)
+		}
+		if expiredImmediate {
+			notifyKeyspaceEvent(db, "hdel", key)
+			notifyKeyspaceEvent(db, "hexpired", key)
+		}
 		if ed.Len() == 0 {
+			// db.Remove emits the generic "del" notification itself.
 			db.Remove(key)
 			removeHashFromIndex(db, key)
 		} else {

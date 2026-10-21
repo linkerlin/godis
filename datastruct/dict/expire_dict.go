@@ -1,6 +1,7 @@
 package dict
 
 import (
+	"sync"
 	"time"
 
 	"github.com/linkerlin/godis/datastruct/lock"
@@ -9,14 +10,15 @@ import (
 
 // ExpireDict 支持字段级过期的字典
 type ExpireDict struct {
-	data               Dict                 // 底层字典存储数据
-	expire             Dict                 // 字段 -> 过期时间的映射
-	tw                 *timewheel.TimeWheel // 时间轮，用于TTL管理
-	mu                 *lock.Locks          // 分片锁
-	jobPrefix          string               // 时间轮任务 key 前缀（避免跨 hash 字段名冲突）
-	onExpired          func(field string)   // 字段因 TTL 删除后回调（AOF/通知）
-	allowActiveExpire  func() bool          // nil = always；false 时时间轮不删（惰性仍删）
-	activeExpireGuard  func(run func())     // wraps time-wheel deletion (DB key lock); nil = direct
+	data              Dict                 // 底层字典存储数据
+	expire            Dict                 // 字段 -> 过期时间的映射
+	tw                *timewheel.TimeWheel // 时间轮，用于TTL管理
+	mu                *lock.Locks          // 分片锁
+	cfgMu             sync.RWMutex         // 保护时间轮及回调配置字段
+	jobPrefix         string               // 时间轮任务 key 前缀（避免跨 hash 字段名冲突）
+	onExpired         func(field string)   // 字段因 TTL 删除后回调（AOF/通知）
+	allowActiveExpire func() bool          // nil = always；false 时时间轮不删（惰性仍删）
+	activeExpireGuard func(run func())     // wraps time-wheel deletion (DB key lock); nil = direct
 }
 
 // NewExpireDict 创建支持字段级过期的字典
@@ -361,50 +363,95 @@ func (ed *ExpireDict) RandomDistinctKeys(limit int) []string {
 
 // SetTimeWheel 设置时间轮
 func (ed *ExpireDict) SetTimeWheel(tw *timewheel.TimeWheel) {
+	ed.cfgMu.Lock()
 	ed.tw = tw
+	ed.cfgMu.Unlock()
 }
 
 // SetJobPrefix sets the time-wheel job key prefix (must be unique per hash key).
 func (ed *ExpireDict) SetJobPrefix(prefix string) {
+	ed.cfgMu.Lock()
 	ed.jobPrefix = prefix
+	ed.cfgMu.Unlock()
 }
 
 // SetOnExpired registers a callback invoked after a field is removed due to TTL.
 // Explicit deletes (HDEL / Remove) do not invoke this callback.
 func (ed *ExpireDict) SetOnExpired(fn func(field string)) {
+	ed.cfgMu.Lock()
 	ed.onExpired = fn
+	ed.cfgMu.Unlock()
 }
 
 // SetAllowActiveExpire gates time-wheel deletions (DEBUG SET-ACTIVE-EXPIRE).
 // Lazy expiry on access always deletes regardless.
 func (ed *ExpireDict) SetAllowActiveExpire(fn func() bool) {
+	ed.cfgMu.Lock()
 	ed.allowActiveExpire = fn
+	ed.cfgMu.Unlock()
 }
 
 // SetActiveExpireGuard wraps time-wheel field deletion (e.g. DB key write lock).
 // Lazy expiry on access must not use this guard (avoid re-entrant RWMutex).
 func (ed *ExpireDict) SetActiveExpireGuard(fn func(run func())) {
+	ed.cfgMu.Lock()
 	ed.activeExpireGuard = fn
+	ed.cfgMu.Unlock()
+}
+
+// Wire atomically configures time-wheel and expiry hooks if not already wired
+// for the given jobPrefix, avoiding redundant writes on read paths (HGET/HLEN).
+func (ed *ExpireDict) Wire(
+	tw *timewheel.TimeWheel,
+	prefix string,
+	allowActive func() bool,
+	guard func(run func()),
+	onExpired func(field string),
+) {
+	ed.cfgMu.RLock()
+	alreadyWired := ed.tw == tw && ed.jobPrefix == prefix && ed.onExpired != nil
+	ed.cfgMu.RUnlock()
+	if alreadyWired {
+		return
+	}
+	ed.cfgMu.Lock()
+	ed.tw = tw
+	ed.jobPrefix = prefix
+	ed.allowActiveExpire = allowActive
+	ed.activeExpireGuard = guard
+	ed.onExpired = onExpired
+	ed.cfgMu.Unlock()
 }
 
 func (ed *ExpireDict) jobKey(field string) string {
-	return ed.jobPrefix + field
+	ed.cfgMu.RLock()
+	prefix := ed.jobPrefix
+	ed.cfgMu.RUnlock()
+	return prefix + field
 }
 
 func (ed *ExpireDict) scheduleExpireJob(field string, ttl time.Duration) {
-	if ed.tw == nil || ttl < 0 {
+	ed.cfgMu.RLock()
+	tw := ed.tw
+	prefix := ed.jobPrefix
+	ed.cfgMu.RUnlock()
+	if tw == nil || ttl < 0 {
 		return
 	}
 	fieldCopy := field
-	ed.tw.AddJob(ttl, ed.jobKey(fieldCopy), func() {
+	tw.AddJob(ttl, prefix+fieldCopy, func() {
+		ed.cfgMu.RLock()
+		allowFn := ed.allowActiveExpire
+		guardFn := ed.activeExpireGuard
+		ed.cfgMu.RUnlock()
 		run := func() {
-			if ed.allowActiveExpire != nil && !ed.allowActiveExpire() {
+			if allowFn != nil && !allowFn() {
 				return
 			}
 			ed.removeExpired(fieldCopy)
 		}
-		if ed.activeExpireGuard != nil {
-			ed.activeExpireGuard(run)
+		if guardFn != nil {
+			guardFn(run)
 		} else {
 			run()
 		}
@@ -412,10 +459,14 @@ func (ed *ExpireDict) scheduleExpireJob(field string, ttl time.Duration) {
 }
 
 func (ed *ExpireDict) cancelExpireJob(field string) {
-	if ed.tw == nil {
+	ed.cfgMu.RLock()
+	tw := ed.tw
+	prefix := ed.jobPrefix
+	ed.cfgMu.RUnlock()
+	if tw == nil {
 		return
 	}
-	ed.tw.RemoveJob(ed.jobKey(field))
+	tw.RemoveJob(prefix + field)
 }
 
 // removeExpired deletes a field if its TTL has elapsed and fires onExpired.
@@ -440,7 +491,10 @@ func (ed *ExpireDict) removeExpiredLocked(field string) func(string) {
 	ed.cancelExpireJob(field)
 	_, n := ed.data.Remove(field)
 	if n > 0 {
-		return ed.onExpired
+		ed.cfgMu.RLock()
+		cb := ed.onExpired
+		ed.cfgMu.RUnlock()
+		return cb
 	}
 	return nil
 }
@@ -470,8 +524,14 @@ func (ed *ExpireDict) GetExpireTime(key string) (time.Time, bool) {
 	return time.Time{}, false
 }
 
-// Clear 清空所有字段，实现 dict.Dict 接口
+// Clear 清空所有字段并取消挂起的时间轮任务，实现 dict.Dict 接口
 func (ed *ExpireDict) Clear() {
+	if ed.expire != nil {
+		ed.expire.ForEach(func(field string, _ interface{}) bool {
+			ed.cancelExpireJob(field)
+			return true
+		})
+	}
 	ed.data.Clear()
 	ed.expire.Clear()
 }

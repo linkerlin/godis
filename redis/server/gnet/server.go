@@ -32,9 +32,35 @@ type GnetServer struct {
 }
 
 func NewGnetServer(db idatabase.DB) *GnetServer {
-	return &GnetServer{
+	s := &GnetServer{
 		db: db,
 	}
+	database.SetShutdownHook(func() {
+		_ = s.Close()
+	})
+	return s
+}
+
+func isMayBlockCmd(cmdLine [][]byte) bool {
+	if len(cmdLine) == 0 {
+		return false
+	}
+	switch strings.ToLower(string(cmdLine[0])) {
+	case "blpop", "brpop", "brpoplpush", "blmove", "blmovem", "blmpop",
+		"bzpopmin", "bzpopmax", "bzmpop", "wait", "waitaof", "failover":
+		return true
+	case "xread", "xreadgroup", "ts.read":
+		for i := 1; i < len(cmdLine); i++ {
+			if strings.EqualFold(string(cmdLine[i]), "block") {
+				return true
+			}
+		}
+	case "debug":
+		if len(cmdLine) >= 2 && strings.EqualFold(string(cmdLine[1]), "sleep") {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *GnetServer) Run(listenAddr string) error {
@@ -81,44 +107,98 @@ func (s *GnetServer) OnTraffic(c gnet.Conn) (action gnet.Action) {
 	defer s.inFlight.Done()
 
 	conn := c.Context().(redis.Connection)
-	cmdLine, err := parser.ParseV2(c)
-	if err != nil {
-		// Reply with a protocol error before closing, matching Redis 8 (the
-		// std server path already does this).
-		logger.Infof("parse command line failed: %v", err)
-		errMsg := strings.TrimPrefix(err.Error(), "protocol error: ")
-		_, _ = c.Write(protocol.MakeErrReply("ERR Protocol error: " + errMsg).ToBytes())
-		return gnet.Close
-	}
-	if len(cmdLine) == 0 {
-		return gnet.None
-	}
-	result := s.db.Exec(conn, cmdLine)
-	if result == nil {
-		return gnet.None
-	}
-	cmdName := strings.ToLower(string(cmdLine[0]))
-	suppress := false
-	if cmdName != "client" {
-		if sreply, ok := conn.(interface{ ShouldSuppressReply() bool }); ok {
-			suppress = sreply.ShouldSuppressReply()
+	var outBuf []byte
+
+	for {
+		buf, _ := c.Peek(-1)
+		if len(buf) == 0 {
+			break
 		}
+		cmdLine, consumed, complete, err := parser.ParseFrame(buf)
+		if err != nil {
+			logger.Infof("parse command line failed: %v", err)
+			errMsg := strings.TrimPrefix(err.Error(), "protocol error: ")
+			outBuf = append(outBuf, protocol.MakeErrReply("ERR Protocol error: "+errMsg).ToBytes()...)
+			_, _ = c.Write(outBuf)
+			return gnet.Close
+		}
+		if !complete {
+			// Incomplete frame (TCP half-packet): leave bytes in gnet buffer for next OnTraffic.
+			break
+		}
+		_, _ = c.Discard(consumed)
+		if len(cmdLine) == 0 {
+			continue
+		}
+		if isMayBlockCmd(cmdLine) {
+			if len(outBuf) > 0 {
+				if _, err := c.Write(outBuf); err != nil {
+					logger.Infof("write response failed: %v", err)
+					return gnet.Close
+				}
+				stats.RecordOutput(len(outBuf))
+				outBuf = outBuf[:0]
+			}
+			s.inFlight.Add(1)
+			go func(cmd [][]byte) {
+				defer s.inFlight.Done()
+				result := s.db.Exec(conn, cmd)
+				if result == nil {
+					return
+				}
+				cmdName := strings.ToLower(string(cmd[0]))
+				suppress := false
+				if cmdName != "client" {
+					if sreply, ok := conn.(interface{ ShouldSuppressReply() bool }); ok {
+						suppress = sreply.ShouldSuppressReply()
+					}
+				}
+				if suppress {
+					return
+				}
+				var resp []byte
+				if conn.GetProtocolVersion() == 3 {
+					resp = protocol.ReplyToRESP3(result)
+				} else {
+					resp = result.ToBytes()
+				}
+				if len(resp) > 0 {
+					_ = c.AsyncWrite(resp, nil)
+					stats.RecordOutput(len(resp))
+				}
+			}(cmdLine)
+			continue
+		}
+
+		result := s.db.Exec(conn, cmdLine)
+		if result == nil {
+			continue
+		}
+		cmdName := strings.ToLower(string(cmdLine[0]))
+		suppress := false
+		if cmdName != "client" {
+			if sreply, ok := conn.(interface{ ShouldSuppressReply() bool }); ok {
+				suppress = sreply.ShouldSuppressReply()
+			}
+		}
+		if suppress {
+			continue
+		}
+		var buffer []byte
+		if conn.GetProtocolVersion() == 3 {
+			buffer = protocol.ReplyToRESP3(result)
+		} else {
+			buffer = result.ToBytes()
+		}
+		outBuf = append(outBuf, buffer...)
 	}
-	if suppress {
-		return gnet.None
-	}
-	var buffer []byte
-	if conn.GetProtocolVersion() == 3 {
-		buffer = protocol.ReplyToRESP3(result)
-	} else {
-		buffer = result.ToBytes()
-	}
-	if len(buffer) > 0 {
-		if _, err := c.Write(buffer); err != nil {
+
+	if len(outBuf) > 0 {
+		if _, err := c.Write(outBuf); err != nil {
 			logger.Infof("write response failed: %v", err)
 			return gnet.Close
 		}
-		stats.RecordOutput(len(buffer))
+		stats.RecordOutput(len(outBuf))
 	}
 	return gnet.None
 }

@@ -67,10 +67,17 @@ func TestFTListSortedBatch86(t *testing.T) {
 	if !ok {
 		t.Fatalf("FT._LIST type %T", list)
 	}
-	if len(multi.Args) != 3 {
-		t.Fatalf("want 3 indexes, got %d", len(multi.Args))
+	// The FT index registry is process-global in this implementation, so other
+	// tests may already have created indexes. Only assert on this test's names.
+	names := make([]string, 0, 3)
+	for _, arg := range multi.Args {
+		if name := string(arg); strings.HasPrefix(name, "b86") {
+			names = append(names, name)
+		}
 	}
-	names := []string{string(multi.Args[0]), string(multi.Args[1]), string(multi.Args[2])}
+	if len(names) != 3 {
+		t.Fatalf("want 3 indexes, got %d (all=%d)", len(names), len(multi.Args))
+	}
 	if names[0] != "b86a" || names[1] != "b86m" || names[2] != "b86z" {
 		t.Fatalf("want sorted b86a,b86m,b86z got %v", names)
 	}

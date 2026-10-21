@@ -46,6 +46,39 @@ func NewSlowLogger(maxEntries int, threshold int64) *SlowLogger {
 	}
 }
 
+const (
+	// Redis SLOWLOG_ENTRY_MAX_ARGC and SLOWLOG_ENTRY_MAX_STRING
+	slowlogEntryMaxArgc   = 32
+	slowlogEntryMaxString = 128
+)
+
+func formatSlowlogArgs(args [][]byte) [][]byte {
+	total := len(args)
+	limit := total
+	truncatedArgs := 0
+	if total > slowlogEntryMaxArgc {
+		limit = slowlogEntryMaxArgc - 1
+		truncatedArgs = total - limit
+	}
+	out := make([][]byte, 0, limit+1)
+	for i := 0; i < limit; i++ {
+		arg := args[i]
+		if len(arg) > slowlogEntryMaxString {
+			more := len(arg) - slowlogEntryMaxString
+			s := string(arg[:slowlogEntryMaxString]) + "... (" + strconv.Itoa(more) + " more bytes)"
+			out = append(out, []byte(s))
+		} else {
+			cp := make([]byte, len(arg))
+			copy(cp, arg)
+			out = append(out, cp)
+		}
+	}
+	if truncatedArgs > 0 {
+		out = append(out, []byte("... ("+strconv.Itoa(truncatedArgs)+" more arguments)"))
+	}
+	return out
+}
+
 func (sl *SlowLogger) Record(start time.Time, args [][]byte, peerAddr, clientName string) {
 	if sl == nil || len(sl.entries) == 0 {
 		return
@@ -64,7 +97,7 @@ func (sl *SlowLogger) Record(start time.Time, args [][]byte, peerAddr, clientNam
 		ID:         sl.nextID,
 		Timestamp:  start,
 		Duration:   micros,
-		Command:    args,
+		Command:    formatSlowlogArgs(args),
 		PeerId:     peerAddr,
 		ClientName: clientName,
 		Argc:       len(args),

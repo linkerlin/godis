@@ -36,6 +36,13 @@ func (persister *Persister) Rewrite() error {
 	return persister.rewriteLocked()
 }
 
+// functionLoadCmdProvider is an optional interface implemented by DBEngine to
+// export loaded Redis Functions (FUNCTION LOAD REPLACE ...) during AOF rewrite.
+type functionLoadCmdProvider interface {
+	GetFunctionLoadCmds() [][][]byte
+	RestoreFunctionLoadCmds(cmds [][][]byte)
+}
+
 // rewriteLocked performs AOF rewrite; caller must hold the rewrite slot.
 func (persister *Persister) rewriteLocked() error {
 	ctx, err := persister.StartRewrite()
@@ -43,6 +50,11 @@ func (persister *Persister) rewriteLocked() error {
 		return err
 	}
 	if err := persister.DoRewrite(ctx); err != nil {
+		if ctx != nil && ctx.tmpFile != nil {
+			tmpName := ctx.tmpFile.Name()
+			_ = ctx.tmpFile.Close()
+			_ = os.Remove(tmpName)
+		}
 		return err
 	}
 	return persister.FinishRewrite(ctx)
@@ -51,6 +63,11 @@ func (persister *Persister) rewriteLocked() error {
 // DoRewrite actually rewrite aof file
 // makes DoRewrite public for testing only, please use Rewrite instead
 func (persister *Persister) DoRewrite(ctx *RewriteCtx) (err error) {
+	var funcCmds [][][]byte
+	fp, hasFP := persister.db.(functionLoadCmdProvider)
+	if hasFP {
+		funcCmds = fp.GetFunctionLoadCmds()
+	}
 	// start rewrite
 	if !config.Properties.AofUseRdbPreamble {
 		logger.Info("generate aof preamble")
@@ -59,7 +76,20 @@ func (persister *Persister) DoRewrite(ctx *RewriteCtx) (err error) {
 		logger.Info("generate rdb preamble")
 		err = persister.generateRDB(ctx)
 	}
-	return err
+	if hasFP {
+		fp.RestoreFunctionLoadCmds(funcCmds)
+	}
+	if err != nil {
+		return err
+	}
+	if len(funcCmds) > 0 && ctx != nil && ctx.tmpFile != nil {
+		for _, cmd := range funcCmds {
+			if _, wErr := ctx.tmpFile.Write(protocol.MakeMultiBulkReply(cmd).ToBytes()); wErr != nil {
+				return wErr
+			}
+		}
+	}
+	return nil
 }
 
 // StartRewrite prepares rewrite procedure
@@ -136,14 +166,19 @@ func (persister *Persister) FinishRewrite(ctx *RewriteCtx) error {
 		return false
 	}()
 	if errOccurs {
+		if tmpFile != nil {
+			_ = os.Remove(tmpFile.Name())
+		}
 		return copyErr
 	}
 
 	// replace current aof file by tmp file
 	_ = persister.aofFile.Close()
 	// Windows cannot rename over an open/existing dest; ReplaceFile removes dest first.
-	if err := utils.ReplaceFile(tmpFile.Name(), persister.aofFilename); err != nil {
-		logger.Warn(err)
+	replaceErr := utils.ReplaceFile(tmpFile.Name(), persister.aofFilename)
+	if replaceErr != nil {
+		logger.Warn(replaceErr)
+		_ = os.Remove(tmpFile.Name())
 	}
 	// reopen aof file for further write
 	aofFile, err := os.OpenFile(persister.aofFilename, os.O_APPEND|os.O_CREATE|os.O_RDWR, 0600)
@@ -151,6 +186,9 @@ func (persister *Persister) FinishRewrite(ctx *RewriteCtx) error {
 		return errors.Wrap(err, "reopen aof file failed")
 	}
 	persister.aofFile = aofFile
+	if replaceErr != nil {
+		return errors.Wrap(replaceErr, "replace aof file failed")
+	}
 
 	// write select command again to resume aof file selected db
 	// it should have the same db index with  persister.currentDB

@@ -24,6 +24,7 @@ const (
 
 // Client is a pipeline mode redis client
 type Client struct {
+	connMu      sync.Mutex
 	conn        net.Conn
 	pendingReqs chan *request // wait to send
 	waitingReqs chan *request // waiting response
@@ -79,7 +80,10 @@ func (client *Client) Start() {
 
 // Close stops asynchronous goroutines and close connection
 func (client *Client) Close() {
-	atomic.StoreInt32(&client.status, closed)
+	if !atomic.CompareAndSwapInt32(&client.status, running, closed) {
+		atomic.StoreInt32(&client.status, closed)
+		return
+	}
 	client.ticker.Stop()
 	// stop new request
 	close(client.pendingReqs)
@@ -88,13 +92,23 @@ func (client *Client) Close() {
 	client.working.Wait()
 
 	// clean
-	_ = client.conn.Close()
-	close(client.waitingReqs)
+	client.connMu.Lock()
+	if client.conn != nil {
+		_ = client.conn.Close()
+	}
+	if client.waitingReqs != nil {
+		close(client.waitingReqs)
+		client.waitingReqs = nil
+	}
+	client.connMu.Unlock()
 }
 
 func (client *Client) reconnect() {
 	logger.Info("reconnect with: " + client.addr)
-	_ = client.conn.Close() // ignore possible errors from repeated closes
+	client.connMu.Lock()
+	if client.conn != nil {
+		_ = client.conn.Close() // ignore possible errors from repeated closes
+	}
 
 	var conn net.Conn
 	for i := 0; i < 3; i++ {
@@ -109,17 +123,32 @@ func (client *Client) reconnect() {
 		}
 	}
 	if conn == nil { // reach max retry, abort
+		oldWaiting := client.waitingReqs
+		client.waitingReqs = nil
+		client.connMu.Unlock()
+		if oldWaiting != nil {
+			close(oldWaiting)
+			for req := range oldWaiting {
+				req.err = errors.New("connection closed")
+				req.waiting.Done()
+			}
+		}
 		client.Close()
 		return
 	}
 	client.conn = conn
 
-	close(client.waitingReqs)
-	for req := range client.waitingReqs {
-		req.err = errors.New("connection closed")
-		req.waiting.Done()
-	}
+	oldWaiting := client.waitingReqs
 	client.waitingReqs = make(chan *request, chanSize)
+	client.connMu.Unlock()
+
+	if oldWaiting != nil {
+		close(oldWaiting)
+		for req := range oldWaiting {
+			req.err = errors.New("connection closed")
+			req.waiting.Done()
+		}
+	}
 	// restart handle read
 	go client.handleRead()
 }
@@ -179,6 +208,8 @@ func (client *Client) doRequest(req *request) {
 	}
 	re := protocol.MakeMultiBulkReply(req.args)
 	bytes := re.ToBytes()
+
+	client.connMu.Lock()
 	var err error
 	for i := 0; i < 3; i++ { // only retry, waiting for handleRead
 		_, err = client.conn.Write(bytes)
@@ -188,9 +219,14 @@ func (client *Client) doRequest(req *request) {
 			break
 		}
 	}
-	if err == nil {
+	if err == nil && client.waitingReqs != nil {
 		client.waitingReqs <- req
+		client.connMu.Unlock()
 	} else {
+		client.connMu.Unlock()
+		if err == nil {
+			err = errors.New("client closed")
+		}
 		req.err = err
 		req.waiting.Done()
 	}
@@ -203,7 +239,13 @@ func (client *Client) finishRequest(reply redis.Reply) {
 			logger.Error(err)
 		}
 	}()
-	request := <-client.waitingReqs
+	client.connMu.Lock()
+	waitingReqs := client.waitingReqs
+	client.connMu.Unlock()
+	if waitingReqs == nil {
+		return
+	}
+	request := <-waitingReqs
 	if request == nil {
 		return
 	}
@@ -214,7 +256,10 @@ func (client *Client) finishRequest(reply redis.Reply) {
 }
 
 func (client *Client) handleRead() {
-	ch := parser.ParseStream(client.conn)
+	client.connMu.Lock()
+	conn := client.conn
+	client.connMu.Unlock()
+	ch := parser.ParseStream(conn)
 	for payload := range ch {
 		if payload.Err != nil {
 			status := atomic.LoadInt32(&client.status)

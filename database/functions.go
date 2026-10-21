@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"strings"
+	"sync/atomic"
 	"unicode/utf8"
 
 	"github.com/linkerlin/godis/functions"
@@ -14,19 +15,83 @@ import (
 
 // Global functions engine
 var funcEngine *functions.Engine
+var funcEnginePtr atomic.Pointer[functions.Engine]
 
 // InitFunctionsEngine initializes the functions engine
 func InitFunctionsEngine(db *DB) {
+	scriptExecMu.Lock()
+	defer scriptExecMu.Unlock()
+	initFunctionsEngineLocked(db)
+}
+
+func initFunctionsEngineLocked(db *DB) {
 	funcDB = db
 	if funcEngine != nil {
-		if db != nil {
-			funcEngine.SetDBExec(makeFuncDBExec())
-		}
 		return
 	}
 	funcEngine = functions.NewEngine(10)
-	if db != nil {
-		funcEngine.SetDBExec(makeFuncDBExec())
+	funcEngine.SetDBExec(makeFuncDBExec())
+	funcEnginePtr.Store(funcEngine)
+}
+
+// GetFunctionLoadCmds returns FUNCTION LOAD REPLACE commands for all loaded libraries.
+func (server *Server) GetFunctionLoadCmds() [][][]byte {
+	return GetFunctionLoadCmds()
+}
+
+// RestoreFunctionLoadCmds restores the in-memory function engine to the snapshot of FUNCTION LOAD commands.
+func (server *Server) RestoreFunctionLoadCmds(cmds [][][]byte) {
+	RestoreFunctionLoadCmds(cmds)
+}
+
+// GetFunctionLoadCmds returns FUNCTION LOAD REPLACE commands for all currently loaded libraries.
+func GetFunctionLoadCmds() [][][]byte {
+	scriptExecMu.Lock()
+	defer scriptExecMu.Unlock()
+	if funcEngine == nil {
+		return nil
+	}
+	names := funcEngine.ListLibraries()
+	if len(names) == 0 {
+		return nil
+	}
+	cmds := make([][][]byte, 0, len(names))
+	for _, name := range names {
+		lib, ok := funcEngine.GetLibrary(name)
+		if !ok || lib == nil || lib.Code == "" {
+			continue
+		}
+		cmds = append(cmds, [][]byte{
+			[]byte("FUNCTION"),
+			[]byte("LOAD"),
+			[]byte("REPLACE"),
+			[]byte(lib.Code),
+		})
+	}
+	return cmds
+}
+
+// RestoreFunctionLoadCmds restores the in-memory function libraries from a snapshot.
+func RestoreFunctionLoadCmds(cmds [][][]byte) {
+	scriptExecMu.Lock()
+	defer scriptExecMu.Unlock()
+	if funcEngine == nil {
+		if len(cmds) == 0 {
+			return
+		}
+		initFunctionsEngineLocked(nil)
+	}
+	_ = funcEngine.FlushAll()
+	for _, cmd := range cmds {
+		if len(cmd) < 4 {
+			continue
+		}
+		code := string(cmd[len(cmd)-1])
+		libName, errReply := parseFunctionShebang(code)
+		if errReply != nil {
+			continue
+		}
+		_, _ = funcEngine.LoadLibrary(libName, code, true)
 	}
 }
 
@@ -63,8 +128,11 @@ func execFunctionLoad(db *DB, args [][]byte) redis.Reply {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'function load' command")
 	}
 
+	scriptExecMu.Lock()
+	defer scriptExecMu.Unlock()
+
 	if funcEngine == nil {
-		InitFunctionsEngine(db)
+		initFunctionsEngineLocked(db)
 	}
 
 	replace := false
@@ -76,6 +144,9 @@ func execFunctionLoad(db *DB, args [][]byte) redis.Reply {
 			return protocol.MakeErrReply("ERR wrong number of arguments for 'function load' command")
 		}
 		codeIdx = 1
+	}
+	if db != nil && db.server != nil && db.server.isAuxiliary {
+		replace = true
 	}
 
 	code := string(args[codeIdx])
@@ -104,6 +175,9 @@ func execFunctionLoad(db *DB, args [][]byte) redis.Reply {
 // RESP3: array of Maps (one Map per library; nested function Maps).
 // FUNCTION LIST [LIBRARYNAME library_name] [WITHCODE]
 func execFunctionList(db *DB, args [][]byte) redis.Reply {
+	scriptExecMu.Lock()
+	defer scriptExecMu.Unlock()
+
 	if funcEngine == nil {
 		return protocol.MakeEmptyMultiBulkReply()
 	}
@@ -156,6 +230,9 @@ func execFunctionDelete(db *DB, args [][]byte) redis.Reply {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'function delete' command")
 	}
 
+	scriptExecMu.Lock()
+	defer scriptExecMu.Unlock()
+
 	if funcEngine == nil {
 		return protocol.MakeOkReply()
 	}
@@ -184,6 +261,9 @@ func execFunctionFlush(db *DB, args [][]byte) redis.Reply {
 		}
 	}
 
+	scriptExecMu.Lock()
+	defer scriptExecMu.Unlock()
+
 	if funcEngine == nil {
 		return protocol.MakeOkReply()
 	}
@@ -204,11 +284,12 @@ func execFunctionKill(db *DB, args [][]byte) redis.Reply {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'function kill' command")
 	}
 
-	if funcEngine == nil {
+	eng := funcEnginePtr.Load()
+	if eng == nil {
 		return protocol.MakeErrReply("NOTBUSY No scripts in execution right now.")
 	}
 
-	if err := funcEngine.KillRunningFunction(); err != nil {
+	if err := eng.KillRunningFunction(); err != nil {
 		return protocol.MakeErrReply("NOTBUSY No scripts in execution right now.")
 	}
 
@@ -221,6 +302,9 @@ func execFunctionStats(db *DB, args [][]byte) redis.Reply {
 	if len(args) != 0 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'function stats' command")
 	}
+
+	scriptExecMu.Lock()
+	defer scriptExecMu.Unlock()
 
 	m := protocol.MakeMapReply()
 	if funcEngine == nil {
@@ -280,6 +364,9 @@ func execFunctionDump(db *DB, args [][]byte) redis.Reply {
 	if len(args) != 0 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'function dump' command")
 	}
+
+	scriptExecMu.Lock()
+	defer scriptExecMu.Unlock()
 
 	if funcEngine == nil {
 		return protocol.MakeBulkReply([]byte{})
@@ -429,8 +516,11 @@ func execFunctionRestore(db *DB, args [][]byte) redis.Reply {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'function restore' command")
 	}
 
+	scriptExecMu.Lock()
+	defer scriptExecMu.Unlock()
+
 	if funcEngine == nil {
-		InitFunctionsEngine(db)
+		initFunctionsEngineLocked(db)
 	}
 
 	// Parse policy
@@ -505,9 +595,12 @@ func execFCallInternal(db *DB, args [][]byte, readonly bool) redis.Reply {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'fcall' command")
 	}
 
+	scriptExecMu.Lock()
+	defer scriptExecMu.Unlock()
+
 	funcDB = db
 	if funcEngine == nil {
-		InitFunctionsEngine(db)
+		initFunctionsEngineLocked(db)
 	}
 	if funcEngine == nil {
 		return protocol.MakeErrReply("ERR Redis Functions not enabled")

@@ -10,10 +10,10 @@ import (
 
 // LockManager provides lock management with timeout and deadlock detection
 type LockManager struct {
-	dict      *ConcurrentDict
-	timeout   time.Duration
-	lockTable map[uint32]*lockInfo // Track lock holders
-	mu        sync.RWMutex
+	dict              *ConcurrentDict
+	timeout           time.Duration
+	lockTable         map[uint32]*lockInfo // Track lock holders
+	mu                sync.RWMutex
 	deadlockDetection bool
 }
 
@@ -35,14 +35,14 @@ const (
 
 // LockConfig configures the lock manager
 type LockConfig struct {
-	Timeout       time.Duration // Default lock timeout
+	Timeout                 time.Duration // Default lock timeout
 	EnableDeadlockDetection bool
 }
 
 // DefaultLockConfig returns default configuration
 func DefaultLockConfig() *LockConfig {
 	return &LockConfig{
-		Timeout:       5 * time.Second,
+		Timeout:                 5 * time.Second,
 		EnableDeadlockDetection: true,
 	}
 }
@@ -62,57 +62,71 @@ func NewLockManager(dict *ConcurrentDict, config *LockConfig) *LockManager {
 
 // RWLocksWithTimeout locks write keys and read keys with timeout support
 func (lm *LockManager) RWLocksWithTimeout(ctx context.Context, writeKeys, readKeys []string, holderID string) error {
+	if lm == nil || lm.dict == nil {
+		return fmt.Errorf("lock manager dict is nil")
+	}
 	keys := append(writeKeys, readKeys...)
 	indices := lm.dict.toLockIndices(keys, false)
-	
+
 	writeIndexSet := make(map[uint32]struct{})
 	for _, wKey := range writeKeys {
 		idx := lm.dict.spread(wKey)
 		writeIndexSet[idx] = struct{}{}
 	}
-	
+
 	// Try to acquire all locks with timeout
 	acquiredLocks := make([]uint32, 0, len(indices))
-	
+
 	for _, index := range indices {
 		_, isWrite := writeIndexSet[index]
-		
+
 		lockType := ReadLock
 		if isWrite {
 			lockType = WriteLock
 		}
-		
+
 		if err := lm.acquireLockWithTimeout(ctx, index, lockType, holderID); err != nil {
-			// Release already acquired locks on failure
-			for _, idx := range acquiredLocks {
+			// Release already acquired locks in reverse order on failure
+			for i := len(acquiredLocks) - 1; i >= 0; i-- {
+				idx := acquiredLocks[i]
+				_, w := writeIndexSet[idx]
+				mu := &lm.dict.table[idx].keyMu
 				lm.releaseLock(idx, holderID)
+				if w {
+					mu.Unlock()
+				} else {
+					mu.RUnlock()
+				}
 			}
 			return fmt.Errorf("lock acquisition failed for shard %d: %w", index, err)
 		}
-		
+
 		acquiredLocks = append(acquiredLocks, index)
 	}
-	
+
 	return nil
 }
 
 // RWUnLocks unlocks write keys and read keys
 func (lm *LockManager) RWUnLocks(writeKeys, readKeys []string, holderID string) {
+	if lm == nil || lm.dict == nil {
+		return
+	}
 	keys := append(writeKeys, readKeys...)
 	indices := lm.dict.toLockIndices(keys, true)
-	
+
 	writeIndexSet := make(map[uint32]struct{})
 	for _, wKey := range writeKeys {
 		idx := lm.dict.spread(wKey)
 		writeIndexSet[idx] = struct{}{}
 	}
-	
+
 	for _, index := range indices {
 		_, isWrite := writeIndexSet[index]
-		mu := &lm.dict.table[index].mutex
-		
+		mu := &lm.dict.table[index].keyMu
+
 		lm.releaseLock(index, holderID)
-		
+
 		if isWrite {
 			mu.Unlock()
 		} else {
@@ -121,7 +135,7 @@ func (lm *LockManager) RWUnLocks(writeKeys, readKeys []string, holderID string) 
 	}
 }
 
-// acquireLockWithTimeout attempts to acquire a lock with timeout
+// acquireLockWithTimeout attempts to acquire a lock with timeout without leaking goroutines
 func (lm *LockManager) acquireLockWithTimeout(ctx context.Context, index uint32, lockType LockType, holderID string) error {
 	// Check for potential deadlock before acquiring
 	if lm.deadlockDetection {
@@ -129,34 +143,40 @@ func (lm *LockManager) acquireLockWithTimeout(ctx context.Context, index uint32,
 			return err
 		}
 	}
-	
-	mu := &lm.dict.table[index].mutex
-	
+
+	mu := &lm.dict.table[index].keyMu
+
 	// Create timeout context if not provided
 	if ctx == nil {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(context.Background(), lm.timeout)
 		defer cancel()
 	}
-	
-	// Try to acquire lock with timeout
-	done := make(chan struct{})
-	go func() {
+
+	tryAcquire := func() bool {
 		if lockType == WriteLock {
-			mu.Lock()
-		} else {
-			mu.RLock()
+			return mu.TryLock()
 		}
-		close(done)
-	}()
-	
-	select {
-	case <-done:
-		// Lock acquired, record it
+		return mu.TryRLock()
+	}
+
+	if tryAcquire() {
 		lm.recordLock(index, lockType, holderID)
 		return nil
-	case <-ctx.Done():
-		return fmt.Errorf("lock acquisition timeout: %w", ctx.Err())
+	}
+
+	ticker := time.NewTicker(time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("lock acquisition timeout: %w", ctx.Err())
+		case <-ticker.C:
+			if tryAcquire() {
+				lm.recordLock(index, lockType, holderID)
+				return nil
+			}
+		}
 	}
 }
 
@@ -164,7 +184,7 @@ func (lm *LockManager) acquireLockWithTimeout(ctx context.Context, index uint32,
 func (lm *LockManager) recordLock(index uint32, lockType LockType, holderID string) {
 	lm.mu.Lock()
 	defer lm.mu.Unlock()
-	
+
 	lm.lockTable[index] = &lockInfo{
 		index:      index,
 		lockType:   lockType,
@@ -177,7 +197,7 @@ func (lm *LockManager) recordLock(index uint32, lockType LockType, holderID stri
 func (lm *LockManager) releaseLock(index uint32, holderID string) {
 	lm.mu.Lock()
 	defer lm.mu.Unlock()
-	
+
 	if info, exists := lm.lockTable[index]; exists && info.holderID == holderID {
 		delete(lm.lockTable, index)
 	}
@@ -187,7 +207,7 @@ func (lm *LockManager) releaseLock(index uint32, holderID string) {
 func (lm *LockManager) checkDeadlock(requestedIndex uint32, holderID string) error {
 	lm.mu.RLock()
 	defer lm.mu.RUnlock()
-	
+
 	// Check if another holder is waiting for locks we hold
 	for idx, info := range lm.lockTable {
 		if info.holderID != holderID {
@@ -196,7 +216,7 @@ func (lm *LockManager) checkDeadlock(requestedIndex uint32, holderID string) err
 			_ = idx
 		}
 	}
-	
+
 	return nil
 }
 
@@ -204,7 +224,7 @@ func (lm *LockManager) checkDeadlock(requestedIndex uint32, holderID string) err
 func (lm *LockManager) GetLockInfo() map[uint32]map[string]interface{} {
 	lm.mu.RLock()
 	defer lm.mu.RUnlock()
-	
+
 	result := make(map[uint32]map[string]interface{})
 	for idx, info := range lm.lockTable {
 		result[idx] = map[string]interface{}{
@@ -221,16 +241,20 @@ func (lm *LockManager) GetLockInfo() map[uint32]map[string]interface{} {
 func (lm *LockManager) ForceUnlock(index uint32) error {
 	lm.mu.Lock()
 	defer lm.mu.Unlock()
-	
+
 	if _, exists := lm.lockTable[index]; !exists {
 		return fmt.Errorf("no lock found for shard %d", index)
 	}
-	
+
 	// Release the actual lock - this is dangerous and should only be used
 	// in emergency situations
-	lm.dict.table[index].mutex.Unlock()
+	if info := lm.lockTable[index]; info.lockType == ReadLock {
+		lm.dict.table[index].keyMu.RUnlock()
+	} else {
+		lm.dict.table[index].keyMu.Unlock()
+	}
 	delete(lm.lockTable, index)
-	
+
 	return nil
 }
 
@@ -238,22 +262,22 @@ func (lm *LockManager) ForceUnlock(index uint32) error {
 func (lm *LockManager) LockStats() map[string]interface{} {
 	lm.mu.RLock()
 	defer lm.mu.RUnlock()
-	
+
 	var readLocks, writeLocks int
 	var oldestLock time.Time
-	
+
 	for _, info := range lm.lockTable {
 		if info.lockType == ReadLock {
 			readLocks++
 		} else {
 			writeLocks++
 		}
-		
+
 		if oldestLock.IsZero() || info.acquiredAt.Before(oldestLock) {
 			oldestLock = info.acquiredAt
 		}
 	}
-	
+
 	return map[string]interface{}{
 		"total_locks":    len(lm.lockTable),
 		"read_locks":     readLocks,
@@ -289,49 +313,51 @@ func NewOrderedLockManager(dict *ConcurrentDict, timeout time.Duration) *Ordered
 
 // LockAll locks all shards in a consistent order to prevent deadlocks
 func (olm *OrderedLockManager) LockAll(holderID string) error {
+	if olm == nil || olm.dict == nil {
+		return fmt.Errorf("ordered lock manager dict is nil")
+	}
 	indices := make([]uint32, len(olm.dict.table))
 	for i := range olm.dict.table {
 		indices[i] = uint32(i)
 	}
-	
+
 	// Sort to ensure consistent order
 	sort.Slice(indices, func(i, j int) bool {
 		return indices[i] < indices[j]
 	})
-	
+
 	ctx, cancel := context.WithTimeout(context.Background(), olm.timeout)
 	defer cancel()
-	
+
+	ticker := time.NewTicker(time.Millisecond)
+	defer ticker.Stop()
+
 	for _, index := range indices {
-		mu := &olm.dict.table[index].mutex
-		
-		done := make(chan struct{})
-		go func() {
-			mu.Lock()
-			close(done)
-		}()
-		
-		select {
-		case <-done:
-			// Continue to next lock
-		case <-ctx.Done():
-			// Timeout - unlock what we have
-			for _, idx := range indices {
-				if idx == index {
-					break
+		mu := &olm.dict.table[index].keyMu
+		for !mu.TryLock() {
+			select {
+			case <-ctx.Done():
+				for _, idx := range indices {
+					if idx == index {
+						break
+					}
+					olm.dict.table[idx].keyMu.Unlock()
 				}
-				olm.dict.table[idx].mutex.Unlock()
+				return fmt.Errorf("timeout locking all shards")
+			case <-ticker.C:
 			}
-			return fmt.Errorf("timeout locking all shards")
 		}
 	}
-	
+
 	return nil
 }
 
 // UnlockAll unlocks all shards
 func (olm *OrderedLockManager) UnlockAll() {
+	if olm == nil || olm.dict == nil {
+		return
+	}
 	for _, s := range olm.dict.table {
-		s.mutex.Unlock()
+		s.keyMu.Unlock()
 	}
 }

@@ -65,6 +65,8 @@ type Persister struct {
 	// aofFsync is the strategy of fsync (guarded by fsyncMu for CONFIG SET)
 	aofFsync string
 	fsyncMu  sync.RWMutex
+	closeMu  sync.RWMutex
+	closed   bool
 	// aof goroutine will send msg to main goroutine through this channel when aof tasks finished and ready to shut down
 	aofFinished chan struct{}
 	// pause aof for start/finish aof rewrite progress
@@ -117,8 +119,10 @@ func (persister *Persister) RemoveListener(listener Listener) {
 
 // SaveCmdLine send command to aof goroutine through channel
 func (persister *Persister) SaveCmdLine(dbIndex int, cmdLine CmdLine) {
+	persister.closeMu.RLock()
 	// aofChan will be set as nil temporarily during load aof see Persister.LoadAof
-	if persister.aofChan == nil {
+	if persister.closed || persister.aofChan == nil {
+		persister.closeMu.RUnlock()
 		return
 	}
 
@@ -128,6 +132,7 @@ func (persister *Persister) SaveCmdLine(dbIndex int, cmdLine CmdLine) {
 			dbIndex: dbIndex,
 		}
 		persister.writeAof(p)
+		persister.closeMu.RUnlock()
 		return
 	}
 
@@ -135,7 +140,7 @@ func (persister *Persister) SaveCmdLine(dbIndex int, cmdLine CmdLine) {
 		cmdLine: cmdLine,
 		dbIndex: dbIndex,
 	}
-
+	persister.closeMu.RUnlock()
 }
 
 // listenCmd listen aof channel and write into file
@@ -147,9 +152,9 @@ func (persister *Persister) listenCmd() {
 }
 
 func (persister *Persister) writeAof(p *payload) {
-	persister.buffer = persister.buffer[:0] // reuse underlying array
-	persister.pausingAof.Lock()             // prevent other goroutines from pausing aof
+	persister.pausingAof.Lock() // prevent other goroutines from pausing aof
 	defer persister.pausingAof.Unlock()
+	persister.buffer = persister.buffer[:0] // reuse underlying array
 	// ensure aof is in the right database
 	if p.dbIndex != persister.currentDB {
 		// select db
@@ -198,16 +203,28 @@ func (persister *Persister) LoadAof(maxBytes int) {
 	}
 	defer file.Close()
 
+	hasMax := maxBytes > 0
 	// load rdb preamble if needed
 	decoder := rdb.NewDecoder(file)
 	err = persister.db.LoadRDB(decoder)
 	if err != nil {
 		// no rdb preamble
-		file.Seek(0, io.SeekStart)
+		_, _ = file.Seek(0, io.SeekStart)
 	} else {
 		// has rdb preamble
-		_, _ = file.Seek(int64(decoder.GetReadCount())+1, io.SeekStart)
-		maxBytes = maxBytes - decoder.GetReadCount()
+		offset := int64(decoder.GetReadCount())
+		var b [1]byte
+		if n, err := file.ReadAt(b[:], offset); err == nil && n == 1 && b[0] != '*' {
+			offset++
+		}
+		_, _ = file.Seek(offset, io.SeekStart)
+		if hasMax {
+			rem := int64(maxBytes) - offset
+			if rem <= 0 {
+				return
+			}
+			maxBytes = int(rem)
+		}
 	}
 	var reader io.Reader
 	if maxBytes > 0 {
@@ -262,15 +279,28 @@ func (persister *Persister) Close() {
 	if persister == nil {
 		return
 	}
-	if persister.aofFile != nil {
+	persister.closeMu.Lock()
+	if persister.closed {
+		persister.closeMu.Unlock()
+		return
+	}
+	persister.closed = true
+	hasFile := persister.aofFile != nil
+	if hasFile && persister.aofChan != nil {
 		close(persister.aofChan)
+	}
+	persister.closeMu.Unlock()
+
+	if hasFile {
 		<-persister.aofFinished // wait for aof finished
 		err := persister.aofFile.Close()
 		if err != nil {
 			logger.Warn(err)
 		}
 	}
-	persister.cancel()
+	if persister.cancel != nil {
+		persister.cancel()
+	}
 }
 
 // Stats returns AOF statistics

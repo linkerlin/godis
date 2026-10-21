@@ -209,6 +209,17 @@ func (server *Server) saveForReplication() error {
 		err = aof.WriteRDBFromDB(rdbFilename, server)
 	}
 	if err != nil {
+		server.masterStatus.mu.Lock()
+		server.masterStatus.bgSaveState = bgSaveIdle
+		failedSlaves := make([]*slaveClient, 0, len(server.masterStatus.waitSlaves))
+		for s := range server.masterStatus.waitSlaves {
+			failedSlaves = append(failedSlaves, s)
+		}
+		server.masterStatus.waitSlaves = make(map[*slaveClient]struct{})
+		server.masterStatus.mu.Unlock()
+		for _, s := range failedSlaves {
+			server.removeSlave(s)
+		}
 		return err
 	}
 	aofListener.readyToSend = true
@@ -316,6 +327,9 @@ func (server *Server) masterFullReSyncWithSlave(slave *slaveClient) error {
 	if err != nil {
 		return fmt.Errorf("open rdb file %s for replication error: %v", server.masterStatus.rdbFilename, err)
 	}
+	defer func() {
+		_ = rdbFile.Close()
+	}()
 	slave.state = slaveStateSendingRDB
 	rdbInfo, _ := os.Stat(server.masterStatus.rdbFilename)
 	rdbSize := rdbInfo.Size()
@@ -382,24 +396,35 @@ func (server *Server) masterTryPartialSyncWithSlave(slave *slaveClient, replId s
 // masterSendUpdatesToSlave only sends data to online slaves after bgSave is finished
 // if bgSave is running, updates will be sent after the saving finished
 func (server *Server) masterSendUpdatesToSlave() error {
-	onlineSlaves := make(map[*slaveClient]struct{})
+	type slaveSendJob struct {
+		slave      *slaveClient
+		sentOffset int64
+	}
+	var jobs []slaveSendJob
 	server.masterStatus.mu.RLock()
 	beginOffset := server.masterStatus.backlog.beginOffset
 	backlog, currentOffset := server.masterStatus.backlog.getSnapshot()
 	for slave := range server.masterStatus.onlineSlaves {
-		onlineSlaves[slave] = struct{}{}
+		jobs = append(jobs, slaveSendJob{
+			slave:      slave,
+			sentOffset: slave.sentOffset,
+		})
 	}
 	server.masterStatus.mu.RUnlock()
-	for slave := range onlineSlaves {
-		slaveBeginOffset := slave.sentOffset - beginOffset
-		// Guard against negative/overflowing offsets (e.g. a replica that just
-		// disconnected during FAILOVER, or a backlog that rolled past the
-		// replica's last send watermark). A write to a closed connection below removes it.
+	for _, job := range jobs {
+		slave := job.slave
+		slaveBeginOffset := job.sentOffset - beginOffset
+		// If the backlog ring buffer rolled past this replica's last send watermark,
+		// disconnect the lagging replica so it performs a fresh PSYNC/full resync
+		// instead of silently skipping overwritten commands.
 		if slaveBeginOffset < 0 {
-			slaveBeginOffset = 0
+			logger.Warn(fmt.Sprintf("slave %s fell behind replication backlog (sent=%d < begin=%d); disconnecting",
+				slave.conn.Name(), job.sentOffset, beginOffset))
+			server.removeSlave(slave)
+			continue
 		}
-		if slaveBeginOffset > int64(len(backlog)) {
-			slaveBeginOffset = int64(len(backlog))
+		if slaveBeginOffset >= int64(len(backlog)) {
+			continue
 		}
 		_, err := slave.conn.Write(backlog[slaveBeginOffset:])
 		if err != nil {
@@ -408,7 +433,11 @@ func (server *Server) masterSendUpdatesToSlave() error {
 			continue
 		}
 		// Advance send watermark only — WAIT / countSyncedSlaves use REPLCONF ACK (offset).
-		slave.sentOffset = currentOffset
+		server.masterStatus.mu.Lock()
+		if slave.sentOffset < currentOffset {
+			slave.sentOffset = currentOffset
+		}
+		server.masterStatus.mu.Unlock()
 	}
 	return nil
 }
@@ -483,12 +512,12 @@ func (server *Server) execReplConf(c redis.Connection, args [][]byte) redis.Repl
 	// slaveClient may not exist yet — create it early so announce info survives
 	// until execPSync reuses it.
 	server.masterStatus.mu.Lock()
+	defer server.masterStatus.mu.Unlock()
 	slave := server.masterStatus.slaveMap[c]
 	if slave == nil {
 		slave = &slaveClient{conn: c}
 		server.masterStatus.slaveMap[c] = slave
 	}
-	server.masterStatus.mu.Unlock()
 	for i := 0; i < len(args); i += 2 {
 		key := strings.ToLower(string(args[i]))
 		value := string(args[i+1])
@@ -610,7 +639,6 @@ func (server *Server) initMasterStatus() {
 
 func (server *Server) stopMaster() {
 	server.masterStatus.mu.Lock()
-	defer server.masterStatus.mu.Unlock()
 
 	// disconnect with slave
 	for _, slave := range server.masterStatus.slaveMap {
@@ -621,10 +649,11 @@ func (server *Server) stopMaster() {
 	}
 
 	// clean master status
-	if server.persister != nil {
-		server.persister.RemoveListener(server.masterStatus.aofListener)
-	}
-	_ = os.Remove(server.masterStatus.rdbFilename)
+	listener := server.masterStatus.aofListener
+	// Clear the listener: DBs wired by wireReplicationBacklogFeed read this
+	// pointer, and after demotion they must stop feeding the stale backlog.
+	server.masterStatus.aofListener = nil
+	rdbFilename := server.masterStatus.rdbFilename
 	server.masterStatus.rdbFilename = ""
 	server.masterStatus.replId = ""
 	server.masterStatus.backlog = newReplBacklog(maxBacklogSize)
@@ -632,6 +661,16 @@ func (server *Server) stopMaster() {
 	server.masterStatus.waitSlaves = make(map[*slaveClient]struct{})
 	server.masterStatus.onlineSlaves = make(map[*slaveClient]struct{})
 	server.masterStatus.bgSaveState = bgSaveIdle
+	server.masterStatus.mu.Unlock()
+
+	// RemoveListener takes pausingAof, while AOF callbacks hold pausingAof and
+	// take masterStatus.mu; call it after unlocking to avoid lock inversion.
+	if server.persister != nil && listener != nil {
+		server.persister.RemoveListener(listener)
+	}
+	if rdbFilename != "" {
+		_ = os.Remove(rdbFilename)
+	}
 }
 
 // execWait WAIT numreplicas timeout — block until enough replicas ACK or timeout (ms).

@@ -38,7 +38,7 @@ func execRename(cluster *core.Cluster, c redis.Connection, cmdLine CmdLine) redi
 	targetSlot := cluster.GetSlot(target)
 	targetNode := cluster.PickNode(targetSlot)
 	if srcNode == targetNode {
-		cmdLine[0] = []byte("rename")
+		cmdLine[0] = []byte("rename_")
 		return cluster.Relay(srcNode, c, cmdLine)
 	}
 	routeMap := RouteMap{
@@ -69,7 +69,7 @@ func execRename(cluster *core.Cluster, c redis.Connection, cmdLine CmdLine) redi
 
 	// commit
 	commitCmd := utils.ToCmdLine("commit", txID)
-	for node := range routeMap {
+	for _, node := range sortedRouteNodes(routeMap) {
 		reply := cluster.Relay(node, c, commitCmd)
 		if err := protocol.Try2ErrorReply(reply); err != nil {
 			requestRollback(cluster, c, txID, routeMap)
@@ -90,7 +90,7 @@ func execRenameNx(cluster *core.Cluster, c redis.Connection, cmdLine CmdLine) re
 	targetSlot := cluster.GetSlot(target)
 	targetNode := cluster.PickNode(targetSlot)
 	if srcNode == targetNode {
-		cmdLine[0] = []byte("rename")
+		cmdLine[0] = []byte("renamenx_")
 		return cluster.Relay(srcNode, c, cmdLine)
 	}
 	routeMap := RouteMap{
@@ -124,7 +124,7 @@ func execRenameNx(cluster *core.Cluster, c redis.Connection, cmdLine CmdLine) re
 
 	// commit
 	commitCmd := utils.ToCmdLine("commit", txID)
-	for node := range routeMap {
+	for _, node := range sortedRouteNodes(routeMap) {
 		reply := cluster.Relay(node, c, commitCmd)
 		if err := protocol.Try2ErrorReply(reply); err != nil {
 			requestRollback(cluster, c, txID, routeMap)
@@ -140,12 +140,8 @@ func prepareRenameFrom(cluster *core.Cluster, conn redis.Connection, cmdLine Cmd
 		return protocol.MakeArgNumErrReply("RenameFrom")
 	}
 	key := string(cmdLine[1])
-	existResp := cluster.LocalExec(conn, utils.ToCmdLine("Exists", key))
-	if protocol.IsErrorReply(existResp) {
-		return existResp
-	}
-	existIntResp := existResp.(*protocol.IntReply)
-	if existIntResp.Code == 0 {
+	exists := cluster.LocalExists([]string{key})
+	if len(exists) == 0 {
 		return protocol.MakeErrReply("ERR no such key")
 	}
 	return cluster.LocalExecWithinLock(conn, utils.ToCmdLine2("DumpKey", key))

@@ -32,6 +32,9 @@ func TestM2buLatencyHistogram(t *testing.T) {
 	defer server.Close()
 	c := connection.NewFakeConn()
 
+	// Drain events left by other tests in this package: latency state is
+	// process-global, not per-server.
+	server.Exec(c, utils.ToCmdLine("LATENCY", "RESET"))
 	// Seed a sample so RESET emptiness is meaningful even on a cold process.
 	RecordCommandLatency("set", 2*time.Millisecond)
 	asserts.AssertIntReply(t, server.Exec(c, utils.ToCmdLine("LATENCY", "RESET")), 0)

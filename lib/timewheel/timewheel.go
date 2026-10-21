@@ -120,8 +120,7 @@ func (tw *TimeWheel) tickHandler() {
 }
 
 func (tw *TimeWheel) scanAndRunTask(l *list.List) {
-	var tasksToRemove []string
-	tw.mu.RLock() // Read lock for accessing the list
+	tw.mu.Lock()
 	for e := l.Front(); e != nil; {
 		task := e.Value.(*task)
 		if task.circle > 0 {
@@ -140,18 +139,11 @@ func (tw *TimeWheel) scanAndRunTask(l *list.List) {
 		}(task.job)
 
 		if task.key != "" {
-			tasksToRemove = append(tasksToRemove, task.key)
+			delete(tw.timer, task.key)
 		}
 		next := e.Next()
-		l.Remove(e) // Safe as this is a local operation
+		l.Remove(e)
 		e = next
-	}
-	tw.mu.RUnlock()
-
-	// Remove tasks from the timer after the scan
-	tw.mu.Lock()
-	for _, key := range tasksToRemove {
-		delete(tw.timer, key)
 	}
 	tw.mu.Unlock()
 }

@@ -77,7 +77,7 @@ func (factory *defaultClientFactory) BorrowPeerClient(peerAddr string) (peerClie
 		}
 		finalizer := func(x interface{}) {
 			logger.Debug("destroy client")
-			cli, ok := x.(client.Client)
+			cli, ok := x.(*client.Client)
 			if !ok {
 				return
 			}

@@ -43,6 +43,27 @@ type hotkeysSession struct {
 
 var hotkeys hotkeysSession
 
+const maxHotkeyTrackedKeys = 10000
+
+func addBoundedHotkey(m map[string]int64, k string, delta int64) {
+	if _, exists := m[k]; exists || len(m) < maxHotkeyTrackedKeys {
+		m[k] += delta
+		return
+	}
+	var minKey string
+	var minVal int64 = -1
+	for mk, mv := range m {
+		if minVal < 0 || mv < minVal {
+			minKey = mk
+			minVal = mv
+		}
+	}
+	if minVal >= 0 && delta > minVal {
+		delete(m, minKey)
+		m[k] = delta
+	}
+}
+
 // recordHotkeys attributes one executed command to its keys. Called from the
 // normal command path only; ponytail: O(keys) map adds per command while
 // tracking is active, no-op otherwise.
@@ -68,10 +89,10 @@ func recordHotkeys(cmdLine [][]byte, write, read []string, usec uint64) {
 	}
 	for _, k := range append(append([]string(nil), write...), read...) {
 		if hotkeys.trackCPU {
-			hotkeys.cpuUS[k] += int64(usec)
+			addBoundedHotkey(hotkeys.cpuUS, k, int64(usec))
 		}
 		if hotkeys.trackNET {
-			hotkeys.netBytes[k] += net
+			addBoundedHotkey(hotkeys.netBytes, k, net)
 		}
 	}
 	if hotkeys.trackCPU {
@@ -303,7 +324,10 @@ func isMetricsToken(arg []byte) bool {
 // himportSessions maps client ID -> fieldset name -> ordered field names.
 // ponytail: per-connection fieldsets live until RESET; there is no
 // disconnect hook, so PREPARE caps fieldsets per connection at 128.
-var himportSessions sync.Map
+var (
+	himportSessions sync.Map
+	himportMu       sync.Mutex
+)
 
 const himportMaxFieldsetsPerConn = 128
 
@@ -323,9 +347,11 @@ func execHImportConn(c redis.Connection, db *DB, args [][]byte) redis.Reply {
 		if len(args) != 2 {
 			return protocol.MakeErrReply("ERR wrong number of arguments for 'himport|discard' command")
 		}
+		himportMu.Lock()
 		if fieldsets, ok := himportSessions.Load(c.GetClientID()); ok {
 			delete(fieldsets.(map[string][]string), string(args[1]))
 		}
+		himportMu.Unlock()
 		return protocol.MakeOkReply()
 	case "DISCARDALL":
 		if c == nil {
@@ -334,7 +360,9 @@ func execHImportConn(c redis.Connection, db *DB, args [][]byte) redis.Reply {
 		if len(args) != 1 {
 			return protocol.MakeErrReply("ERR wrong number of arguments for 'himport|discardall' command")
 		}
+		himportMu.Lock()
 		himportSessions.Delete(c.GetClientID())
+		himportMu.Unlock()
 		return protocol.MakeOkReply()
 	default:
 		return protocol.MakeErrReply("ERR Unknown subcommand or wrong number of arguments for '" + strings.ToLower(string(args[0])) + "'. Try HIMPORT HELP.")
@@ -352,7 +380,9 @@ func himportFieldsets(c redis.Connection) (map[string][]string, bool) {
 
 // ClearHImportSession drops a connection's fieldsets (RESET path).
 func ClearHImportSession(clientID int64) {
+	himportMu.Lock()
 	himportSessions.Delete(clientID)
+	himportMu.Unlock()
 }
 
 func execHImportPrepare(c redis.Connection, db *DB, args [][]byte) redis.Reply {
@@ -370,6 +400,8 @@ func execHImportPrepare(c redis.Connection, db *DB, args [][]byte) redis.Reply {
 		seen[fs] = struct{}{}
 		fields = append(fields, fs)
 	}
+	himportMu.Lock()
+	defer himportMu.Unlock()
 	fieldsets, ok := himportFieldsets(c)
 	if !ok {
 		return protocol.MakeErrReply("ERR HIMPORT PREPARE requires a client connection")
@@ -384,16 +416,22 @@ func execHImportPrepare(c redis.Connection, db *DB, args [][]byte) redis.Reply {
 }
 
 func execHImportSet(c redis.Connection, db *DB, args [][]byte) redis.Reply {
+	if c == nil {
+		return protocol.MakeErrReply("ERR HIMPORT SET requires a client connection")
+	}
 	if len(args) < 3 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'himport|set' command")
 	}
 	key := string(args[0])
 	name := string(args[1])
+	himportMu.Lock()
 	raw, ok := himportSessions.Load(c.GetClientID())
 	if !ok {
+		himportMu.Unlock()
 		return protocol.MakeErrReply("ERR No such fieldset")
 	}
 	fields, ok := raw.(map[string][]string)[name]
+	himportMu.Unlock()
 	if !ok {
 		return protocol.MakeErrReply("ERR No such fieldset")
 	}
@@ -402,14 +440,15 @@ func execHImportSet(c redis.Connection, db *DB, args [][]byte) redis.Reply {
 		return protocol.MakeErrReply("ERR Value count does not match the fieldset")
 	}
 
-	// Build the plain hash via the HSET execution path (locking, AOF, index
-	// feeding and notifications all follow).
-	hsetArgs := make([][]byte, 0, 1+len(fields)*2)
-	hsetArgs = append(hsetArgs, []byte(key))
+	// Build the plain hash via the HSET normal execution path (locking, WATCH
+	// version bump, client-side caching invalidation, AOF, index feeding and
+	// notifications all follow).
+	hsetCmd := make([][]byte, 0, 2+len(fields)*2)
+	hsetCmd = append(hsetCmd, []byte("HSET"), []byte(key))
 	for i, f := range fields {
-		hsetArgs = append(hsetArgs, []byte(f), values[i])
+		hsetCmd = append(hsetCmd, []byte(f), values[i])
 	}
-	r := execHSet(db, hsetArgs)
+	r := db.execNormalCommand(c, hsetCmd)
 	if protocol.IsErrorReply(r) {
 		return r
 	}

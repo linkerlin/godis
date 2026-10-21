@@ -111,7 +111,7 @@ func execSRem(db *DB, args [][]byte) redis.Reply {
 	}
 	if counter > 0 {
 		db.addAof(utils.ToCmdLine3("srem", args...))
-	notifyKeyspaceEvent(db, "srem", key)
+		notifyKeyspaceEvent(db, "srem", key)
 	}
 	return protocol.MakeIntReply(int64(counter))
 }
@@ -658,6 +658,24 @@ func execSDiffCard(db *DB, args [][]byte) redis.Reply {
 	return protocol.MakeIntReply(int64(card))
 }
 
+func prepareSetCard(args [][]byte) ([]string, []string) {
+	if len(args) < 2 {
+		return nil, nil
+	}
+	numKeys, err := strconv.Atoi(string(args[0]))
+	if err != nil || numKeys <= 0 {
+		return nil, nil
+	}
+	if numKeys > len(args)-1 {
+		numKeys = len(args) - 1
+	}
+	keys := make([]string, numKeys)
+	for i := 0; i < numKeys; i++ {
+		keys[i] = string(args[i+1])
+	}
+	return nil, keys
+}
+
 func init() {
 	registerCommand("SAdd", execSAdd, writeFirstKey, undoSetChange, -3, flagWrite).
 		attachCommandExtra([]string{redisFlagWrite, redisFlagDenyOOM, redisFlagFast}, 1, 1, 1)
@@ -689,10 +707,10 @@ func init() {
 		attachCommandExtra([]string{redisFlagReadonly, redisFlagSortForScript}, 1, 1, 1)
 	registerCommand("SMIsMember", execSMIsMember, readFirstKey, nil, -3, flagReadOnly).
 		attachCommandExtra([]string{redisFlagReadonly, redisFlagFast}, 1, 1, 1)
-	registerCommand("SInterCard", execSInterCard, prepareSetCalculate, nil, -3, flagReadOnly).
-		attachCommandExtra([]string{redisFlagReadonly, redisFlagFast}, 1, -1, 1)
-	registerCommand("SUnionCard", execSUnionCard, prepareSetCalculate, nil, -3, flagReadOnly).
-		attachCommandExtra([]string{redisFlagReadonly, redisFlagFast}, 1, -1, 1)
-	registerCommand("SDiffCard", execSDiffCard, prepareSetCalculate, nil, -3, flagReadOnly).
-		attachCommandExtra([]string{redisFlagReadonly, redisFlagFast}, 1, -1, 1)
+	registerCommand("SInterCard", execSInterCard, prepareSetCard, nil, -3, flagReadOnly).
+		attachCommandExtra([]string{redisFlagReadonly, redisFlagFast}, 2, -1, 1)
+	registerCommand("SUnionCard", execSUnionCard, prepareSetCard, nil, -3, flagReadOnly).
+		attachCommandExtra([]string{redisFlagReadonly, redisFlagFast}, 2, -1, 1)
+	registerCommand("SDiffCard", execSDiffCard, prepareSetCard, nil, -3, flagReadOnly).
+		attachCommandExtra([]string{redisFlagReadonly, redisFlagFast}, 2, -1, 1)
 }

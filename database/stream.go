@@ -411,6 +411,9 @@ func execXRevRange(db *DB, args [][]byte) redis.Reply {
 		return protocol.MakeEmptyMultiBulkReply()
 	}
 
+	if count == 0 {
+		return protocol.MakeEmptyMultiBulkReply()
+	}
 	entries := s.ReverseRange(start, end, count)
 	return streamEntriesToReply(entries)
 }
@@ -559,6 +562,7 @@ func execXAckDel(db *DB, args [][]byte) redis.Reply {
 	if err != nil {
 		return streamIDStatusReply(ids, -1)
 	}
+	group.Lock()
 	acked := false
 	for _, id := range ids {
 		if _, ok := group.Pending[id]; ok {
@@ -571,6 +575,7 @@ func execXAckDel(db *DB, args [][]byte) redis.Reply {
 			acked = true
 		}
 	}
+	group.Unlock()
 	results := s.DeleteExResults(ids, mode)
 	changed := acked
 	for _, r := range results {
@@ -1036,10 +1041,12 @@ func execXGroupSetID(db *DB, args [][]byte) redis.Reply {
 		}
 	}
 
+	group.Lock()
 	group.LastID = newStreamID
 	if entriesRead >= 0 {
-		group.SetEntriesRead(entriesRead)
+		group.EntriesRead = entriesRead
 	}
+	group.Unlock()
 
 	db.addAof(utils.ToCmdLine3("xgroup", append([][]byte{[]byte("setid")}, args...)...))
 	return protocol.MakeOkReply()
@@ -1186,6 +1193,20 @@ func execXInfoHelp() redis.Reply {
 	return protocol.MakeMultiRawReply(result)
 }
 
+func prepareXGroup(args [][]byte) ([]string, []string) {
+	if len(args) >= 2 && !strings.EqualFold(string(args[0]), "HELP") {
+		return []string{string(args[1])}, nil
+	}
+	return nil, nil
+}
+
+func prepareXInfo(args [][]byte) ([]string, []string) {
+	if len(args) >= 2 && !strings.EqualFold(string(args[0]), "HELP") {
+		return nil, []string{string(args[1])}
+	}
+	return nil, nil
+}
+
 func init() {
 	registerCommand("XAdd", execXAdd, writeFirstKey, rollbackFirstKey, -5, flagWrite).
 		attachCommandExtra([]string{redisFlagWrite, redisFlagDenyOOM, redisFlagFast}, 1, 1, 1)
@@ -1203,10 +1224,10 @@ func init() {
 		attachCommandExtra([]string{redisFlagWrite, redisFlagFast}, 1, 1, 1)
 	registerCommand("XTrim", execXTrim, writeFirstKey, nil, -4, flagWrite).
 		attachCommandExtra([]string{redisFlagWrite}, 1, 1, 1)
-	registerCommand("XGroup", execXGroup, noPrepare, nil, -2, flagWrite).
+	registerCommand("XGroup", execXGroup, prepareXGroup, nil, -2, flagWrite).
 		attachCommandExtra([]string{redisFlagWrite}, 2, 2, 1)
 	registerCommand("XSetID", execXSetID, writeFirstKey, nil, -3, flagWrite).
 		attachCommandExtra([]string{redisFlagWrite, redisFlagFast}, 1, 1, 1)
-	registerCommand("XInfo", execXInfo, noPrepare, nil, -2, flagReadOnly).
+	registerCommand("XInfo", execXInfo, prepareXInfo, nil, -2, flagReadOnly).
 		attachCommandExtra([]string{redisFlagReadonly}, 0, 0, 0)
 }

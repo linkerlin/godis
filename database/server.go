@@ -71,6 +71,10 @@ type Server struct {
 	// stopCron signals startReplCron to exit (closed once in Close).
 	stopCron     chan struct{}
 	stopCronOnce sync.Once
+	cronWg       sync.WaitGroup
+
+	// isAuxiliary marks temporary Server instances used during AOF rewrite / RDB load.
+	isAuxiliary bool
 }
 
 func fileExists(filename string) bool {
@@ -151,9 +155,6 @@ func newServerWithSize(dictSize int) (*Server, error) {
 	}
 	server.slogLogger = NewSlowLogger(config.Properties.SlowLogMaxLen, config.Properties.SlowLogSlowerThan)
 
-	// initialize lock manager
-	server.lockManager = dict.NewLockManager(nil, nil)
-
 	// initialize memory limiter from config
 	policy := config.Properties.MaxmemoryPolicy
 	if policy == "" {
@@ -168,10 +169,14 @@ func newServerWithSize(dictSize int) (*Server, error) {
 
 	SetSlowLogLenProvider(func() int { return server.SlowLogLen() })
 
-	// propagate lock manager to all DBs
-	for _, holder := range server.dbSet {
+	// initialize and propagate per-DB lock manager
+	for i, holder := range server.dbSet {
 		db := holder.Load().(*DB)
-		db.SetLockManager(server.lockManager)
+		lm := dict.NewLockManager(db.data, nil)
+		db.SetLockManager(lm)
+		if i == 0 {
+			server.lockManager = lm
+		}
 	}
 
 	// initialize and propagate eviction manager
@@ -371,7 +376,7 @@ func (server *Server) Exec(c redis.Connection, cmdLine [][]byte) (result redis.R
 
 	// read only slave
 	role := atomic.LoadInt32(&server.role)
-	if role == slaveRole && !c.IsMaster() {
+	if role == slaveRole && (c == nil || !c.IsMaster()) {
 		readOnly := true
 		if config.Properties != nil {
 			readOnly = config.Properties.ReplicaReadOnly
@@ -523,7 +528,14 @@ func (server *Server) Exec(c redis.Connection, cmdLine [][]byte) (result redis.R
 	// todo: support multi database transaction
 
 	// normal commands
-	dbIndex := c.GetDBIndex()
+	dbIndex := 0
+	peerAddr := ""
+	clientName := ""
+	if c != nil {
+		dbIndex = c.GetDBIndex()
+		peerAddr = c.RemoteAddr()
+		clientName = c.GetClientName()
+	}
 	selectedDB, errReply := server.selectDB(dbIndex)
 	if errReply != nil {
 		return errReply
@@ -531,7 +543,7 @@ func (server *Server) Exec(c redis.Connection, cmdLine [][]byte) (result redis.R
 
 	exec := selectedDB.Exec(c, cmdLine)
 	// Record slow query logs
-	server.slogLogger.Record(GodisExecCommandStartUnixTime, cmdLine, c.RemoteAddr(), c.GetClientName())
+	server.slogLogger.Record(GodisExecCommandStartUnixTime, cmdLine, peerAddr, clientName)
 	elapsed := time.Since(GodisExecCommandStartUnixTime)
 	// LATENCY: record sub-millisecond+ command samples under the command name.
 	if elapsed >= time.Millisecond {
@@ -560,6 +572,7 @@ func (server *Server) AfterClientClose(c redis.Connection) {
 		DisableTracking(id)
 		c.SetTrackingID("")
 	}
+	ClearHImportSession(c.GetClientID())
 	RemoveMonitorClient(c)
 	pubsub.UnsubscribeAll(server.hub, c)
 	shardedHub.AfterClientClose(c)
@@ -572,6 +585,7 @@ func (server *Server) Close() {
 			close(server.stopCron)
 		}
 	})
+	server.cronWg.Wait()
 	// stop slaveStatus first
 	if server.slaveStatus != nil {
 		server.slaveStatus.close()
@@ -888,7 +902,9 @@ func (server *Server) GetDBSize(dbIndex int) (int, int, error) {
 }
 
 func (server *Server) startReplCron() {
+	server.cronWg.Add(1)
 	go func(mdb *Server) {
+		defer mdb.cronWg.Done()
 		replTicker := time.NewTicker(time.Second * 10)
 		saveTicker := time.NewTicker(time.Second)
 		defer replTicker.Stop()

@@ -3,6 +3,7 @@ package database
 
 import (
 	"context"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -36,7 +37,8 @@ type DB struct {
 	versionMap *dict.ConcurrentDict
 
 	// addaof is used to add command to aof
-	addAof func(CmdLine)
+	addAof      func(CmdLine)
+	suppressAof int32
 
 	// callbacks
 	insertCallback database.KeyEventCallback
@@ -366,8 +368,15 @@ func (db *DB) Remove(key string) {
 func (db *DB) removeKey(key string, notifyDel bool) {
 	raw, deleted := db.data.RemoveWithLock(key)
 	db.ttlMap.Remove(key)
-	taskKey := genExpireTask(key)
+	taskKey := db.genExpireTask(key)
 	timewheel.Cancel(taskKey)
+	if deleted > 0 {
+		if entity, ok := raw.(*database.DataEntity); ok && entity != nil {
+			if ed, ok := entity.Data.(*dict.ExpireDict); ok && ed != nil {
+				ed.Clear()
+			}
+		}
+	}
 	signalTSWaiters(key) // TS.READ blocked clients reply empty on key removal
 	if db.evictionManager != nil {
 		db.evictionManager.Forget(key)
@@ -403,6 +412,7 @@ func (db *DB) Removes(keys ...string) (deleted int) {
 func (db *DB) Flush() {
 	db.data.Clear()
 	db.ttlMap.Clear()
+	db.versionMap.Clear()
 }
 
 /* ---- Lock Function ----- */
@@ -469,15 +479,15 @@ func (db *DB) EvictIfNeeded(maxMemory, currentUsage int64) int {
 
 /* ---- TTL Functions ---- */
 
-func genExpireTask(key string) string {
-	return "expire:" + key
+func (db *DB) genExpireTask(key string) string {
+	return "expire:" + strconv.Itoa(db.index) + ":" + key
 }
 
 // Expire sets ttlCmd of key
 func (db *DB) Expire(key string, expireTime time.Time) {
 	db.ttlMap.Put(key, expireTime)
 	notifyKeyspaceEvent(db, "expire", key)
-	taskKey := genExpireTask(key)
+	taskKey := db.genExpireTask(key)
 	timewheel.At(expireTime, taskKey, func() {
 		keys := []string{key}
 		db.RWLocks(keys, nil)
@@ -501,6 +511,7 @@ func (db *DB) Expire(key string, expireTime time.Time) {
 			atomic.AddUint64(&serverStats.ExpiredKeys, 1)
 			notifyKeyspaceEvent(db, "expired", key)
 			db.removeKey(key, false)
+			db.addVersion(key)
 			// Propagate the expiry to replicas: the replication backlog is fed
 			// from the AOF, so an expired key must be DEL'd there too.
 			if db.addAof != nil {
@@ -513,7 +524,7 @@ func (db *DB) Expire(key string, expireTime time.Time) {
 // Persist cancel ttlCmd of key
 func (db *DB) Persist(key string) {
 	db.ttlMap.Remove(key)
-	taskKey := genExpireTask(key)
+	taskKey := db.genExpireTask(key)
 	timewheel.Cancel(taskKey)
 }
 
@@ -528,9 +539,10 @@ func (db *DB) IsExpired(key string) bool {
 	if expired {
 		// Track stale expiration (key was accessed but already expired)
 		atomic.AddUint64(&serverStats.ExpiredKeys, 1)
-		serverStats.ExpiredStale++
+		atomic.AddInt64(&serverStats.ExpiredStale, 1)
 		notifyKeyspaceEvent(db, "expired", key)
 		db.removeKey(key, false)
+		db.addVersion(key)
 		// Propagate to replicas via the AOF-fed backlog (see Expire callback).
 		if db.addAof != nil {
 			db.addAof(utils.ToCmdLine3("del", []byte(key)))

@@ -70,7 +70,24 @@ func (cluster *Cluster) Exec(c redis.Connection, cmdLine [][]byte) (result redis
 	}
 	cmdFunc, ok := commands[cmdName]
 	if !ok {
-		return protocol.MakeErrReply("ERR unknown command '" + cmdName + "', or not supported in cluster mode")
+		keys, keylessLocal, exists := database.ResolveClusterCommandKeys(cmdLine)
+		if !exists {
+			return protocol.MakeErrReply("ERR unknown command '" + cmdName + "', or not supported in cluster mode")
+		}
+		if keylessLocal || len(keys) == 0 {
+			exec := cluster.db.Exec(c, cmdLine)
+			cluster.slogLogger.Record(GodisExecCommandStartUnixTime, cmdLine, c.RemoteAddr(), c.GetClientName())
+			return exec
+		}
+		slotId := cluster.GetSlot(keys[0])
+		for _, k := range keys[1:] {
+			if cluster.GetSlot(k) != slotId {
+				return protocol.MakeErrReply("CROSSSLOT Keys in request don't hash to the same slot")
+			}
+		}
+		exec := routeByKeyAndSlot(cluster, c, cmdLine, keys[0], slotId)
+		cluster.slogLogger.Record(GodisExecCommandStartUnixTime, cmdLine, c.RemoteAddr(), c.GetClientName())
+		return exec
 	}
 	exec := cmdFunc(cluster, c, cmdLine)
 	cluster.slogLogger.Record(GodisExecCommandStartUnixTime, cmdLine, c.RemoteAddr(), c.GetClientName())
@@ -89,14 +106,28 @@ func RegisterDefaultCmd(name string) {
 	RegisterCmd(name, DefaultFunc)
 }
 
-// DefaultFunc routes a single-key command or returns MOVED/ASK for Redis Cluster clients.
+// DefaultFunc routes a single-key (or same-slot multi-key) command or returns
+// MOVED/ASK/CROSSSLOT for Redis Cluster clients.
 // Internal multi-key helpers still call Relay explicitly.
 func DefaultFunc(cluster *Cluster, c redis.Connection, args [][]byte) redis.Reply {
 	if len(args) < 2 {
 		return protocol.MakeErrReply("ERR wrong number of arguments")
 	}
+	if keys, keylessLocal, exists := database.ResolveClusterCommandKeys(args); exists && !keylessLocal && len(keys) > 0 {
+		slotId := cluster.GetSlot(keys[0])
+		for _, k := range keys[1:] {
+			if cluster.GetSlot(k) != slotId {
+				return protocol.MakeErrReply("CROSSSLOT Keys in request don't hash to the same slot")
+			}
+		}
+		return routeByKeyAndSlot(cluster, c, args, keys[0], slotId)
+	}
 	key := string(args[1])
 	slotId := cluster.GetSlot(key)
+	return routeByKeyAndSlot(cluster, c, args, key, slotId)
+}
+
+func routeByKeyAndSlot(cluster *Cluster, c redis.Connection, args [][]byte, key string, slotId uint32) redis.Reply {
 	peer := cluster.PickNode(slotId)
 	self := cluster.SelfID()
 

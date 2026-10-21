@@ -747,28 +747,28 @@ func formatFloatsCSV(fs []float64) string {
 func init() {
 	registerCommand("VAdd", execVAdd, prepareVSKey, nil, -5, flagWrite).
 		attachCommandExtra([]string{redisFlagWrite, redisFlagDenyOOM}, 1, 1, 1)
-	registerCommand("VSim", execVSim, prepareVSKey, nil, -3, flagReadOnly).
+	registerCommand("VSim", execVSim, readFirstKey, nil, -3, flagReadOnly).
 		attachCommandExtra([]string{redisFlagReadonly}, 1, 1, 1)
 	registerCommand("VRem", execVRem, prepareVSKey, nil, -3, flagWrite).
 		attachCommandExtra([]string{redisFlagWrite}, 1, 1, 1)
-	registerCommand("VCard", execVCard, prepareVSKey, nil, 2, flagReadOnly).
+	registerCommand("VCard", execVCard, readFirstKey, nil, 2, flagReadOnly).
 		attachCommandExtra([]string{redisFlagReadonly, redisFlagFast}, 1, 1, 1)
-	registerCommand("VDim", execVDim, prepareVSKey, nil, 2, flagReadOnly).
+	registerCommand("VDim", execVDim, readFirstKey, nil, 2, flagReadOnly).
 		attachCommandExtra([]string{redisFlagReadonly, redisFlagFast}, 1, 1, 1)
-	registerCommand("VEmb", execVEmb, prepareVSKey, nil, 3, flagReadOnly).
+	registerCommand("VEmb", execVEmb, readFirstKey, nil, 3, flagReadOnly).
 		attachCommandExtra([]string{redisFlagReadonly}, 1, 1, 1)
-	registerCommand("VInfo", execVInfo, prepareVSKey, nil, 2, flagReadOnly).
+	registerCommand("VInfo", execVInfo, readFirstKey, nil, 2, flagReadOnly).
 		attachCommandExtra([]string{redisFlagReadonly}, 1, 1, 1)
-	registerCommand("VIsMember", execVIsMember, prepareVSKey, nil, 3, flagReadOnly).
+	registerCommand("VIsMember", execVIsMember, readFirstKey, nil, 3, flagReadOnly).
 		attachCommandExtra([]string{redisFlagReadonly, redisFlagFast}, 1, 1, 1)
-	registerCommand("VRandMember", execVRandMember, prepareVSKey, nil, -2, flagReadOnly).
+	registerCommand("VRandMember", execVRandMember, readFirstKey, nil, -2, flagReadOnly).
 		attachCommandExtra([]string{redisFlagReadonly}, 1, 1, 1)
 	registerCommand("VSetAttr", execVSetAttr, prepareVSKey, nil, 4, flagWrite).
 		attachCommandExtra([]string{redisFlagWrite}, 1, 1, 1)
-	registerCommand("VGetAttr", execVGetAttr, prepareVSKey, nil, 3, flagReadOnly).
+	registerCommand("VGetAttr", execVGetAttr, readFirstKey, nil, 3, flagReadOnly).
 		attachCommandExtra([]string{redisFlagReadonly}, 1, 1, 1)
-	registerCommand("VLinks", execVLinks, prepareVSKey, nil, -3, flagReadOnly).
+	registerCommand("VLinks", execVLinks, readFirstKey, nil, -3, flagReadOnly).
 		attachCommandExtra([]string{redisFlagReadonly}, 1, 1, 1)
-	registerCommand("VRange", execVRange, prepareVSKey, nil, -4, flagReadOnly).
+	registerCommand("VRange", execVRange, readFirstKey, nil, -4, flagReadOnly).
 		attachCommandExtra([]string{redisFlagReadonly}, 1, 1, 1)
 }

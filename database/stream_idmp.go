@@ -120,6 +120,9 @@ func execXNack(db *DB, args [][]byte) redis.Reply {
 		return protocol.MakeErrReply("NOGROUP No such key '" + key + "' or consumer group '" + groupName + "'")
 	}
 
+	group.Lock()
+	defer group.Unlock()
+
 	released := 0
 	for _, id := range ids {
 		pe, ok := group.Pending[id]

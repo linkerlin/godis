@@ -126,7 +126,7 @@ func execType(db *DB, args [][]byte) redis.Reply {
 func prepareRename(args [][]byte) ([]string, []string) {
 	src := string(args[0])
 	dest := string(args[1])
-	return []string{dest}, []string{src}
+	return []string{src, dest}, nil
 }
 
 // execRename a key

@@ -594,7 +594,7 @@ func (jv *JSONValue) tryProjection(path string) (interface{}, bool, error) {
 		}
 	}
 	inner := strings.TrimSpace(path[open+1 : len(path)-1])
-	if !strings.HasPrefix(inner, "$") {
+	if !strings.HasPrefix(inner, "$") && !strings.Contains(inner, "(") {
 		return nil, false, ErrJSONPathSyntax
 	}
 	val, err := jv.getPath(inner)
@@ -621,6 +621,15 @@ func walkParts(current interface{}, parts []string) (interface{}, error) {
 
 		switch c := current.(type) {
 		case map[string]interface{}:
+			if part == "~" {
+				keys := make([]interface{}, 0, len(c))
+				for k := range c {
+					keys = append(keys, k)
+				}
+				sortStrings(keys)
+				current = keys
+				continue
+			}
 			val, ok := c[part]
 			if !ok {
 				return nil, fmt.Errorf("key '%s' not found", part)

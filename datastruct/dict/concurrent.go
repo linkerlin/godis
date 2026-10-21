@@ -21,6 +21,7 @@ type ConcurrentDict struct {
 type shard struct {
 	m     map[string]interface{}
 	mutex sync.RWMutex
+	keyMu sync.RWMutex
 }
 
 func computeCapacity(param int) (size int) {
@@ -112,8 +113,8 @@ func (dict *ConcurrentDict) Get(key string) (val interface{}, exists bool) {
 	}
 	index := dict.spread(key)
 	s := dict.getShard(index)
-	s.mutex.Lock()
-	defer s.mutex.Unlock()
+	s.mutex.RLock()
+	defer s.mutex.RUnlock()
 	val, exists = s.m[key]
 	return
 }
@@ -124,6 +125,8 @@ func (dict *ConcurrentDict) GetWithLock(key string) (val interface{}, exists boo
 	}
 	index := dict.spread(key)
 	s := dict.getShard(index)
+	s.mutex.RLock()
+	defer s.mutex.RUnlock()
 	val, exists = s.m[key]
 	return
 }
@@ -162,6 +165,8 @@ func (dict *ConcurrentDict) PutWithLock(key string, val interface{}) (result int
 	}
 	index := dict.spread(key)
 	s := dict.getShard(index)
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
 	s.ensureMap()
 
 	if _, ok := s.m[key]; ok {
@@ -198,6 +203,8 @@ func (dict *ConcurrentDict) PutIfAbsentWithLock(key string, val interface{}) (re
 	}
 	index := dict.spread(key)
 	s := dict.getShard(index)
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
 	s.ensureMap()
 
 	if _, ok := s.m[key]; ok {
@@ -232,6 +239,8 @@ func (dict *ConcurrentDict) PutIfExistsWithLock(key string, val interface{}) (re
 	}
 	index := dict.spread(key)
 	s := dict.getShard(index)
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
 	s.ensureMap()
 
 	if _, ok := s.m[key]; ok {
@@ -265,6 +274,8 @@ func (dict *ConcurrentDict) RemoveWithLock(key string) (val interface{}, result 
 	}
 	index := dict.spread(key)
 	s := dict.getShard(index)
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
 
 	if val, ok := s.m[key]; ok {
 		delete(s.m, key)
@@ -289,62 +300,35 @@ func (dict *ConcurrentDict) ForEach(consumer Consumer) {
 		panic("dict is nil")
 	}
 
+	type kv struct {
+		k string
+		v interface{}
+	}
 	for _, s := range dict.table {
 		s.mutex.RLock()
-		f := func() bool {
-			defer s.mutex.RUnlock()
-			for key, value := range s.m {
-				continues := consumer(key, value)
-				if !continues {
-					return false
-				}
-			}
-			return true
+		if len(s.m) == 0 {
+			s.mutex.RUnlock()
+			continue
 		}
-		if !f() {
-			break
+		snapshot := make([]kv, 0, len(s.m))
+		for key, value := range s.m {
+			snapshot = append(snapshot, kv{k: key, v: value})
+		}
+		s.mutex.RUnlock()
+
+		for _, item := range snapshot {
+			if !consumer(item.k, item.v) {
+				return
+			}
 		}
 	}
 }
 
-// ForEachSkippingLockedKeys behaves like ForEach, except it does not attempt
-// to (re-)acquire the shard lock for any key in alreadyWriteLocked. Use this
-// from command handlers that run while already holding a write lock (via
-// RWLocks) on one of their own keys, e.g. FT.CREATE scanning the keyspace
-// while the index name itself is write-locked: a plain ForEach would try to
-// RLock that same shard and deadlock against the write lock already held by
-// the same goroutine (sync.RWMutex is not reentrant).
+// ForEachSkippingLockedKeys behaves like ForEach. Because command-level locks
+// use shard.keyMu while map access uses shard.mutex with per-shard snapshots,
+// ForEach is already safe to call while holding RWLocks.
 func (dict *ConcurrentDict) ForEachSkippingLockedKeys(alreadyWriteLocked []string, consumer Consumer) {
-	if dict == nil {
-		panic("dict is nil")
-	}
-
-	skip := make(map[uint32]struct{}, len(alreadyWriteLocked))
-	for _, key := range alreadyWriteLocked {
-		skip[dict.spread(key)] = struct{}{}
-	}
-
-	for i, s := range dict.table {
-		_, locked := skip[uint32(i)]
-		if !locked {
-			s.mutex.RLock()
-		}
-		f := func() bool {
-			if !locked {
-				defer s.mutex.RUnlock()
-			}
-			for key, value := range s.m {
-				continues := consumer(key, value)
-				if !continues {
-					return false
-				}
-			}
-			return true
-		}
-		if !f() {
-			break
-		}
-	}
+	dict.ForEach(consumer)
 }
 
 // Keys returns all keys in dict
@@ -475,7 +459,7 @@ func (dict *ConcurrentDict) RWLocks(writeKeys []string, readKeys []string) {
 	}
 	for _, index := range indices {
 		_, w := writeIndexSet[index]
-		mu := &dict.table[index].mutex
+		mu := &dict.table[index].keyMu
 		if w {
 			mu.Lock()
 		} else {
@@ -495,7 +479,7 @@ func (dict *ConcurrentDict) RWUnLocks(writeKeys []string, readKeys []string) {
 	}
 	for _, index := range indices {
 		_, w := writeIndexSet[index]
-		mu := &dict.table[index].mutex
+		mu := &dict.table[index].keyMu
 		if w {
 			mu.Unlock()
 		} else {

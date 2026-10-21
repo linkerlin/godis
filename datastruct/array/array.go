@@ -2,6 +2,10 @@ package array
 
 import "sync"
 
+// MaxIndex bounds the maximum sparse slot index in the Array preview to prevent
+// unbounded single-command slice allocations.
+const MaxIndex int64 = 1 << 20
+
 // Array is the Redis 8.8 preview Array type: a sparse sequence of string
 // slots where nil means empty. Len is max index + 1; Count is the number of
 // non-empty slots.
@@ -15,10 +19,22 @@ func New() *Array {
 	return &Array{}
 }
 
+func (a *Array) trimTrailingNilLocked() {
+	n := len(a.slots)
+	for n > 0 && a.slots[n-1] == nil {
+		n--
+	}
+	if n == 0 {
+		a.slots = nil
+	} else {
+		a.slots = a.slots[:n]
+	}
+}
+
 // Set stores val at index, extending with empty slots as needed.
 // Returns 1 when the slot was previously empty.
 func (a *Array) Set(index int64, val []byte) int {
-	if index < 0 {
+	if index < 0 || index > MaxIndex {
 		return 0
 	}
 	a.mu.Lock()
@@ -79,6 +95,9 @@ func (a *Array) Del(indices ...int64) int64 {
 		a.count--
 		deleted++
 	}
+	if deleted > 0 {
+		a.trimTrailingNilLocked()
+	}
 	return deleted
 }
 
@@ -118,6 +137,9 @@ func (a *Array) DelRanges(ranges [][2]int64) int64 {
 		a.slots[i] = nil
 	}
 	a.count -= int(deleted)
+	if deleted > 0 {
+		a.trimTrailingNilLocked()
+	}
 	return deleted
 }
 

@@ -356,3 +356,89 @@ func (cmd *command) attachCommandExtra(signs []string, firstKey int, lastKey int
 		keyStep:  keyStep,
 	}
 }
+
+// ResolveClusterCommandKeys inspects cmdTable (and multi-word command aliases)
+// to extract the keys accessed by cmdLine for Redis Cluster slot routing.
+// Returns:
+//   - keys: all write and read keys extracted via the command's prepare/keySpec
+//   - keylessLocal: true if the command is valid and operates locally without slot keys
+//   - exists: true if the command is recognized by the server
+func ResolveClusterCommandKeys(cmdLine [][]byte) (keys []string, keylessLocal bool, exists bool) {
+	if len(cmdLine) == 0 {
+		return nil, false, false
+	}
+	resolved, cmdName, ok := ResolveCommandLine(cmdLine)
+	if !ok {
+		switch strings.ToLower(string(cmdLine[0])) {
+		case "hello", "client", "command", "config", "memory", "acl", "time",
+			"echo", "role", "lastsave", "lolwut", "latency", "module", "debug",
+			"script", "function", "quit", "reset":
+			return nil, true, true
+		}
+		return nil, false, false
+	}
+	cmd := cmdTable[cmdName]
+	if cmd == nil {
+		return nil, false, false
+	}
+	if cmd.prepare != nil {
+		wKeys, rKeys := cmd.prepare(resolved[1:])
+		seen := make(map[string]struct{}, len(wKeys)+len(rKeys))
+		for _, k := range wKeys {
+			if _, dup := seen[k]; !dup {
+				seen[k] = struct{}{}
+				keys = append(keys, k)
+			}
+		}
+		for _, k := range rKeys {
+			if _, dup := seen[k]; !dup {
+				seen[k] = struct{}{}
+				keys = append(keys, k)
+			}
+		}
+		return keys, len(keys) == 0, true
+	}
+
+	// Commands without a prepare function either have no keys (KEYS/SCAN run
+	// on every node) or declare their keys only through the generic keySpec,
+	// which is wrong for block-style XREAD/XREADGROUP. Parse STREAMS explicitly
+	// and never trust firstKey for the keyspace-wide iterators.
+	switch cmdName {
+	case "keys", "scan":
+		return nil, true, true
+	case "xread", "xreadgroup":
+		for i := 1; i < len(resolved); i++ {
+			if !strings.EqualFold(string(resolved[i]), "streams") {
+				continue
+			}
+			rest := resolved[i+1:]
+			// XREAD/XREADGROUP take an equal number of keys and IDs.
+			numKeys := len(rest) / 2
+			for _, k := range rest[:numKeys] {
+				keys = append(keys, string(k))
+			}
+			return keys, len(keys) == 0, true
+		}
+		return nil, true, true
+	}
+
+	if cmd.extra != nil && cmd.extra.firstKey > 0 && cmd.extra.firstKey < len(resolved) {
+		first := cmd.extra.firstKey
+		last := cmd.extra.lastKey
+		if last < 0 {
+			last = len(resolved) + last
+		}
+		if last >= len(resolved) {
+			last = len(resolved) - 1
+		}
+		step := cmd.extra.keyStep
+		if step <= 0 {
+			step = 1
+		}
+		for i := first; i <= last; i += step {
+			keys = append(keys, string(resolved[i]))
+		}
+		return keys, len(keys) == 0, true
+	}
+	return nil, true, true
+}

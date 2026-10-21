@@ -14,17 +14,26 @@ import (
 // transaction info will be deleted after transactionTTL since commit
 const transactionTTL = time.Minute
 
+// PrepareTTL bounds how long a prepared transaction may hold participant key
+// locks without receiving Commit or Rollback from the coordinator.
+var PrepareTTL = 30 * time.Second
+
 type TransactionManager struct {
 	txs map[string]*TCC
 	mu  sync.RWMutex
 }
 
 type TCC struct {
+	mu          sync.Mutex
 	realCmdLine CmdLine
 	undoLogs    []CmdLine
 	writeKeys   []string
 	readKeys    []string
 	hasLock     bool
+}
+
+func tccPrepareTimerKey(txId string) string {
+	return "tcc:prepare:" + txId
 }
 
 func newTransactionManager() *TransactionManager {
@@ -62,6 +71,7 @@ func execPrepare(cluster *Cluster, c redis.Connection, cmdLine CmdLine) redis.Re
 	cluster.transactions.mu.Unlock()
 
 	// prepare lock and undo locks
+	tx.mu.Lock()
 	tx.writeKeys, tx.readKeys = database.GetRelatedKeys(realCmdLine)
 	cluster.db.RWLocks(0, tx.writeKeys, tx.readKeys)
 	tx.undoLogs, _ = cluster.db.GetUndoLogs(0, realCmdLine)
@@ -80,7 +90,26 @@ func execPrepare(cluster *Cluster, c redis.Connection, cmdLine CmdLine) redis.Re
 		// prepare for rollback
 		cluster.db.RWUnLocks(0, tx.writeKeys, tx.readKeys)
 		tx.hasLock = false
+		tx.mu.Unlock()
+		return result
 	}
+	tx.mu.Unlock()
+
+	timewheel.At(time.Now().Add(PrepareTTL), tccPrepareTimerKey(txId), func() {
+		cluster.transactions.mu.Lock()
+		expiredTx := cluster.transactions.txs[txId]
+		delete(cluster.transactions.txs, txId)
+		cluster.transactions.mu.Unlock()
+		if expiredTx == nil {
+			return
+		}
+		expiredTx.mu.Lock()
+		if expiredTx.hasLock {
+			cluster.db.RWUnLocks(0, expiredTx.writeKeys, expiredTx.readKeys)
+			expiredTx.hasLock = false
+		}
+		expiredTx.mu.Unlock()
+	})
 	return result
 }
 
@@ -89,6 +118,7 @@ func execCommit(cluster *Cluster, c redis.Connection, cmdLine CmdLine) redis.Rep
 		return protocol.MakeArgNumErrReply("commit")
 	}
 	txId := string(cmdLine[1])
+	timewheel.Cancel(tccPrepareTimerKey(txId))
 
 	cluster.transactions.mu.Lock()
 	tx := cluster.transactions.txs[txId]
@@ -97,11 +127,15 @@ func execCommit(cluster *Cluster, c redis.Connection, cmdLine CmdLine) redis.Rep
 		return protocol.MakeErrReply("transaction not found")
 	}
 
+	tx.mu.Lock()
 	resp := cluster.db.ExecWithLock(c, tx.realCmdLine)
 
 	// unlock regardless of result
-	cluster.db.RWUnLocks(0, tx.writeKeys, tx.readKeys)
-	tx.hasLock = false
+	if tx.hasLock {
+		cluster.db.RWUnLocks(0, tx.writeKeys, tx.readKeys)
+		tx.hasLock = false
+	}
+	tx.mu.Unlock()
 
 	if protocol.IsErrorReply(resp) {
 		// do not delete transaction, waiting rollback
@@ -122,6 +156,7 @@ func execRollback(cluster *Cluster, c redis.Connection, cmdLine CmdLine) redis.R
 		return protocol.MakeArgNumErrReply("rollback")
 	}
 	txId := string(cmdLine[1])
+	timewheel.Cancel(tccPrepareTimerKey(txId))
 
 	// get transaction
 	cluster.transactions.mu.Lock()
@@ -132,6 +167,7 @@ func execRollback(cluster *Cluster, c redis.Connection, cmdLine CmdLine) redis.R
 	}
 
 	// rollback
+	tx.mu.Lock()
 	if !tx.hasLock {
 		cluster.db.RWLocks(0, tx.writeKeys, tx.readKeys)
 		tx.hasLock = true
@@ -141,6 +177,8 @@ func execRollback(cluster *Cluster, c redis.Connection, cmdLine CmdLine) redis.R
 		cluster.db.ExecWithLock(c, cmdline)
 	}
 	cluster.db.RWUnLocks(0, tx.writeKeys, tx.readKeys)
+	tx.hasLock = false
+	tx.mu.Unlock()
 
 	// delete transaction
 	cluster.transactions.mu.Lock()

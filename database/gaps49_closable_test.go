@@ -14,6 +14,9 @@ func TestGaps49LatencyResetAndCommandDocsUnknown(t *testing.T) {
 	srv := MustNewStandaloneServer()
 	c := connection.NewFakeConn()
 
+	// Drain latency events left by other tests in this package: latency state is
+	// process-global, not per-server.
+	srv.Exec(c, utils.ToCmdLine("LATENCY", "RESET"))
 	asserts.AssertIntReply(t, srv.Exec(c, utils.ToCmdLine("LATENCY", "RESET")), 0)
 	asserts.AssertIntReply(t, srv.Exec(c, utils.ToCmdLine("LATENCY", "RESET", "nosuch")), 0)
 

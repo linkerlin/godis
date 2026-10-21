@@ -31,15 +31,20 @@ func (persister *Persister) generateRDBToFile(rdbFilename string) error {
 	if err != nil {
 		return err
 	}
+	tmpName := ctx.tmpFile.Name()
 	err = persister.generateRDB(ctx)
 	if err != nil {
+		_ = ctx.tmpFile.Close()
+		_ = os.Remove(tmpName)
 		return err
 	}
 	err = ctx.tmpFile.Close()
 	if err != nil {
+		_ = os.Remove(tmpName)
 		return err
 	}
-	if err := utils.ReplaceFile(ctx.tmpFile.Name(), rdbFilename); err != nil {
+	if err := utils.ReplaceFile(tmpName, rdbFilename); err != nil {
+		_ = os.Remove(tmpName)
 		return err
 	}
 	return nil
@@ -58,17 +63,22 @@ func (persister *Persister) GenerateRDBForReplication(rdbFilename string, listen
 	if err != nil {
 		return err
 	}
+	tmpName := ctx.tmpFile.Name()
 
 	err = persister.generateRDB(ctx)
 	if err != nil {
+		_ = ctx.tmpFile.Close()
+		_ = os.Remove(tmpName)
 		return err
 	}
 	err = ctx.tmpFile.Close()
 	if err != nil {
+		_ = os.Remove(tmpName)
 		return err
 	}
 	// Dest may already exist (caller often creates a TempFile path as target).
-	if err := utils.ReplaceFile(ctx.tmpFile.Name(), rdbFilename); err != nil {
+	if err := utils.ReplaceFile(tmpName, rdbFilename); err != nil {
+		_ = os.Remove(tmpName)
 		return err
 	}
 	return nil

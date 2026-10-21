@@ -37,6 +37,11 @@ type Connection struct {
 	mu    sync.Mutex
 	flags uint64
 
+	// closeMu makes Close idempotent and safe against concurrent callers
+	// (e.g. the connection handler and replication slave cleanup).
+	closeMu sync.Mutex
+	closed  bool
+
 	// subscribing channels
 	subs map[string]bool
 	// pattern subscriptions (PSUBSCRIBE)
@@ -107,12 +112,20 @@ func (c *Connection) SetLocalAddr(addr string) {
 
 // Close disconnect with the client
 func (c *Connection) Close() error {
+	c.closeMu.Lock()
+	defer c.closeMu.Unlock()
+	if c.closed {
+		return nil
+	}
+	c.closed = true
 	c.sendingData.WaitWithTimeout(10 * time.Second)
 	if c.conn != nil { // may be a fake conn for tests
 		_ = c.conn.Close()
 	}
+	c.flags = 0
 	c.subs = nil
 	c.psubs = nil
+	c.ssubs = nil
 	c.password = ""
 	c.aclUser = ""
 	c.aclAuthed = false
@@ -130,6 +143,7 @@ func (c *Connection) Close() error {
 	c.replyMode = 0
 	c.createdAt = time.Time{}
 	c.lastActive = time.Time{}
+	c.localAddr = ""
 	c.clientID = 0
 	c.lastCommand = ""
 	connPool.Put(c)
@@ -146,6 +160,9 @@ func NewConn(conn net.Conn) *Connection {
 		}
 	}
 	c.conn = conn
+	c.closeMu.Lock()
+	c.closed = false
+	c.closeMu.Unlock()
 	now := time.Now()
 	c.createdAt = now
 	c.lastActive = now

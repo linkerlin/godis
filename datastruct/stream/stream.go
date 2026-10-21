@@ -165,11 +165,35 @@ func (cg *ConsumerGroup) SetEntriesRead(n int64) {
 	cg.EntriesRead = n
 }
 
+// Lock acquires the consumer group's write lock.
+func (cg *ConsumerGroup) Lock() {
+	cg.mu.Lock()
+}
+
+// Unlock releases the consumer group's write lock.
+func (cg *ConsumerGroup) Unlock() {
+	cg.mu.Unlock()
+}
+
+// RLock acquires the consumer group's read lock.
+func (cg *ConsumerGroup) RLock() {
+	cg.mu.RLock()
+}
+
+// RUnlock releases the consumer group's read lock.
+func (cg *ConsumerGroup) RUnlock() {
+	cg.mu.RUnlock()
+}
+
 // GetConsumer 获取或创建消费者
 func (cg *ConsumerGroup) GetConsumer(name string) *Consumer {
 	cg.mu.Lock()
 	defer cg.mu.Unlock()
+	return cg.GetConsumerLocked(name)
+}
 
+// GetConsumerLocked gets or creates a consumer; caller must hold cg.Lock().
+func (cg *ConsumerGroup) GetConsumerLocked(name string) *Consumer {
 	raw, ok := cg.Consumers.Get(name)
 	if ok {
 		return raw.(*Consumer)
@@ -221,14 +245,14 @@ type StreamIdmpConfig struct {
 }
 
 type Stream struct {
-	mu             sync.RWMutex
-	entries        *dict.ConcurrentDict // StreamID.String() -> *StreamEntry (O(1) lookup)
-	ordered        []*StreamEntry       // entries sorted ascending by ID (range/trim/scan)
-	groups         *dict.ConcurrentDict // group name -> *ConsumerGroup
-	lastID         StreamID
-	maxlen         int64    // 最大长度限制
-	entriesAdded   int64    // 总添加条目数 (用于 XINFO)
-	maxDeletedID   StreamID // XSETID MAXDELETEDID
+	mu           sync.RWMutex
+	entries      *dict.ConcurrentDict // StreamID.String() -> *StreamEntry (O(1) lookup)
+	ordered      []*StreamEntry       // entries sorted ascending by ID (range/trim/scan)
+	groups       *dict.ConcurrentDict // group name -> *ConsumerGroup
+	lastID       StreamID
+	maxlen       int64    // 最大长度限制
+	entriesAdded int64    // 总添加条目数 (用于 XINFO)
+	maxDeletedID StreamID // XSETID MAXDELETEDID
 
 	// XADD IDMP state (lazily created; producer-id -> idempotent-id -> record).
 	idmp       map[string]map[string]IdmpRecord
@@ -398,14 +422,10 @@ func (s *Stream) Range(start, end StreamID) []*StreamEntry {
 	return result
 }
 
-// ReverseRange 反向获取范围内的条目
+// ReverseRange 反向获取范围内的条目 (count <= 0 表示无限制)
 func (s *Stream) ReverseRange(start, end StreamID, count int) []*StreamEntry {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-
-	if count == 0 {
-		return nil
-	}
 
 	// 最后一个 <= end 的索引
 	hi := s.lowerBound(end)
@@ -505,22 +525,33 @@ func (s *Stream) DeleteEx(ids []StreamID, mode string) int {
 // DeleteExResults returns per-ID status for XDELEX/XACKDEL:
 // -1 = ID not in stream, 1 = deleted, 2 = not deleted (still referenced / ACKED policy).
 func (s *Stream) DeleteExResults(ids []StreamID, mode string) []int {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	mode = strings.ToUpper(mode)
+
+	// Resolve PEL references before taking s.mu. PEL access takes the
+	// consumer-group lock, while XREADGROUP takes the group lock before
+	// touching stream entries (group -> stream). Acquiring a group lock while
+	// holding s.mu here would invert that order and deadlock concurrently.
+	inPEL := make([]bool, len(ids))
+	if mode == "ACKED" {
+		for i, id := range ids {
+			inPEL[i] = s.idInAnyPEL(id)
+		}
+	}
+
 	out := make([]int, len(ids))
+	var delRefIDs []StreamID
+
+	s.mu.Lock()
 	for i, id := range ids {
 		_, exists := s.entries.Get(id.String())
 		if !exists {
 			out[i] = -1
 			if mode == "DELREF" {
-				s.removeIDFromAllPELs(id)
+				delRefIDs = append(delRefIDs, id)
 			}
 			continue
 		}
-		inPEL := s.idInAnyPEL(id)
-		if mode == "ACKED" && inPEL {
+		if mode == "ACKED" && inPEL[i] {
 			out[i] = 2
 			continue
 		}
@@ -530,8 +561,14 @@ func (s *Stream) DeleteExResults(ids []StreamID, mode string) []int {
 			out[i] = -1
 		}
 		if mode == "DELREF" {
-			s.removeIDFromAllPELs(id)
+			delRefIDs = append(delRefIDs, id)
 		}
+	}
+	s.mu.Unlock()
+
+	// PEL cleanup must run without s.mu held (see lock-order note above).
+	for _, id := range delRefIDs {
+		s.removeIDFromAllPELs(id)
 	}
 	return out
 }
@@ -552,7 +589,9 @@ func (s *Stream) idInAnyPEL(id StreamID) bool {
 	found := false
 	s.groups.ForEach(func(_ string, val interface{}) bool {
 		group := val.(*ConsumerGroup)
+		group.RLock()
 		if _, ok := group.Pending[id]; ok {
+			group.RUnlock()
 			found = true
 			return false
 		}
@@ -564,6 +603,7 @@ func (s *Stream) idInAnyPEL(id StreamID) bool {
 			}
 			return true
 		})
+		group.RUnlock()
 		return !found
 	})
 	return found
@@ -572,12 +612,14 @@ func (s *Stream) idInAnyPEL(id StreamID) bool {
 func (s *Stream) removeIDFromAllPELs(id StreamID) {
 	s.groups.ForEach(func(_ string, val interface{}) bool {
 		group := val.(*ConsumerGroup)
+		group.Lock()
 		delete(group.Pending, id)
 		group.Consumers.ForEach(func(_ string, cval interface{}) bool {
 			c := cval.(*Consumer)
 			delete(c.Pending, id)
 			return true
 		})
+		group.Unlock()
 		return true
 	})
 }
@@ -666,7 +708,10 @@ func (s *Stream) Claim(groupName, consumerName string, minIdleTime time.Duration
 		return nil, err
 	}
 
-	consumer := group.GetConsumer(consumerName)
+	group.Lock()
+	defer group.Unlock()
+
+	consumer := group.GetConsumerLocked(consumerName)
 	consumer.SeenTime = time.Now()
 
 	var result []*StreamEntry
@@ -741,7 +786,10 @@ func (s *Stream) AutoClaim(groupName, consumerName string, minIdleTime time.Dura
 		count = 100
 	}
 
-	consumer := group.GetConsumer(consumerName)
+	group.Lock()
+	defer group.Unlock()
+
+	consumer := group.GetConsumerLocked(consumerName)
 	consumer.SeenTime = time.Now()
 	now := time.Now()
 

@@ -33,6 +33,9 @@ func TestMiscServerCommands(t *testing.T) {
 		t.Fatalf("TIME: got %s", timeReply.ToBytes())
 	}
 
+	// Drain latency events left by other tests in this package: latency state is
+	// process-global, not per-server.
+	server.Exec(c, utils.ToCmdLine("LATENCY", "RESET"))
 	RecordLatency("command", 2*time.Millisecond)
 	lat := server.Exec(c, utils.ToCmdLine("LATENCY", "LATEST"))
 	if _, ok := lat.(*protocol.MultiRawReply); !ok {

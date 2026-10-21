@@ -3,6 +3,7 @@ package gnet
 import (
 	"bufio"
 	"net"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -118,8 +119,8 @@ func TestGnetMaxClientsRejection(t *testing.T) {
 	config.Properties = &config.ServerProperties{MaxClients: 1}
 	defer func() {
 		config.Properties = old
-		tcp.ClientCounter = 0
-		tcp.RejectedConnections = 0
+		atomic.StoreInt32(&tcp.ClientCounter, 0)
+		atomic.StoreUint64(&tcp.RejectedConnections, 0)
 	}()
 
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
@@ -169,8 +170,8 @@ func TestGnetMaxClientsRejection(t *testing.T) {
 	if tcp.GetRejectedConnections() < 1 {
 		t.Fatalf("expected rejected count >= 1, got %d", tcp.GetRejectedConnections())
 	}
-	if tcp.ClientCounter != 1 {
-		t.Fatalf("expected 1 active client, got %d", tcp.ClientCounter)
+	if atomic.LoadInt32(&tcp.ClientCounter) != 1 {
+		t.Fatalf("expected 1 active client, got %d", atomic.LoadInt32(&tcp.ClientCounter))
 	}
 
 	_ = conn1.Close()

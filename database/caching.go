@@ -75,6 +75,7 @@ func EnableTracking(conn redis.Connection, mode string, prefixes []string, redir
 		clientID = generateClientID()
 	}
 
+	alreadyEnabled := clientCache.trackingEnabled[clientID]
 	clientCache.trackingEnabled[clientID] = true
 	clientCache.trackingMode[clientID] = mode
 	clientCache.prefixes[clientID] = prefixes
@@ -89,11 +90,12 @@ func EnableTracking(conn redis.Connection, mode string, prefixes []string, redir
 		clientCache.invalidationQueues[clientID] = make(chan []string, 100)
 	}
 
-	// Update stats
-	clientCache.trackingClientsCount++
-
-	// Start background sender for this client
-	go clientCache.invalidationSender(clientID)
+	if !alreadyEnabled {
+		// Update stats
+		clientCache.trackingClientsCount++
+		// Start background sender for this client
+		go clientCache.invalidationSender(clientID)
+	}
 
 	return clientID
 }
@@ -102,6 +104,8 @@ func EnableTracking(conn redis.Connection, mode string, prefixes []string, redir
 func DisableTracking(clientID string) {
 	clientCache.mu.Lock()
 	defer clientCache.mu.Unlock()
+
+	wasEnabled := clientCache.trackingEnabled[clientID]
 
 	// Untrack all keys
 	for key := range clientCache.trackedKeys[clientID] {
@@ -123,8 +127,10 @@ func DisableTracking(clientID string) {
 	delete(clientCache.cachingOptInNext, clientID)
 	delete(clientCache.cachingOptOutNext, clientID)
 
-	// Update stats
-	clientCache.trackingClientsCount--
+	// Update stats only if it was actually enabled
+	if wasEnabled && clientCache.trackingClientsCount > 0 {
+		clientCache.trackingClientsCount--
+	}
 
 	// Close and delete queue
 	if queue, ok := clientCache.invalidationQueues[clientID]; ok {
@@ -206,14 +212,18 @@ func InvalidateKey(key string) {
 func InvalidateKeyFrom(key string, writerID string) {
 	clientCache.mu.RLock()
 	clients := clientCache.keyClients[key]
-	clientCache.mu.RUnlock()
-
-	if clients == nil {
+	if len(clients) == 0 {
+		clientCache.mu.RUnlock()
 		return
 	}
+	clientIDs := make([]string, 0, len(clients))
+	for clientID := range clients {
+		clientIDs = append(clientIDs, clientID)
+	}
+	clientCache.mu.RUnlock()
 
 	// Send invalidation to all clients
-	for clientID := range clients {
+	for _, clientID := range clientIDs {
 		clientCache.mu.RLock()
 		queue, ok := clientCache.invalidationQueues[clientID]
 		mode := clientCache.trackingMode[clientID]

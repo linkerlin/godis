@@ -15,7 +15,17 @@ import (
 	"github.com/linkerlin/godis/redis/protocol"
 )
 
-const bytesPerKeyEstimate = 128
+const (
+	bytesPerKeyEstimate = 128
+	evictionShardCount  = 64
+)
+
+type evictionShard struct {
+	mu           sync.RWMutex
+	lastAccess   map[string]time.Time
+	accessCount  map[string]uint64
+	lastModified map[string]time.Time
+}
 
 // EvictionManager handles key eviction based on maxmemory-policy
 type EvictionManager struct {
@@ -23,22 +33,33 @@ type EvictionManager struct {
 	policy  memory.EvictionPolicy
 	samples int
 
-	mu           sync.Mutex
-	lastAccess   map[string]time.Time
-	accessCount  map[string]uint64
-	lastModified map[string]time.Time
+	shards [evictionShardCount]evictionShard
 }
 
 // NewEvictionManager creates a new eviction manager
 func NewEvictionManager(db *DB, policy memory.EvictionPolicy) *EvictionManager {
-	return &EvictionManager{
-		db:           db,
-		policy:       policy,
-		samples:      5,
-		lastAccess:   make(map[string]time.Time),
-		accessCount:  make(map[string]uint64),
-		lastModified: make(map[string]time.Time),
+	em := &EvictionManager{
+		db:      db,
+		policy:  policy,
+		samples: 5,
 	}
+	for i := range em.shards {
+		em.shards[i] = evictionShard{
+			lastAccess:   make(map[string]time.Time),
+			accessCount:  make(map[string]uint64),
+			lastModified: make(map[string]time.Time),
+		}
+	}
+	return em
+}
+
+func (em *EvictionManager) shardFor(key string) *evictionShard {
+	h := uint32(2166136261)
+	for i := 0; i < len(key); i++ {
+		h ^= uint32(key[i])
+		h *= 16777619
+	}
+	return &em.shards[h&(evictionShardCount-1)]
 }
 
 // SetPolicy sets the eviction policy
@@ -54,7 +75,7 @@ func (em *EvictionManager) SetSamples(samples int) {
 }
 
 const (
-	lfuInitVal  = 5
+	lfuInitVal   = 5
 	lfuLogFactor = 10
 )
 
@@ -63,15 +84,16 @@ func (em *EvictionManager) Touch(key string) {
 	if em == nil {
 		return
 	}
-	em.mu.Lock()
-	em.lastAccess[key] = time.Now()
+	sh := em.shardFor(key)
+	sh.mu.Lock()
+	sh.lastAccess[key] = time.Now()
 	switch em.policy {
 	case memory.AllKeysLFU, memory.VolatileLFU:
-		em.accessCount[key] = lfuLogIncr(em.accessCount[key])
+		sh.accessCount[key] = lfuLogIncr(sh.accessCount[key])
 	default:
-		em.accessCount[key]++
+		sh.accessCount[key]++
 	}
-	em.mu.Unlock()
+	sh.mu.Unlock()
 }
 
 // lfuLogIncr approximates Redis LFULogIncr: probabilistic counter 0..255.
@@ -98,9 +120,10 @@ func (em *EvictionManager) SeedIdle(key string, idleSec int64) {
 	if em == nil || idleSec < 0 {
 		return
 	}
-	em.mu.Lock()
-	em.lastAccess[key] = time.Now().Add(-time.Duration(idleSec) * time.Second)
-	em.mu.Unlock()
+	sh := em.shardFor(key)
+	sh.mu.Lock()
+	sh.lastAccess[key] = time.Now().Add(-time.Duration(idleSec) * time.Second)
+	sh.mu.Unlock()
 }
 
 // SeedFreq sets LFU access count for OBJECT FREQ / eviction.
@@ -108,9 +131,10 @@ func (em *EvictionManager) SeedFreq(key string, freq uint64) {
 	if em == nil {
 		return
 	}
-	em.mu.Lock()
-	em.accessCount[key] = freq
-	em.mu.Unlock()
+	sh := em.shardFor(key)
+	sh.mu.Lock()
+	sh.accessCount[key] = freq
+	sh.mu.Unlock()
 }
 
 // Modify records a write for LRM accounting (Redis 8.6: the timestamp is
@@ -120,11 +144,12 @@ func (em *EvictionManager) Modify(keys ...string) {
 		return
 	}
 	now := time.Now()
-	em.mu.Lock()
 	for _, key := range keys {
-		em.lastModified[key] = now
+		sh := em.shardFor(key)
+		sh.mu.Lock()
+		sh.lastModified[key] = now
+		sh.mu.Unlock()
 	}
-	em.mu.Unlock()
 }
 
 // SeedModify backdates the modification time (testing / RESTORE-style seeding).
@@ -132,9 +157,10 @@ func (em *EvictionManager) SeedModify(key string, agoSec int64) {
 	if em == nil || agoSec < 0 {
 		return
 	}
-	em.mu.Lock()
-	em.lastModified[key] = time.Now().Add(-time.Duration(agoSec) * time.Second)
-	em.mu.Unlock()
+	sh := em.shardFor(key)
+	sh.mu.Lock()
+	sh.lastModified[key] = time.Now().Add(-time.Duration(agoSec) * time.Second)
+	sh.mu.Unlock()
 }
 
 // Forget drops metadata when a key is removed.
@@ -142,11 +168,12 @@ func (em *EvictionManager) Forget(key string) {
 	if em == nil {
 		return
 	}
-	em.mu.Lock()
-	delete(em.lastAccess, key)
-	delete(em.accessCount, key)
-	delete(em.lastModified, key)
-	em.mu.Unlock()
+	sh := em.shardFor(key)
+	sh.mu.Lock()
+	delete(sh.lastAccess, key)
+	delete(sh.accessCount, key)
+	delete(sh.lastModified, key)
+	sh.mu.Unlock()
 }
 
 // IdleSeconds returns seconds since last access (0 if unknown).
@@ -154,9 +181,10 @@ func (em *EvictionManager) IdleSeconds(key string) int64 {
 	if em == nil {
 		return 0
 	}
-	em.mu.Lock()
-	t, ok := em.lastAccess[key]
-	em.mu.Unlock()
+	sh := em.shardFor(key)
+	sh.mu.RLock()
+	t, ok := sh.lastAccess[key]
+	sh.mu.RUnlock()
 	if !ok {
 		return 0
 	}
@@ -172,9 +200,10 @@ func (em *EvictionManager) Freq(key string) int64 {
 	if em == nil {
 		return 0
 	}
-	em.mu.Lock()
-	n := em.accessCount[key]
-	em.mu.Unlock()
+	sh := em.shardFor(key)
+	sh.mu.RLock()
+	n := sh.accessCount[key]
+	sh.mu.RUnlock()
 	return int64(n)
 }
 
@@ -194,13 +223,16 @@ func (em *EvictionManager) EvictKeys(target int64) int {
 		if !ok {
 			break
 		}
+		em.db.RWLocks([]string{key}, nil)
 		freed += estimateStoredKeyBytes(em.db, key)
 		// removeKey(false): skip generic "del" notify; emit "evicted" below.
 		em.db.removeKey(key, false)
+		em.db.addVersion(key)
 		notifyKeyspaceEvent(em.db, "evicted", key)
 		if em.db.addAof != nil {
 			em.db.addAof(utils.ToCmdLine3("del", []byte(key)))
 		}
+		em.db.RWUnLocks([]string{key}, nil)
 		evicted++
 	}
 
@@ -239,7 +271,7 @@ func (em *EvictionManager) selectRandomKeyWithTTL() (string, bool) {
 	for i := 0; i < 10; i++ {
 		keys := em.db.data.RandomKeys(em.samples)
 		for _, key := range keys {
-			if _, exists := em.db.ttlMap.GetWithLock(key); exists {
+			if _, exists := em.db.ttlMap.Get(key); exists {
 				return key, true
 			}
 		}
@@ -251,15 +283,16 @@ func (em *EvictionManager) selectLRUKey() (string, bool) {
 	keys := em.db.data.RandomKeys(em.samples)
 	var candidate string
 	var oldest time.Time
-	em.mu.Lock()
-	defer em.mu.Unlock()
 	for _, key := range keys {
 		if em.policy == memory.VolatileLRU {
-			if _, exists := em.db.ttlMap.GetWithLock(key); !exists {
+			if _, exists := em.db.ttlMap.Get(key); !exists {
 				continue
 			}
 		}
-		t, ok := em.lastAccess[key]
+		sh := em.shardFor(key)
+		sh.mu.RLock()
+		t, ok := sh.lastAccess[key]
+		sh.mu.RUnlock()
 		if !ok {
 			return key, true
 		}
@@ -281,15 +314,16 @@ func (em *EvictionManager) selectLRMKey() (string, bool) {
 	keys := em.db.data.RandomKeys(em.samples)
 	var candidate string
 	var oldest time.Time
-	em.mu.Lock()
-	defer em.mu.Unlock()
 	for _, key := range keys {
 		if em.policy == memory.VolatileLRM {
-			if _, exists := em.db.ttlMap.GetWithLock(key); !exists {
+			if _, exists := em.db.ttlMap.Get(key); !exists {
 				continue
 			}
 		}
-		t, ok := em.lastModified[key]
+		sh := em.shardFor(key)
+		sh.mu.RLock()
+		t, ok := sh.lastModified[key]
+		sh.mu.RUnlock()
 		if !ok {
 			return key, true
 		}
@@ -308,15 +342,16 @@ func (em *EvictionManager) selectLFUKey() (string, bool) {
 	keys := em.db.data.RandomKeys(em.samples)
 	var candidate string
 	var minCount uint64 = ^uint64(0)
-	em.mu.Lock()
-	defer em.mu.Unlock()
 	for _, key := range keys {
 		if em.policy == memory.VolatileLFU {
-			if _, exists := em.db.ttlMap.GetWithLock(key); !exists {
+			if _, exists := em.db.ttlMap.Get(key); !exists {
 				continue
 			}
 		}
-		count := em.accessCount[key]
+		sh := em.shardFor(key)
+		sh.mu.RLock()
+		count := sh.accessCount[key]
+		sh.mu.RUnlock()
 		if count < minCount {
 			minCount = count
 			candidate = key
@@ -333,7 +368,7 @@ func (em *EvictionManager) selectTTLKey() (string, bool) {
 	var shortestTTL time.Time
 	keys := em.db.data.RandomKeys(em.samples)
 	for _, key := range keys {
-		rawExpire, exists := em.db.ttlMap.GetWithLock(key)
+		rawExpire, exists := em.db.ttlMap.Get(key)
 		if !exists {
 			continue
 		}

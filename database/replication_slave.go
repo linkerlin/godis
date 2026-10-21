@@ -73,6 +73,9 @@ func (server *Server) execSlaveOf(c redis.Connection, args [][]byte) redis.Reply
 	server.slaveStatus.masterPort = port
 	atomic.AddInt32(&server.slaveStatus.configVersion, 1)
 	server.slaveStatus.mutex.Unlock()
+	// Demotion: stop master duties (disconnect slaves, detach the backlog feed)
+	// so replicated writes are not echoed back into a stale backlog.
+	server.stopMaster()
 	go server.setupMaster()
 	return protocol.MakeOkReply()
 }
@@ -441,7 +444,12 @@ func (server *Server) receiveAOF(ctx context.Context, configVersion int32) error
 			// replies would pollute the master's parser.
 			if isGetAck && reply != nil {
 				if _, isNo := reply.(*protocol.NoReply); !isNo {
-					_, _ = server.slaveStatus.masterConn.Write(reply.ToBytes())
+					server.slaveStatus.mutex.Lock()
+					mc := server.slaveStatus.masterConn
+					server.slaveStatus.mutex.Unlock()
+					if mc != nil {
+						_, _ = mc.Write(reply.ToBytes())
+					}
 				}
 			}
 			n := len(cmdLine.ToBytes()) // todo: directly get size from socket
@@ -460,7 +468,15 @@ func (server *Server) receiveAOF(ctx context.Context, configVersion int32) error
 
 func (server *Server) slaveCron() {
 	repl := server.slaveStatus
-	if repl.masterConn == nil {
+	if repl == nil {
+		return
+	}
+	repl.mutex.Lock()
+	masterConn := repl.masterConn
+	lastRecvTime := repl.lastRecvTime
+	replOffset := repl.replOffset
+	repl.mutex.Unlock()
+	if masterConn == nil {
 		return
 	}
 
@@ -470,7 +486,7 @@ func (server *Server) slaveCron() {
 		replTimeout = time.Duration(config.Properties.ReplTimeout) * time.Second
 	}
 	minLastRecvTime := time.Now().Add(-replTimeout)
-	if repl.lastRecvTime.Before(minLastRecvTime) {
+	if lastRecvTime.Before(minLastRecvTime) {
 		// reconnect with master
 		err := server.reconnectWithMaster()
 		if err != nil {
@@ -479,18 +495,27 @@ func (server *Server) slaveCron() {
 		return
 	}
 	// send ack to master
-	err := repl.sendAck2Master()
-	if err != nil {
+	psyncCmdLine := utils.ToCmdLine("REPLCONF", "ACK",
+		strconv.FormatInt(replOffset, 10))
+	psyncReq := protocol.MakeMultiBulkReply(psyncCmdLine)
+	if _, err := masterConn.Write(psyncReq.ToBytes()); err != nil {
 		logger.Error("send failed " + err.Error())
 	}
 }
 
 // Send a REPLCONF ACK command to the master to inform it about the current processed offset
 func (repl *slaveStatus) sendAck2Master() error {
+	repl.mutex.Lock()
+	masterConn := repl.masterConn
+	replOffset := repl.replOffset
+	repl.mutex.Unlock()
+	if masterConn == nil {
+		return nil
+	}
 	psyncCmdLine := utils.ToCmdLine("REPLCONF", "ACK",
-		strconv.FormatInt(repl.replOffset, 10))
+		strconv.FormatInt(replOffset, 10))
 	psyncReq := protocol.MakeMultiBulkReply(psyncCmdLine)
-	_, err := repl.masterConn.Write(psyncReq.ToBytes())
+	_, err := masterConn.Write(psyncReq.ToBytes())
 	// logger.Info("send ack to master")
 	return err
 }

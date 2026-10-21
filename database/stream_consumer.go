@@ -388,8 +388,10 @@ parseStreams:
 				return protocol.MakeErrReply(err.Error())
 			}
 
+			group.Lock()
+
 			// 获取消费者
-			consumer := group.GetConsumer(consumerName)
+			consumer := group.GetConsumerLocked(consumerName)
 			consumer.SeenTime = time.Now()
 
 			var entries []*stream.StreamEntry
@@ -477,6 +479,7 @@ parseStreams:
 				// 从历史 pending 中读取（重新读取已递送但未确认的消息）
 				startID, err := stream.ParseStreamID(id, stream.StreamID{})
 				if err != nil {
+					group.Unlock()
 					return protocol.MakeErrReply("ERR Invalid stream ID")
 				}
 
@@ -511,6 +514,7 @@ parseStreams:
 			if caps.maxCount > 0 {
 				rem := caps.remaining()
 				if rem <= 0 {
+					group.Unlock()
 					break
 				}
 				if perStream <= 0 || perStream > rem {
@@ -584,6 +588,7 @@ parseStreams:
 				}
 				buckets = append(buckets, bucket)
 			}
+			group.Unlock()
 		}
 
 		if len(buckets) > 0 {
@@ -852,6 +857,7 @@ func execXAck(db *DB, args [][]byte) redis.Reply {
 		ids[i-2] = id
 	}
 
+	group.Lock()
 	acked := 0
 	for _, id := range ids {
 		// 从组的pending中删除
@@ -866,6 +872,7 @@ func execXAck(db *DB, args [][]byte) redis.Reply {
 			acked++
 		}
 	}
+	group.Unlock()
 
 	if acked > 0 {
 		db.addAof(utils.ToCmdLine3("xack", args...))
@@ -896,6 +903,9 @@ func execXPending(db *DB, args [][]byte) redis.Reply {
 	if err != nil {
 		return protocol.MakeErrReply("NOGROUP No such key '" + key + "' or consumer group '" + groupName + "'")
 	}
+
+	group.RLock()
+	defer group.RUnlock()
 
 	// 简单模式：只返回统计信息
 	if len(args) == 2 {
@@ -1145,6 +1155,7 @@ func execXInfoGroups(db *DB, args [][]byte) redis.Reply {
 	groups := s.GetGroups()
 	replies := make([]redis.Reply, 0, len(groups))
 	for _, group := range groups {
+		group.RLock()
 		// Each group is a Map: RESP3 → %, RESP2 → flat field/value array.
 		gm := protocol.MakeMapReply()
 		gm.Put("name", protocol.MakeBulkReply([]byte(group.Name)))
@@ -1154,6 +1165,7 @@ func execXInfoGroups(db *DB, args [][]byte) redis.Reply {
 		if group.EntriesRead >= 0 {
 			gm.Put("entries-read", protocol.MakeIntReply(group.EntriesRead))
 		}
+		group.RUnlock()
 		replies = append(replies, gm)
 	}
 	return protocol.MakeMultiRawReply(replies)
@@ -1177,6 +1189,9 @@ func execXInfoConsumers(db *DB, args [][]byte) redis.Reply {
 	if err != nil {
 		return protocol.MakeErrReply("NOGROUP No such consumer group '" + groupName + "' for key name '" + key + "'")
 	}
+
+	group.RLock()
+	defer group.RUnlock()
 
 	var replies []redis.Reply
 	group.Consumers.ForEach(func(name string, val interface{}) bool {

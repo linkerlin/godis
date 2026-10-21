@@ -182,6 +182,9 @@ func (server *Server) bindPersister(persister *aof.Persister) {
 	for _, db := range server.dbSet {
 		singleDB := db.Load().(*DB)
 		singleDB.addAof = func(line CmdLine) {
+			if atomic.LoadInt32(&singleDB.suppressAof) > 0 {
+				return
+			}
 			if config.Properties.AppendOnly { // config may be changed during runtime
 				server.persister.SaveCmdLine(singleDB.index, line)
 			}
@@ -191,11 +194,14 @@ func (server *Server) bindPersister(persister *aof.Persister) {
 
 // MakeAuxiliaryServer create a Server only with basic capabilities for aof rewrite and other usages
 func MakeAuxiliaryServer() *Server {
-	mdb := &Server{}
+	mdb := &Server{isAuxiliary: true}
 	mdb.dbSet = make([]*atomic.Value, config.Properties.Databases)
 	for i := range mdb.dbSet {
 		holder := &atomic.Value{}
-		holder.Store(makeBasicDB())
+		db := makeBasicDB()
+		db.index = i
+		db.server = mdb
+		holder.Store(db)
 		mdb.dbSet[i] = holder
 	}
 	return mdb

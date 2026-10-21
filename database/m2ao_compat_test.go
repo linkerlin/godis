@@ -47,7 +47,9 @@ func TestM2aoFTSearchUnknownOption(t *testing.T) {
 		"FT.CREATE", "idx", "SCHEMA", "t", "TEXT",
 	)), "OK")
 	r := db.Exec(nil, utils.ToCmdLine("FT.SEARCH", "idx", "hello", "NOTANOPTION"))
-	asserts.AssertErrReply(t, r, "ERR syntax error")
+	if !protocol.IsErrorReply(r) || !strings.Contains(string(r.ToBytes()), "SEARCH_ARG_UNRECOGNIZED") {
+		t.Fatalf("unknown FT.SEARCH option want SEARCH_ARG_UNRECOGNIZED, got %s", r.ToBytes())
+	}
 	r2 := db.Exec(nil, utils.ToCmdLine("FT.SEARCH", "idx", "*", "VERBATIM", "NOSTOPWORDS"))
 	if protocol.IsErrorReply(r2) {
 		t.Fatalf("VERBATIM/NOSTOPWORDS should be accepted: %s", r2.ToBytes())

@@ -4,29 +4,50 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 
 	"github.com/linkerlin/godis/interface/redis"
 	"github.com/linkerlin/godis/redis/protocol"
 	"github.com/linkerlin/godis/scripting"
 )
 
+// scriptExecMu serializes Lua script and Redis Functions execution so that
+// package-level execution state (scriptDB, scriptReadOnly, funcDB, engine flags)
+// is race-free across concurrent client connections and databases.
+var scriptExecMu sync.Mutex
+
 // Global scripting engine
 var scriptEngine *scripting.Engine
+var scriptEnginePtr atomic.Pointer[scripting.Engine]
 
 // scriptDB is the DB currently executing EVAL/EVALSHA (redis.call target).
 var scriptDB *DB
 
 // scriptReadOnly marks EVAL_RO/EVALSHA_RO execution: nested redis.call writes
-// are rejected. Script execution is single-threaded (one script at a time),
-// so a plain bool is safe.
+// are rejected. Guarded by scriptExecMu.
 var scriptReadOnly bool
 
 // InitScriptingEngine initializes the scripting engine
 func InitScriptingEngine(db *DB) {
+	scriptExecMu.Lock()
+	defer scriptExecMu.Unlock()
+	initScriptingEngineLocked(db)
+}
+
+func initScriptingEngineLocked(db *DB) {
 	scriptDB = db
 	if scriptEngine == nil {
 		// Nested redis.call must not re-lock; EVAL holds keys via prepareEval.
 		dbExec := func(cmd string, args ...string) (interface{}, error) {
+			// Script/function management and nested invocation are not allowed
+			// from Lua (Redis returns an error). It also prevents re-entering
+			// scriptExecMu on the same goroutine, which would deadlock.
+			switch strings.ToLower(cmd) {
+			case "eval", "evalsha", "eval_ro", "evalsha_ro",
+				"fcall", "fcall_ro", "script", "function":
+				return nil, fmt.Errorf("ERR This Redis command is not allowed from script")
+			}
 			// Read-only scripts (EVAL_RO/EVALSHA_RO) must not issue writes.
 			// Write detection uses the attachCommandExtra string flags (the
 			// numeric flagWrite is 0 by design, so bit-testing it is useless).
@@ -50,9 +71,13 @@ func InitScriptingEngine(db *DB) {
 			}
 			// set_repl without REPL_AOF bit: suppress AOF for nested writes.
 			if scriptEngine != nil && scriptEngine.ShouldSuppressAOF() {
-				saved := target.addAof
-				target.addAof = func(CmdLine) {}
-				defer func() { target.addAof = saved }()
+				atomic.AddInt32(&target.suppressAof, 1)
+				defer atomic.AddInt32(&target.suppressAof, -1)
+				if target.server == nil {
+					saved := target.addAof
+					target.addAof = func(CmdLine) {}
+					defer func() { target.addAof = saved }()
+				}
 			}
 			result := target.execWithLock(nil, cmdLine)
 			if protocol.IsErrorReply(result) {
@@ -65,6 +90,7 @@ func InitScriptingEngine(db *DB) {
 		}
 
 		scriptEngine = scripting.NewEngine(dbExec)
+		scriptEnginePtr.Store(scriptEngine)
 	}
 	scriptEngine.SetACLCheckCmd(scriptACLCheckCmd)
 }
@@ -97,12 +123,17 @@ func scriptACLCheckCmd(cmd string, args []string) bool {
 // execEval executes a Lua script
 // EVAL script numkeys [key ...] [arg ...]
 func execEval(db *DB, args [][]byte) redis.Reply {
+	scriptExecMu.Lock()
+	defer scriptExecMu.Unlock()
+	return execEvalLocked(db, args)
+}
+
+func execEvalLocked(db *DB, args [][]byte) redis.Reply {
 	if len(args) < 2 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'eval' command")
 	}
 
-	scriptDB = db
-	InitScriptingEngine(db)
+	initScriptingEngineLocked(db)
 
 	script := string(args[0])
 	if reply := validateBulkBytes(args[0]); reply != nil {
@@ -146,27 +177,36 @@ func execEval(db *DB, args [][]byte) redis.Reply {
 // execEvalRO executes a script read-only: nested redis.call write commands are
 // rejected. EVAL_RO script numkeys [key ...] [arg ...]
 func execEvalRO(db *DB, args [][]byte) redis.Reply {
+	scriptExecMu.Lock()
+	defer scriptExecMu.Unlock()
 	scriptReadOnly = true
 	defer func() { scriptReadOnly = false }()
-	return execEval(db, args)
+	return execEvalLocked(db, args)
 }
 
 // execEvalShaRO executes a cached script read-only (see execEvalRO).
 func execEvalShaRO(db *DB, args [][]byte) redis.Reply {
+	scriptExecMu.Lock()
+	defer scriptExecMu.Unlock()
 	scriptReadOnly = true
 	defer func() { scriptReadOnly = false }()
-	return execEvalSha(db, args)
+	return execEvalShaLocked(db, args)
 }
 
 // execEvalSha executes a script by SHA1
 // EVALSHA sha1 numkeys [key ...] [arg ...]
 func execEvalSha(db *DB, args [][]byte) redis.Reply {
+	scriptExecMu.Lock()
+	defer scriptExecMu.Unlock()
+	return execEvalShaLocked(db, args)
+}
+
+func execEvalShaLocked(db *DB, args [][]byte) redis.Reply {
 	if len(args) < 2 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'evalsha' command")
 	}
 
-	scriptDB = db
-	InitScriptingEngine(db)
+	initScriptingEngineLocked(db)
 
 	sha1 := string(args[0])
 	if reply := validateBulkBytes(args[0]); reply != nil {
@@ -215,6 +255,9 @@ func execScriptExists(db *DB, args [][]byte) redis.Reply {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'script|exists' command")
 	}
 
+	scriptExecMu.Lock()
+	defer scriptExecMu.Unlock()
+
 	replies := make([]redis.Reply, len(args))
 	if scriptEngine == nil {
 		for i := range replies {
@@ -241,8 +284,11 @@ func execScriptLoad(db *DB, args [][]byte) redis.Reply {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'script|load' command")
 	}
 
+	scriptExecMu.Lock()
+	defer scriptExecMu.Unlock()
+
 	if scriptEngine == nil {
-		InitScriptingEngine(db)
+		initScriptingEngineLocked(db)
 	}
 
 	script := string(args[0])
@@ -267,6 +313,9 @@ func execScriptFlush(db *DB, args [][]byte) redis.Reply {
 		}
 	}
 
+	scriptExecMu.Lock()
+	defer scriptExecMu.Unlock()
+
 	if scriptEngine == nil {
 		return protocol.MakeOkReply()
 	}
@@ -282,11 +331,12 @@ func execScriptKill(db *DB, args [][]byte) redis.Reply {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'script|kill' command")
 	}
 
-	if scriptEngine == nil {
+	eng := scriptEnginePtr.Load()
+	if eng == nil {
 		return protocol.MakeErrReply("NOTBUSY No scripts in execution right now.")
 	}
 
-	if err := scriptEngine.Kill(); err != nil {
+	if err := eng.Kill(); err != nil {
 		return protocol.MakeErrReply("NOTBUSY No scripts in execution right now.")
 	}
 
