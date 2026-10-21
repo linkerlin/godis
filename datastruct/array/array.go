@@ -319,6 +319,56 @@ func (a *Array) Range(start, end int64) [][]byte {
 	return out
 }
 
+// ScanEntry is one non-empty slot returned by Scan.
+type ScanEntry struct {
+	Index int64
+	Value []byte
+}
+
+// Scan returns non-empty slots in the inclusive [start,end] range. When
+// start > end it walks backwards. Indices beyond the current array are
+// ignored; a non-positive limit means no limit. The returned values point at
+// the array's storage and are valid while the caller holds the key lock.
+func (a *Array) Scan(start, end, limit int64) []ScanEntry {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	n := int64(len(a.slots))
+	if n == 0 {
+		return nil
+	}
+	hi := n - 1
+	step := int64(1)
+	if start <= end {
+		if start > hi {
+			return nil
+		}
+		if end > hi {
+			end = hi
+		}
+	} else {
+		if end > hi {
+			return nil
+		}
+		if start > hi {
+			start = hi
+		}
+		step = -1
+	}
+	entries := make([]ScanEntry, 0)
+	for i := start; ; i += step {
+		if i >= 0 && i < n && a.slots[i] != nil {
+			entries = append(entries, ScanEntry{Index: i, Value: a.slots[i]})
+			if limit > 0 && int64(len(entries)) >= limit {
+				break
+			}
+		}
+		if i == end {
+			break
+		}
+	}
+	return entries
+}
+
 // Slots exposes the raw slot slice for opaque persistence.
 func (a *Array) Slots() [][]byte {
 	a.mu.RLock()

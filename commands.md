@@ -373,6 +373,7 @@
 | AROP | 区间聚合：SUM/MIN/MAX/AND/OR/XOR/MATCH/USED |
 | ARGREP | 区间文本检索：EXACT/MATCH/GLOB/RE + AND/OR/LIMIT/WITHVALUES/NOCASE |
 | ARRING | 环形缓冲写入（固定窗口，覆盖旧值） |
+| ARSCAN | 区间扫描已有元素（index-value 对，支持 LIMIT 与反向） |
 
 ---
 

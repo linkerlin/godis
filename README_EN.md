@@ -178,7 +178,7 @@ Most READMEs read like commercials—they brag about every command name they reg
 Before you use or study Godis, here is the unvarnished ledger of what is real, what is approximated, and what is intentionally left out (documented in full detail in [`docs/COMPATIBILITY.md`](docs/COMPATIBILITY.md)):
 
 1. **How We Measure Compatibility**
-   - We don't guess. [`scripts/r4-1-cases.txt`](scripts/r4-1-cases.txt) runs **12,623 deterministic command cases** side-by-side against a real Redis 8.10 sidecar and diffs the wire responses and error strings.
+   - We don't guess. [`scripts/r4-1-cases.txt`](scripts/r4-1-cases.txt) runs **12,628 deterministic command cases** side-by-side against a real Redis 8.10 sidecar and diffs the wire responses and error strings.
    - Any raw `\r` or `\n` injected into error messages by user input is sanitized at the wire boundary (matching the Redis 8.10 security fix) so malformed input can never split a RESP frame.
 
 2. **Where We Use Different Algorithms (and Tell You Up Front)**
@@ -192,7 +192,7 @@ Before you use or study Godis, here is the unvarnished ledger of what is real, w
 
 4. **What Is a Subset or Explicitly Out of Scope**
    - **Transactions (`MULTI`/`EXEC`)**: Aligned with standard Redis semantics—syntax errors during queueing abort the transaction (`EXECABORT`), while runtime errors on individual commands (like `LPUSH` on a string key) are returned as elements in the reply array without rolling back prior commands.
-   - **Array Preview (Redis 8.8)**: The 9 core preview commands (`ARSET`, `ARMSET`, `ARGET`, `ARMGET`, `ARGETRANGE`, `ARLEN`, `ARCOUNT`, `ARDEL`, `ARDELRANGE`) and `TYPE array` are wired up; extended array commands are deferred while upstream syntax is still marked preview.
+   - **Array Preview (Redis 8.8)**: All 18 preview commands (`ARSET`, `ARMSET`, `ARGET`, `ARMGET`, `ARGETRANGE`, `ARLEN`, `ARCOUNT`, `ARDEL`, `ARDELRANGE`, `ARINSERT`, `ARNEXT`, `ARSEEK`, `ARINFO`, `ARLASTITEMS`, `AROP`, `ARGREP`, `ARRING`, `ARSCAN`) and `TYPE array` are wired up. The internal model is a flat slot array; `ARINFO` slice statistics are synthesized and `FULL` returns only the basic fields.
    - **Explicit Non-Goals**: Compact hash internal template encoding (`HIMPORT` sessions work and write into standard Hashes), multi-part AOF `BACKUP`, full binary Redis gossip bus (Godis cluster uses Raft for topology), and the C Modules API.
 
 Nothing is hidden. Knowing the exact boundaries is what makes a system trustworthy.

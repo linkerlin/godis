@@ -30,6 +30,35 @@ func TestSetGetLenCountAndRanges(t *testing.T) {
 	}
 }
 
+func TestScanRangeAndLimit(t *testing.T) {
+	a := New()
+	a.Set(0, []byte("a"))
+	a.Set(2, []byte("c"))
+	a.Set(5, []byte("f"))
+	assertScan := func(got []ScanEntry, want ...string) {
+		t.Helper()
+		if len(got) != len(want) {
+			t.Fatalf("Scan got %d entries, want %d: %+v", len(got), len(want), got)
+		}
+		for i, w := range want {
+			if string(got[i].Value) != w {
+				t.Fatalf("Scan[%d]=%q want %q", i, got[i].Value, w)
+			}
+		}
+	}
+	assertScan(a.Scan(0, 5, 0), "a", "c", "f")
+	assertScan(a.Scan(5, 0, 0), "f", "c", "a")
+	assertScan(a.Scan(0, 5, 1), "a")
+	assertScan(a.Scan(0, 5, 2), "a", "c")
+	assertScan(a.Scan(3, 4, 0))
+	assertScan(a.Scan(6, 10, 0))
+	assertScan(a.Scan(0, 100, 0), "a", "c", "f")
+	assertScan(a.Scan(100, 0, 0), "f", "c", "a")
+
+	empty := New()
+	assertScan(empty.Scan(0, 0, 0))
+}
+
 func TestInsertNextIndexAndExhaustion(t *testing.T) {
 	a := New()
 	last, ok := a.Insert([]byte("a"), []byte("b"))

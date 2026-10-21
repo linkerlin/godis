@@ -2,7 +2,7 @@ package database
 
 // Redis 8.8 Array preview subset (R5-19): ARSET/ARMSET/ARGET/ARMGET/
 // ARGETRANGE/ARLEN/ARCOUNT/ARDEL/ARDELRANGE, extended by ARINSERT/ARNEXT/
-// ARSEEK/ARINFO/ARLASTITEMS/AROP/ARGREP/ARRING. TYPE reports "array";
+// ARSEEK/ARINFO/ARLASTITEMS/AROP/ARGREP/ARRING/ARSCAN. TYPE reports "array";
 // persistence goes through the Godis opaque envelope.
 
 import (
@@ -724,6 +724,49 @@ func execARRing(db *DB, args [][]byte) redis.Reply {
 	return protocol.MakeIntReply(last)
 }
 
+// execARScan ARSCAN key start end [LIMIT count] — index/value pairs of
+// existing elements in the inclusive range, ascending or descending.
+func execARScan(db *DB, args [][]byte) redis.Reply {
+	if len(args) != 3 && len(args) != 5 {
+		return protocol.MakeErrReply("ERR wrong number of arguments for 'arscan' command")
+	}
+	start, err := strconv.ParseInt(string(args[1]), 10, 64)
+	if err != nil || start < 0 {
+		return protocol.MakeErrReply("ERR invalid array index")
+	}
+	end, err := strconv.ParseInt(string(args[2]), 10, 64)
+	if err != nil || end < 0 {
+		return protocol.MakeErrReply("ERR invalid array index")
+	}
+	var limit int64
+	if len(args) == 5 {
+		if !strings.EqualFold(string(args[3]), "LIMIT") {
+			return protocol.MakeErrReply("ERR wrong number of arguments for 'arscan' command")
+		}
+		limit, err = strconv.ParseInt(string(args[4]), 10, 64)
+		if err != nil {
+			return protocol.MakeErrReply("ERR value is not an integer or out of range")
+		}
+		if limit <= 0 {
+			return protocol.MakeErrReply("ERR LIMIT must be positive")
+		}
+	}
+
+	arr, errReply := db.getAsArray(string(args[0]))
+	if errReply != nil {
+		return errReply
+	}
+	if arr == nil {
+		return protocol.MakeEmptyMultiBulkReply()
+	}
+	entries := arr.Scan(start, end, limit)
+	out := make([][]byte, 0, len(entries)*2)
+	for _, e := range entries {
+		out = append(out, []byte(strconv.FormatInt(e.Index, 10)), e.Value)
+	}
+	return protocol.MakeMultiBulkReply(out)
+}
+
 func init() {
 	registerCommand("ARSet", execARSet, writeFirstKey, nil, -4, flagWrite).
 		attachCommandExtra([]string{redisFlagWrite, redisFlagDenyOOM, redisFlagFast}, 1, 1, 1)
@@ -759,4 +802,6 @@ func init() {
 		attachCommandExtra([]string{redisFlagReadonly}, 1, 1, 1)
 	registerCommand("ARRing", execARRing, writeFirstKey, nil, -4, flagWrite).
 		attachCommandExtra([]string{redisFlagWrite, redisFlagDenyOOM}, 1, 1, 1)
+	registerCommand("ARScan", execARScan, readFirstKey, nil, -4, flagReadOnly).
+		attachCommandExtra([]string{redisFlagReadonly}, 1, 1, 1)
 }

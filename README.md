@@ -178,7 +178,7 @@ OK
 把 Godis 当成工具或研究样本之前，请你先看清下面这份诚实的账单（完整细节全公开在 [`docs/COMPATIBILITY.md`](docs/COMPATIBILITY.md) 与 [`兼容性改进计划.md`](兼容性改进计划.md)）：
 
 1. **我们是怎么验证“兼容”的？**
-   - 不是靠肉眼看几个 `OK`。仓库里的 [`scripts/r4-1-cases.txt`](scripts/r4-1-cases.txt) 攒下了 **12,623 条**确定性命令用例，直接拿真实的 Redis 8.10 实例当裁判（Sidecar），比对两边的输出和错误文案。
+   - 不是靠肉眼看几个 `OK`。仓库里的 [`scripts/r4-1-cases.txt`](scripts/r4-1-cases.txt) 攒下了 **12,628 条**确定性命令用例，直接拿真实的 Redis 8.10 实例当裁判（Sidecar），比对两边的输出和错误文案。
    - 任何错误回复里如果夹带了用户输入的回车换行（`\r\n`），在协议出口都会被清洗成单行（对齐 Redis 8.10 安全修复），绝不让脏数据劈开 RESP 协议帧。
 
 2. **哪些地方我们换了算法，但把账写在了明面上？**
@@ -192,7 +192,7 @@ OK
 
 4. **哪些功能我们明确没做（或仅提供子集）？**
    - **事务（`MULTI`/`EXEC`）**：已对齐 Redis 标准行为——入队时语法错误会中止事务（`EXECABORT`），但运行期单条命令报错（比如对字符串做 `LPUSH`）不会回滚前面已经成功的命令，而是把错误放进结果数组继续往下跑。
-   - **Array 类型（Redis 8.8 Preview）**：官方 17 条预览命令已全部接通（`ARSET`/`ARMSET`/`ARGET`/`ARMGET`/`ARGETRANGE`/`ARLEN`/`ARCOUNT`/`ARDEL`/`ARDELRANGE`/`ARINSERT`/`ARNEXT`/`ARSEEK`/`ARINFO`/`ARLASTITEMS`/`AROP`/`ARGREP`/`ARRING`）与 `TYPE array`。内部是扁平槽模型，`ARINFO` 的 slice 统计为合成值、`FULL` 只返回基础字段。
+   - **Array 类型（Redis 8.8 Preview）**：官方 18 条预览命令已全部接通（`ARSET`/`ARMSET`/`ARGET`/`ARMGET`/`ARGETRANGE`/`ARLEN`/`ARCOUNT`/`ARDEL`/`ARDELRANGE`/`ARINSERT`/`ARNEXT`/`ARSEEK`/`ARINFO`/`ARLASTITEMS`/`AROP`/`ARGREP`/`ARRING`/`ARSCAN`）与 `TYPE array`。内部是扁平槽模型，`ARINFO` 的 slice 统计为合成值、`FULL` 只返回基础字段。
    - **明确列为非目标的事项**：Compact Hash 内部模板编码（`HIMPORT` 会话已支持，落地为普通 Hash）、`BACKUP` 多分片 AOF、完整的 Redis 二进制 Gossip 总线（Godis 集群拓扑走 Raft）、以及 C Modules API。
 
 事情就是这样。清楚知道边界在哪，用起来才踏实。
