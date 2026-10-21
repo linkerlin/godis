@@ -130,9 +130,12 @@ func TestR5ArrayLastItems(t *testing.T) {
 	}
 	r5ArrayBulks(t, db.Exec(nil, utils.ToCmdLine("ARLASTITEMS", "log", "2")), "second", "third")
 	r5ArrayBulks(t, db.Exec(nil, utils.ToCmdLine("ARLASTITEMS", "log", "2", "REV")), "third", "second")
-	// Overwriting an index makes it the most recent item.
+	// Overwriting an index changes the value but not the index-range semantics:
+	// ARLASTITEMS returns the highest indices (Redis 8.10).
 	db.Exec(nil, utils.ToCmdLine("ARSET", "log", "0", "first-updated"))
-	r5ArrayBulks(t, db.Exec(nil, utils.ToCmdLine("ARLASTITEMS", "log", "1")), "first-updated")
+	r5ArrayBulks(t, db.Exec(nil, utils.ToCmdLine("ARLASTITEMS", "log", "1")), "third")
+	r5ArrayBulks(t, db.Exec(nil, utils.ToCmdLine("ARLASTITEMS", "log", "3")), "first-updated", "second", "third")
+	r5ArrayBulks(t, db.Exec(nil, utils.ToCmdLine("ARLASTITEMS", "log", "3", "REV")), "third", "second", "first-updated")
 }
 
 func intReplyValue(t *testing.T, r redisReply) int64 {
@@ -271,5 +274,20 @@ func TestR5ArrayExtendedDumpRestore(t *testing.T) {
 	if got := intReplyValue(t, db2.Exec(nil, utils.ToCmdLine("ARNEXT", "a"))); got != 8 {
 		t.Fatalf("restored ARNEXT want 8, got %d", got)
 	}
-	r5ArrayBulks(t, db2.Exec(nil, utils.ToCmdLine("ARLASTITEMS", "a", "3")), "x", "y", "z")
+	// Plain arrays use index-range semantics; indices 5/6 are empty.
+	r5ArrayBulks(t, db2.Exec(nil, utils.ToCmdLine("ARLASTITEMS", "a", "1")), "z")
+	r := db2.Exec(nil, utils.ToCmdLine("ARLASTITEMS", "a", "3"))
+	raw, ok := r.(*protocol.MultiRawReply)
+	if !ok || len(raw.Replies) != 3 {
+		t.Fatalf("restored ARLASTITEMS: %T %s", r, r.ToBytes())
+	}
+	if _, ok := raw.Replies[0].(*protocol.NullBulkReply); !ok {
+		t.Fatalf("restored ARLASTITEMS[0] want null, got %T", raw.Replies[0])
+	}
+	if _, ok := raw.Replies[1].(*protocol.NullBulkReply); !ok {
+		t.Fatalf("restored ARLASTITEMS[1] want null, got %T", raw.Replies[1])
+	}
+	if br, ok := raw.Replies[2].(*protocol.BulkReply); !ok || string(br.Arg) != "z" {
+		t.Fatalf("restored ARLASTITEMS[2] want z, got %s", r.ToBytes())
+	}
 }

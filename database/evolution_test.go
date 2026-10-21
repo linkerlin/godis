@@ -470,13 +470,13 @@ func TestE4_JSONPathNestedProjectionsParenArithAndKeyOperator(t *testing.T) {
 	doc := `{"nums":[-10,-3,4],"obj":{"b":1,"a":2},"items":[{"a":2,"b":3,"x":6,"name":"cat"},{"a":1,"b":1,"x":20,"name":"elephant"}]}`
 	asserts.AssertStatusReply(t, srv.Exec(c, utils.ToCmdLine("JSON.SET", "jp:doc", "$", doc)), "OK")
 
-	// 1. Nested top-level projection: abs(min($.nums)) -> 10
+	// 1. Nested top-level projection: abs(min($.nums)) -> [10.0]
 	r1 := srv.Exec(c, utils.ToCmdLine("JSON.GET", "jp:doc", "abs(min($.nums))"))
-	asserts.AssertBulkReply(t, r1, "10")
+	asserts.AssertBulkReply(t, r1, "[10.0]")
 
-	// 2. Nested top-level projection: length(keys($.obj)) -> 2
+	// 2. Nested top-level projection: length(keys($.obj)) -> [2]
 	r2 := srv.Exec(c, utils.ToCmdLine("JSON.GET", "jp:doc", "length(keys($.obj))"))
-	asserts.AssertBulkReply(t, r2, "2")
+	asserts.AssertBulkReply(t, r2, "[2]")
 
 	// 3. Property-name operator `~`: $.obj.~ -> [["a","b"]]
 	r3 := srv.Exec(c, utils.ToCmdLine("JSON.GET", "jp:doc", "$.obj.~"))

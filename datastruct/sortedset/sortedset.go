@@ -249,6 +249,11 @@ func (sortedSet *SortedSet) PopMax(count int) []*Element {
 	}
 	stop := length + 1
 	removed := sortedSet.skiplist.RemoveRangeByRank(start, stop)
+	// RemoveRangeByRank yields ascending score order; ZPOPMAX/ZMPOP MAX return
+	// highest-first (Redis 8.10).
+	for i, j := 0, len(removed)-1; i < j; i, j = i+1, j-1 {
+		removed[i], removed[j] = removed[j], removed[i]
+	}
 	for _, element := range removed {
 		delete(sortedSet.dict, element.Member)
 	}

@@ -39,9 +39,9 @@ func TestGaps23TopKAndCMSAndTDigest(t *testing.T) {
 func TestGaps23TSNegative(t *testing.T) {
 	db := makeTestDB()
 	asserts.AssertErrReply(t, db.Exec(nil, utils.ToCmdLine("TS.CREATE", "t", "RETENTION", "-1")),
-		"ERR TSDB: Couldn't parse RETENTION")
+		"TSDB: Couldn't parse RETENTION")
 	asserts.AssertErrReply(t, db.Exec(nil, utils.ToCmdLine("TS.ADD", "t2", "-1", "1")),
-		"ERR TSDB: invalid timestamp, must be a nonnegative integer")
+		"TSDB: invalid timestamp, must be a nonnegative integer")
 }
 
 func TestGaps23XAddZeroAndXGroupDestroy(t *testing.T) {

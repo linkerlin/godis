@@ -51,7 +51,7 @@ func tsNRangeInternal(db *DB, args [][]byte, reverse bool) redis.Reply {
 	}
 	numKeys, err := strconv.Atoi(string(args[0]))
 	if err != nil || numKeys <= 0 {
-		return protocol.MakeErrReply("ERR TSDB: wrong number of keys")
+		return protocol.MakeErrReply("TSDB: wrong number of keys")
 	}
 	if len(args) < 1+numKeys+2 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for '" + cmd + "' command")
@@ -70,14 +70,14 @@ func tsNRangeInternal(db *DB, args [][]byte, reverse bool) redis.Reply {
 		arg := strings.ToUpper(string(rest[i]))
 		switch arg {
 		case "LATEST", "FILTER_BY_TS", "FILTER_BY_VALUE", "ALIGN", "BUCKETTIMESTAMP", "EMPTY":
-			return protocol.MakeErrReply("ERR TSDB: " + arg + " is not supported by this build")
+			return protocol.MakeErrReply("TSDB: " + arg + " is not supported by this build")
 		case "COUNT":
 			if i+1 >= len(rest) {
 				return protocol.MakeSyntaxErrReply()
 			}
 			count, err = strconv.Atoi(string(rest[i+1]))
 			if err != nil || count < 0 {
-				return protocol.MakeErrReply("ERR TSDB: wrong COUNT")
+				return protocol.MakeErrReply("TSDB: wrong COUNT")
 			}
 			i += 2
 		case "AGGREGATION":
@@ -95,11 +95,11 @@ func tsNRangeInternal(db *DB, args [][]byte, reverse bool) redis.Reply {
 				j++
 			}
 			if len(lists) != numKeys || j >= len(rest) {
-				return protocol.MakeErrReply("ERR TSDB: wrong number of aggregation arguments")
+				return protocol.MakeErrReply("TSDB: wrong number of aggregation arguments")
 			}
 			bucketMs, perr := strconv.ParseInt(string(rest[j]), 10, 64)
 			if perr != nil || bucketMs <= 0 {
-				return protocol.MakeErrReply("ERR TSDB: wrong bucketDuration")
+				return protocol.MakeErrReply("TSDB: wrong bucketDuration")
 			}
 			aggLists = lists
 			bucketSize = time.Duration(bucketMs) * time.Millisecond
@@ -114,7 +114,7 @@ func tsNRangeInternal(db *DB, args [][]byte, reverse bool) redis.Reply {
 	for _, key := range keys {
 		entity, exists := db.GetEntity(key)
 		if !exists {
-			return protocol.MakeErrReply("ERR TSDB: the key does not exist")
+			return protocol.MakeErrReply("TSDB: the key does not exist")
 		}
 		ts, ok := entity.Data.(*timeseries.TimeSeries)
 		if !ok {

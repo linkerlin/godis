@@ -47,6 +47,45 @@ function Expand-CaseTokens {
     return $Text.Replace('{{ID}}', $Id)
 }
 
+# Quote-aware whitespace splitting: paths like `$.users[?(@.age > 20)].name`
+# stay one argument when quoted in the cases file.
+function Split-CaseArgs {
+    param([string]$Text)
+    $out = New-Object System.Collections.Generic.List[string]
+    $cur = New-Object System.Text.StringBuilder
+    $quote = [char]0
+    $has = $false
+    for ($i = 0; $i -lt $Text.Length; $i++) {
+        $c = $Text[$i]
+        if ($quote -ne [char]0) {
+            if ($c -eq $quote) { $quote = [char]0 } else { [void]$cur.Append($c) }
+            $has = $true
+            continue
+        }
+        if ($c -eq '"' -or $c -eq "'") {
+            if (-not $has) {
+                $quote = $c
+                $has = $true
+            } else {
+                [void]$cur.Append($c) # quotes inside a JSON literal are data
+            }
+            continue
+        }
+        if ([char]::IsWhiteSpace($c)) {
+            if ($has) {
+                $out.Add($cur.ToString())
+                [void]$cur.Clear()
+                $has = $false
+            }
+            continue
+        }
+        [void]$cur.Append($c)
+        $has = $true
+    }
+    if ($has) { $out.Add($cur.ToString()) }
+    return ,$out.ToArray()
+}
+
 function Test-Want {
     param([string]$Want, [string]$Got)
     if ($Want -match '^>=(-?\d+)$') {
@@ -87,6 +126,11 @@ FAIL $Label
   godis: $Gv
   want:  $Want
 "@
+    if ($env:R41_CONTINUE -eq '1') {
+        [Console]::Error.WriteLine($msg.TrimEnd())
+        $script:Failures++
+        return
+    }
     throw $msg.TrimEnd()
 }
 
@@ -103,6 +147,7 @@ if ($SelfCheck) {
 Write-Host "R4-1 scaffold: allowlist-only via $CasesPath ($Allowlist). Full module/DUMP/gossip/FT/cluster diffs are out of scope."
 
 $asserted = 0
+$script:Failures = 0
 foreach ($rawLine in Get-Content -LiteralPath $CasesPath) {
     $line = Expand-CaseTokens $rawLine.TrimEnd("`r")
     if ([string]::IsNullOrWhiteSpace($line) -or $line.TrimStart().StartsWith("#")) { continue }
@@ -113,7 +158,10 @@ foreach ($rawLine in Get-Content -LiteralPath $CasesPath) {
     }
 
     if ($line.StartsWith("@")) {
-        $parts = $line.Substring(1).Trim() -split '\s+'
+        $parts = @(Split-CaseArgs ($line.Substring(1).Trim()))
+        if ($parts.Count -gt 0 -and $parts[0] -ieq 'CMD') {
+            $parts = @($parts | Select-Object -Skip 1)
+        }
         try { Invoke-RedisCli $RedisHost $RedisPort @parts | Out-Null } catch { }
         try { Invoke-RedisCli $GodisHost $GodisPort @parts | Out-Null } catch { }
         continue
@@ -123,7 +171,7 @@ foreach ($rawLine in Get-Content -LiteralPath $CasesPath) {
     if ($bits.Count -ne 3) { throw "bad case line: $rawLine" }
     $label = $bits[0]
     $want = Expand-WantEscapes $bits[1]
-    $cmdParts = $bits[2].Trim() -split '\s+'
+    $cmdParts = @(Split-CaseArgs $bits[2].Trim())
     if (-not $label -or -not $want -or $cmdParts.Count -eq 0) { throw "bad case line: $rawLine" }
 
     $rv = Normalize-CliOut ((@(Invoke-RedisCli $RedisHost $RedisPort @cmdParts) -join "`n"))
@@ -141,5 +189,6 @@ foreach ($rawLine in Get-Content -LiteralPath $CasesPath) {
     $asserted++
 }
 
-Write-Host "ran $asserted assertions from $(Split-Path -Leaf $CasesPath)"
+Write-Host "ran $asserted assertions from $(Split-Path -Leaf $CasesPath) (failures=$($script:Failures))"
+if ($script:Failures -gt 0) { exit 1 }
 Write-Host "allowlist diff passed (scaffolding only; see docs/COMPATIBILITY.md R4-1)"

@@ -369,7 +369,7 @@ func TestR5W2TSNRange(t *testing.T) {
 	// Unsupported options are rejected explicitly, not ignored.
 	asserts.AssertErrReply(t, testDB.Exec(nil, utils.ToCmdLine(
 		"TS.NRANGE", "1", "r5w2:n1", "-", "+", "LATEST")),
-		"ERR TSDB: LATEST is not supported by this build")
+		"TSDB: LATEST is not supported by this build")
 	testDB.Exec(nil, utils.ToCmdLine("DEL", "r5w2:n1", "r5w2:n2", "r5w2:n3", "r5w2:n4"))
 }
 

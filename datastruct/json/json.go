@@ -820,11 +820,38 @@ func (jv *JSONValue) tryProjection(path string) (interface{}, bool, error) {
 	if err != nil {
 		return nil, true, err
 	}
+	// Redis 8.10: length() over a wildcard/recursive nodelist yields [].
+	if _, isNodes := val.(nodeList); isNodes && fn == "length" {
+		return projectionResult{}, true, nil
+	}
+	// Nested projection: unwrap the inner one-element array before applying
+	// the outer function (abs(min($.nums))).
+	if pr, ok := val.(projectionResult); ok {
+		if len(pr) == 1 {
+			val = pr[0]
+		} else {
+			val = []interface{}(pr)
+		}
+	}
 	result := applyFunction(fn, val, nil, nil)
 	if result == nil {
 		return nil, true, ErrJSONPathSyntax
 	}
-	return result, true, nil
+	return projectionResult{wrapProjectionResult(fn, result)}, true, nil
+}
+
+func wrapProjectionResult(fn string, result interface{}) interface{} {
+	switch fn {
+	case "length", "count":
+		if f, ok := toFloat(result); ok {
+			return int64(f)
+		}
+	case "sum", "min", "max", "avg", "stddev", "abs", "ceiling", "floor":
+		if f, ok := toFloat(result); ok {
+			return projectionFloat(f)
+		}
+	}
+	return result
 }
 
 // walkParts resolves parts against current, returning the single value.

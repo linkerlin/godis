@@ -90,11 +90,11 @@ func execTSRead(db *DB, args [][]byte) redis.Reply {
 			}
 			ms, err := strconv.ParseInt(string(args[i+1]), 10, 64)
 			if err != nil || ms < 0 {
-				return protocol.MakeErrReply("ERR invalid BLOCK milliseconds")
+				return protocol.MakeErrReply("TSDB: BLOCK milliseconds must be a non-negative integer")
 			}
 			mc, err := strconv.ParseInt(string(args[i+2]), 10, 64)
 			if err != nil || mc < 1 {
-				return protocol.MakeErrReply("ERR invalid BLOCK min_count")
+				return protocol.MakeErrReply("TSDB: BLOCK min_count must be a positive integer")
 			}
 			blockMs = ms
 			minCount = mc
@@ -105,7 +105,7 @@ func execTSRead(db *DB, args [][]byte) redis.Reply {
 			}
 			mc, err := strconv.ParseInt(string(args[i+1]), 10, 64)
 			if err != nil || mc < 1 {
-				return protocol.MakeErrReply("ERR invalid MAX_COUNT")
+				return protocol.MakeErrReply("TSDB: MAX_COUNT must be a positive integer")
 			}
 			maxCount = mc
 			i += 2
@@ -114,7 +114,7 @@ func execTSRead(db *DB, args [][]byte) redis.Reply {
 		}
 	}
 	if blockMs >= 0 && maxCount > 0 && maxCount < minCount {
-		return protocol.MakeErrReply("ERR MAX_COUNT can't be less than BLOCK min_count")
+		return protocol.MakeErrReply("TSDB: BLOCK min_count must be <= MAX_COUNT")
 	}
 
 	// Resolve the cursor sentinel exactly once, at command receipt.
@@ -168,7 +168,7 @@ func resolveTSReadCursor(cursorStr string, ts *timeseries.TimeSeries) (int64, re
 	default:
 		cur, err := strconv.ParseInt(cursorStr, 10, 64)
 		if err != nil || cur < 0 {
-			return 0, protocol.MakeErrReply("ERR invalid timestamp")
+			return 0, protocol.MakeErrReply("TSDB: invalid timestamp")
 		}
 		return cur, nil
 	}

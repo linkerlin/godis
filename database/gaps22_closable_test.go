@@ -36,13 +36,13 @@ func TestGaps22ClientTrackingRedirectMissing(t *testing.T) {
 func TestGaps22TSWording(t *testing.T) {
 	db := makeTestDB()
 	asserts.AssertErrReply(t, db.Exec(nil, utils.ToCmdLine("TS.CREATE", "t", "RETENTION", "abc")),
-		"ERR TSDB: Couldn't parse RETENTION")
+		"TSDB: Couldn't parse RETENTION")
 	asserts.AssertErrReply(t, db.Exec(nil, utils.ToCmdLine("TS.ADD", "t", "*", "abc")),
-		"ERR TSDB: invalid value")
+		"TSDB: invalid value")
 	asserts.AssertErrReply(t, db.Exec(nil, utils.ToCmdLine("TS.GET", "nosuch")),
-		"ERR TSDB: the key does not exist")
+		"TSDB: the key does not exist")
 	asserts.AssertErrReply(t, db.Exec(nil, utils.ToCmdLine("TS.INFO", "nosuch")),
-		"ERR TSDB: the key does not exist")
+		"TSDB: the key does not exist")
 }
 
 func TestGaps22ProbabilisticWording(t *testing.T) {

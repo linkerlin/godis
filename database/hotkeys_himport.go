@@ -143,7 +143,7 @@ func execHotkeys(db *DB, args [][]byte) redis.Reply {
 		hotkeys.mu.Lock()
 		defer hotkeys.mu.Unlock()
 		if !hotkeys.active.Load() {
-			return protocol.MakeErrReply("ERR Hotkeys tracking is not active")
+			return &protocol.NullBulkReply{}
 		}
 		hotkeys.active.Store(false)
 		return protocol.MakeOkReply()

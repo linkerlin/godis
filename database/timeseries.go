@@ -38,7 +38,7 @@ func execTSCreate(db *DB, args [][]byte) redis.Reply {
 			}
 			retentionMs, err := strconv.ParseInt(string(args[i+1]), 10, 64)
 			if err != nil || retentionMs < 0 {
-				return protocol.MakeErrReply("ERR TSDB: Couldn't parse RETENTION")
+				return protocol.MakeErrReply("TSDB: Couldn't parse RETENTION")
 			}
 			retention = time.Duration(retentionMs) * time.Millisecond
 			i += 2
@@ -85,7 +85,7 @@ func execTSCreate(db *DB, args [][]byte) redis.Reply {
 			}
 			pol, err := timeseries.ParseDuplicatePolicy(string(args[i+1]))
 			if err != nil {
-				return protocol.MakeErrReply("ERR TSDB: Unknown DUPLICATE_POLICY")
+				return protocol.MakeErrReply("TSDB: Unknown DUPLICATE_POLICY")
 			}
 			dupPolicy = pol
 			i += 2
@@ -135,17 +135,17 @@ func execTSAdd(db *DB, args [][]byte) redis.Reply {
 		var err error
 		timestamp, err = strconv.ParseInt(timestampStr, 10, 64)
 		if err != nil {
-			return protocol.MakeErrReply("ERR TSDB: invalid timestamp")
+			return protocol.MakeErrReply("TSDB: invalid timestamp")
 		}
 		if timestamp < 0 {
-			return protocol.MakeErrReply("ERR TSDB: invalid timestamp, must be a nonnegative integer")
+			return protocol.MakeErrReply("TSDB: invalid timestamp, must be a nonnegative integer")
 		}
 	}
 
 	// Parse value
 	value, err := strconv.ParseFloat(string(args[2]), 64)
 	if err != nil {
-		return protocol.MakeErrReply("ERR TSDB: invalid value")
+		return protocol.MakeErrReply("TSDB: invalid value")
 	}
 
 	// Parse optional trailing options.
@@ -159,7 +159,7 @@ func execTSAdd(db *DB, args [][]byte) redis.Reply {
 			}
 			pol, err := timeseries.ParseDuplicatePolicy(string(args[i+1]))
 			if err != nil {
-				return protocol.MakeErrReply("ERR TSDB: Unknown DUPLICATE_POLICY")
+				return protocol.MakeErrReply("TSDB: Unknown DUPLICATE_POLICY")
 			}
 			onDup = &pol
 			i += 2
@@ -211,7 +211,7 @@ func execTSAdd(db *DB, args [][]byte) redis.Reply {
 			return protocol.MakeErrReply("ERR Timestamp is older than retention")
 		}
 		if err == timeseries.ErrDuplicateTimestamp {
-			return protocol.MakeErrReply("ERR TSDB: Error at TEMPADD, update is not supported when DUPLICATE_POLICY is set to BLOCK policy.")
+			return protocol.MakeErrReply("TSDB: Error at TEMPADD, update is not supported when DUPLICATE_POLICY is set to BLOCK policy.")
 		}
 		return protocol.MakeErrReply(fmt.Sprintf("ERR %v", err))
 	}
@@ -238,12 +238,12 @@ func execTSMAdd(db *DB, args [][]byte) redis.Reply {
 			var err error
 			timestamp, err = strconv.ParseInt(timestampStr, 10, 64)
 			if err != nil {
-				return protocol.MakeErrReply("ERR TSDB: invalid timestamp")
+				return protocol.MakeErrReply("TSDB: invalid timestamp")
 			}
 		}
 		value, err := strconv.ParseFloat(string(args[i+2]), 64)
 		if err != nil {
-			return protocol.MakeErrReply("ERR TSDB: invalid value")
+			return protocol.MakeErrReply("TSDB: invalid value")
 		}
 		entity, exists := db.GetEntity(key)
 		var ts *timeseries.TimeSeries
@@ -282,7 +282,7 @@ func execTSGet(db *DB, args [][]byte) redis.Reply {
 
 	entity, exists := db.GetEntity(key)
 	if !exists {
-		return protocol.MakeErrReply("ERR TSDB: the key does not exist")
+		return protocol.MakeErrReply("TSDB: the key does not exist")
 	}
 
 	ts, ok := entity.Data.(*timeseries.TimeSeries)
@@ -351,7 +351,7 @@ func execTSRangeInternal(db *DB, args [][]byte, reverse bool) redis.Reply {
 
 	entity, exists := db.GetEntity(key)
 	if !exists {
-		return protocol.MakeErrReply("ERR TSDB: the key does not exist")
+		return protocol.MakeErrReply("TSDB: the key does not exist")
 	}
 
 	ts, ok := entity.Data.(*timeseries.TimeSeries)
@@ -478,7 +478,7 @@ func execTSInfo(db *DB, args [][]byte) redis.Reply {
 
 	entity, exists := db.GetEntity(key)
 	if !exists {
-		return protocol.MakeErrReply("ERR TSDB: the key does not exist")
+		return protocol.MakeErrReply("TSDB: the key does not exist")
 	}
 
 	ts, ok := entity.Data.(*timeseries.TimeSeries)
@@ -561,7 +561,7 @@ func execTSIncrDecr(db *DB, args [][]byte, isIncr bool) redis.Reply {
 
 	delta, err := strconv.ParseFloat(string(args[1]), 64)
 	if err != nil {
-		return protocol.MakeErrReply("ERR TSDB: invalid value")
+		return protocol.MakeErrReply("TSDB: invalid value")
 	}
 
 	if !isIncr {
@@ -591,7 +591,7 @@ func execTSIncrDecr(db *DB, args [][]byte, isIncr bool) redis.Reply {
 			}
 			ms, err := strconv.ParseInt(string(args[i+1]), 10, 64)
 			if err != nil || ms < 0 {
-				return protocol.MakeErrReply("ERR TSDB: Couldn't parse RETENTION")
+				return protocol.MakeErrReply("TSDB: Couldn't parse RETENTION")
 			}
 			retention = time.Duration(ms) * time.Millisecond
 			i += 2
@@ -710,7 +710,7 @@ func execTSAlter(db *DB, args [][]byte) redis.Reply {
 
 	entity, exists := db.GetEntity(key)
 	if !exists {
-		return protocol.MakeErrReply("ERR TSDB: the key does not exist")
+		return protocol.MakeErrReply("TSDB: the key does not exist")
 	}
 
 	ts, ok := entity.Data.(*timeseries.TimeSeries)
@@ -729,7 +729,7 @@ func execTSAlter(db *DB, args [][]byte) redis.Reply {
 			}
 			retentionMs, err := strconv.ParseInt(string(args[i+1]), 10, 64)
 			if err != nil || retentionMs < 0 {
-				return protocol.MakeErrReply("ERR TSDB: Couldn't parse RETENTION")
+				return protocol.MakeErrReply("TSDB: Couldn't parse RETENTION")
 			}
 			ts.SetRetention(time.Duration(retentionMs) * time.Millisecond)
 			i += 2
@@ -774,18 +774,18 @@ func execTSCreateRule(db *DB, args [][]byte) redis.Reply {
 
 	aggType, err := timeseries.ParseAggregationType(string(args[3]))
 	if err != nil {
-		return protocol.MakeErrReply("ERR TSDB: Unknown aggregation type")
+		return protocol.MakeErrReply("TSDB: Unknown aggregation type")
 	}
 
 	timeBucketMs, err := strconv.ParseInt(string(args[4]), 10, 64)
 	if err != nil {
-		return protocol.MakeErrReply("ERR TSDB: Couldn't parse AGGREGATION")
+		return protocol.MakeErrReply("TSDB: Couldn't parse AGGREGATION")
 	}
 
 	// Get source time series
 	entity, exists := db.GetEntity(sourceKey)
 	if !exists {
-		return protocol.MakeErrReply("ERR TSDB: the key does not exist")
+		return protocol.MakeErrReply("TSDB: the key does not exist")
 	}
 
 	sourceTS, ok := entity.Data.(*timeseries.TimeSeries)
@@ -832,7 +832,7 @@ func execTSDeleteRule(db *DB, args [][]byte) redis.Reply {
 
 	entity, exists := db.GetEntity(sourceKey)
 	if !exists {
-		return protocol.MakeErrReply("ERR TSDB: the key does not exist")
+		return protocol.MakeErrReply("TSDB: the key does not exist")
 	}
 
 	ts, ok := entity.Data.(*timeseries.TimeSeries)

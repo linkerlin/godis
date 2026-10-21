@@ -615,6 +615,26 @@ func (p *predParser) parseOperand() (*predNode, error) {
 // array while remaining distinguishable from a stored JSON array in filters.
 type nodeList []interface{}
 
+// projectionResult is the array wrapper Redis 8.10 uses for top-level function
+// projections (`min($)`, `sum($.a[*].b)`, ...): the result is always a
+// one-element (or empty) JSON array.
+type projectionResult []interface{}
+
+// projectionFloat formats computed numeric projections as RedisJSON does:
+// integral floats keep a `.0` suffix (e.g. `[6.0]`).
+type projectionFloat float64
+
+func (f projectionFloat) MarshalJSON() ([]byte, error) {
+	v := float64(f)
+	if math.IsNaN(v) || math.IsInf(v, 0) {
+		return []byte("null"), nil
+	}
+	if v == math.Trunc(v) {
+		return []byte(strconv.FormatFloat(v, 'f', 1, 64)), nil
+	}
+	return []byte(strconv.FormatFloat(v, 'f', -1, 64)), nil
+}
+
 // asNodeSlice accepts both stored JSON arrays and nodeList values.
 func asNodeSlice(v interface{}) ([]interface{}, bool) {
 	switch t := v.(type) {
@@ -1111,6 +1131,8 @@ func toFloat(v interface{}) (float64, bool) {
 	switch t := v.(type) {
 	case float64:
 		return t, true
+	case projectionFloat:
+		return float64(t), true
 	case int:
 		return float64(t), true
 	case int64:

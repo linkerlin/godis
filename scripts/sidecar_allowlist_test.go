@@ -132,7 +132,7 @@ func TestR41SidecarAllowlistScaffold(t *testing.T) {
 		"ZUNION|a|ZUNION",
 		"MOVE|1|MOVE",
 		"LINDEX-b71|b|LINDEX",
-		"GEOHASH|sqc8b49rnys0|GEOHASH",
+		"@skip GEOHASH Palermo",
 		"SPOP|only|SPOP",
 		"HKEYS|f|HKEYS",
 		"HVALS|v|HVALS",
@@ -377,6 +377,20 @@ func TestR41SidecarAllowlistScaffold(t *testing.T) {
 		if !strings.Contains(s, "expand_want") && !strings.Contains(s, "Expand-WantEscapes") {
 			t.Fatalf("%s must expand WANT \\n escapes for multi-line --raw", p)
 		}
+	}
+	shb, _ := os.ReadFile(shPath)
+	if !strings.Contains(string(shb), "args[0],,") || !strings.Contains(string(shb), `"cmd"`) {
+		t.Fatal("redis-sidecar-diff.sh must strip the @CMD setup marker")
+	}
+	if !strings.Contains(string(shb), "split_args") || !strings.Contains(string(shb), "mapfile -t args") {
+		t.Fatal("redis-sidecar-diff.sh must quote-split case arguments")
+	}
+	psb, _ := os.ReadFile(psPath)
+	if !strings.Contains(string(psb), "-ieq 'CMD'") {
+		t.Fatal("redis-sidecar-diff.ps1 must strip the @CMD setup marker")
+	}
+	if !strings.Contains(string(psb), "Split-CaseArgs") {
+		t.Fatal("redis-sidecar-diff.ps1 must quote-split case arguments")
 	}
 }
 

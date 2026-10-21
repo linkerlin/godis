@@ -36,7 +36,7 @@ func TestGaps31ClientStreamTSObject(t *testing.T) {
 
 	db := makeTestDB()
 	asserts.AssertErrReply(t, db.Exec(nil, utils.ToCmdLine("TS.CREATE", "t", "DUPLICATE_POLICY", "foo")),
-		"ERR TSDB: Unknown DUPLICATE_POLICY")
+		"TSDB: Unknown DUPLICATE_POLICY")
 	asserts.AssertErrReply(t, db.Exec(nil, utils.ToCmdLine("XINFO", "HELP", "x")),
 		"ERR wrong number of arguments for 'xinfo|help' command")
 	asserts.AssertErrReply(t, db.Exec(nil, utils.ToCmdLine("OBJECT", "ENCODING")),

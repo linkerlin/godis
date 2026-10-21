@@ -297,16 +297,16 @@ func TestR5JPTopLevelProjection(t *testing.T) {
 	if !ok {
 		t.Fatalf("min($): %s", r.ToBytes())
 	}
-	if string(b.Arg) != "1" {
-		t.Errorf("min($) = %s, want 1", b.Arg)
+	if string(b.Arg) != "[1.0]" {
+		t.Errorf("min($) = %s, want [1.0]", b.Arg)
 	}
 	r = testDB.Exec(nil, utils.ToCmdLine("JSON.GET", "r5jp:nums", "sum($)"))
-	if b, ok = r.(*protocol.BulkReply); !ok || string(b.Arg) != "6" {
+	if b, ok = r.(*protocol.BulkReply); !ok || string(b.Arg) != "[6.0]" {
 		t.Errorf("sum($): %v", r.ToBytes())
 	}
 	// length over an absolute path; unknown function → syntax error.
 	r = testDB.Exec(nil, utils.ToCmdLine("JSON.GET", "r5jp:nums", "length($)"))
-	if b, ok = r.(*protocol.BulkReply); !ok || string(b.Arg) != "3" {
+	if b, ok = r.(*protocol.BulkReply); !ok || string(b.Arg) != "[3]" {
 		t.Errorf("length($): %v", r.ToBytes())
 	}
 	asserts.AssertErrReply(t, testDB.Exec(nil, utils.ToCmdLine(
@@ -384,10 +384,10 @@ func TestR5JPWildcardAndRecursive(t *testing.T) {
 	if got := r5jpGetKey(t, key, "$.items[*].tags[*]"); got != `["x","y","z"]` {
 		t.Errorf("nested wildcard: %s", got)
 	}
-	if got := r5jpGetKey(t, key, "sum($.items[*].price)"); got != "30" {
+	if got := r5jpGetKey(t, key, "sum($.items[*].price)"); got != "[30.0]" {
 		t.Errorf("sum over nodelist: %s", got)
 	}
-	if got := r5jpGetKey(t, key, "length($.items[*].price)"); got != "2" {
+	if got := r5jpGetKey(t, key, "length($.items[*].price)"); got != "[]" {
 		t.Errorf("length over nodelist: %s", got)
 	}
 	if got := r5jpGetKey(t, key, "$.items[*].nope"); got != "[]" {

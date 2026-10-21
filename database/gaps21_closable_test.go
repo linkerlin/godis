@@ -66,7 +66,7 @@ func TestGaps21ConfigMaxmemoryWording(t *testing.T) {
 func TestGaps21TSAddBFReserveWording(t *testing.T) {
 	db := makeTestDB()
 	asserts.AssertErrReply(t, db.Exec(nil, utils.ToCmdLine("TS.ADD", "t", "abc", "1")),
-		"ERR TSDB: invalid timestamp")
+		"TSDB: invalid timestamp")
 	asserts.AssertErrReply(t, db.Exec(nil, utils.ToCmdLine("BF.RESERVE", "b", "abc", "100")),
 		"ERR bad error rate")
 }

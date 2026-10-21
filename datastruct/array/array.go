@@ -154,14 +154,33 @@ func (a *Array) recountLocked() {
 	}
 }
 
-// LastItems returns up to count most recently inserted values. rev reverses the
-// chronological order (most recent first).
+// LastItems returns the last count slots. In ring mode this follows insertion
+// order (ring window); for plain/sparse arrays it returns the highest indices,
+// including empty slots, matching Redis 8.10 ARLASTITEMS.
 func (a *Array) LastItems(count int64, rev bool) [][]byte {
 	if count <= 0 {
 		return nil
 	}
 	a.mu.RLock()
 	defer a.mu.RUnlock()
+	if a.ringSize == 0 {
+		n := int64(len(a.slots))
+		if count > n {
+			count = n
+		}
+		start := n - count
+		out := make([][]byte, 0, count)
+		if rev {
+			for i := n - 1; i >= start; i-- {
+				out = append(out, a.slots[i])
+			}
+		} else {
+			for i := start; i < n; i++ {
+				out = append(out, a.slots[i])
+			}
+		}
+		return out
+	}
 	n := len(a.order)
 	if count > int64(n) {
 		count = int64(n)

@@ -43,8 +43,13 @@ func TestR5W3Hotkeys(t *testing.T) {
 	}
 
 	asserts.AssertStatusReply(t, testDB.Exec(nil, utils.ToCmdLine("HOTKEYS", "STOP")), "OK")
-	asserts.AssertErrReply(t, testDB.Exec(nil, utils.ToCmdLine("HOTKEYS", "STOP")),
-		"ERR Hotkeys tracking is not active")
+	r = testDB.Exec(nil, utils.ToCmdLine("HOTKEYS", "STOP"))
+	if protocol.IsErrorReply(r) {
+		t.Fatalf("second HOTKEYS STOP should be null, got %s", r.ToBytes())
+	}
+	if _, ok := r.(*protocol.NullBulkReply); !ok {
+		t.Fatalf("second HOTKEYS STOP want null, got %T", r)
+	}
 	// GET after STOP still reports (tracking-active 0).
 	r = testDB.Exec(nil, utils.ToCmdLine("HOTKEYS", "GET"))
 	if !strings.Contains(string(r.ToBytes()), "tracking-active") {

@@ -389,6 +389,10 @@ func execARLastItems(db *DB, args [][]byte) redis.Reply {
 	vals := arr.LastItems(count, rev)
 	replies := make([]redis.Reply, len(vals))
 	for i, v := range vals {
+		if v == nil {
+			replies[i] = &protocol.NullBulkReply{}
+			continue
+		}
 		replies[i] = protocol.MakeBulkReply(v)
 	}
 	return protocol.MakeMultiRawReply(replies)

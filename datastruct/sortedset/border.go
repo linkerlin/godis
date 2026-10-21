@@ -121,8 +121,19 @@ func ParseScoreBorder(s string) (Border, error) {
 }
 
 func (border *ScoreBorder) isIntersected(max Border) bool {
+	maxBorder, ok := max.(*ScoreBorder)
+	if !ok {
+		return true
+	}
+	// An unbounded side cannot make the range empty.
+	if border.Inf == scorePositiveInf || maxBorder.Inf == scoreNegativeInf {
+		return true
+	}
+	if maxBorder.Inf == scorePositiveInf || border.Inf == scoreNegativeInf {
+		return false
+	}
 	minValue := border.Value
-	maxValue := max.(*ScoreBorder).Value
+	maxValue := maxBorder.Value
 	return minValue > maxValue || (minValue == maxValue && (border.getExclude() || max.getExclude()))
 }
 

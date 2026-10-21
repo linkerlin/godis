@@ -58,13 +58,13 @@ func TestR5TSReadHistory(t *testing.T) {
 		"WRONGTYPE Operation against a key holding the wrong kind of value")
 	// Validation.
 	asserts.AssertErrReply(t, testDB.Exec(nil, utils.ToCmdLine("TS.READ", "r5ts:1", "-1")),
-		"ERR invalid timestamp")
+		"TSDB: invalid timestamp")
 	asserts.AssertErrReply(t, testDB.Exec(nil, utils.ToCmdLine("TS.READ", "r5ts:1", "0", "BLOCK", "-1", "1")),
-		"ERR invalid BLOCK milliseconds")
+		"TSDB: BLOCK milliseconds must be a non-negative integer")
 	asserts.AssertErrReply(t, testDB.Exec(nil, utils.ToCmdLine("TS.READ", "r5ts:1", "0", "BLOCK", "100", "0")),
-		"ERR invalid BLOCK min_count")
+		"TSDB: BLOCK min_count must be a positive integer")
 	asserts.AssertErrReply(t, testDB.Exec(nil, utils.ToCmdLine("TS.READ", "r5ts:1", "0", "BLOCK", "100", "5", "MAX_COUNT", "2")),
-		"ERR MAX_COUNT can't be less than BLOCK min_count")
+		"TSDB: BLOCK min_count must be <= MAX_COUNT")
 	asserts.AssertErrReply(t, testDB.Exec(nil, utils.ToCmdLine("TS.READ", "r5ts:1", "0", "NOPE")),
 		"ERR wrong number of arguments for 'ts.read' command")
 	testDB.Exec(nil, utils.ToCmdLine("DEL", "r5ts:1", "r5ts:str"))

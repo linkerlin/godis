@@ -49,9 +49,9 @@ func TestGaps30ArityClientTSStream(t *testing.T) {
 
 	db := makeTestDB()
 	asserts.AssertErrReply(t, db.Exec(nil, utils.ToCmdLine("TS.CREATERULE", "a", "b", "AGGREGATION", "foo", "100")),
-		"ERR TSDB: Unknown aggregation type")
+		"TSDB: Unknown aggregation type")
 	asserts.AssertErrReply(t, db.Exec(nil, utils.ToCmdLine("TS.CREATERULE", "a", "b", "AGGREGATION", "avg", "abc")),
-		"ERR TSDB: Couldn't parse AGGREGATION")
+		"TSDB: Couldn't parse AGGREGATION")
 	asserts.AssertNullBulk(t, db.Exec(nil, utils.ToCmdLine("JSON.OBJLEN", "nosuch")))
 
 	asserts.AssertNotError(t, db.Exec(nil, utils.ToCmdLine("XADD", "x", "*", "a", "1")))

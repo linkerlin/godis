@@ -45,9 +45,9 @@ func TestGaps28ArityAndHelpers(t *testing.T) {
 func TestGaps28StreamTSSearch(t *testing.T) {
 	db := makeTestDB()
 	asserts.AssertErrReply(t, db.Exec(nil, utils.ToCmdLine("TS.CREATERULE", "a", "b", "AGGREGATION", "avg", "100")),
-		"ERR TSDB: the key does not exist")
+		"TSDB: the key does not exist")
 	asserts.AssertErrReply(t, db.Exec(nil, utils.ToCmdLine("TS.DELETERULE", "a", "b")),
-		"ERR TSDB: the key does not exist")
+		"TSDB: the key does not exist")
 	asserts.AssertErrReply(t, db.Exec(nil, utils.ToCmdLine("FT.ALIASDEL", "a")),
 		"Alias does not exist")
 

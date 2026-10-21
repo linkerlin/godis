@@ -19,6 +19,7 @@ GODIS_HOST="${GODIS_HOST:-127.0.0.1}"
 GODIS_PORT="${GODIS_PORT:-6399}"
 CLI="${REDISCLI:-redis-cli}"
 ID="${R41_ID:-$$}"
+FAILS=0
 
 # --raw keeps multi-line replies comparable across sides.
 redis_cli() { "${CLI}" --raw -h "${REDIS_HOST}" -p "${REDIS_PORT}" "$@"; }
@@ -36,6 +37,10 @@ fail_cmp() {
     echo "  godis: ${gv}"
     echo "  want:  ${want}"
   } >&2
+  if [[ "${R41_CONTINUE:-0}" == "1" ]]; then
+    FAILS=$((FAILS + 1))
+    return 0
+  fi
   exit 1
 }
 
@@ -56,6 +61,46 @@ subst() {
   local s="$1"
   s="${s//'{{ID}}'/${ID}}"
   printf '%s' "${s}"
+}
+
+# split_args performs quote-aware whitespace splitting for case command lines,
+# so paths like `$.users[?(@.age > 20)].name` (quoted) stay one argv.
+split_args() {
+  local s="$1" cur="" quote="" out=()
+  local i c
+  for ((i = 0; i < ${#s}; i++)); do
+    c="${s:i:1}"
+    if [[ -n "${quote}" ]]; then
+      if [[ "${c}" == "${quote}" ]]; then
+        quote=""
+      else
+        cur+="${c}"
+      fi
+    else
+      case "${c}" in
+        " "|$'\t')
+          if [[ -n "${cur}" ]]; then
+            out+=("${cur}")
+            cur=""
+          fi
+          ;;
+        "'"|'"')
+          if [[ -z "${cur}" ]]; then
+            quote="${c}"
+          else
+            cur+="${c}" # quotes inside a JSON literal are data, not delimiters
+          fi
+          ;;
+        *)
+          cur+="${c}"
+          ;;
+      esac
+    fi
+  done
+  if [[ -n "${cur}" ]]; then
+    out+=("${cur}")
+  fi
+  printf '%s\n' "${out[@]}"
 }
 
 # Expand literal \n in WANT to a real newline (multi-line --raw replies).
@@ -139,8 +184,12 @@ run_cases() {
     fi
     if [[ "${expanded}" == @* ]]; then
       raw="${expanded:1}"
-      # shellcheck disable=SC2206
-      args=( ${raw} )
+      mapfile -t args < <(split_args "${raw}")
+      # @CMD marks an explicit setup command; strip the marker before invoking
+      # redis-cli (other @-prefixed lines are raw setup commands).
+      if [[ ${#args[@]} -gt 0 && "${args[0],,}" == "cmd" ]]; then
+        args=("${args[@]:1}")
+      fi
       run_setup "${args[@]}"
       continue
     fi
@@ -148,15 +197,14 @@ run_cases() {
     rest="${expanded#*|}"
     want="${rest%%|*}"
     raw="${rest#*|}"
-    # shellcheck disable=SC2206
-    args=( ${raw} )
+    mapfile -t args < <(split_args "${raw}")
     if [[ -z "${label}" || -z "${want}" || ${#args[@]} -eq 0 ]]; then
       die "bad case line: ${line}"
     fi
     run_eq "${label}" "${want}" "${args[@]}"
     n=$((n + 1))
   done < "${CASES}"
-  echo "ran ${n} assertions from $(basename "${CASES}")"
+  echo "ran ${n} assertions from $(basename "${CASES}") (failures=${FAILS})"
 }
 
 [[ -f "${CASES}" ]] || die "cases file not found: ${CASES}"
@@ -178,5 +226,7 @@ fi
 echo "R4-1 scaffold: allowlist-only via ${CASES} (${ALLOWLIST}). Full module/DUMP/gossip/FT/cluster diffs are out of scope."
 
 run_cases
-
+if (( FAILS > 0 )); then
+  exit 1
+fi
 echo "allowlist diff passed (scaffolding only; see docs/COMPATIBILITY.md R4-1)"

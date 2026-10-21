@@ -65,5 +65,5 @@ func TestGaps25JSONAndTSMiss(t *testing.T) {
 	asserts.AssertErrReply(t, db.Exec(nil, utils.ToCmdLine("JSON.CLEAR", "nosuch", "$")),
 		"ERR could not perform this operation on a key that doesn't exist")
 	asserts.AssertErrReply(t, db.Exec(nil, utils.ToCmdLine("TS.RANGE", "nosuch", "-", "+")),
-		"ERR TSDB: the key does not exist")
+		"TSDB: the key does not exist")
 }

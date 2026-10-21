@@ -583,7 +583,14 @@ parseStreams:
 					bucket.claimIdle = claimIdle[:keptClaimed]
 					bucket.claimDeliver = make([]int, keptClaimed)
 					for k := 0; k < keptClaimed; k++ {
-						bucket.claimDeliver[k] = claimPEs[k].DeliveryCount
+						// Redis 8.10 reports the pre-claim delivery count in the
+						// XREADGROUP CLAIM reply (0-based), while PEL stores the
+						// post-claim count (XPENDING shows it 1-based).
+						n := claimPEs[k].DeliveryCount
+						if n > 0 {
+							n--
+						}
+						bucket.claimDeliver[k] = n
 					}
 				}
 				buckets = append(buckets, bucket)

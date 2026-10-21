@@ -164,7 +164,7 @@ func computeLCS(s1, s2 string) (string, []lcsMatch) {
 			matches = append(matches, cur)
 			inMatch = false
 		}
-		if dp[i-1][j] >= dp[i][j-1] {
+		if dp[i-1][j] > dp[i][j-1] {
 			i--
 		} else {
 			j--

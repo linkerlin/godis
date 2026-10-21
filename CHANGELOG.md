@@ -97,6 +97,16 @@
 
 ### Fixed
 
+- **R4-1 真实 Redis 8.10 sidecar 全量对拍修复（12,623 断言 0 失败）**：
+  - runner：`@CMD` 初始化命令此前未剥离标记（实际未执行）；改为引号感知分词（JSON/带空格路径），新增 `R41_CONTINUE=1` 收集全部失败而不是遇错即停
+  - Array：`ARLASTITEMS` 普通/稀疏数组按最高下标返回（含空槽），仅 `ARRING` 环形模式按写入序；opaque 持久化保留 cursor/order
+  - JSONPath：顶层投影 `fn($)` 返回单元素数组（`[6.0]`/`[3]`），float 保留 `.0`；`length()` over 通配 nodelist 返回 `[]`；`append()`/词形 `first`/`last`/`concat` 属于 Godis 扩展（Redis 8.10 仅方法形）
+  - Sorted Set：`ZPOPMAX`/`ZMPOP MAX` 按最高分降序返回；`+inf`/`-inf` score border 的 `isIntersected` 不再把范围误判为空
+  - LCS：重建 tie-break 改为相等时向左（`algorithm`/`logarithm` 得到 Redis 的 `lorithm`）
+  - Time Series：错误码从 `ERR TSDB:` 对齐为 `TSDB:`；`TS.READ` 的 BLOCK/MAX_COUNT 校验文案与 8.10 一致
+  - HOTKEYS：未激活时 `STOP` 返回 null（与 Redis 一致，不再报错）
+  - XREADGROUP CLAIM：回复第 4 字段使用认领前 delivery count（PEL/XPENDING 仍存 1-based post-claim）
+  - 新增 `database/compat_regressions_test.go` 覆盖 ZPOPMAX 降序、±inf score 边界、LCS tie-break
 - **错误回复不再携带裸 CR/LF**（8.10 安全修复）：`StandardErrReply`/`ProtocolErrReply` 序列化时把用户数据中的 CR/LF 映射为空格；`Error()` 保留原文供程序内匹配
 - **测试内存治理**：`ConcurrentDict` 分片 map 改为写入时惰性分配（空字典从每分片一个空 map 头降为纯分片结构；65536 分片字典约 7.4MB→2.5MB，生产 16-DB 空实例约 240MB→约 80MB）；`makeDBWithSize` 的 `versionMap`/`ttlMap` 不再硬编码 65536 分片；测试专用的 `MustNewStandaloneServer` 改用 16 分片小字典（生产路径 `NewStandaloneServer` 不变）。database 包测试二进制 live 堆峰值 **8.9GB→约 0.73GB**，整包耗时 580s→34s
 - `SLOWLOG` 未知子命令文案对齐 Redis（`Unknown subcommand or wrong number of arguments for '<sub>'. Try SLOWLOG HELP.`）
