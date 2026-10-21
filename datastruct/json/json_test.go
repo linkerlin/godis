@@ -213,6 +213,99 @@ func TestProjectionUnknownFunctionError(t *testing.T) {
 	}
 }
 
+func TestMutationAndAccessors(t *testing.T) {
+	jv := mustJSON(t, `{"n":1,"s":"ab","arr":[1,2,3],"obj":{"b":1,"a":2},"flag":false}`)
+	if v, err := jv.NumIncrBy("$.n", 2); err != nil || v != 3 {
+		t.Fatalf("NumIncrBy = %v/%v", v, err)
+	}
+	if v, err := jv.NumMultBy("$.n", 2); err != nil || v != 6 {
+		t.Fatalf("NumMultBy = %v/%v", v, err)
+	}
+	if n, err := jv.StrLen("$.s"); err != nil || n != 2 {
+		t.Fatalf("StrLen = %d/%v", n, err)
+	}
+	if n, err := jv.StrAppend("$.s", "cd"); err != nil || n != 4 {
+		t.Fatalf("StrAppend = %d/%v", n, err)
+	}
+	if v, _ := jv.Get("$.s"); v != "abcd" {
+		t.Fatalf("appended string = %#v", v)
+	}
+	if n, err := jv.ArrAppend("$.arr", 4, 5); err != nil || n != 5 {
+		t.Fatalf("ArrAppend = %d/%v", n, err)
+	}
+	if n, err := jv.ArrInsert("$.arr", 1, 9); err != nil || n != 6 {
+		t.Fatalf("ArrInsert = %d/%v", n, err)
+	}
+	if v, err := jv.ArrPop("$.arr", 1); err != nil || v != 9 {
+		t.Fatalf("ArrPop = %v/%v", v, err)
+	}
+	if n, err := jv.ArrLen("$.arr"); err != nil || n != 5 {
+		t.Fatalf("ArrLen = %d/%v", n, err)
+	}
+	if i, err := jv.ArrIndex("$.arr", "2", 0, -1); err != nil || i != 1 {
+		t.Fatalf("ArrIndex = %d/%v", i, err)
+	}
+	if n, err := jv.ArrTrim("$.arr", 0, 1); err != nil || n != 2 {
+		t.Fatalf("ArrTrim = %d/%v", n, err)
+	}
+	keys, err := jv.ObjKeys("$.obj")
+	if err != nil || len(keys) != 2 {
+		t.Fatalf("ObjKeys = %v/%v", keys, err)
+	}
+	keySet := map[string]bool{keys[0]: true, keys[1]: true}
+	if !keySet["a"] || !keySet["b"] {
+		t.Fatalf("ObjKeys = %v, want a and b", keys)
+	}
+	if n, err := jv.ObjLen("$.obj"); err != nil || n != 2 {
+		t.Fatalf("ObjLen = %d/%v", n, err)
+	}
+	if v, err := jv.Toggle("$.flag"); err != nil || !v {
+		t.Fatalf("Toggle = %v/%v", v, err)
+	}
+	if n, err := jv.Clear("$.s"); err != nil || n != 1 {
+		t.Fatalf("Clear = %d/%v", n, err)
+	}
+	if n, err := jv.Clear("$.s"); err != nil || n != 0 {
+		t.Fatalf("Clear empty = %d/%v", n, err)
+	}
+	if err := jv.Merge("$", map[string]interface{}{"new": float64(1)}); err != nil {
+		t.Fatalf("Merge: %v", err)
+	}
+	if v, _ := jv.Get("$.new"); v != float64(1) {
+		t.Fatalf("merged value = %#v", v)
+	}
+	if n, err := jv.DebugMemory("$"); err != nil || n <= 0 {
+		t.Fatalf("DebugMemory = %d/%v", n, err)
+	}
+	if n, err := jv.DebugFields("$"); err != nil || n <= 0 {
+		t.Fatalf("DebugFields = %d/%v", n, err)
+	}
+	b, err := jv.ToBytes()
+	if err != nil || !json.Valid(b) {
+		t.Fatalf("ToBytes: %s/%v", b, err)
+	}
+	s, err := jv.ToString()
+	if err != nil || s != string(b) {
+		t.Fatalf("ToString = %q/%v", s, err)
+	}
+
+	// $..* covers collectDescendants/sortedObjectKeys.
+	if v, err := jv.Get("$..*"); err != nil {
+		t.Fatalf("recursive wildcard: %v", err)
+	} else if nl, ok := v.(nodeList); !ok || len(nl) == 0 {
+		t.Fatalf("recursive wildcard = %#v", v)
+	}
+	if !PathHasFilter(`$.a[?(@.b == 1)]`) {
+		t.Fatal("PathHasFilter should be true")
+	}
+	if _, err := NewJSONValue(map[string]interface{}{"a": 1}).ToBytes(); err != nil {
+		t.Fatalf("NewJSONValue: %v", err)
+	}
+	if _, err := NewJSONValueFromString(`{"a":1}`); err != nil {
+		t.Fatalf("NewJSONValueFromString: %v", err)
+	}
+}
+
 func TestCompareNodeList(t *testing.T) {
 	if ok, err := compare(nodeList{float64(1), float64(2)}, float64(2), "=="); err != nil || !ok {
 		t.Fatalf("nodelist any-match ==: %v/%v", ok, err)

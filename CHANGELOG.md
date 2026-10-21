@@ -11,7 +11,7 @@
 - **P1-2 结构化 JSON 日志（可选）**：新增 `log-format text|json` 配置与 `CONFIG GET/SET log-format` 热切换；JSON 模式每行输出 `time`/`level`/`caller`/`msg`，`logfile` 重配置和每日轮转保留 JSON 模式；启动日志可用 `jq`/Loki/ELK 直接采集。测试 `lib/logger/logger_test.go` 与 `TestConfigLogFormat`。
 - **R4-2 覆盖率：Array/JSON/AOF 直接单测**：
   - `datastruct/array` 0% → **87.4%**：Set/Get/Del/DelRanges/Range、Insert/NextIndex/cursor 耗尽、RingInsert 环绕与截断、LastItems 普通/环形语义、State/RestoreState 往返（含 order/cursor/ring_size）
-  - `datastruct/json` 0% → **43.5%**：通配/递归路径、`PathHasNodelist`、顶层投影单元素数组与 `.0` 浮点、nodelist 任意节点匹配、过滤器函数族、Get/Set/Del/Type
+  - `datastruct/json` 0% → **59.7%**：通配/递归路径、`PathHasNodelist`、顶层投影单元素数组与 `.0` 浮点、nodelist 任意节点匹配、过滤器函数族、Get/Set/Del/Type、Arr*/Obj*/Merge/Toggle/Clear/Debug*
   - `aof` 30.8% → **42.4%**：Save/Close 幂等、写入后 Save 为 no-op、Listener 回调、AOF 回放（SELECT+SET）、`FsyncAlways` 同步落盘
   - `datastruct/timeseries` 19.3% → **57.5%**：Add/Get/GetLast/Del/Trim/Info、6 种 duplicate policy、保留期裁剪、标签、降采样规则、聚合器字符串往返
   - `datastruct/stream` 44.7% → **85.8%**：元数据 setter/Info、消费者组与 PEL、Claim/AutoClaim、DeleteEx ACKED/DELREF、IDMP 记录/过期/驱逐
