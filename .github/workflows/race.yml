@@ -17,6 +17,6 @@ jobs:
 
       - run: go mod tidy
 
-      - name: Race detector (core packages)
+      - name: Race detector (all packages, shuffled)
         run: |
-          go test -race -count=1 ./lib/validate/... ./redis/parser/... ./acl/... ./aof/... ./tcp/... ./database/...
+          go test -race -count=1 -shuffle=on ./...
