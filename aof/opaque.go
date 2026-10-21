@@ -48,7 +48,10 @@ const (
 
 // dumpArray persists an Array as sparse index/value pairs (8.8 preview).
 type dumpArray struct {
-	Slots [][]byte `json:"s"`
+	Slots    [][]byte `json:"s"`
+	Order    []int64  `json:"o,omitempty"`
+	Cursor   int64    `json:"c,omitempty"`
+	RingSize int64    `json:"r,omitempty"`
 }
 
 // FTIndexBlob is a decoded FT index definition (FT.CREATE args) pending engine
@@ -177,7 +180,8 @@ func EncodeOpaque(entity *database.DataEntity) (payload []byte, ok bool) {
 		raw, err = json.Marshal(dumpExpireDict(v))
 	case *array.Array:
 		typ = opaqueArray
-		raw, err = json.Marshal(dumpArray{Slots: v.Slots()})
+		slots, order, cursor, ringSize := v.State()
+		raw, err = json.Marshal(dumpArray{Slots: slots, Order: order, Cursor: cursor, RingSize: ringSize})
 	case *probabilistic.BloomFilter:
 		typ = opaqueBloom
 		raw, err = json.Marshal(v.MarshalBinary()) // base64 JSON string; binary is not RawMessage-safe
@@ -261,7 +265,7 @@ func DecodeOpaque(payload []byte) (entity *database.DataEntity, ok bool) {
 		if err := json.Unmarshal(env.Data, &d); err != nil {
 			return nil, false
 		}
-		return &database.DataEntity{Data: array.Restore(d.Slots)}, true
+		return &database.DataEntity{Data: array.RestoreState(d.Slots, d.Order, d.Cursor, d.RingSize)}, true
 	case opaqueBloom:
 		var bin []byte
 		if err := json.Unmarshal(env.Data, &bin); err != nil {

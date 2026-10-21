@@ -6,6 +6,15 @@
 
 ### Added
 
+- **R5-19 Array preview 扩展 8 命令（Redis 8.8）**，Array 共 17 命令，测试 `database/r5_array_ext_test.go`：
+  - `ARINSERT`/`ARNEXT`/`ARSEEK`：共享 insertion cursor；`ARINSERT` 连续写入并返回最后下标，`ARNEXT` 返回下一位置（cursor 耗尽回 null），`ARSEEK` 设置 cursor（缺键回 0）
+  - `ARLASTITEMS key count [REV]`：按写入序返回最近写入的元素；覆盖同一槽位会把该槽移到最近
+  - `ARINFO key [FULL]`：`count`/`len`/`next-insert-index`/`slices`/`directory-size`/`super-dir-entries`/`slice-size`
+  - `AROP key start end <SUM|MIN|MAX|AND|OR|XOR|MATCH value|USED>`：数值聚合返回 bulk，位运算/计数返回 integer，无数值元素回 null
+  - `ARGREP key start end <EXACT|MATCH|GLOB|RE> ... [AND|OR|LIMIT n|WITHVALUES|NOCASE]`：支持 `-`/`+` 边界、反向遍历、多谓词组合与索引-值对回复
+  - `ARRING key size value ...`：环形缓冲写入，覆盖旧值并截断窗口；与 `ARINSERT` 共用 cursor
+  - `Array` 增加写入序日志与 cursor；opaque 持久化新增 `order`/`cursor`/`ring_size`，旧 blob 缺失时按槽位升序重建，DUMP/RESTORE/RDB 保留扩展状态
+  - 近似口径：扁平槽模型下 `ARINFO` 的 slice 统计为合成值且 `FULL` 只返回基础字段；`AROP` 数值聚合忽略非数值元素；`ARGREP` GLOB 用 Godis 通配符、RE 用 Go regexp
 - **R5-18 Hash 字段级 subkey notifications（Redis 8.8）**，测试 `database/subkey_notify_test.go`：
   - 四种官方通道：`__subkeyspace@<db>__:<key>`、`__subkeyevent@<db>__:<event>`、`__subkeyspaceitem@<db>__:<key>\n<subkey>`、`__subkeyspaceevent@<db>__:<event>|<key>`
   - 新增独立配置标志 `S`/`T`/`I`/`V`（与 `K`/`E`/`A` 互不隐含）；字段名按 `<len>:<field>` 长度前缀编码，支持含逗号等二进制安全字段
@@ -43,7 +52,7 @@
   - `ARLEN`（max index+1）/ `ARCOUNT`（非空槽数，O(1) 维护）
   - `ARDEL key index…` / `ARDelRange key start end…`（重叠区间按元素只计一次）
   - `TYPE` 返回 `array`；持久化走 Godis opaque（类型码 `array`，DUMP/RESTORE/RDB 自动生效）；AOF 回放完整命令行；`MEMORY USAGE` 粗估覆盖
-  - 子集口径：全部删空后保留键（`ARLEN` 不变）；`ARINSERT`/`ARRING`/`ARSEEK`/`AROP`/`ARGREP`/`ARINFO`/`ARLASTITEMS` 待子集稳定后再开
+  - 子集口径：全部删空后保留键（`ARLEN` 不变）；扩展 8 命令见上方 R5-19 条目
 - **R5 第三波首批（Redis 8.6/8.10 命令面）**，行为对齐命令页，测试 `database/r5_wave3_test.go`：
   - `HOTKEYS START METRICS n [CPU] [NET] [COUNT k] [DURATION s] [SAMPLE r] | STOP | GET | RESET`（8.6）：热键跟踪。指标为 Godis 采样计账——CPU=命令微秒按键分摊、NET=参数字节数（非 Redis 按槽概率结构，`total-cpu-time-user-ms` 无 user/sys 拆分，已在兼容文档写明）；`SLOTS` 非集群报错；`DURATION` 惰性到期
   - `HIMPORT PREPARE name field… | SET key name value… | DISCARD name | DISCARDALL`（8.10）：连接级会话 fieldset，批量写入普通 Hash（走 HSET 路径：锁/AOF/索引/通知一致）；`RESET` 清空会话；无断连钩子，每连接上限 128 个 fieldset；compact hash 编码不做

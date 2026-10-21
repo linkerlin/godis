@@ -365,6 +365,14 @@
 | ARCOUNT | 非空槽数量 |
 | ARDEL | 按下标删除 |
 | ARDELRANGE | 按区间删除（重叠只计一次） |
+| ARINSERT | 在插入游标处连续写入，返回最后下标 |
+| ARNEXT | 返回下一个 ARINSERT 下标（游标耗尽→nil） |
+| ARSEEK | 设置 ARINSERT/ARRING 游标 |
+| ARINFO | 数组元数据（count/len/next-insert-index/slices…） |
+| ARLASTITEMS | 最近写入的元素（默认时间序，REV 反向） |
+| AROP | 区间聚合：SUM/MIN/MAX/AND/OR/XOR/MATCH/USED |
+| ARGREP | 区间文本检索：EXACT/MATCH/GLOB/RE + AND/OR/LIMIT/WITHVALUES/NOCASE |
+| ARRING | 环形缓冲写入（固定窗口，覆盖旧值） |
 
 ---
 

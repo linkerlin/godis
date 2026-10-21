@@ -174,7 +174,7 @@ OK
 
 4. **哪些功能我们明确没做（或仅提供子集）？**
    - **事务（`MULTI`/`EXEC`）**：已对齐 Redis 标准行为——入队时语法错误会中止事务（`EXECABORT`），但运行期单条命令报错（比如对字符串做 `LPUSH`）不会回滚前面已经成功的命令，而是把错误放进结果数组继续往下跑。
-   - **Array 类型（Redis 8.8 Preview）**：目前已接通 `ARSET`/`ARMSET`/`ARGET`/`ARMGET`/`ARGETRANGE`/`ARLEN`/`ARCOUNT`/`ARDEL`/`ARDELRANGE` 九条核心预览命令与 `TYPE array`，其余扩展命令暂未开启。
+   - **Array 类型（Redis 8.8 Preview）**：官方 17 条预览命令已全部接通（`ARSET`/`ARMSET`/`ARGET`/`ARMGET`/`ARGETRANGE`/`ARLEN`/`ARCOUNT`/`ARDEL`/`ARDELRANGE`/`ARINSERT`/`ARNEXT`/`ARSEEK`/`ARINFO`/`ARLASTITEMS`/`AROP`/`ARGREP`/`ARRING`）与 `TYPE array`。内部是扁平槽模型，`ARINFO` 的 slice 统计为合成值、`FULL` 只返回基础字段。
    - **明确列为非目标的事项**：Compact Hash 内部模板编码（`HIMPORT` 会话已支持，落地为普通 Hash）、`BACKUP` 多分片 AOF、完整的 Redis 二进制 Gossip 总线（Godis 集群拓扑走 Raft）、以及 C Modules API。
 
 事情就是这样。清楚知道边界在哪，用起来才踏实。
