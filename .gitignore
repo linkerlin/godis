@@ -44,3 +44,6 @@ cluster/core/test/
 # Local config overrides
 redis2.conf
 *.local.conf
+
+# Local evolution plan
+/演进方案.md

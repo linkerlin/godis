@@ -4,285 +4,255 @@
 [![Build Status](https://github.com/linkerlin/godis/actions/workflows/coverall.yml/badge.svg)](https://github.com/linkerlin/godis/actions?query=branch%3Amaster)
 [![Coverage Status](https://coveralls.io/repos/github/linkerlin/godis/badge.svg?branch=master)](https://coveralls.io/github/linkerlin/godis?branch=master)
 [![Go Report Card](https://goreportcard.com/badge/github.com/linkerlin/godis)](https://goreportcard.com/report/github.com/linkerlin/godis)
-<br>
 [![Mentioned in Awesome Go](https://awesome.re/mentioned-badge-flat.svg)](https://github.com/avelino/awesome-go)
 
-**Godis** 是一个用 Go 语言实现的 **Redis 8.x 高覆盖度兼容** 服务器（命令级差异见 [`docs/COMPATIBILITY.md`](docs/COMPATIBILITY.md)）。对照基线是 **Redis 8.10**：8.0–8.2 常用命令覆盖较高，8.4 之后的新命令面按 [`兼容性改进计划.md`](兼容性改进计划.md) 的 R5 推进。本项目旨在为尝试使用 Go 语言开发高并发中间件的朋友提供参考。
+**中文** | **[English](./README_EN.md)**
 
-## 关键特性
+---
 
-### 核心数据结构
-- String、List、Hash、Set、Sorted Set、Bitmap、Stream
-- **JSON 数据类型** (Redis 8.x): JSON.SET, JSON.GET, JSON.ARRAPPEND 等
-- **Vector Set 向量集** (Redis 8.x): VS.ADD, VS.SEARCH 用于 AI/向量搜索
+## 按下回车的那一毫秒，到底发生了什么？
 
-### Redis 8.x 新功能
+打开终端，连上 `6399` 端口，敲进一行字：
 
-#### 协议与连接
-- **RESP3 协议**: 完整支持，包括 Null、Double、Map、Set、Push 类型
-- **HELLO 命令**: 协议版本协商
-- **客户端缓存**: CLIENT TRACKING + 失效推送 (RESP3)
-
-#### 搜索与分析
-- **RediSearch**: FT.CREATE, FT.SEARCH, FT.AGGREGATE, 同义词支持 (FT.SYNADD)
-- **Vector Similarity Search**: AI 向量搜索，支持余弦相似度
-
-#### 时序与概率数据结构
-- **Time Series**: TS.CREATE, TS.ADD, TS.MRANGE, TS.MGET
-- **Bloom Filter**: BF.ADD, BF.EXISTS, BF.RESERVE
-- **Cuckoo Filter**: CF.ADD, CF.EXISTS, CF.DEL
-- **Count-Min Sketch**: CMS.INCRBY, CMS.QUERY
-- **Top-K**: TOPK.ADD, TOPK.QUERY
-- **T-Digest**: TD.ADD, TD.QUANTILE
-
-#### 函数与脚本
-- **Redis Functions**: FUNCTION LOAD, FCALL 支持 Lua 函数持久化
-- **Lua 脚本**: EVAL, EVALSHA, 支持 SCRIPT DEBUG 调试
-
-#### 集群与发布订阅
-- **Sharded Pub/Sub**: SSUBSCRIBE, SPUBLISH (Redis 8.x 集群)
-- **内置集群**: Raft 共识，透明分片，自动故障转移
-
-#### 安全与管理
-- **ACL (访问控制列表)**: ACL LIST, ACL SETUSER, ACL LOG
-- **审计日志**: ACL LOG 记录命令执行历史
-
-### 经典功能
-- 并行内核，提供优秀的并发性能
-- 自动过期功能 (TTL)，主从过期传播
-- 发布订阅 (Pub/Sub)
-- 地理位置 (GEO)
-- AOF 持久化、RDB 持久化、混合持久化 (aof-use-rdb-preamble)
-- 主从复制 + **FAILOVER 协调切换** (TO/FORCE/ABORT/TIMEOUT)
-- **事务**: MULTI/EXEC 具有原子性和隔离性，执行出错时自动回滚
-- **Hash Field 过期**: HEXPIRE, HTTL (Redis 8.x)
-- **HyperLogLog**: 与 Redis 字节级互通 (xxHash64 + dense 编码)
-- **DEBUG 诊断**: SET-ACTIVE-EXPIRE / DIGEST / CHANGE-REPL-ID
-
-## 快速开始
-
-### 下载运行
-
-在 GitHub Release 页下载对应平台的可执行文件：
-
-```bash
-# macOS
-./godis-darwin
-
-# Linux
-./godis-linux
-
-# Windows
-./godis.exe
+```text
+SET greeting "hello"
 ```
 
-Godis 默认监听 `0.0.0.0:6399`，可使用 redis-cli 或任何 Redis 客户端连接：
+你按下回车，屏幕立刻蹦出 `OK`。这中间到底发生了什么？
+
+没有任何魔法。你的客户端把这行字打包成一串像 `*3\r\n$3\r\nSET\r\n$8\r\ngreeting\r\n$5\r\nhello\r\n` 这样的字节，顺着网线推过来。服务器把字节切开，用 FNV-32 算一个哈希值，在内存里成排的抽屉（65,536 个带读写锁的分片）里找到对应的那一个，拉开抽屉把字节放进去，顺手在旁边的纸条（AOF 文件）上记一笔，最后往网线里塞回五个字节：`+OK\r\n`。
+
+就这么回事。
+
+那我们为什么要费劲用 Go 语言从头写一个目标对齐 **Redis 8.10** 的服务器？
+
+因为**知道一个东西叫什么名字，和真正搞清楚它怎么运作，完全是两码事**。你可以把“跳表”、“时间轮”、“RESP3 客户端缓存”、“HNSW 向量图”、“流消费组 PEL”、“Raft 共识”这些词背得滚瓜烂熟，在架构图上画满漂亮的方框；但直到你亲手用代码把它们一个个搭出来，并且让真正的 `redis-cli` 连上来跑过一万多条测试而不露怯——你才算真的搞清楚了里面每一颗齿轮是怎么咬合的。
+
+**Godis** 就是那台把外壳拆掉、让你直接看见齿轮怎么转的机器。
+
+---
+
+## 别听我吹，先花 30 秒自己试一下
+
+纸上谈兵没意思。把机器跑起来，亲手试几个命令，比读一百页文档都管用。
+
+### 1. 启动它
+
+你可以直接从 [GitHub Releases](https://github.com/linkerlin/godis/releases) 下载对应系统的二进制，或者在源码目录下直接编译：
 
 ```bash
-redis-cli -p 6399
-127.0.0.1:6399> SET key value
-OK
-127.0.0.1:6399> GET key
-"value"
-127.0.0.1:6399> HELLO 3  # 切换到 RESP3
-1# "server" => "godis"
-...
+go build -o godis ./
+./godis
 ```
 
-### 配置文件
-
-Godis 从 `CONFIG` 环境变量读取配置文件，或使用工作目录中的 `redis.conf`：
+它默认监听 `0.0.0.0:6399`（故意避开你本机可能正在跑的 `6379`，免得打架）。如需指定配置文件，传个环境变量或者参数就行：
 
 ```bash
-CONFIG=redis.conf ./godis
+CONFIG=example.conf ./godis
+# 或者
+./godis -c example.conf -p 6399
 ```
 
-所有配置项说明请参考 [example.conf](./example.conf)。
+### 2. 做五个 10 秒钟的小实验
 
-### 集群模式
+现在打开 `redis-cli -p 6399`，试试下面这五件事。它们能让你一眼看穿 Redis 8.x 最有意思的几个机制：
 
-使用提供的配置文件启动多节点集群：
+#### 实验一：看“客户端缓存”怎么抓内鬼（RESP3 Push）
+以前客户端想缓存数据，最头疼的是“别人改了数据库我怎么知道”。现在开两个终端窗口：
 
-```bash
-CONFIG=node1.conf ./godis &
-CONFIG=node2.conf ./godis &
-```
-
-集群对客户端透明，连接任意节点即可访问所有数据。
-
-## Redis 8.x 功能示例
-
-### JSON 数据类型
-
-```bash
-127.0.0.1:6399> JSON.SET user $ '{"name":"张三","age":30}'
-OK
-127.0.0.1:6399> JSON.GET user $.name
-"\"张三\""
-127.0.0.1:6399> JSON.NUMINCRBY user $.age 1
-"31"
-```
-
-### Vector Set 向量搜索
-
-```bash
-127.0.0.1:6399> VS.ADD products item1 "[1.0, 0.5, 0.2]"
-127.0.0.1:6399> VS.ADD products item2 "[0.9, 0.4, 0.3]"
-127.0.0.1:6399> VS.SEARCH products "[1.0, 0.5, 0.2]" KNN 2
-1) "item1"
-2) "item2"
-```
-
-### Redis Functions
-
-```bash
-127.0.0.1:6399> FUNCTION LOAD "#!lua name=mylib\nredis.register_function('myfunc', function(keys, args) return redis.call('GET', keys[1]) end)"
-127.0.0.1:6399> FCALL myfunc 1 mykey
-"myvalue"
-```
-
-### 客户端缓存 (RESP3)
-
-```bash
+```text
+# 窗口 A：切到 RESP3 协议，打开追踪，读一次 price
 127.0.0.1:6399> HELLO 3
 127.0.0.1:6399> CLIENT TRACKING ON
-+OK
-127.0.0.1:6399> GET cached_key
-# 当 cached_key 被其他客户端修改时，将收到失效推送
+OK
+127.0.0.1:6399> GET price
+"100"
+
+# 窗口 B：偷偷改掉 price
+127.0.0.1:6399> SET price 99
+OK
+```
+回头看**窗口 A**——你什么都不用敲，服务器已经顺着同一根连接主动推了一条失效通知过来：`>2\r\n+invalidate\r\n*1\r\n$5\r\nprice\r\n`。记下谁读过哪个键，写的时候挨个拍肩膀通知，客户端缓存就是这么运作的。
+
+#### 实验二：给哈希表里的单个字段装上倒计时（Redis 8.x `HEXPIRE`）
+以前想让用户资料里的“短信验证码” 5 秒后过期，你只能把整张用户 Hash 表删掉，或者另起炉灶存个 String。现在不用了：
+
+```text
+127.0.0.1:6399> HSET session:42 user "alice" otp "8848"
+(integer) 2
+127.0.0.1:6399> HEXPIRE session:42 5 FIELDS 1 otp
+1) (integer) 1
+127.0.0.1:6399> HTTL session:42 FIELDS 2 user otp
+1) (integer) -1   # user 永久有效
+2) (integer) 5    # otp 还在倒计时
+```
+等 5 秒再 `HGETALL session:42`，`otp` 自己消失了，`user` 稳稳当当还在那儿。
+
+#### 实验三：先验指纹再动刀（Redis 8.4–8.8 `DIGEST` / `SET IFDEQ` / `INCREX`）
+如果值很大（比如几兆的配置），做乐观锁 CAS 时难道要把整段文本再传一遍？算个 64 位 XXH3 摘要就行：
+
+```text
+127.0.0.1:6399> SET doc "v1-content"
+OK
+127.0.0.1:6399> DIGEST doc
+"6f5b999a01b6f50b"
+# 只有当摘要还是 6f5b999a01b6f50b 时才允许覆盖，否则原封不动：
+127.0.0.1:6399> SET doc "v2-content" IFDEQ 6f5b999a01b6f50b
+OK
+# 给计数器加 10，但死死卡在上限 100（SATURATE 封顶并返回 [新值, 实际增量]）：
+127.0.0.1:6399> SET quota 95
+OK
+127.0.0.1:6399> INCREX quota BYINT 10 LBOUND 0 UBOUND 100 SATURATE
+1) "100"
+2) "5"
 ```
 
-### Sharded Pub/Sub (集群模式)
+#### 实验四：在内存图里找最像的向量，连 `float32` 都不用全存（`VADD` / `VSIM`）
+所谓的“AI 向量数据库”，扒掉华丽的词藻，核心就是在高维空间里找距离最近的点。在 Godis 里，你可以直接用 HNSW 图，还能把 32 位浮点数压成 8 位整数（`Q8`）甚至 1 个比特（`BIN`）直接在图里算距离：
+
+```text
+127.0.0.1:6399> VADD items VALUES 3 1.0 0.5 0.2 itemA Q8 SETATTR '{"year":2026,"tag":"go"}'
+(integer) 1
+127.0.0.1:6399> VADD items VALUES 3 0.9 0.4 0.3 itemB Q8 SETATTR '{"year":2024,"tag":"c"}'
+(integer) 1
+127.0.0.1:6399> VSIM items VALUES 3 1.0 0.5 0.2 COUNT 2 FILTER '.year >= 2025' WITHSCORES
+1) "itemA"
+2) "1"
+```
+
+#### 实验五：顺手抢救超时任务与阻塞读时序（Redis 8.4–8.10 `XREADGROUP CLAIM` / `TS.READ`）
+以前在 Stream 消费组里，如果某个消费者挂了，你得单独跑定时任务调 `XAUTOCLAIM`。现在读新消息时顺手就能把空闲超时的待处理消息（PEL）认领过来，或者用 `XNACK` 把干不了的活儿退回公共池：
+
+```text
+# 读取新消息的同时，自动认领空闲超过 5000ms 的旧消息：
+127.0.0.1:6399> XREADGROUP GROUP g1 worker2 COUNT 10 CLAIM 5000 STREAMS orders >
+
+# 像订阅流一样阻塞等待时序数据的新样本写进来（Redis 8.10 TS.READ BLOCK）：
+127.0.0.1:6399> TS.READ BLOCK 5000 1 STREAMS cpu:load $
+```
+
+---
+
+## 拆开引擎盖：里面装了哪些积木？
+
+我们最反感用一堆故弄玄虚的词把人绕晕。下面这张表，说的不是“它有哪些宏大特性”，而是**每个模块到底在干什么活儿、代码写在哪儿**：
+
+| 模块 | 抛开术语，它到底在干什么？ | 核心命令代表 | 去哪看代码？ |
+| :--- | :--- | :--- | :--- |
+| **并发字典与五大基石** | 用 FNV-32 把键分到分片里，对多键操作按固定顺序加读写锁防止死锁；上面跑着字符串、双向快速列表、哈希表、集合和跳表 | `SET` (`IFEQ`/`IFDEQ`), `MSETEX`, `LMOVEM`/`BLMOVEM`, `SUNIONCARD`/`SDIFFCARD`, `ZUNION` (`AGGREGATE COUNT`) | [`datastruct/dict/`](datastruct/dict/)<br>[`database/`](database/) |
+| **RESP2 / RESP3 双形协议** | 同一个命令返回同一个结构体：如果你是旧客户端就序列化成数组 `*`，如果你发过 `HELLO 3` 就吐出原生的 Map `%`、Set `~`、Double `,` 和 Push `>` | `HELLO 3`, `CLIENT TRACKING`, `HGETALL`, `XREAD` | [`redis/protocol/`](redis/protocol/)<br>[`redis/parser/`](redis/parser/) |
+| **Stream 流引擎** | 基数树/有序切片存消息，维护消费组与待确认列表（PEL）；支持阻塞等待、生产者幂等去重、直接认领空闲消息与退回重试 | `XADD` (`IDMP`/`IDMPAUTO`), `XCFGSET`, `XREADGROUP` (`CLAIM`/`MAXCOUNT`/`MAXSIZE`), `XNACK`, `XDELEX` | [`datastruct/stream/`](datastruct/stream/)<br>[`database/stream*.go`](database/stream.go) |
+| **JSON 与 JSONPath** | 在内存里维护文档树，支持用 `[?(...)]` 过滤表达式（含比较、逻辑、算术、`in`/`nin`、`size`/`empty`、正则与聚合函数）精准掏出或修改子树 | `JSON.SET`, `JSON.GET`, `JSON.NUMINCRBY`, `JSON.ARRAPPEND` | [`datastruct/json/`](datastruct/json/)<br>[`database/json*.go`](database/json.go) |
+| **Vector Set 向量集** | 内存 HNSW 多层导航图（可选 SQLite `sqlite-vec` 后端）。支持 `f32`、`Q8`（图内直接算 `int8` 距离，不反复反量化）与 `BIN`（1-bit 汉明距离） | `VADD`, `VSIM`, `VREM`, `VLINKS`, `VRANGE`, `VSETATTR`（兼容 `VS.*` 别名） | [`datastruct/vector/`](datastruct/vector/)<br>[`database/vector*.go`](database/vector.go) |
+| **RediSearch 全文与混合检索** | 倒排索引 + BM25 打分 + 同义词组展开 + 游标聚合管道（可选 SQLite `FTS5` 后端）；支持文本与向量 KNN 的 RRF/线性混合检索 | `FT.CREATE`, `FT.SEARCH`, `FT.AGGREGATE` (`COLLECT`/`APPLY`), `FT.HYBRID`, `FT.ALIASLIST` | [`datastruct/redisearch/`](datastruct/redisearch/)<br>[`database/redisearch*.go`](database/redisearch.go) |
+| **Time Series 时序数据** | 时间戳与浮点样本序列（含 `NaN` 样本感知），支持降采样规则、时间加权平均（`twa`）、单命令多聚合器与阻塞流式读取 | `TS.CREATE`, `TS.ADD`, `TS.MRANGE`, `TS.NRANGE`, `TS.QUERYLABELS`, `TS.READ` (`BLOCK`) | [`datastruct/timeseries/`](datastruct/timeseries/)<br>[`database/timeseries*.go`](database/timeseries.go) |
+| **概率数据结构与 HLL** | 用极小且固定的内存换取可控误差的统计：判存在、去重计数、查频次、算分位数。其中 HyperLogLog 与 Redis `HYLL` 字节级互通 | `PFADD`/`PFCOUNT`, `BF.*`, `CF.*`, `CMS.*`, `TOPK.*`, `TDIGEST.*` | [`datastruct/hll/`](datastruct/hll/)<br>[`database/probabilistic.go`](database/probabilistic.go) |
+| **Lua 脚本与 Functions** | 内嵌沙箱化的 `gopher-lua`（屏蔽 `os`/`io` 宿主逃逸），内置 `cjson`、`cmsgpack`、`bit` 库，支持持久化函数库 | `EVAL`, `EVAL_RO`, `FUNCTION LOAD`, `FCALL` | [`scripting/`](scripting/)<br>[`database/scripting.go`](database/scripting.go) |
+| **持久化、主从与集群** | AOF / RDB / 混合持久化；PSYNC2 环形积压缓冲区复制与 `FAILOVER` 协调切换；16,384 槽 CRC16 路由 + Hashicorp Raft 拓扑共识 | `BGREWRITEAOF`, `REPLICAOF`, `FAILOVER`, `WAIT`/`WAITAOF`, `CLUSTER *` | [`aof/`](aof/)<br>[`cluster/`](cluster/)<br>[`database/replication*.go`](database/replication_master.go) |
+
+完整命令清单可随时查阅 [`commands.md`](commands.md)。
+
+---
+
+## 第一原则是不骗自己：诚实边界
+
+绝大多数项目的 README 只会告诉你它能做什么，然后悄悄把做不到的地方藏起来。但搞工程和搞科学一样，**第一原则是绝不欺骗自己——而你自己是最容易被糊弄过去的人**。
+
+把 Godis 当成工具或研究样本之前，请你先看清下面这份诚实的账单（完整细节全公开在 [`docs/COMPATIBILITY.md`](docs/COMPATIBILITY.md) 与 [`兼容性改进计划.md`](兼容性改进计划.md)）：
+
+1. **我们是怎么验证“兼容”的？**
+   - 不是靠肉眼看几个 `OK`。仓库里的 [`scripts/r4-1-cases.txt`](scripts/r4-1-cases.txt) 攒下了 **12,502 条**确定性命令用例，直接拿真实的 Redis 8.10 实例当裁判（Sidecar），比对两边的输出和错误文案。
+   - 任何错误回复里如果夹带了用户输入的回车换行（`\r\n`），在协议出口都会被清洗成单行（对齐 Redis 8.10 安全修复），绝不让脏数据劈开 RESP 协议帧。
+
+2. **哪些地方我们换了算法，但把账写在了明面上？**
+   - **内存统计不装 `jemalloc`**：这是 Go 写的程序。当你执行 `INFO memory` 或 `MEMORY STATS` 时，`mem_allocator` 永远诚实地返回 `go`。我们读取操作系统真实的进程工作集（`used_memory_rss`），但绝不伪造一套 `jemalloc` 的 arena 数字去骗监控面板。
+   - **`HOTKEYS` 与 `allkeys-lrm`**：Redis 8.6/8.10 的 `HOTKEYS` 内部用的是按槽概率结构，Godis 用的是命令耗时按键分摊 + 参数字节采样；`volatile-lrm`/`allkeys-lrm` 按命令声明的写键记录修改时间。
+   - **`SUNIONCARD ... APPROX`**：Redis 8.10 允许用近似计数加速并集基数统计；Godis 接受 `APPROX` 参数并直接返回精确值——毕竟精确值永远落在任何合法的近似误差界之内。
+
+3. **哪些地方我们宁可报错，也绝不假装互通？**
+   - **RDB 模块二进制与 `FUNCTION DUMP`**：五大基础类型与 HyperLogLog 的 RDB 可以跟 Redis 互通。但 JSON、Vector、TimeSeries、概率结构、Array 以及 RediSearch 索引定义，在持久化时走的是 Godis 自家的 `GODIS1` 信封；`FUNCTION DUMP` 走的是 `GODISFN1` 信封。如果你把官方 Redis 模块生成的二进制 `DUMP` 载荷或 `0xF5`/`0xF6` 函数载荷喂给 Godis 的 `RESTORE`，Godis 会在清空任何现有数据**之前**直接报错拒绝，绝不假装看懂然后静默丢掉你的数据。
+
+4. **哪些功能我们明确没做（或仅提供子集）？**
+   - **事务（`MULTI`/`EXEC`）**：已对齐 Redis 标准行为——入队时语法错误会中止事务（`EXECABORT`），但运行期单条命令报错（比如对字符串做 `LPUSH`）不会回滚前面已经成功的命令，而是把错误放进结果数组继续往下跑。
+   - **Array 类型（Redis 8.8 Preview）**：目前已接通 `ARSET`/`ARMSET`/`ARGET`/`ARMGET`/`ARGETRANGE`/`ARLEN`/`ARCOUNT`/`ARDEL`/`ARDELRANGE` 九条核心预览命令与 `TYPE array`，其余扩展命令暂未开启。
+   - **明确列为非目标的事项**：Compact Hash 内部模板编码（`HIMPORT` 会话已支持，落地为普通 Hash）、`BACKUP` 多分片 AOF、完整的 Redis 二进制 Gossip 总线（Godis 集群拓扑走 Raft）、以及 C Modules API。
+
+事情就是这样。清楚知道边界在哪，用起来才踏实。
+
+---
+
+## 怎么逛这座代码库？
+
+如果你想读源码，别从几千行的命令表开始硬啃。顺着**一条命令的一生**走一趟，半小时就能摸清全貌：
+
+```text
+godis/
+├── main.go                     # 1. 从这儿进门：解析配置、挂好信号、启动网络监听
+├── tcp/ & redis/server/        # 2. 接客：std（一连接一协程）或 gnet（事件驱动）
+├── redis/parser/ & protocol/   # 3. 拆信与回信：把字节流切成命令行，把结果包成 RESP2/RESP3
+├── database/
+│   ├── server.go               # 4. 总调度台：鉴权、ACL、CLIENT PAUSE、慢日志、多库切换
+│   ├── router.go               # 5. 查电话簿：440+ 条命令在哪执行、要锁哪些键，全在这张表里
+│   ├── database.go             # 6. 单库引擎：按 prepare 声明锁住分片 -> 执行 -> 记 AOF -> 触发缓存失效
+│   ├── string.go / list.go / hash.go / set.go / sortedset.go / stream*.go
+│   ├── json*.go / vector*.go / timeseries*.go / redisearch*.go / array.go
+│   ├── probabilistic.go / tdigest.go / hyperloglog.go / hotkeys_himport.go
+│   └── replication_*.go / failover.go / caching.go / acl.go / transaction.go
+├── datastruct/                 # 7. 真正的动手部位：并发字典、跳表、快速列表、HNSW 向量图、倒排索引
+├── aof/                        # 8. 记账员：AOF 追加、后台重写、RDB 与 GODIS1 信封编解码
+├── scripting/                  # 9. 脚本室：gopher-lua 虚拟机池与 Redis Functions
+└── cluster/                    # 10. 分布式：16384 槽路由、MOVED/ASK、TCC 与 Raft 状态机
+```
+
+想开启 SQLite 驱动的全文与向量索引后端（`FTS5` + `sqlite-vec`）？编译时加个 tag 即可：
 
 ```bash
-# 订阅分片频道
-127.0.0.1:6399> SSUBSCRIBE mychannel
-
-# 在另一个客户端发布
-127.0.0.1:6399> SPUBLISH mychannel "hello"
+go build -tags sqlite_backend -o godis ./
 ```
 
-## 支持的命令
+更多架构与运维细节请参阅：
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — 进程模型、执行链路与组件分工
+- [`docs/OPERATIONS.md`](docs/OPERATIONS.md) — 信号优雅退出、`/health` 探活、Prometheus `/metrics` 与 ACL 持久化
+- [`docs/COMPATIBILITY.md`](docs/COMPATIBILITY.md) — 与 Redis 8.10 的逐项对齐账本
 
-完整命令列表请参考 [commands.md](./commands.md)
+---
 
-### 命令分类
+## 跑得有多快？
 
-| 分类 | 命令数 | 说明 |
-|------|--------|------|
-| 字符串 | 20+ | GET, SET, INCR, APPEND, 等 |
-| 列表 | 15+ | LPUSH, RPUSH, LRANGE, 等 |
-| 哈希 | 15+ | HSET, HGET, HINCRBY, 等 |
-| 集合 | 15+ | SADD, SINTER, SUNION, 等 |
-| 有序集合 | 20+ | ZADD, ZRANGE, ZRANGEBYSCORE, 等 |
-| Stream | 10+ | XADD, XREAD, XGROUP, 等 |
-| JSON | 25+ | JSON.SET, JSON.GET, JSON.ARRAPPEND, 等 |
-| Vector Set | 4 | VS.ADD, VS.SEARCH, VS.REM, VS.DROPINDEX |
-| RediSearch | 15+ | FT.CREATE, FT.SEARCH, FT.AGGREGATE, 等 |
-| Time Series | 10+ | TS.CREATE, TS.ADD, TS.MRANGE, 等 |
-| Bloom Filter | 8 | BF.ADD, BF.EXISTS, BF.MADD, 等 |
-| Cuckoo Filter | 10 | CF.ADD, CF.EXISTS, CF.DEL, 等 |
-| CMS/Top-K/T-Digest | 15 | CMS.INCRBY, TOPK.ADD, TD.ADD, 等 |
-| 概率数据结构 | 5 | PFADD, PFCOUNT, 等 |
-| 地理位置 | 6 | GEOADD, GEOPOS, GEODIST, 等 |
-| 键管理 | 20+ | DEL, EXPIRE, TTL, SCAN, 等 |
-| 事务 | 5 | MULTI, EXEC, DISCARD, WATCH, UNWATCH |
-| 发布订阅 | 8 | PUBLISH, SUBSCRIBE, PSUBSCRIBE, 等 |
-| 复制 | 4 | REPLICAOF, SLAVEOF, FAILOVER, WAITAOF |
-| 集群 | 10+ | CLUSTER NODES/SLOTS/INFO/SHARDS, KEYSLOT；MEET 见兼容文档 |
-| 管理 | 20+ | INFO, CONFIG, CLIENT, ACL, 等 |
-| Lua/函数 | 8 | EVAL, EVALSHA, FUNCTION LOAD, FCALL, 等 |
+下面是基于 `Go 1.23` 在 `macOS M2 Air` 上用标准 `redis-benchmark` 跑出的一组数字：
 
-## 性能测试
-
-环境: Go 1.23, macOS Monterey 12.5 M2 Air
-
-```
-PING_INLINE: 179211.45 requests per second, p50=1.031 msec                    
-PING_MBULK: 173611.12 requests per second, p50=1.071 msec                    
-SET: 158478.61 requests per second, p50=1.535 msec                    
-GET: 156985.86 requests per second, p50=1.127 msec                    
-INCR: 164473.69 requests per second, p50=1.063 msec                    
-LPUSH: 151285.92 requests per second, p50=1.079 msec                    
-RPUSH: 176678.45 requests per second, p50=1.023 msec                    
-LPOP: 177619.89 requests per second, p50=1.039 msec                    
-RPOP: 172413.80 requests per second, p50=1.039 msec                    
-SADD: 159489.64 requests per second, p50=1.047 msec                    
-HSET: 175131.36 requests per second, p50=1.031 msec                    
-SPOP: 170648.45 requests per second, p50=1.031 msec                    
-ZADD: 165289.25 requests per second, p50=1.039 msec                    
-ZPOPMIN: 185528.77 requests per second, p50=0.999 msec                    
-LRANGE_100: 46511.62 requests per second, p50=4.063 msec                   
-MSET (10 keys): 88417.33 requests per second, p50=3.687 msec  
+```text
+PING_INLINE:    179,211.45 requests per second, p50=1.031 msec
+PING_MBULK:     173,611.12 requests per second, p50=1.071 msec
+SET:            158,478.61 requests per second, p50=1.535 msec
+GET:            156,985.86 requests per second, p50=1.127 msec
+INCR:           164,473.69 requests per second, p50=1.063 msec
+LPUSH:          151,285.92 requests per second, p50=1.079 msec
+RPUSH:          176,678.45 requests per second, p50=1.023 msec
+LPOP:           177,619.89 requests per second, p50=1.039 msec
+SADD:           159,489.64 requests per second, p50=1.047 msec
+HSET:           175,131.36 requests per second, p50=1.031 msec
+ZADD:           165,289.25 requests per second, p50=1.039 msec
+ZPOPMIN:        185,528.77 requests per second, p50=0.999 msec
+LRANGE_100:      46,511.62 requests per second, p50=4.063 msec
+MSET (10 keys):  88,417.33 requests per second, p50=3.687 msec
 ```
 
-## 源码阅读指南
+不过，千万别轻信别人贴在 README 里的跑分——操作系统调度、Pipeline 深度、是否开启 AOF `appendfsync`、用的是 `std` 还是 `use-gnet yes`，都会让数字天差地别。最靠谱的办法永远是：在你的机器上拉起 `./godis`，然后自己敲一行 `redis-benchmark -p 6399`。实验结果不会骗人。
 
-```
-godis/
-├── main.go                 # 入口点
-├── config/                 # 配置解析
-├── interface/              # 接口定义
-├── lib/                    # 工具库 (logger, 同步, 通配符等)
-├── tcp/                    # TCP 服务器
-├── redis/                  # RESP 协议解析器
-├── scripting/              # Lua 引擎和 Redis Functions
-├── datastruct/             # 核心数据结构
-│   ├── dict/               # 并发哈希表
-│   ├── list/               # 链表和快速列表
-│   ├── set/                # 哈希集合
-│   ├── sortedset/          # 跳表有序集合
-│   ├── bitmap/             # 位图
-│   ├── json/               # JSON 数据类型
-│   ├── vector/             # Vector Set 向量集
-│   ├── timeseries/         # 时序数据
-│   ├── hll/                # HyperLogLog (Redis dense 编码互通)
-│   └── lock/               # 键级锁
-├── database/               # 存储引擎
-│   ├── database.go         # 单个数据库实现
-│   ├── server.go           # 多数据库服务器
-│   ├── router.go           # 命令路由
-│   ├── string.go           # 字符串命令
-│   ├── list.go             # 列表命令
-│   ├── hash.go             # 哈希命令
-│   ├── set.go              # 集合命令
-│   ├── sortedset.go        # 有序集合命令
-│   ├── stream.go           # Stream 命令
-│   ├── json.go             # JSON 命令
-│   ├── vector.go           # Vector Set 命令
-│   ├── timeseries.go       # 时序命令
-│   ├── rediSearch.go       # 全文搜索
-│   ├── failover.go         # FAILOVER 协调切换
-│   ├── bloom.go            # Bloom Filter
-│   ├── cuckoo.go           # Cuckoo Filter
-│   ├── probal.go           # 概率数据结构
-│   ├── acl.go              # ACL 访问控制
-│   ├── caching.go          # 客户端缓存
-│   ├── transaction.go      # 事务
-│   └── geo.go              # 地理位置
-├── cluster/                # 集群模式
-│   ├── cluster.go          # 集群入口
-│   ├── raft/               # Raft 共识
-│   └── commands/           # 集群感知命令
-├── aof/                    # AOF/RDB 持久化
-└── pubsub/                 # 发布订阅
-```
+---
 
-## 相关项目
+## 一起折腾（Contributing）
 
-- [ godis-client ](https://github.com/linkerlin/godis): Godis 的 Go 语言客户端
-- [ godis-dashboard ](https://github.com/linkerlin/godis-dashboard): Godis 的可视化管理界面
+发现哪里不对劲？或者想亲手把某个命令、某块数据结构写得更漂亮？太好了！
 
-## 博客
+提交 PR 前，只需要确认三件小事：
+1. 跑一遍 `go test ./...` 和 `go vet ./...`，确保没把别人的积木碰倒。
+2. 新写的命令或修好的 Bug，一定配上一条能复现它的测试（如果行为是确定性的，欢迎顺手往 [`scripts/r4-1-cases.txt`](scripts/r4-1-cases.txt) 里加一行对照样例）。
+3. 如果某个特性只实现了子集或者用了近似算法，请在 [`docs/COMPATIBILITY.md`](docs/COMPATIBILITY.md) 里老老实实写清楚。
 
-在[我的博客](https://www.cnblogs.com/Finley/category/1598973.html)了解更多关于 Godis 的设计与实现。
+## 相关衍生与许可证
 
-## 贡献
-
-欢迎提交 Issue 和 PR！请确保：
-1. 代码通过 `go test ./...` 测试
-2. 新功能包含测试用例
-3. 遵循现有代码风格
-
-## 许可证
-
-Godis 采用 [MIT 许可证](./LICENSE)。
+- [godis-dashboard](https://github.com/linkerlin/godis-dashboard)：Godis 的可视化管理界面
+- [技术博客专栏](https://www.cnblogs.com/Finley/category/1598973.html)：记录最初从零搭建各个模块时的思考草稿
+- 本项目采用 [MIT 许可证](./LICENSE)。拿去拆、拿去改、拿去玩吧！
