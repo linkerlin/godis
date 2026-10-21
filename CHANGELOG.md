@@ -7,9 +7,10 @@
 ### Added
 
 - **P1-2 结构化 JSON 日志（可选）**：新增 `log-format text|json` 配置与 `CONFIG GET/SET log-format` 热切换；JSON 模式每行输出 `time`/`level`/`caller`/`msg`，`logfile` 重配置和每日轮转保留 JSON 模式；启动日志可用 `jq`/Loki/ELK 直接采集。测试 `lib/logger/logger_test.go` 与 `TestConfigLogFormat`。
-- **R4-2 覆盖率：Array/JSON 直接单测**：
+- **R4-2 覆盖率：Array/JSON/AOF 直接单测**：
   - `datastruct/array` 0% → **87.4%**：Set/Get/Del/DelRanges/Range、Insert/NextIndex/cursor 耗尽、RingInsert 环绕与截断、LastItems 普通/环形语义、State/RestoreState 往返（含 order/cursor/ring_size）
   - `datastruct/json` 0% → **43.5%**：通配/递归路径、`PathHasNodelist`、顶层投影单元素数组与 `.0` 浮点、nodelist 任意节点匹配、过滤器函数族、Get/Set/Del/Type
+  - `aof` 30.8% → **42.4%**：Save/Close 幂等、写入后 Save 为 no-op、Listener 回调、AOF 回放（SELECT+SET）、`FsyncAlways` 同步落盘
 - **P3-2 Docker / Compose 示例**：多阶段 `Dockerfile`（Go 1.25 Alpine 构建 → Alpine 3.21 运行，非 root UID 10001）、`docker-compose.yml`、`.dockerignore`；默认加载镜像内 `/etc/godis/godis.conf`，`/data` 为工作/日志卷；README 中英文与 `docs/OPERATIONS.md` 补充构建、挂载配置和 metrics 说明。已本地构建并用容器内 RESP 完成 PING/SET/GET 冒烟。
 - **R4-1 sidecar 扩表：R5 新命令确定性样例（2026-10-21）**，`scripts/r4-1-cases.txt` 12,502 → **12,623** 条：
   - Array 扩展：ARINSERT/ARNEXT/ARSEEK 游标、ARLASTITEMS 写入序、AROP 聚合/位运算、ARGREP 的 MATCH/EXACT/AND/RE/LIMIT/GLOB、ARRING 环形覆盖
