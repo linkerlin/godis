@@ -105,6 +105,13 @@
 
 ### Fixed
 
+- **全仓 `go test -race ./...` 通过（2026-10-21）**：
+  - `QuickList` 增加互斥锁；公开读写方法串行化，内部 `add`/`find` 不再重复加锁
+  - `memory.Limiter` 的 `maxMemory`/`policy` 读取快照化，`EvictIfNeeded` 统计更新加锁
+  - `Connection.lastCommand` 用 `stateMu` 保护；`receiveAOF` 锁内快照 `masterConn`/`masterChan`
+  - 客户端缓存失效入队移到 `RLock` 内（非阻塞 send），避免 `DisableTracking` 关闭队列时的 send-on-closed 竞态
+  - `save` 与 `proto-max-bulk-len` 用原子值供后台 cron/parser 读取，CONFIG SET 热更新不再与读取方竞争
+  - tcp/migrate 测试等待 accept 循环退出后再恢复全局配置；tcp 计数器改用 atomic
 - **R4-1 真实 Redis 8.10 sidecar 全量对拍修复（12,623 断言 0 失败）**：
   - runner：`@CMD` 初始化命令此前未剥离标记（实际未执行）；改为引号感知分词（JSON/带空格路径），新增 `R41_CONTINUE=1` 收集全部失败而不是遇错即停
   - Array：`ARLASTITEMS` 普通/稀疏数组按最高下标返回（含空槽），仅 `ARRING` 环形模式按写入序；opaque 持久化保留 cursor/order
