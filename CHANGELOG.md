@@ -6,11 +6,16 @@
 
 ### Added
 
+- **R5-18 Hash 字段级 subkey notifications（Redis 8.8）**，测试 `database/subkey_notify_test.go`：
+  - 四种官方通道：`__subkeyspace@<db>__:<key>`、`__subkeyevent@<db>__:<event>`、`__subkeyspaceitem@<db>__:<key>\n<subkey>`、`__subkeyspaceevent@<db>__:<event>|<key>`
+  - 新增独立配置标志 `S`/`T`/`I`/`V`（与 `K`/`E`/`A` 互不隐含）；字段名按 `<len>:<field>` 长度前缀编码，支持含逗号等二进制安全字段
+  - 覆盖 `HSET`/`HMSET`/`HSETNX`/`HDEL`/`HGETDEL`/`HGETEX`/`HINCRBY`/`HINCRBYFLOAT`/`HEXPIRE` 族/`HPERSIST`/`HSETEX` 及主动/惰性字段过期；`HINCRBYFLOAT` 键级事件名修正为 `hincrbyfloat`
+  - 近似口径：过期事件逐字段发布（官方为同批合并）；`HGETEX`/`HSETEX` 立即过期不额外合成 `hdel`
 - **R5-20 JSONPath 批次 3 收尾（Redis 8.10）**，测试 `database/r5_jsonpath_test.go`：
   - 集合关系：`subsetof`/`anyof`/`noneof`（词形带数组参，如 `@.colors subsetof ["black","silver"]`；元素按深度相等）
   - `index(n)`：数组取位（越界/非数值得 Nothing）；`append(v)`：查询期只读投影（过滤内可用，不改存储文档）
   - 词形算子登记补全（subsetof/anyof/noneof/append/index）；复合字面量扫描跳过引号段（`["a","b"]` 内的引号不再截断）
-  - 至此 8.10 JSONPath 剩余缺口仅为：`~`、嵌套函数、`[*]`/`..` 通配顶层投影、nodelist 多值语义
+  - 至此 8.10 JSONPath 剩余缺口仅为：`[*]`/`..` 通配顶层投影、nodelist 多值语义（`~` 与嵌套函数已在后续批次接通）
 - **`TS.READ`（Redis 8.10，R5-16 收尾）**，测试 `database/r5_tsread_test.go`：
   - `TS.READ key timestamp [BLOCK ms min_count] [MAX_COUNT n]`：游标读（`>=` 含端点，旧→新）
   - 游标哨兵 `-`（最早样本）/`+`（最新样本，含端点）/`$`（最新+1，只读新增）——命令开始时一次解析，阻塞期间游标稳定（与 XREAD `$` 同法）

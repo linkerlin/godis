@@ -65,15 +65,18 @@ func execHSet(db *DB, args [][]byte) redis.Reply {
 	}
 
 	added := 0
+	subkeys := make([]string, 0, (len(args)-1)/2)
 	for i := 1; i < len(args); i += 2 {
 		field := string(args[i])
 		value := args[i+1]
 		if dict.Put(field, value) > 0 {
 			added++
 		}
+		subkeys = append(subkeys, field)
 	}
 	db.addAof(utils.ToCmdLine3("hset", args...))
 	notifyKeyspaceEvent(db, "hset", key)
+	notifySubkeyEvent(db, "hset", key, subkeys)
 	reindexHash(db, key)
 	return protocol.MakeIntReply(int64(added))
 }
@@ -108,6 +111,8 @@ func execHSetNX(db *DB, args [][]byte) redis.Reply {
 	result := dict.PutIfAbsent(field, value)
 	if result > 0 {
 		db.addAof(utils.ToCmdLine3("hsetnx", args...))
+		notifyKeyspaceEvent(db, "hset", key)
+		notifySubkeyEvent(db, "hset", key, []string{field})
 		reindexHash(db, key)
 	}
 	return protocol.MakeIntReply(int64(result))
@@ -188,9 +193,13 @@ func execHDel(db *DB, args [][]byte) redis.Reply {
 
 	removedKey := false
 	deleted := 0
+	deletedFields := make([]string, 0, len(fields))
 	for _, field := range fields {
 		_, result := dict.Remove(field)
 		deleted += result
+		if result > 0 {
+			deletedFields = append(deletedFields, field)
+		}
 	}
 	if dict.Len() == 0 {
 		db.Remove(key)
@@ -199,6 +208,7 @@ func execHDel(db *DB, args [][]byte) redis.Reply {
 	if deleted > 0 {
 		db.addAof(utils.ToCmdLine3("hdel", args...))
 		notifyKeyspaceEvent(db, "hdel", key)
+		notifySubkeyEvent(db, "hdel", key, deletedFields)
 		if removedKey {
 			removeHashFromIndex(db, key)
 		} else {
@@ -294,6 +304,8 @@ func execHMSet(db *DB, args [][]byte) redis.Reply {
 		dict.Put(field, value)
 	}
 	db.addAof(utils.ToCmdLine3("hmset", args...))
+	notifyKeyspaceEvent(db, "hset", key)
+	notifySubkeyEvent(db, "hset", key, fields)
 	reindexHash(db, key)
 	return &protocol.OkReply{}
 }
@@ -428,7 +440,8 @@ func execHIncrBy(db *DB, args [][]byte) redis.Reply {
 	if !exists {
 		dict.Put(field, args[2])
 		db.addAof(utils.ToCmdLine3("hincrby", args...))
-	notifyKeyspaceEvent(db, "hincrby", key)
+		notifyKeyspaceEvent(db, "hincrby", key)
+		notifySubkeyEvent(db, "hincrby", key, []string{field})
 		reindexHash(db, key)
 		return protocol.MakeIntReply(delta)
 	}
@@ -444,6 +457,7 @@ func execHIncrBy(db *DB, args [][]byte) redis.Reply {
 	putHashValuePreservingTTL(dict, field, bytes)
 	db.addAof(utils.ToCmdLine3("hincrby", args...))
 	notifyKeyspaceEvent(db, "hincrby", key)
+	notifySubkeyEvent(db, "hincrby", key, []string{field})
 	reindexHash(db, key)
 	return protocol.MakeIntReply(val)
 }
@@ -477,7 +491,8 @@ func execHIncrByFloat(db *DB, args [][]byte) redis.Reply {
 	if !exists {
 		dict.Put(field, args[2])
 		db.addAof(utils.ToCmdLine3("hincrbyfloat", args...))
-		notifyKeyspaceEvent(db, "hincrby", key)
+		notifyKeyspaceEvent(db, "hincrbyfloat", key)
+		notifySubkeyEvent(db, "hincrbyfloat", key, []string{field})
 		reindexHash(db, key)
 		return protocol.MakeDoubleReply(delta)
 	}
@@ -492,7 +507,8 @@ func execHIncrByFloat(db *DB, args [][]byte) redis.Reply {
 	resultBytes := []byte(strconv.FormatFloat(result, 'f', -1, 64))
 	putHashValuePreservingTTL(dict, field, resultBytes)
 	db.addAof(utils.ToCmdLine3("hincrbyfloat", args...))
-	notifyKeyspaceEvent(db, "hincrby", key)
+	notifyKeyspaceEvent(db, "hincrbyfloat", key)
+	notifySubkeyEvent(db, "hincrbyfloat", key, []string{field})
 	reindexHash(db, key)
 	return protocol.MakeDoubleReply(result)
 }
