@@ -113,7 +113,7 @@
 | JSON.GET `$` 封装 | ✅ 显式 `$…` 路径包数组；无路径返回裸文档 |
 | CONFIG/INFO hz | ✅ 可配置 hz（默认 10） |
 | CLIENT 无连接 | ✅ SETNAME/GETNAME/ID/REPLY 要求连接 |
-| COMMAND LIST | ✅ 枚举命令；FILTERBY PATTERN |
+| COMMAND LIST | ✅ 枚举命令；FILTERBY PATTERN/ACLCAT；由 `Server.Exec` 分发的特殊命令（COPY/MOVE/SWAPDB/DBSIZE/SLOWLOG/WAIT/WAITAOF/PSUBSCRIBE 等）也有 INFO/LIST 元数据；COPY 的 GETKEYS 按源/目标顺序 |
 | GETRANGE 缺键 | ✅ 空 bulk（非 null） |
 | OBJECT ENCODING int | ✅ 整数字符串报 `int` |
 | TYPE 扩展类型 | ✅ JSON/TS/Bloom/Cuckoo/CMS/TopK/TDigest/Vector/FT 索引对齐 Redis 模块 TYPE 名（非 `ERR unknown`） |

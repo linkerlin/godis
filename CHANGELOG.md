@@ -8,6 +8,7 @@
 
 ### Added
 
+- **特殊命令 COMMAND 元数据补齐（2026-10-21）**：为 `Server.Exec` 分发的 16 个核心命令补 `COMMAND LIST`/`INFO`/`DOCS`/`COUNT` 元数据：`BGREWRITEAOF`、`COPY`、`DBSIZE`、`FUNCTION`、`HIMPORT`、`MOVE`、`PSUBSCRIBE`、`PSYNC`、`PUNSUBSCRIBE`、`SCRIPT`、`SLOWLOG`、`SWAPDB`、`SYNC`、`UNSUBSCRIBE`、`WAIT`、`WAITAOF`。只读/写标志同时用于副本 READONLY 判断；`COPY` 的 `COMMAND GETKEYS` 按源/目标顺序返回。Redis 8.10 顶层命令对照中，Godis 除模块/内部命令外的核心命令已无缺失。新增 `database/special_meta_test.go`。
 - **`GEORADIUS_RO` / `GEORADIUSBYMEMBER_RO`（2026-10-21）**：补齐 Redis 只读地理半径命令，支持 `WITHCOORD`/`WITHDIST`/`WITHHASH`/`COUNT n [ANY]`/`ASC|DESC`；`STORE`/`STOREDIST` 在只读变体上返回 `ERR syntax error` 且不写目标键。同时修正 `GEORADIUS`/`GEORADIUSBYMEMBER` 的命令标志与动态锁：带 `STORE`/`STOREDIST` 时按写命令处理并写锁目标键，不再错误地注册为只读。新增 Go 测试与 6 条 R4-1 sidecar 断言，真实 Redis 8.10 全量 **12,634 断言 0 失败**。
 - **R5-19 收尾：`ARSCAN`（Redis 8.8 Array preview，2026-10-21）**：`ARSCAN key start end [LIMIT n]` 按区间返回 index-value 对，支持 start>end 反向、自动裁剪越界区间、跳过空槽、LIMIT 正数校验；Array preview 由 17 补到 **18 命令**，`datastruct/array` 增加单锁 `Scan` 与直接单测；R4-1 sidecar 增加 ARSCAN/反向/LIMIT/空结果 5 条断言，真实 Redis 8.10 全量 **12,634 断言 0 失败**。
 - **FUNCTION DUMP / RESTORE 官方互通（2026-10-21）**：
@@ -113,6 +114,7 @@
 
 ### Fixed
 
+- **replication masterChan 竞态（2026-10-21）**：`loadMasterRDB` 在 `slaveStatus.mutex` 内快照 `masterChan`，并处理 channel 已关闭/空 payload；`parsePsyncHandshake` 同样防 nil payload。修复 `TestFailoverPromotesReplica` 中 `stopSlaveWithMutex` 写 `masterChan` 与加载 RDB 读取的 DATA RACE。
 - **Connection Write/Close 竞态（2026-10-21）**：`sendingData` 的 `sync.WaitGroup` 会在 `Close` 等待时与 masterCron 的 `Write` 同时 `Add`，触发 `TestSlaveCloseAfterReplicationDoesNotHang` 的 DATA RACE。改为 `writeMu` + 在途写计数 + 空闲 channel：`Close` 先关闭写入入口，再等待在途写（10s 超时），`Write` 对已关闭连接返回 `net.ErrClosed`；连接池复用重置写状态。
 - **failover/AOF 测试收尾（2026-10-21）**：`startTestReplicaPair` 的 TCP 监听关闭函数等待 accept 循环与在途 handler 退出后才恢复全局配置，消除 `TestFailoverPromotesReplica` 的 DATA RACE；`bindPersister` 的 `addAof` 增加 nil persister 防御；`TestM2tConfigBoolAndSet` 使用临时 AOF 并在清理时关闭 persister，避免改写仓库内 `database/appendonly.aof`。
 - **随机测试顺序全仓通过（`go test -shuffle=on`，2026-10-21）**：清理测试间全局状态泄漏，连续 4 个随机种子均通过：

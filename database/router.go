@@ -95,8 +95,7 @@ func buildCommandAliases() {
 
 // ResolveCommandLine resolves a possibly multi-word command into the internal
 // command name and a reconstructed command line where cmdLine[0] is the internal
-// name. It returns the original cmdLine unchanged when the first token already
-// maps to a registered command.
+// name. Multi-word subcommand aliases take precedence over a parent command.
 func ResolveCommandLine(cmdLine [][]byte) (newCmdLine [][]byte, cmdName string, ok bool) {
 	if len(cmdLine) == 0 {
 		return nil, "", false
@@ -104,10 +103,9 @@ func ResolveCommandLine(cmdLine [][]byte) (newCmdLine [][]byte, cmdName string, 
 	cmdAliasesOnce.Do(buildCommandAliases)
 
 	cmdName = strings.ToLower(string(cmdLine[0]))
-	if _, exists := cmdTable[cmdName]; exists {
-		return cmdLine, cmdName, true
-	}
-
+	// Prefer a registered multi-word subcommand alias over a parent command.
+	// This lets metadata-only parents (FUNCTION, SCRIPT, ...) coexist with
+	// FUNCTION LOAD / SCRIPT LOAD handlers.
 	if len(cmdLine) >= 2 {
 		alias := cmdName + " " + strings.ToLower(string(cmdLine[1]))
 		if full, found := cmdAliases[alias]; found {
@@ -116,6 +114,9 @@ func ResolveCommandLine(cmdLine [][]byte) (newCmdLine [][]byte, cmdName string, 
 			newCmdLine = append(newCmdLine, cmdLine[2:]...)
 			return newCmdLine, full, true
 		}
+	}
+	if _, exists := cmdTable[cmdName]; exists {
+		return cmdLine, cmdName, true
 	}
 
 	return cmdLine, cmdName, false
@@ -126,6 +127,9 @@ type command struct {
 	executor ExecFunc
 	// prepare returns related keys command
 	prepare PreFunc
+	// keyOrder optionally returns keys in command-line order for COMMAND
+	// GETKEYS/GETKEYSANDFLAGS (dynamic multi-key commands).
+	keyOrder func([][]byte) []string
 	// undo generates undo-log before command actually executed, in case the command needs to be rolled back
 	undo UndoFunc
 	// arity means allowed number of cmdArgs, arity < 0 means len(args) >= -arity.

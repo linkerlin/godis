@@ -289,7 +289,10 @@ func (server *Server) psyncHandshake() (bool, error) {
 
 func (server *Server) parsePsyncHandshake() (bool, error) {
 	var err error
-	psyncPayload := <-server.slaveStatus.masterChan
+	psyncPayload, open := <-server.slaveStatus.masterChan
+	if !open || psyncPayload == nil {
+		return false, errors.New("master channel closed")
+	}
 	if psyncPayload.Err != nil {
 		return false, errors.New("read response failed: " + psyncPayload.Err.Error())
 	}
@@ -345,7 +348,16 @@ func makeRdbLoader(upgradeAof bool) (*Server, string, error) {
 
 // loadMasterRDB downloads rdb after handshake has been done
 func (server *Server) loadMasterRDB(configVersion int32) error {
-	rdbPayload := <-server.slaveStatus.masterChan
+	server.slaveStatus.mutex.Lock()
+	masterChan := server.slaveStatus.masterChan
+	server.slaveStatus.mutex.Unlock()
+	if masterChan == nil {
+		return errors.New("master connection is not available")
+	}
+	rdbPayload, open := <-masterChan
+	if !open || rdbPayload == nil {
+		return errors.New("master channel closed")
+	}
 	if rdbPayload.Err != nil {
 		return errors.New("read response failed: " + rdbPayload.Err.Error())
 	}

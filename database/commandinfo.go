@@ -125,11 +125,16 @@ func getKeys(args [][]byte) redis.Reply {
 		return err
 	}
 
-	if cmd.prepare == nil {
+	if cmd.prepare == nil && cmd.keyOrder == nil {
 		return protocol.MakeErrReply("ERR The command has no key arguments")
 	}
-	writeKeys, readKeys := cmd.prepare(cmdLine[1:])
-	keys := append(writeKeys, readKeys...)
+	var keys []string
+	if cmd.keyOrder != nil {
+		keys = cmd.keyOrder(cmdLine[1:])
+	} else {
+		writeKeys, readKeys := cmd.prepare(cmdLine[1:])
+		keys = append(writeKeys, readKeys...)
+	}
 	if len(keys) == 0 && (cmd.extra == nil || cmd.extra.firstKey == 0) {
 		return protocol.MakeErrReply("ERR The command has no key arguments")
 	}
@@ -171,10 +176,13 @@ func getKeysAndFlags(args [][]byte) redis.Reply {
 	if err := validateEvalKeyArgs(cmdName, cmdLine); err != nil {
 		return err
 	}
-	if cmd.prepare == nil {
+	if cmd.prepare == nil && cmd.keyOrder == nil {
 		return protocol.MakeErrReply("ERR The command has no key arguments")
 	}
-	writeKeys, readKeys := cmd.prepare(cmdLine[1:])
+	var writeKeys, readKeys []string
+	if cmd.prepare != nil {
+		writeKeys, readKeys = cmd.prepare(cmdLine[1:])
+	}
 	writeSet := make(map[string]bool, len(writeKeys))
 	for _, k := range writeKeys {
 		writeSet[k] = true
@@ -185,7 +193,11 @@ func getKeysAndFlags(args [][]byte) redis.Reply {
 	}
 	seen := make(map[string]bool)
 	ordered := make([]string, 0, len(writeKeys)+len(readKeys))
-	for _, k := range append(append([]string{}, writeKeys...), readKeys...) {
+	candidates := append(append([]string{}, writeKeys...), readKeys...)
+	if cmd.keyOrder != nil {
+		candidates = cmd.keyOrder(cmdLine[1:])
+	}
+	for _, k := range candidates {
 		if seen[k] {
 			continue
 		}
