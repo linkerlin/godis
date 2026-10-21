@@ -57,6 +57,27 @@ func FuzzParseV2(f *testing.F) {
 	})
 }
 
+func FuzzParseFrame(f *testing.F) {
+	addParseSeeds(f)
+	f.Add([]byte("*3\r\n$3\r\nSET\r\n$1\r\nk\r\n$1\r\nv\r\n"))
+	f.Add([]byte("*3\r\n$3\r\nSET\r\n$1\r\nk\r\n$1"))
+	f.Fuzz(func(t *testing.T, data []byte) {
+		if len(data) > fuzzMaxInput {
+			t.Skip()
+		}
+		cmdLine, consumed, complete, err := ParseFrame(data)
+		if complete && (consumed < 0 || consumed > len(data)) {
+			t.Fatalf("consumed=%d out of range for len=%d", consumed, len(data))
+		}
+		if !complete && consumed != 0 {
+			t.Fatalf("incomplete frame consumed=%d, want 0", consumed)
+		}
+		if err == nil && complete && len(cmdLine) == 0 && consumed == 0 {
+			t.Fatal("complete frame with no progress")
+		}
+	})
+}
+
 func parseOneWithTimeout(t *testing.T, data []byte, timeout time.Duration) {
 	t.Helper()
 	type parseResult struct {
