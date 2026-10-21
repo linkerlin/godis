@@ -361,3 +361,49 @@ func TestR5JPAppendProjection(t *testing.T) {
 	}
 	testDB.Exec(nil, utils.ToCmdLine("DEL", "r5jp:ap"))
 }
+
+// ---- R5-20 tail: wildcards, recursive descent, nodelist semantics ----
+
+func TestR5JPWildcardAndRecursive(t *testing.T) {
+	key := "r5jp:wild"
+	testDB.Exec(nil, utils.ToCmdLine("DEL", key))
+	asserts.AssertStatusReply(t, testDB.Exec(nil, utils.ToCmdLine(
+		"JSON.SET", key, "$",
+		`{"items":[
+			{"name":"a","price":10,"tags":["x","y"]},
+			{"name":"b","price":20,"tags":["z"]},
+			{"name":"c","tags":[]}
+		],"nested":{"price":30}}`)), "OK")
+
+	if got := r5jpGetKey(t, key, "$.items[*].price"); got != "[10,20]" {
+		t.Errorf("[*] projection: %s", got)
+	}
+	if got := r5jpGetKey(t, key, "$..price"); got != "[10,20,30]" {
+		t.Errorf("recursive descent: %s", got)
+	}
+	if got := r5jpGetKey(t, key, "$.items[*].tags[*]"); got != `["x","y","z"]` {
+		t.Errorf("nested wildcard: %s", got)
+	}
+	if got := r5jpGetKey(t, key, "sum($.items[*].price)"); got != "30" {
+		t.Errorf("sum over nodelist: %s", got)
+	}
+	if got := r5jpGetKey(t, key, "length($.items[*].price)"); got != "2" {
+		t.Errorf("length over nodelist: %s", got)
+	}
+	if got := r5jpGetKey(t, key, "$.items[*].nope"); got != "[]" {
+		t.Errorf("empty nodelist: %s", got)
+	}
+	// Nodelist comparison: any node satisfies.
+	if got := r5jpGetKey(t, key, `$.items[?(@.tags[*] == "z")].name`); got != `["b"]` {
+		t.Errorf("nodelist any-match: %s", got)
+	}
+	// Recursive descent inside a filter relative path.
+	if got := r5jpGetKey(t, key, `$.items[?(@..price >= 20)].name`); got != `["b"]` {
+		t.Errorf("recursive filter: %s", got)
+	}
+	// Object values are visited in sorted key order.
+	if got := r5jpGetKey(t, key, "$.nested.*"); got != "[30]" {
+		t.Errorf("object wildcard: %s", got)
+	}
+	testDB.Exec(nil, utils.ToCmdLine("DEL", key))
+}

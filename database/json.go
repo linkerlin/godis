@@ -145,7 +145,7 @@ func execJSONGet(db *DB, args [][]byte) redis.Reply {
 			}
 			return &protocol.NullBulkReply{}
 		}
-		if !godisjson.PathHasFilter(paths[0]) {
+		if !godisjson.PathHasFilter(paths[0]) && !godisjson.PathHasNodelist(paths[0]) {
 			val = wrapEnhancedJSONPathValue(paths[0], val)
 		}
 		result, err := marshalJSONGet(val, opts)
@@ -164,7 +164,7 @@ func execJSONGet(db *DB, args [][]byte) redis.Reply {
 		if err != nil {
 			continue
 		}
-		if !godisjson.PathHasFilter(path) {
+		if !godisjson.PathHasFilter(path) && !godisjson.PathHasNodelist(path) {
 			val = wrapEnhancedJSONPathValue(path, val)
 		}
 		if !first {

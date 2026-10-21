@@ -6,6 +6,11 @@
 
 ### Added
 
+- **R5-20 JSONPath 收尾：`[*]`/`..` 与 nodelist 多值语义（Redis 8.10）**，测试 `TestR5JPWildcardAndRecursive`：
+  - `[*]`/`.*` 通配与 `..` 递归下降顶层投影：`$.items[*].price`、`$..price`、`$.*`、`$..*`；对象值按字典序访问，保证结果确定性
+  - nodelist 多值语义：多值路径参与 `==`/`!=`/大小比较、`in`/`nin`、集合关系与聚合函数时，任一节点满足即为真；`length()`/`sum()` 等直接作用于 nodelist
+  - 过滤内相对路径支持 `@.tags[*]` 与 `@..price`；空结果返回 `[]` 而非 `null`
+  - 至此 R5-20 关闭，R5 清单全部收口
 - **R5-19 Array preview 扩展 8 命令（Redis 8.8）**，Array 共 17 命令，测试 `database/r5_array_ext_test.go`：
   - `ARINSERT`/`ARNEXT`/`ARSEEK`：共享 insertion cursor；`ARINSERT` 连续写入并返回最后下标，`ARNEXT` 返回下一位置（cursor 耗尽回 null），`ARSEEK` 设置 cursor（缺键回 0）
   - `ARLASTITEMS key count [REV]`：按写入序返回最近写入的元素；覆盖同一槽位会把该槽移到最近
@@ -24,7 +29,7 @@
   - 集合关系：`subsetof`/`anyof`/`noneof`（词形带数组参，如 `@.colors subsetof ["black","silver"]`；元素按深度相等）
   - `index(n)`：数组取位（越界/非数值得 Nothing）；`append(v)`：查询期只读投影（过滤内可用，不改存储文档）
   - 词形算子登记补全（subsetof/anyof/noneof/append/index）；复合字面量扫描跳过引号段（`["a","b"]` 内的引号不再截断）
-  - 至此 8.10 JSONPath 剩余缺口仅为：`[*]`/`..` 通配顶层投影、nodelist 多值语义（`~` 与嵌套函数已在后续批次接通）
+  - 至此 8.10 JSONPath 剩余缺口仅为：`[*]`/`..` 通配顶层投影、nodelist 多值语义（`~` 与嵌套函数已接通；该缺口已在后续 R5-20 收尾条目关闭）
 - **`TS.READ`（Redis 8.10，R5-16 收尾）**，测试 `database/r5_tsread_test.go`：
   - `TS.READ key timestamp [BLOCK ms min_count] [MAX_COUNT n]`：游标读（`>=` 含端点，旧→新）
   - 游标哨兵 `-`（最早样本）/`+`（最新样本，含端点）/`$`（最新+1，只读新增）——命令开始时一次解析，阻塞期间游标稳定（与 XREAD `$` 同法）

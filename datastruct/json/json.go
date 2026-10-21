@@ -3,6 +3,7 @@ package json
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -529,6 +530,215 @@ func (jv *JSONValue) ToString() (string, error) {
 	return string(b), err
 }
 
+// PathHasNodelist reports whether a path contains a wildcard (`[*]`, `.*`) or
+// recursive-descent (`..`) segment that yields a multi-value nodelist.
+func PathHasNodelist(path string) bool {
+	if hasRecursiveDescent(path) {
+		return true
+	}
+	for _, part := range parsePath(path) {
+		if part == "*" {
+			return true
+		}
+	}
+	return false
+}
+
+func hasRecursiveDescent(path string) bool {
+	return recursiveDescentIndex(path) >= 0
+}
+
+func recursiveDescentIndex(path string) int {
+	depth := 0
+	quote := byte(0)
+	for i := 0; i+1 < len(path); i++ {
+		c := path[i]
+		if quote != 0 {
+			if c == '\\' {
+				i++
+				continue
+			}
+			if c == quote {
+				quote = 0
+			}
+			continue
+		}
+		switch c {
+		case '\'', '"':
+			quote = c
+		case '[':
+			depth++
+		case ']':
+			if depth > 0 {
+				depth--
+			}
+		case '.':
+			if depth == 0 && path[i+1] == '.' {
+				return i
+			}
+		}
+	}
+	return -1
+}
+
+func normalizeJSONPath(raw string) string {
+	p := strings.TrimSpace(raw)
+	if strings.HasPrefix(p, "$") || strings.HasPrefix(p, "@") {
+		p = p[1:]
+	}
+	if strings.HasPrefix(p, ".") && !strings.HasPrefix(p, "..") {
+		p = p[1:]
+	}
+	return p
+}
+
+// evalPathNodes evaluates a path that contains wildcards or recursive descent
+// and returns all matched values in document order (object keys sorted).
+func evalPathNodes(root interface{}, raw string) ([]interface{}, error) {
+	path := normalizeJSONPath(raw)
+	if path == "" {
+		return []interface{}{root}, nil
+	}
+	if idx := recursiveDescentIndex(path); idx >= 0 {
+		prefix, suffix := path[:idx], path[idx+2:]
+		base := []interface{}{root}
+		if prefix != "" {
+			vals, err := evalPathNodes(root, prefix)
+			if err != nil {
+				return nil, err
+			}
+			base = vals
+		}
+		parts := parsePath(suffix)
+		if len(parts) == 0 {
+			return base, nil
+		}
+		collected := make([]interface{}, 0)
+		if parts[0] == "*" {
+			for _, node := range base {
+				collected = collectDescendants(node, collected)
+			}
+		} else {
+			for _, node := range base {
+				collected = collectRecursiveKey(node, parts[0], collected)
+			}
+		}
+		return applyNodeSteps(collected, parts[1:]), nil
+	}
+	return applyNodeSteps([]interface{}{root}, parsePath(path)), nil
+}
+
+func applyNodeSteps(nodes []interface{}, parts []string) []interface{} {
+	for _, part := range parts {
+		if part == "" || part == "@" || part == "$" {
+			continue
+		}
+		next := make([]interface{}, 0)
+		switch {
+		case part == "*":
+			for _, node := range nodes {
+				next = append(next, wildcardValues(node)...)
+			}
+		case IsFilterPart(part):
+			for _, node := range nodes {
+				if arr, ok := node.([]interface{}); ok {
+					if matches, err := ApplyFilter(arr, part); err == nil {
+						next = append(next, matches...)
+					}
+				}
+			}
+		case part == "~":
+			for _, node := range nodes {
+				if obj, ok := node.(map[string]interface{}); ok {
+					next = append(next, sortedObjectKeys(obj))
+				}
+			}
+		default:
+			for _, node := range nodes {
+				if v, err := walkParts(node, []string{part}); err == nil {
+					next = append(next, v)
+				}
+			}
+		}
+		nodes = next
+		if len(nodes) == 0 {
+			return []interface{}{}
+		}
+	}
+	if nodes == nil {
+		return []interface{}{}
+	}
+	return nodes
+}
+
+func wildcardValues(node interface{}) []interface{} {
+	switch t := node.(type) {
+	case []interface{}:
+		return t
+	case map[string]interface{}:
+		keys := sortedStringKeys(t)
+		out := make([]interface{}, 0, len(keys))
+		for _, k := range keys {
+			out = append(out, t[k])
+		}
+		return out
+	}
+	return nil
+}
+
+func sortedObjectKeys(obj map[string]interface{}) []interface{} {
+	keys := sortedStringKeys(obj)
+	out := make([]interface{}, len(keys))
+	for i, k := range keys {
+		out[i] = k
+	}
+	return out
+}
+
+func sortedStringKeys(obj map[string]interface{}) []string {
+	keys := make([]string, 0, len(obj))
+	for k := range obj {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+func collectRecursiveKey(node interface{}, key string, out []interface{}) []interface{} {
+	switch t := node.(type) {
+	case map[string]interface{}:
+		for _, k := range sortedStringKeys(t) {
+			v := t[k]
+			if k == key {
+				out = append(out, v)
+			}
+			out = collectRecursiveKey(v, key, out)
+		}
+	case []interface{}:
+		for _, v := range t {
+			out = collectRecursiveKey(v, key, out)
+		}
+	}
+	return out
+}
+
+func collectDescendants(node interface{}, out []interface{}) []interface{} {
+	switch t := node.(type) {
+	case map[string]interface{}:
+		for _, k := range sortedStringKeys(t) {
+			v := t[k]
+			out = append(out, v)
+			out = collectDescendants(v, out)
+		}
+	case []interface{}:
+		for _, v := range t {
+			out = append(out, v)
+			out = collectDescendants(v, out)
+		}
+	}
+	return out
+}
+
 // getPath traverses the JSON structure following the path
 func (jv *JSONValue) getPath(path string) (interface{}, error) {
 	// Top-level projection expression (8.10 batch 3): `fn($.path)` —
@@ -537,6 +747,15 @@ func (jv *JSONValue) getPath(path string) (interface{}, error) {
 	// supported.
 	if v, ok, err := jv.tryProjection(path); ok || err != nil {
 		return v, err
+	}
+
+	// Wildcards and recursive descent yield a multi-value nodelist.
+	if PathHasNodelist(path) {
+		vals, err := evalPathNodes(jv.data, path)
+		if err != nil {
+			return nil, err
+		}
+		return nodeList(vals), nil
 	}
 
 	parts := parsePath(path)

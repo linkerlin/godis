@@ -202,9 +202,41 @@ func tokenize(s string) ([]token, error) {
 			i++
 		case c == '@':
 			j := i + 1
+			depth := 0
+			quote := byte(0)
 			for j < len(s) {
 				ch := s[j]
-				if ch == '.' || ch == '[' || ch == ']' || ch == '~' ||
+				if quote != 0 {
+					if ch == '\\' && j+1 < len(s) {
+						j += 2
+						continue
+					}
+					if ch == quote {
+						quote = 0
+					}
+					j++
+					continue
+				}
+				if depth > 0 && (ch == '\'' || ch == '"') {
+					quote = ch
+					j++
+					continue
+				}
+				if ch == '[' {
+					depth++
+					j++
+					continue
+				}
+				if ch == ']' && depth > 0 {
+					depth--
+					j++
+					continue
+				}
+				if depth > 0 {
+					j++ // wildcard/index/filter contents stay inside the path token
+					continue
+				}
+				if ch == '.' || ch == '~' ||
 					(ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') ||
 					(ch >= '0' && ch <= '9') || ch == '_' || ch == '-' {
 					j++
@@ -578,6 +610,22 @@ func (p *predParser) parseOperand() (*predNode, error) {
 
 // ---- evaluation ----
 
+// nodeList is a JSONPath multi-value result produced by wildcard (`[*]`, `.*`)
+// or recursive descent (`..`). It is a named slice so it marshals as a JSON
+// array while remaining distinguishable from a stored JSON array in filters.
+type nodeList []interface{}
+
+// asNodeSlice accepts both stored JSON arrays and nodeList values.
+func asNodeSlice(v interface{}) ([]interface{}, bool) {
+	switch t := v.(type) {
+	case []interface{}:
+		return t, true
+	case nodeList:
+		return []interface{}(t), true
+	}
+	return nil, false
+}
+
 func evalNode(n *predNode, elem interface{}) bool {
 	switch n.op {
 	case "or":
@@ -593,21 +641,30 @@ func evalNode(n *predNode, elem interface{}) bool {
 		if l == nil {
 			return false // missing operand matches neither in nor nin
 		}
-		arr, ok := nodeValue(n.right, elem).([]interface{})
+		set, ok := asNodeSlice(nodeValue(n.right, elem))
 		if !ok {
 			return false
 		}
-		found := false
-		for _, cand := range arr {
-			if deepEqual(l, cand) {
-				found = true
-				break
+		lvals := []interface{}{l}
+		if nl, ok := l.(nodeList); ok {
+			lvals = []interface{}(nl)
+		}
+		for _, lv := range lvals {
+			found := false
+			for _, cand := range set {
+				if deepEqual(lv, cand) {
+					found = true
+					break
+				}
+			}
+			if n.op == "in" && found {
+				return true // any node in the set
+			}
+			if n.op == "nin" && !found {
+				return true // any node outside the set
 			}
 		}
-		if n.op == "in" {
-			return found
-		}
-		return !found
+		return false
 	case "empty":
 		v := nodeValue(n.left, elem)
 		length, ok := lengthOf(v)
@@ -688,7 +745,7 @@ func nodeValue(n *predNode, elem interface{}) interface{} {
 // partial) and concat on strings. Unknown or mistyped calls yield Nothing.
 func applyFunction(fn string, recv interface{}, argNode *predNode, elem interface{}) interface{} {
 	numsOf := func(v interface{}) ([]float64, bool) {
-		arr, ok := v.([]interface{})
+		arr, ok := asNodeSlice(v)
 		if !ok {
 			return nil, false
 		}
@@ -723,7 +780,7 @@ func applyFunction(fn string, recv interface{}, argNode *predNode, elem interfac
 			return math.Floor(f)
 		}
 	case "first", "last":
-		arr, ok := recv.([]interface{})
+		arr, ok := asNodeSlice(recv)
 		if !ok || len(arr) == 0 {
 			return nil
 		}
@@ -792,6 +849,14 @@ func applyFunction(fn string, recv interface{}, argNode *predNode, elem interfac
 		sortStrings(keys)
 		return keys
 	case "match", "search":
+		if nl, ok := recv.(nodeList); ok {
+			for _, v := range nl {
+				if truthy(applyFunction(fn, v, argNode, elem)) {
+					return true
+				}
+			}
+			return false
+		}
 		s, ok := recv.(string)
 		if !ok || argNode == nil {
 			return nil
@@ -826,11 +891,11 @@ func applyFunction(fn string, recv interface{}, argNode *predNode, elem interfac
 	case "subsetof", "anyof", "noneof":
 		// Set relations on array/nodelist (8.10): subset = every element
 		// present; anyof = at least one shared; noneof = no shared element.
-		arr, ok := recv.([]interface{})
+		arr, ok := asNodeSlice(recv)
 		if !ok || argNode == nil {
 			return nil
 		}
-		set, ok := nodeValue(argNode, elem).([]interface{})
+		set, ok := asNodeSlice(nodeValue(argNode, elem))
 		if !ok {
 			return nil
 		}
@@ -858,7 +923,7 @@ func applyFunction(fn string, recv interface{}, argNode *predNode, elem interfac
 		}
 	case "index":
 		// Array access by position; out-of-range / non-numeric → Nothing.
-		arr, ok := recv.([]interface{})
+		arr, ok := asNodeSlice(recv)
 		if !ok || argNode == nil {
 			return nil
 		}
@@ -870,14 +935,14 @@ func applyFunction(fn string, recv interface{}, argNode *predNode, elem interfac
 	case "append":
 		// Query-time projection: recv array + one appended value
 		// (read-only; the stored document is untouched).
-		arr, ok := recv.([]interface{})
+		arr, ok := asNodeSlice(recv)
 		if !ok || argNode == nil {
 			return nil
 		}
 		out := append(append([]interface{}(nil), arr...), nodeValue(argNode, elem))
 		return out
 	case "count":
-		arr, ok := recv.([]interface{})
+		arr, ok := asNodeSlice(recv)
 		if !ok {
 			return nil
 		}
@@ -897,6 +962,15 @@ func sortStrings(keys []interface{}) {
 // walkRelative resolves a relative path like ".a.b[0]" ("" = the element
 // itself) from start.
 func walkRelative(start interface{}, rel string) interface{} {
+	// Wildcards and recursive descent produce a multi-value nodelist; filters
+	// then use any-match comparison semantics.
+	if PathHasNodelist(rel) {
+		vals, err := evalPathNodes(start, rel)
+		if err != nil || len(vals) == 0 {
+			return nil
+		}
+		return nodeList(vals)
+	}
 	current := start
 	for _, part := range parsePath("@" + rel) {
 		if part == "@" {
@@ -941,6 +1015,8 @@ func truthy(v interface{}) bool {
 		return t != 0
 	case string:
 		return t != ""
+	case nodeList:
+		return len(t) > 0
 	default:
 		return true
 	}
@@ -954,6 +1030,8 @@ func lengthOf(v interface{}) (int, bool) {
 		return len([]rune(t)), true
 	case []interface{}:
 		return len(t), true
+	case nodeList:
+		return len(t), true
 	case map[string]interface{}:
 		return len(t), true
 	}
@@ -961,7 +1039,36 @@ func lengthOf(v interface{}) (int, bool) {
 }
 
 // compare applies a comparison operator; numbers compare across int/float.
+// Multi-value paths (nodeList) use any-match semantics.
 func compare(l, r interface{}, op string) (bool, error) {
+	ln, lIsList := l.(nodeList)
+	rn, rIsList := r.(nodeList)
+	if lIsList || rIsList {
+		left := []interface{}{l}
+		if lIsList {
+			left = []interface{}(ln)
+		}
+		right := []interface{}{r}
+		if rIsList {
+			right = []interface{}(rn)
+		}
+		var lastErr error
+		for _, lv := range left {
+			for _, rv := range right {
+				ok, err := compare(lv, rv, op)
+				if err == nil && ok {
+					return true, nil
+				}
+				if err != nil {
+					lastErr = err
+				}
+			}
+		}
+		if lastErr != nil {
+			return false, lastErr
+		}
+		return false, nil
+	}
 	if op == "==" || op == "!=" {
 		eq := deepEqual(l, r)
 		if op == "==" {
