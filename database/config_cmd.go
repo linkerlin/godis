@@ -163,6 +163,7 @@ func getConfigMatches(pattern string) []configPair {
 		{"timeout", strconv.Itoa(config.Properties.Timeout)},
 		{"tcp-keepalive", strconv.Itoa(config.Properties.TCPKeepAlive)},
 		{"loglevel", config.Properties.LogLevel},
+		{"log-format", config.Properties.LogFormat},
 		{"logfile", config.Properties.LogFile},
 		{"protected-mode", boolToString(config.Properties.ProtectedMode)},
 		{"daemonize", boolToString(config.Properties.Daemonize)},
@@ -515,6 +516,15 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 				config.Properties.LogLevel = "notice"
 			}
 			logger.SetMinLevel(lv)
+		case "log-format":
+			format := strings.ToLower(strings.TrimSpace(value))
+			if format != "text" && format != "json" {
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'log-format') - argument must be 'text' or 'json'")
+			}
+			if err := logger.SetFormat(format); err != nil {
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'log-format') - " + err.Error())
+			}
+			config.Properties.LogFormat = format
 		case "logfile":
 			if err := logger.ReconfigureOutput(value); err != nil {
 				return protocol.MakeErrReply("ERR Failed opening the logfile: " + err.Error())

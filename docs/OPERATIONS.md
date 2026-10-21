@@ -11,6 +11,24 @@
 
 常用命令行覆盖：`-bind`、`-port`。
 
+## 日志
+
+- `loglevel debug|verbose|notice|warning`：运行时可用 `CONFIG SET loglevel` 热更新。
+- `logfile <path>`：空值仅输出 stdout；非空同时写文件；`CONFIG SET logfile` 热切换。
+- `log-format text|json`：默认 `text`；`json` 每行一个对象（`time`/`level`/`caller`/`msg`），方便 Loki/ELK/`jq` 采集。启动时读取，也可 `CONFIG SET log-format json` 热切换。
+
+```conf
+log-format json
+logfile /var/log/godis/godis.log
+```
+
+```bash
+# 确认当前格式
+redis-cli -p 6399 CONFIG GET log-format
+# 切换后日志逐行形如：
+# {"time":"2026-10-21T12:00:00+08:00","level":"INFO","caller":"server.go:58","msg":"bind: ..."}
+```
+
 ## 信号与优雅关闭
 
 | 模式 | 信号 | 行为 |

@@ -1,6 +1,7 @@
 package logger
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
@@ -10,6 +11,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -97,6 +99,8 @@ type Logger struct {
 	logger    *log.Logger
 	entryChan chan *logEntry
 	entryPool *sync.Pool
+	// jsonMode switches output to one JSON object per line.
+	jsonMode atomic.Bool
 	// rotateSettings enables daily file rotation (godis default logs/).
 	// When nil, output is fixed (stdout and/or Redis-style logfile).
 	rotateSettings *Settings
@@ -164,7 +168,7 @@ func (logger *Logger) writeLoop() {
 						_ = logger.logFile.Close()
 					}
 					logger.logFile = logFile
-					logger.logger = log.New(io.MultiWriter(os.Stdout, logFile), "", flags)
+					logger.logger = logger.makeLogger(io.MultiWriter(os.Stdout, logFile))
 				}
 			}
 		}
@@ -211,9 +215,75 @@ func (logger *Logger) reconfigureOutput(logfile string) error {
 		logger.logFile = nil
 	}
 	logger.logFile = f
-	logger.logger = log.New(w, "", flags)
+	logger.logger = logger.makeLogger(w)
 	logger.rotateSettings = nil // Redis logfile: fixed path, no daily rotate
 	return nil
+}
+
+func (logger *Logger) makeLogger(w io.Writer) *log.Logger {
+	if logger.jsonMode.Load() {
+		return log.New(w, "", 0)
+	}
+	return log.New(w, "", flags)
+}
+
+// SetFormat switches DefaultLogger between text and one-JSON-object-per-line.
+func SetFormat(format string) error {
+	l, ok := DefaultLogger.(*Logger)
+	if !ok || l == nil {
+		return fmt.Errorf("logger does not support format switching")
+	}
+	return l.setFormat(format)
+}
+
+func (logger *Logger) setFormat(format string) error {
+	format = strings.ToLower(strings.TrimSpace(format))
+	if format == "" {
+		format = "text"
+	}
+	if format != "text" && format != "json" {
+		return fmt.Errorf("invalid log format %q (want text or json)", format)
+	}
+	logger.mu.Lock()
+	logger.jsonMode.Store(format == "json")
+	if logger.logFile != nil {
+		logger.logger = logger.makeLogger(io.MultiWriter(os.Stdout, logger.logFile))
+	} else {
+		logger.logger = logger.makeLogger(os.Stdout)
+	}
+	logger.mu.Unlock()
+	return nil
+}
+
+// Format returns the active log format ("text" or "json").
+func Format() string {
+	if l, ok := DefaultLogger.(*Logger); ok && l != nil && l.jsonMode.Load() {
+		return "json"
+	}
+	return "text"
+}
+
+type jsonLogEntry struct {
+	Time   string `json:"time"`
+	Level  string `json:"level"`
+	Caller string `json:"caller,omitempty"`
+	Msg    string `json:"msg"`
+}
+
+func formatJSONEntry(level LogLevel, file string, line int, hasCaller bool, msg string) string {
+	entry := jsonLogEntry{
+		Time:  time.Now().Format(time.RFC3339Nano),
+		Level: levelFlags[level],
+		Msg:   strings.TrimRight(msg, "\n"),
+	}
+	if hasCaller {
+		entry.Caller = fmt.Sprintf("%s:%d", filepath.Base(file), line)
+	}
+	b, err := json.Marshal(entry)
+	if err != nil {
+		return fmt.Sprintf(`{"time":%q,"level":%q,"msg":%q}`, entry.Time, entry.Level, entry.Msg)
+	}
+	return string(b)
 }
 
 // Setup initializes DefaultLogger
@@ -236,7 +306,9 @@ func (logger *Logger) Output(level LogLevel, callerDepth int, msg string) {
 	}
 	var formattedMsg string
 	_, file, line, ok := runtime.Caller(callerDepth)
-	if ok {
+	if logger.jsonMode.Load() {
+		formattedMsg = formatJSONEntry(level, file, line, ok, msg)
+	} else if ok {
 		formattedMsg = fmt.Sprintf("[%s][%s:%d] %s", levelFlags[level], filepath.Base(file), line, msg)
 	} else {
 		formattedMsg = fmt.Sprintf("[%s] %s", levelFlags[level], msg)

@@ -66,6 +66,7 @@ type ServerProperties struct {
 	TCPKeepAlive         int    `cfg:"tcp-keepalive"`
 	LogLevel             string `cfg:"loglevel"`
 	LogFile              string `cfg:"logfile"`
+	LogFormat            string `cfg:"log-format"`
 	ProtectedMode        bool   `cfg:"protected-mode"`
 	Daemonize            bool   `cfg:"daemonize"`
 	PidFile              string `cfg:"pidfile"`
@@ -110,10 +111,10 @@ type ServerProperties struct {
 	IgnoreWarnings      string `cfg:"ignore-warnings"`
 
 	// ReplicaAnnounced / SetProcTitle / AlwaysShowLogo / LuaReplicateCommands are Redis CONFIG stubs.
-	ReplicaAnnounced      bool `cfg:"replica-announced"`
-	SetProcTitle          bool `cfg:"set-proc-title"`
-	AlwaysShowLogo        bool `cfg:"always-show-logo"`
-	LuaReplicateCommands  bool `cfg:"lua-replicate-commands"`
+	ReplicaAnnounced     bool `cfg:"replica-announced"`
+	SetProcTitle         bool `cfg:"set-proc-title"`
+	AlwaysShowLogo       bool `cfg:"always-show-logo"`
+	LuaReplicateCommands bool `cfg:"lua-replicate-commands"`
 
 	// ClientQueryBufferLimit / ClientOutputBufferLimit / MinReplicas* / ClusterRequireFullCoverage are Redis CONFIG stubs.
 	ClientQueryBufferLimit     int64  `cfg:"client-query-buffer-limit"`
@@ -134,14 +135,14 @@ type ServerProperties struct {
 	AutoAofRewriteMinSize    int64 `cfg:"auto-aof-rewrite-min-size"`
 
 	// IO / replication / eviction sample CONFIG stubs (GET/SET only).
-	IOThreads             int   `cfg:"io-threads"`
-	IOThreadsDoReads      bool  `cfg:"io-threads-do-reads"`
-	ReplDisklessSync      bool  `cfg:"repl-diskless-sync"`
-	ReplDisklessSyncDelay int   `cfg:"repl-diskless-sync-delay"`
+	IOThreads             int  `cfg:"io-threads"`
+	IOThreadsDoReads      bool `cfg:"io-threads-do-reads"`
+	ReplDisklessSync      bool `cfg:"repl-diskless-sync"`
+	ReplDisklessSyncDelay int  `cfg:"repl-diskless-sync-delay"`
 	// ReplDisklessSyncMaxReplicas is a Redis CONFIG stub (GET/SET only).
-	ReplDisklessSyncMaxReplicas int `cfg:"repl-diskless-sync-max-replicas"`
-	MaxmemorySamples      int   `cfg:"maxmemory-samples"`
-	TrackingTableMaxKeys  int64 `cfg:"tracking-table-max-keys"`
+	ReplDisklessSyncMaxReplicas int   `cfg:"repl-diskless-sync-max-replicas"`
+	MaxmemorySamples            int   `cfg:"maxmemory-samples"`
+	TrackingTableMaxKeys        int64 `cfg:"tracking-table-max-keys"`
 
 	// Replication / AOF / hash encoding CONFIG stubs (GET/SET only).
 	ReplBacklogTTL               int  `cfg:"repl-backlog-ttl"`
@@ -158,33 +159,33 @@ type ServerProperties struct {
 	ReplPingReplicaPeriod   int    `cfg:"repl-ping-replica-period"`
 
 	// Eviction / list / AOF / crash / latency / cluster CONFIG stubs (GET/SET only).
-	LFULogFactor                  int    `cfg:"lfu-log-factor"`
-	LFUDecayTime                  int    `cfg:"lfu-decay-time"`
-	MaxmemoryEvictionTenacity     int    `cfg:"maxmemory-eviction-tenacity"`
-	ListCompressDepth             int    `cfg:"list-compress-depth"`
-	AofTimestampEnabled           bool   `cfg:"aof-timestamp-enabled"`
-	ReplDisableTCPNodelay         bool   `cfg:"repl-disable-tcp-nodelay"`
-	LatencyTracking               bool   `cfg:"latency-tracking"`
-	CrashLogEnabled               bool   `cfg:"crash-log-enabled"`
-	CrashMemcheckEnabled          bool   `cfg:"crash-memcheck-enabled"`
-	ReplDisklessLoad              string `cfg:"repl-diskless-load"`
-	ClusterPreferredEndpointType  string `cfg:"cluster-preferred-endpoint-type"`
-	ClusterLinkSendbufLimit       int64  `cfg:"cluster-link-sendbuf-limit"`
-	ClusterAnnounceHostname       string `cfg:"cluster-announce-hostname"`
-	ClusterAnnounceHumanNodename  string `cfg:"cluster-announce-human-nodename"`
+	LFULogFactor                 int    `cfg:"lfu-log-factor"`
+	LFUDecayTime                 int    `cfg:"lfu-decay-time"`
+	MaxmemoryEvictionTenacity    int    `cfg:"maxmemory-eviction-tenacity"`
+	ListCompressDepth            int    `cfg:"list-compress-depth"`
+	AofTimestampEnabled          bool   `cfg:"aof-timestamp-enabled"`
+	ReplDisableTCPNodelay        bool   `cfg:"repl-disable-tcp-nodelay"`
+	LatencyTracking              bool   `cfg:"latency-tracking"`
+	CrashLogEnabled              bool   `cfg:"crash-log-enabled"`
+	CrashMemcheckEnabled         bool   `cfg:"crash-memcheck-enabled"`
+	ReplDisklessLoad             string `cfg:"repl-diskless-load"`
+	ClusterPreferredEndpointType string `cfg:"cluster-preferred-endpoint-type"`
+	ClusterLinkSendbufLimit      int64  `cfg:"cluster-link-sendbuf-limit"`
+	ClusterAnnounceHostname      string `cfg:"cluster-announce-hostname"`
+	ClusterAnnounceHumanNodename string `cfg:"cluster-announce-human-nodename"`
 
 	// Shutdown / locale / latency percentiles / active-defrag CONFIG stubs (GET/SET only).
-	ShutdownTimeout                  int    `cfg:"shutdown-timeout"`
-	ShutdownOnSigint                 string `cfg:"shutdown-on-sigint"`
-	ShutdownOnSigterm                string `cfg:"shutdown-on-sigterm"`
-	LocaleCollate                    string `cfg:"locale-collate"`
-	LatencyTrackingInfoPercentiles   string `cfg:"latency-tracking-info-percentiles"`
-	ActiveDefragIgnoreBytes          int64  `cfg:"active-defrag-ignore-bytes"`
-	ActiveDefragThresholdLower       int    `cfg:"active-defrag-threshold-lower"`
-	ActiveDefragThresholdUpper       int    `cfg:"active-defrag-threshold-upper"`
-	ActiveDefragCycleMin             int    `cfg:"active-defrag-cycle-min"`
-	ActiveDefragCycleMax             int    `cfg:"active-defrag-cycle-max"`
-	ActiveDefragMaxScanFields        int64  `cfg:"active-defrag-max-scan-fields"`
+	ShutdownTimeout                int    `cfg:"shutdown-timeout"`
+	ShutdownOnSigint               string `cfg:"shutdown-on-sigint"`
+	ShutdownOnSigterm              string `cfg:"shutdown-on-sigterm"`
+	LocaleCollate                  string `cfg:"locale-collate"`
+	LatencyTrackingInfoPercentiles string `cfg:"latency-tracking-info-percentiles"`
+	ActiveDefragIgnoreBytes        int64  `cfg:"active-defrag-ignore-bytes"`
+	ActiveDefragThresholdLower     int    `cfg:"active-defrag-threshold-lower"`
+	ActiveDefragThresholdUpper     int    `cfg:"active-defrag-threshold-upper"`
+	ActiveDefragCycleMin           int    `cfg:"active-defrag-cycle-min"`
+	ActiveDefragCycleMax           int    `cfg:"active-defrag-cycle-max"`
+	ActiveDefragMaxScanFields      int64  `cfg:"active-defrag-max-scan-fields"`
 
 	// OOM / propagation / cluster / process title CONFIG stubs (GET/SET only).
 	OOMScoreAdjValues               string `cfg:"oom-score-adj-values"`
@@ -195,28 +196,28 @@ type ServerProperties struct {
 	ProcTitleTemplate               string `cfg:"proc-title-template"`
 
 	// Active expire / TLS CONFIG stubs (GET/SET only; no real TLS stack).
-	ActiveExpireEffort         int    `cfg:"active-expire-effort"`
-	TLSCertFile                string `cfg:"tls-cert-file"`
-	TLSKeyFile                 string `cfg:"tls-key-file"`
-	TLSCACertFile              string `cfg:"tls-ca-cert-file"`
-	TLSProtocols               string `cfg:"tls-protocols"`
-	TLSCiphers                 string `cfg:"tls-ciphers"`
-	TLSAuthClients             string `cfg:"tls-auth-clients"`
-	TLSReplication             bool   `cfg:"tls-replication"`
-	TLSCluster                 bool   `cfg:"tls-cluster"`
-	TLSSessionCaching          bool   `cfg:"tls-session-caching"`
-	TLSSessionCacheSize        int    `cfg:"tls-session-cache-size"`
-	TLSSessionCacheTimeout     int    `cfg:"tls-session-cache-timeout"`
-	TLSPreferServerCiphers     bool   `cfg:"tls-prefer-server-ciphers"`
-	ClusterAnnounceTLSPort     int    `cfg:"cluster-announce-tls-port"`
-	TLSPort                    int    `cfg:"tls-port"`
-	TLSDhParamsFile            string `cfg:"tls-dh-params-file"`
-	TLSCiphersuites            string `cfg:"tls-ciphersuites"`
-	TLSClientCertFile          string `cfg:"tls-client-cert-file"`
-	TLSClientKeyFile           string `cfg:"tls-client-key-file"`
-	TLSKeyFilePass             string `cfg:"tls-key-file-pass"`
-	TLSClientKeyFilePass       string `cfg:"tls-client-key-file-pass"`
-	MaxmemoryClients           string `cfg:"maxmemory-clients"`
+	ActiveExpireEffort     int    `cfg:"active-expire-effort"`
+	TLSCertFile            string `cfg:"tls-cert-file"`
+	TLSKeyFile             string `cfg:"tls-key-file"`
+	TLSCACertFile          string `cfg:"tls-ca-cert-file"`
+	TLSProtocols           string `cfg:"tls-protocols"`
+	TLSCiphers             string `cfg:"tls-ciphers"`
+	TLSAuthClients         string `cfg:"tls-auth-clients"`
+	TLSReplication         bool   `cfg:"tls-replication"`
+	TLSCluster             bool   `cfg:"tls-cluster"`
+	TLSSessionCaching      bool   `cfg:"tls-session-caching"`
+	TLSSessionCacheSize    int    `cfg:"tls-session-cache-size"`
+	TLSSessionCacheTimeout int    `cfg:"tls-session-cache-timeout"`
+	TLSPreferServerCiphers bool   `cfg:"tls-prefer-server-ciphers"`
+	ClusterAnnounceTLSPort int    `cfg:"cluster-announce-tls-port"`
+	TLSPort                int    `cfg:"tls-port"`
+	TLSDhParamsFile        string `cfg:"tls-dh-params-file"`
+	TLSCiphersuites        string `cfg:"tls-ciphersuites"`
+	TLSClientCertFile      string `cfg:"tls-client-cert-file"`
+	TLSClientKeyFile       string `cfg:"tls-client-key-file"`
+	TLSKeyFilePass         string `cfg:"tls-key-file-pass"`
+	TLSClientKeyFilePass   string `cfg:"tls-client-key-file-pass"`
+	MaxmemoryClients       string `cfg:"maxmemory-clients"`
 
 	// Encoding / structure size CONFIG stubs (GET/SET only).
 	ListMaxListpackSize    int   `cfg:"list-max-listpack-size"`
@@ -227,7 +228,7 @@ type ServerProperties struct {
 	// XADD IDMP retention defaults (Redis 8.6): seconds and per-producer cap.
 	StreamIdmpDuration int64 `cfg:"stream-idmp-duration"`
 	StreamIdmpMaxSize  int   `cfg:"stream-idmp-maxsize"`
-	HLLSparseMaxBytes      int   `cfg:"hll-sparse-max-bytes"`
+	HLLSparseMaxBytes  int   `cfg:"hll-sparse-max-bytes"`
 
 	// Cluster announce / additional encoding / OOM CONFIG stubs (GET/SET only).
 	ClusterAnnounceIP      string `cfg:"cluster-announce-ip"`
@@ -300,108 +301,108 @@ func init() {
 
 	// default config
 	Properties = &ServerProperties{
-		Bind:            "127.0.0.1",
-		Port:            6379,
-		AppendOnly:      false,
-		SearchBackend:   "native",
-		VectorBackend:   "native",
-		Hz:              10,
-		TCPKeepAlive:    300,
-		ProtectedMode:   true,
-		ReplicaReadOnly: true,
-		DynamicHz:            true,
-		ActiveRehashing:      true,
-		ReplicaAnnounced:     true,
-		SetProcTitle:         true,
-		LuaReplicateCommands: true,
-		ClientQueryBufferLimit:  1073741824,
-		ClientOutputBufferLimit: "normal 0 0 0 slave 268435456 67108864 60 pubsub 33554432 8388608 60",
-		MinReplicasMaxLag:          10,
-		ClusterRequireFullCoverage: true,
-		ClusterNodeTimeout:         15000,
-		ClusterMigrationBarrier:    1,
-		StopWritesOnBgsaveError:  true,
-		RDBCompression:           true,
-		RDBChecksum:              true,
-		AutoAofRewritePercentage: 100,
-		AutoAofRewriteMinSize:    67108864,
-		IOThreads:                1,
-		ReplDisklessSyncDelay:    5,
-		ReplDisklessSyncMaxReplicas: 0,
-		MaxmemorySamples:         5,
-		TrackingTableMaxKeys:     1000000,
-		ReplBacklogTTL:               3600,
-		ReplicaIgnoreMaxmemory:       true,
-		AofRewriteIncrementalFsync:   true,
-		RdbSaveIncrementalFsync:      true,
-		RdbDelSyncFiles:              false,
-		AofDisableAutoGC:             false,
-		AppendDirname:                "appendonlydir",
-		ClusterAllowReplicaMigration: true,
-		ClusterReplicaValidityFactor: 10,
-		HashMaxListpackEntries:       512,
-		LatencyMonitorThreshold:      0,
-		AclPubsubDefault:             "resetchannels",
-		ReplPingReplicaPeriod:        10,
-		LFULogFactor:                 10,
-		LFUDecayTime:                 1,
-		MaxmemoryEvictionTenacity:    10,
-		ListCompressDepth:            0,
-		AofTimestampEnabled:          false,
-		ReplDisableTCPNodelay:        false,
-		LatencyTracking:              true,
-		CrashLogEnabled:              true,
-		CrashMemcheckEnabled:         true,
-		ReplDisklessLoad:             "disabled",
-		ClusterPreferredEndpointType: "ip",
-		ClusterLinkSendbufLimit:      0,
-		ClusterAnnounceHostname:      "",
-		ClusterAnnounceHumanNodename: "",
-		ShutdownTimeout:              0,
-		ShutdownOnSigint:             "default",
-		ShutdownOnSigterm:            "default",
-		LocaleCollate:                "",
-		LatencyTrackingInfoPercentiles: "50 99 99.9",
-		ActiveDefragIgnoreBytes:        104857600,
-		ActiveDefragThresholdLower:     10,
-		ActiveDefragThresholdUpper:     100,
-		ActiveDefragCycleMin:           1,
-		ActiveDefragCycleMax:           25,
-		ActiveDefragMaxScanFields:      1000,
-		OOMScoreAdjValues:              "0 200 800",
-		OOMScoreAdj:                    "no",
-		PropagationErrorBehavior:       "ignore",
-		HideUserDataFromLog:            false,
-		ClusterReplicaNoFailover:       false,
+		Bind:                            "127.0.0.1",
+		Port:                            6379,
+		AppendOnly:                      false,
+		SearchBackend:                   "native",
+		VectorBackend:                   "native",
+		Hz:                              10,
+		TCPKeepAlive:                    300,
+		ProtectedMode:                   true,
+		ReplicaReadOnly:                 true,
+		DynamicHz:                       true,
+		ActiveRehashing:                 true,
+		ReplicaAnnounced:                true,
+		SetProcTitle:                    true,
+		LuaReplicateCommands:            true,
+		ClientQueryBufferLimit:          1073741824,
+		ClientOutputBufferLimit:         "normal 0 0 0 slave 268435456 67108864 60 pubsub 33554432 8388608 60",
+		MinReplicasMaxLag:               10,
+		ClusterRequireFullCoverage:      true,
+		ClusterNodeTimeout:              15000,
+		ClusterMigrationBarrier:         1,
+		StopWritesOnBgsaveError:         true,
+		RDBCompression:                  true,
+		RDBChecksum:                     true,
+		AutoAofRewritePercentage:        100,
+		AutoAofRewriteMinSize:           67108864,
+		IOThreads:                       1,
+		ReplDisklessSyncDelay:           5,
+		ReplDisklessSyncMaxReplicas:     0,
+		MaxmemorySamples:                5,
+		TrackingTableMaxKeys:            1000000,
+		ReplBacklogTTL:                  3600,
+		ReplicaIgnoreMaxmemory:          true,
+		AofRewriteIncrementalFsync:      true,
+		RdbSaveIncrementalFsync:         true,
+		RdbDelSyncFiles:                 false,
+		AofDisableAutoGC:                false,
+		AppendDirname:                   "appendonlydir",
+		ClusterAllowReplicaMigration:    true,
+		ClusterReplicaValidityFactor:    10,
+		HashMaxListpackEntries:          512,
+		LatencyMonitorThreshold:         0,
+		AclPubsubDefault:                "resetchannels",
+		ReplPingReplicaPeriod:           10,
+		LFULogFactor:                    10,
+		LFUDecayTime:                    1,
+		MaxmemoryEvictionTenacity:       10,
+		ListCompressDepth:               0,
+		AofTimestampEnabled:             false,
+		ReplDisableTCPNodelay:           false,
+		LatencyTracking:                 true,
+		CrashLogEnabled:                 true,
+		CrashMemcheckEnabled:            true,
+		ReplDisklessLoad:                "disabled",
+		ClusterPreferredEndpointType:    "ip",
+		ClusterLinkSendbufLimit:         0,
+		ClusterAnnounceHostname:         "",
+		ClusterAnnounceHumanNodename:    "",
+		ShutdownTimeout:                 0,
+		ShutdownOnSigint:                "default",
+		ShutdownOnSigterm:               "default",
+		LocaleCollate:                   "",
+		LatencyTrackingInfoPercentiles:  "50 99 99.9",
+		ActiveDefragIgnoreBytes:         104857600,
+		ActiveDefragThresholdLower:      10,
+		ActiveDefragThresholdUpper:      100,
+		ActiveDefragCycleMin:            1,
+		ActiveDefragCycleMax:            25,
+		ActiveDefragMaxScanFields:       1000,
+		OOMScoreAdjValues:               "0 200 800",
+		OOMScoreAdj:                     "no",
+		PropagationErrorBehavior:        "ignore",
+		HideUserDataFromLog:             false,
+		ClusterReplicaNoFailover:        false,
 		ClusterAllowPubsubshardWhenDown: false,
-		ProcTitleTemplate:              "{title} {listen-addr} {server-mode}",
-		ActiveExpireEffort:             1,
-		TLSAuthClients:                 "no",
-		TLSReplication:                 false,
-		TLSCluster:                     false,
-		TLSSessionCaching:              true,
-		TLSSessionCacheSize:            0,
-		TLSSessionCacheTimeout:         300,
-		TLSPreferServerCiphers:         false,
-		ClusterAnnounceTLSPort:         0,
-		TLSPort:                        0,
-		MaxmemoryClients:               "0",
-		ListMaxListpackSize:    -2,
-		SetMaxIntsetEntries:    512,
-		ZSetMaxListpackEntries: 128,
-		ZSetMaxListpackValue:   64,
-		StreamNodeMaxBytes:     4096,
-		StreamIdmpDuration:     300,
-		StreamIdmpMaxSize:      10000,
-		HLLSparseMaxBytes:      3000,
-		StreamNodeMaxEntries:  100,
-		HashMaxListpackValue:  64,
-		SetMaxListpackEntries: 128,
-		SetMaxListpackValue:   64,
-		ReplicaServeStaleData:      true,
-		ReplicaPriority:            100,
-		LuaTimeLimit:               5000,
-		RunID:           utils.RandString(40),
+		ProcTitleTemplate:               "{title} {listen-addr} {server-mode}",
+		ActiveExpireEffort:              1,
+		TLSAuthClients:                  "no",
+		TLSReplication:                  false,
+		TLSCluster:                      false,
+		TLSSessionCaching:               true,
+		TLSSessionCacheSize:             0,
+		TLSSessionCacheTimeout:          300,
+		TLSPreferServerCiphers:          false,
+		ClusterAnnounceTLSPort:          0,
+		TLSPort:                         0,
+		MaxmemoryClients:                "0",
+		ListMaxListpackSize:             -2,
+		SetMaxIntsetEntries:             512,
+		ZSetMaxListpackEntries:          128,
+		ZSetMaxListpackValue:            64,
+		StreamNodeMaxBytes:              4096,
+		StreamIdmpDuration:              300,
+		StreamIdmpMaxSize:               10000,
+		HLLSparseMaxBytes:               3000,
+		StreamNodeMaxEntries:            100,
+		HashMaxListpackValue:            64,
+		SetMaxListpackEntries:           128,
+		SetMaxListpackValue:             64,
+		ReplicaServeStaleData:           true,
+		ReplicaPriority:                 100,
+		LuaTimeLimit:                    5000,
+		RunID:                           utils.RandString(40),
 	}
 }
 

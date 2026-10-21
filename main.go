@@ -34,6 +34,7 @@ var defaultProperties = &config.ServerProperties{
 	AppendOnly:     false,
 	AppendFilename: "",
 	MaxClients:     1000,
+	LogFormat:      "text",
 	RunID:          utils.RandString(40),
 }
 
@@ -76,6 +77,7 @@ func main() {
 		logger.Fatal(fmt.Sprintf("setup config failed: %+v", err))
 	}
 	applyLogLevelFromConfig()
+	applyLogFormatFromConfig()
 	applyLogFileFromConfig()
 	applyPidFileFromConfig()
 
@@ -104,6 +106,15 @@ func applyLogLevelFromConfig() {
 	}
 	if lv, ok := logger.ParseRedisLogLevel(lvl); ok {
 		logger.SetMinLevel(lv)
+	}
+}
+
+func applyLogFormatFromConfig() {
+	if config.Properties == nil {
+		return
+	}
+	if err := logger.SetFormat(config.Properties.LogFormat); err != nil {
+		fmt.Fprintf(os.Stderr, "apply log-format %q failed: %v\n", config.Properties.LogFormat, err)
 	}
 }
 

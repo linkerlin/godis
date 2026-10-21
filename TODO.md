@@ -237,7 +237,7 @@
 ### P1-2 慢查询与 ACL 日志运维化
 
 - [x] SLOWLOG 与 ACL LOG 最大长度可配置且热更新（`CONFIG SET slowlog-max-len` / `acllog-max-len`）
-- [ ] 可选：结构化 JSON 日志输出（`lib/logger`）
+- [x] 可选：结构化 JSON 日志输出（`lib/logger`）：`log-format text|json`，每行 `time`/`level`/`caller`/`msg`；启动读取，`CONFIG SET log-format` 热切换；`logfile` 重配置/轮转保留 JSON 模式；测试 `lib/logger/logger_test.go`、`TestConfigLogFormat`
 
 ### P1-3 健康检查
 
