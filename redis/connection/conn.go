@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/linkerlin/godis/lib/logger"
-	"github.com/linkerlin/godis/lib/sync/wait"
 )
 
 var globalClientID atomic.Uint64
@@ -31,7 +30,10 @@ type Connection struct {
 	conn net.Conn
 
 	// wait until finish sending data, used for graceful shutdown
-	sendingData wait.Wait
+	writeMu     sync.Mutex
+	sending     int
+	sendIdle    chan struct{}
+	writeClosed bool
 
 	// lock while server sending response
 	mu    sync.Mutex
@@ -122,7 +124,10 @@ func (c *Connection) Close() error {
 		return nil
 	}
 	c.closed = true
-	c.sendingData.WaitWithTimeout(10 * time.Second)
+	c.writeMu.Lock()
+	c.writeClosed = true
+	c.writeMu.Unlock()
+	c.waitSending(10 * time.Second)
 	if c.conn != nil { // may be a fake conn for tests
 		_ = c.conn.Close()
 	}
@@ -169,6 +174,9 @@ func NewConn(conn net.Conn) *Connection {
 	c.closeMu.Lock()
 	c.closed = false
 	c.closeMu.Unlock()
+	c.writeMu.Lock()
+	c.writeClosed = false
+	c.writeMu.Unlock()
 	now := time.Now()
 	c.createdAt = now
 	c.lastActive = now
@@ -207,14 +215,54 @@ func (c *Connection) Write(b []byte) (int, error) {
 	if len(b) == 0 {
 		return 0, nil
 	}
+	if !c.beginWrite() {
+		return 0, net.ErrClosed
+	}
+	defer c.endWrite()
+
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.sendingData.Add(1)
-	defer func() {
-		c.sendingData.Done()
-	}()
-
 	return c.conn.Write(b)
+}
+
+// beginWrite admits a write unless Close has started. It is paired with
+// endWrite; the counter and idle channel let Close wait without racing
+// sync.WaitGroup Add/Wait.
+func (c *Connection) beginWrite() bool {
+	c.writeMu.Lock()
+	defer c.writeMu.Unlock()
+	if c.writeClosed {
+		return false
+	}
+	if c.sending == 0 {
+		c.sendIdle = make(chan struct{})
+	}
+	c.sending++
+	return true
+}
+
+func (c *Connection) endWrite() {
+	c.writeMu.Lock()
+	c.sending--
+	if c.sending == 0 && c.sendIdle != nil {
+		close(c.sendIdle)
+		c.sendIdle = nil
+	}
+	c.writeMu.Unlock()
+}
+
+func (c *Connection) waitSending(timeout time.Duration) {
+	c.writeMu.Lock()
+	if c.sending == 0 {
+		c.writeMu.Unlock()
+		return
+	}
+	idle := c.sendIdle
+	c.writeMu.Unlock()
+	select {
+	case <-idle:
+	case <-time.After(timeout):
+	}
 }
 
 func (c *Connection) Name() string {

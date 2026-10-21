@@ -112,6 +112,7 @@
 
 ### Fixed
 
+- **Connection Write/Close 竞态（2026-10-21）**：`sendingData` 的 `sync.WaitGroup` 会在 `Close` 等待时与 masterCron 的 `Write` 同时 `Add`，触发 `TestSlaveCloseAfterReplicationDoesNotHang` 的 DATA RACE。改为 `writeMu` + 在途写计数 + 空闲 channel：`Close` 先关闭写入入口，再等待在途写（10s 超时），`Write` 对已关闭连接返回 `net.ErrClosed`；连接池复用重置写状态。
 - **failover/AOF 测试收尾（2026-10-21）**：`startTestReplicaPair` 的 TCP 监听关闭函数等待 accept 循环与在途 handler 退出后才恢复全局配置，消除 `TestFailoverPromotesReplica` 的 DATA RACE；`bindPersister` 的 `addAof` 增加 nil persister 防御；`TestM2tConfigBoolAndSet` 使用临时 AOF 并在清理时关闭 persister，避免改写仓库内 `database/appendonly.aof`。
 - **随机测试顺序全仓通过（`go test -shuffle=on`，2026-10-21）**：清理测试间全局状态泄漏，连续 4 个随机种子均通过：
   - Lua `redis.set_error_handler` 改为每次脚本执行开始时重置（此前会泄漏到后续 `EVAL`，把错误静默改写为 `handled`）
