@@ -284,7 +284,7 @@
 ### P3-1 Release 工作流
 
 - [x] tag 触发 GitHub Actions：linux/darwin/windows × amd64/arm64
-- [ ] `CHANGELOG.md` 随版本更新
+- [x] `CHANGELOG.md` 随版本更新：`[Unreleased]` 持续维护；已补最近 tag `v1.2.9`（2023-06-05）归档；文件头写明发版约定（发布时把 Unreleased 改为 `vX.Y.Z - 日期` 并新建空 Unreleased）
 
 ### P3-2 配置与示例
 

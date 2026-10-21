@@ -4,6 +4,8 @@
 
 ## [Unreleased]
 
+> 发版约定：发布时把 `[Unreleased]` 改为 `## [vX.Y.Z] - YYYY-MM-DD`，并新建空的 `[Unreleased]`；历史版本按 tag 倒序保留。当前最近 tag 为 `v1.2.9`。
+
 ### Added
 
 - **P1-2 结构化 JSON 日志（可选）**：新增 `log-format text|json` 配置与 `CONFIG GET/SET log-format` 热切换；JSON 模式每行输出 `time`/`level`/`caller`/`msg`，`logfile` 重配置和每日轮转保留 JSON 模式；启动日志可用 `jq`/Loki/ELK 直接采集。测试 `lib/logger/logger_test.go` 与 `TestConfigLogFormat`。
@@ -419,6 +421,26 @@
 - 复制：receiveAOF 持 `slaveStatus.mutex` 时 Exec 导致 GETACK 自死锁（复制首次 GETACK 即冻结）；REPLCONF announce 在 PSYNC 前到达被丢弃；主库推送负 offset 切片越界 panic；`saveForReplication` 未关闭 TempFile 句柄（Windows rename Access denied → 全量同步失败）
 - FLUSHDB/FLUSHALL 后 `loadDB` 未继承 `server`/`lockManager`/`evictionManager`，新 DB 的 `db.server` 为 nil → CLIENT PAUSE、UNPAUSE 及所有 `db.server` 支撑路径失效
 - `OBJECT ENCODING` 对 HLL 返回 raw 而非 `hyperloglog`；RESTORE 的 IDLETIME/FREQ 被索引重建的内部读取（Touch）覆盖 → OBJECT IDLETIME 恒 0
+---
+
+## [v1.2.9] - 2023-06-05
+
+### Added
+
+- `INFO` 的 keyspace 段
+- `LTRIM` / `LINSERT`、`RANDOMKEY`、`COMMAND`
+- AOF `aof-use-rdb-preamble`
+- 更多发行版构建产物
+
+### Changed
+
+- 优化 `SET` 的 inter/union/diff
+- 重构数据库 `RWLocks` / `RWUnLocks`
+
+### Fixed
+
+- 复制模块拼写、RDB 加载 Set、`execCommand`、`RewriteAof` 在 appendonly=no 时 panic、`FLUSHDB` 未写 AOF 等
+
 ---
 
 ## 更早版本
