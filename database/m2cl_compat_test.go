@@ -114,6 +114,8 @@ return members[1] .. ':' .. members[2]
 }
 
 func TestM2clDebugStubs(t *testing.T) {
+	prevExpire := activeExpireEnabled.Load()
+	defer activeExpireEnabled.Store(prevExpire)
 	server := MustNewStandaloneServer()
 	defer server.Close()
 	c := connection.NewFakeConn()

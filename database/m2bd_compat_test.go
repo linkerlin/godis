@@ -82,3 +82,20 @@ return redis.call('GET')
 `, "0"))
 	asserts.AssertBulkReply(t, r, "handled")
 }
+
+// The error handler is scoped to one script execution; it must not leak into
+// the next EVAL on the shared scripting engine.
+func TestM2bdLuaErrorHandlerResetsPerScript(t *testing.T) {
+	db := makeTestDB()
+	InitScriptingEngine(db)
+	r := db.Exec(nil, utils.ToCmdLine("EVAL", `
+redis.set_error_handler(function(err) return 'handled' end)
+return redis.call('GET')
+`, "0"))
+	asserts.AssertBulkReply(t, r, "handled")
+
+	r = db.Exec(nil, utils.ToCmdLine("EVAL", `return redis.call('GET')`, "0"))
+	if !protocol.IsErrorReply(r) {
+		t.Fatalf("error handler leaked into the next script: %s", r.ToBytes())
+	}
+}

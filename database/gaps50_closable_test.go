@@ -15,13 +15,19 @@ func TestGaps50LolwutAndLatencyDoctor(t *testing.T) {
 	c := connection.NewFakeConn()
 
 	asserts.AssertStatusReply(t, srv.Exec(c, utils.ToCmdLine("CONFIG", "SET", "latency-monitor-threshold", "0")), "OK")
+	// The reset count depends on events recorded by earlier tests; only the
+	// reset effect matters here.
+	if r := srv.Exec(c, utils.ToCmdLine("LATENCY", "RESET")); protocol.IsErrorReply(r) {
+		t.Fatalf("LATENCY RESET: %s", r.ToBytes())
+	}
 	doc := srv.Exec(c, utils.ToCmdLine("LATENCY", "DOCTOR"))
 	bulk, ok := doc.(*protocol.BulkReply)
 	if !ok || !strings.Contains(string(bulk.Arg), "Latency monitoring is disabled") {
 		t.Fatalf("LATENCY DOCTOR disabled: %T %s", doc, doc.ToBytes())
 	}
 
-	asserts.AssertStatusReply(t, srv.Exec(c, utils.ToCmdLine("CONFIG", "SET", "latency-monitor-threshold", "1")), "OK")
+	// High threshold (ms): the test's own commands cannot add a spike.
+	asserts.AssertStatusReply(t, srv.Exec(c, utils.ToCmdLine("CONFIG", "SET", "latency-monitor-threshold", "100000")), "OK")
 	doc = srv.Exec(c, utils.ToCmdLine("LATENCY", "DOCTOR"))
 	bulk, ok = doc.(*protocol.BulkReply)
 	if !ok || !strings.Contains(string(bulk.Arg), "no latency spike was observed") {

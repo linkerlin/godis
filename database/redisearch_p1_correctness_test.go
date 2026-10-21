@@ -152,6 +152,7 @@ func TestP1eMaxExpansionsCapsPrefix(t *testing.T) {
 		}
 	}
 	// Set MAXEXPANSIONS=3: "sh*" expands to 5 terms -> must error.
+	asserts.AssertStatusReply(t, db.Exec(nil, utils.ToCmdLine("FT.CONFIG", "SET", "MINPREFIX", "2")), "OK")
 	asserts.AssertStatusReply(t, db.Exec(nil, utils.ToCmdLine("FT.CONFIG", "SET", "MAXEXPANSIONS", "3")), "OK")
 	r := db.Exec(nil, utils.ToCmdLine("FT.SEARCH", "p1emax", "sh*"))
 	if !protocol.IsErrorReply(r) || !strings.Contains(string(r.ToBytes()), "expansion") {

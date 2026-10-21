@@ -14,6 +14,13 @@ import (
 func TestM2tConfigBoolAndSet(t *testing.T) {
 	server := getTestServer()
 	c := connection.NewFakeConn()
+	oldMaxMemory := config.Properties.Maxmemory
+	oldMaxClients := config.Properties.MaxClients
+	t.Cleanup(func() {
+		config.Properties.Maxmemory = oldMaxMemory
+		config.Properties.MaxClients = oldMaxClients
+		server.GetMemLimiter().SetMaxMemory(oldMaxMemory)
+	})
 
 	asserts.AssertStatusReply(t, server.Exec(c, utils.ToCmdLine("CONFIG", "SET", "appendonly", "true")), "OK")
 	if !config.Properties.AppendOnly {

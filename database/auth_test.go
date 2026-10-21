@@ -78,9 +78,19 @@ func TestACLPermissionDenied(t *testing.T) {
 
 func TestHelloAuthUpdatesConnection(t *testing.T) {
 	c := connection.NewFakeConn()
+	// A previous test may have initialized the ACL default user with a
+	// different requirepass; clear it so HELLO AUTH uses the current password.
+	if aclEngine != nil {
+		if u, ok := aclEngine.GetUser("default"); ok {
+			u.ClearPasswords()
+		}
+	}
 	oldPass := config.Properties.RequirePass
 	config.Properties.RequirePass = "hello-secret"
-	defer func() { config.Properties.RequirePass = oldPass }()
+	defer func() {
+		config.Properties.RequirePass = oldPass
+		setDefaultACLPassword(oldPass)
+	}()
 
 	ret := testServer.Exec(c, utils.ToCmdLine("HELLO", "3", "AUTH", "default", "wrong"))
 	asserts.AssertErrReply(t, ret, "WRONGPASS invalid username-password pair or user is disabled.")

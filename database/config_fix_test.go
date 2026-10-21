@@ -32,6 +32,7 @@ func TestRequirepassSyncsACLDefault(t *testing.T) {
 	old := config.Properties.RequirePass
 	defer func() {
 		config.Properties.RequirePass = old
+		setDefaultACLPassword(old)
 		if r := server.Exec(c, utils.ToCmdLine("CONFIG", "SET", "requirepass", old)); protocol.IsErrorReply(r) {
 			t.Logf("restore requirepass: %s", r.ToBytes())
 		}

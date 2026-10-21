@@ -29,7 +29,7 @@ func (c *trackingTestConn) Write(b []byte) (int, error) {
 	return len(b), nil
 }
 func (c *trackingTestConn) Close() error                   { return nil }
-func (c *trackingTestConn) RemoteAddr() string             { return "test-addr" }
+func (c *trackingTestConn) RemoteAddr() string             { return "127.0.0.1:0" }
 func (c *trackingTestConn) SetPassword(string)             {}
 func (c *trackingTestConn) GetPassword() string            { return "" }
 func (c *trackingTestConn) Subscribe(string)               {}
@@ -66,14 +66,14 @@ func (c *trackingTestConn) GetClientID() int64 {
 	}
 	return c.clientID
 }
-func (c *trackingTestConn) SetClientName(name string)        { c.clientName = name }
-func (c *trackingTestConn) GetClientName() string            { return c.clientName }
-func (c *trackingTestConn) SetTrackingID(id string)          { c.trackingID = id }
-func (c *trackingTestConn) GetTrackingID() string            { return c.trackingID }
-func (c *trackingTestConn) SetACLUser(string)              {}
-func (c *trackingTestConn) GetACLUser() string             { return "" }
-func (c *trackingTestConn) SetACLAuthenticated(bool)       {}
-func (c *trackingTestConn) IsACLAuthenticated() bool       { return false }
+func (c *trackingTestConn) SetClientName(name string) { c.clientName = name }
+func (c *trackingTestConn) GetClientName() string     { return c.clientName }
+func (c *trackingTestConn) SetTrackingID(id string)   { c.trackingID = id }
+func (c *trackingTestConn) GetTrackingID() string     { return c.trackingID }
+func (c *trackingTestConn) SetACLUser(string)         {}
+func (c *trackingTestConn) GetACLUser() string        { return "" }
+func (c *trackingTestConn) SetACLAuthenticated(bool)  {}
+func (c *trackingTestConn) IsACLAuthenticated() bool  { return false }
 func (c *trackingTestConn) SetProtocolVersion(v int)  { c.protocol = v }
 func (c *trackingTestConn) GetProtocolVersion() int {
 	if c.protocol == 0 {

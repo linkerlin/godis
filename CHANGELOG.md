@@ -105,6 +105,12 @@
 
 ### Fixed
 
+- **随机测试顺序全仓通过（`go test -shuffle=on`，2026-10-21）**：清理测试间全局状态泄漏，连续 4 个随机种子均通过：
+  - Lua `redis.set_error_handler` 改为每次脚本执行开始时重置（此前会泄漏到后续 `EVAL`，把错误静默改写为 `handled`）
+  - `maxmemory`/`requirepass`/ACL default 密码/active-expire 开关/Lua error handler 在测试结束后恢复；低内存与 `DEBUG SET-ACTIVE-EXPIRE` 测试不再影响后续用例
+  - FT 索引注册表与 sharded Pub/Sub hub 是进程级全局对象：断言只匹配本测试创建的索引，`SSUBSCRIBE` 测试补 `SUNSUBSCRIBE` 清理
+  - `LATENCY RESET` 不再断言重置条数（依赖历史事件）；用高阈值规避测试自身命令产生 latency spike
+  - 测试连接 `RemoteAddr` 改为回环地址，避免 `protected-mode` 受全局配置影响时误报 `DENIED`；`RESTORE` 坏载荷测试改用随机键避免撞上残留数据
 - **全仓 `go test -race ./...` 通过（2026-10-21）**：
   - `QuickList` 增加互斥锁；公开读写方法串行化，内部 `add`/`find` 不再重复加锁
   - `memory.Limiter` 的 `maxMemory`/`policy` 读取快照化，`EvictIfNeeded` 统计更新加锁

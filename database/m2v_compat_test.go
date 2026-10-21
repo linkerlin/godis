@@ -17,6 +17,7 @@ func TestM2vShardedPubSub(t *testing.T) {
 	pub := connection.NewFakeConn()
 
 	_ = server.Exec(sub, utils.ToCmdLine("SSUBSCRIBE", "sch1"))
+	defer server.Exec(sub, utils.ToCmdLine("SUNSUBSCRIBE", "sch1"))
 	if sub.SubsCount() < 1 {
 		t.Fatal("expected subscribed state after SSUBSCRIBE")
 	}

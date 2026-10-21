@@ -96,6 +96,7 @@ func TestM2bsPubsubShardChannels(t *testing.T) {
 	sub := connection.NewFakeConn()
 	pub := connection.NewFakeConn()
 	_ = server.Exec(sub, utils.ToCmdLine("SSUBSCRIBE", "sch:m2bs"))
+	defer server.Exec(sub, utils.ToCmdLine("SUNSUBSCRIBE", "sch:m2bs"))
 
 	ch := server.Exec(pub, utils.ToCmdLine("PUBSUB", "SHARDCHANNELS"))
 	mb, ok := ch.(*protocol.MultiBulkReply)

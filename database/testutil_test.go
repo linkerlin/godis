@@ -52,6 +52,23 @@ func getTestServer() *Server {
 	return testServerInst
 }
 
+// setDefaultACLPassword restores the default ACL user's password after a test
+// changed CONFIG requirepass (empty = nopass). Test-only helper.
+func setDefaultACLPassword(password string) {
+	if aclEngine == nil {
+		return
+	}
+	u, ok := aclEngine.GetUser("default")
+	if !ok {
+		return
+	}
+	if password == "" {
+		u.ClearPasswords()
+	} else {
+		u.SetPassword(password, false)
+	}
+}
+
 // getTestDB returns a shared test DB instance (lazy initialization)
 func getTestDB() *DB {
 	testDBOnce.Do(func() {

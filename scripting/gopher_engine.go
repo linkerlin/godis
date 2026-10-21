@@ -187,10 +187,12 @@ func (e *GopherEngine) Eval(script string, keys []string, args []string) (interf
 
 // EvalWithContext executes a Lua script with context (for timeout/cancellation)
 func (e *GopherEngine) EvalWithContext(ctx context.Context, script string, keys []string, args []string) (interface{}, error) {
-	// Reset replication flags and RESP version per script (Redis defaults).
+	// Reset replication flags, RESP version and per-script error handler (Redis
+	// scopes redis.set_error_handler to the current script execution).
 	e.mu.Lock()
 	e.replFlags = replFlagAll
 	e.respVersion = 2
+	e.errorHandler = nil
 	e.mu.Unlock()
 
 	L := e.statePool.Get()

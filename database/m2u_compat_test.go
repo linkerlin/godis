@@ -16,14 +16,22 @@ import (
 
 func newM2uServer(t *testing.T) *Server {
 	t.Helper()
+	oldProperties := config.Properties
 	config.Properties = &config.ServerProperties{
 		Databases:  1,
 		AppendOnly: false,
 	}
 	server, err := NewTestServer()
 	if err != nil {
+		config.Properties = oldProperties
 		t.Fatalf("NewTestServer: %v", err)
 	}
+	// CONFIG SET maxmemory updates the global config; restore it so low-memory
+	// tests cannot make later tests OOM.
+	t.Cleanup(func() {
+		server.Close()
+		config.Properties = oldProperties
+	})
 	return server
 }
 

@@ -4,13 +4,18 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/linkerlin/godis/config"
 	"github.com/linkerlin/godis/lib/utils"
 	"github.com/linkerlin/godis/redis/connection"
 	"github.com/linkerlin/godis/redis/protocol/asserts"
 )
 
 func TestGaps53ConfigHelpRestore(t *testing.T) {
+	oldMaxReplicas := config.Properties.ReplDisklessSyncMaxReplicas
+	config.Properties.ReplDisklessSyncMaxReplicas = 0
+	defer func() { config.Properties.ReplDisklessSyncMaxReplicas = oldMaxReplicas }()
 	srv := MustNewStandaloneServer()
+	defer srv.Close()
 	c := connection.NewFakeConn()
 
 	asserts.AssertMultiBulkReply(t, srv.Exec(c, utils.ToCmdLine("CONFIG", "GET", "repl-diskless-sync-max-replicas")),
@@ -23,7 +28,8 @@ func TestGaps53ConfigHelpRestore(t *testing.T) {
 	asserts.AssertErrReply(t, srv.Exec(c, utils.ToCmdLine("CONFIG", "SET", "repl-diskless-sync-max-replicas", "-1")),
 		"ERR CONFIG SET failed (possibly related to argument 'repl-diskless-sync-max-replicas') - argument must be between 0 and 2147483647 inclusive")
 
-	asserts.AssertErrReply(t, srv.Exec(c, utils.ToCmdLine("RESTORE", "k", "0", "bad")),
+	badKey := "gaps53:bad:" + utils.RandString(8)
+	asserts.AssertErrReply(t, srv.Exec(c, utils.ToCmdLine("RESTORE", badKey, "0", "bad")),
 		"ERR DUMP payload version or checksum are wrong")
 
 	obj := string(srv.Exec(c, utils.ToCmdLine("OBJECT", "HELP")).ToBytes())

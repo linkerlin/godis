@@ -69,10 +69,12 @@ func TestFTListSortedBatch86(t *testing.T) {
 	}
 	// The FT index registry is process-global in this implementation, so other
 	// tests may already have created indexes. Only assert on this test's names.
+	wanted := map[string]bool{"b86a": true, "b86m": true, "b86z": true}
 	names := make([]string, 0, 3)
 	for _, arg := range multi.Args {
-		if name := string(arg); strings.HasPrefix(name, "b86") {
+		if name := string(arg); wanted[name] {
 			names = append(names, name)
+			delete(wanted, name)
 		}
 	}
 	if len(names) != 3 {
