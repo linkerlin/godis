@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/hdt3213/rdb/core"
+	"github.com/linkerlin/godis/config"
 	idatabase "github.com/linkerlin/godis/interface/database"
 	"github.com/linkerlin/godis/interface/redis"
 	"github.com/linkerlin/godis/lib/utils"
@@ -131,6 +132,32 @@ func TestLoadAofReplaysCommands(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("AOF replay did not execute SET k v: %q", execs)
+	}
+}
+
+func TestRewriteEmptyDatabase(t *testing.T) {
+	oldProps := config.Properties
+	config.Properties = &config.ServerProperties{Databases: 1, AofUseRdbPreamble: false}
+	defer func() { config.Properties = oldProps }()
+
+	dir := t.TempDir()
+	filename := filepath.Join(dir, "rewrite.aof")
+	db := &fakeDBEngine{}
+	p, err := NewPersister(db, filename, false, FsyncNo, func() idatabase.DBEngine {
+		return &fakeDBEngine{}
+	})
+	if err != nil {
+		t.Fatalf("NewPersister: %v", err)
+	}
+	p.SaveCmdLine(0, utils.ToCmdLine("SET", "before", "rewrite"))
+	if err := p.Rewrite(); err != nil {
+		t.Fatalf("Rewrite: %v", err)
+	}
+	p.Close()
+
+	data, err := os.ReadFile(filename)
+	if err != nil || !strings.Contains(string(data), "SELECT") {
+		t.Fatalf("rewritten aof = %q/%v", data, err)
 	}
 }
 
