@@ -683,13 +683,11 @@ func extractLibraryName(code string) string {
 // parseFunctionShebang parses #!lua name=... [api_version=1.0]
 func parseFunctionShebang(code string) (string, redis.Reply) {
 	lines := strings.Split(code, "\n")
-	foundShebang := false
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
 		if !strings.HasPrefix(line, "#!") {
 			continue
 		}
-		foundShebang = true
 		// Expect #!lua ...
 		rest := strings.TrimSpace(strings.TrimPrefix(line, "#!"))
 		fields := strings.Fields(rest)
@@ -716,10 +714,7 @@ func parseFunctionShebang(code string) (string, redis.Reply) {
 		}
 		return libName, nil
 	}
-	if !foundShebang {
-		return "", protocol.MakeErrReply("ERR Missing library metadata")
-	}
-	return "", protocol.MakeErrReply("ERR Invalid library metadata")
+	return "", protocol.MakeErrReply("ERR Missing library metadata")
 }
 
 func formatLibraryInfoReply(lib *functions.Library, withCode bool) redis.Reply {

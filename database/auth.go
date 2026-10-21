@@ -144,11 +144,9 @@ func isLocalClientAddr(addr string) bool {
 		// Tests / unix-like anonymous: treat as local.
 		return true
 	}
-	host := addr
+	host := strings.Trim(addr, "[]")
 	if h, _, err := net.SplitHostPort(addr); err == nil {
 		host = h
-	} else {
-		host = strings.Trim(addr, "[]")
 	}
 	ip := net.ParseIP(host)
 	return ip != nil && ip.IsLoopback()

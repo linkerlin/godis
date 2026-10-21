@@ -218,8 +218,8 @@ func execDebugObject(server *Server, c redis.Connection, key string) redis.Reply
 	if !exists {
 		return protocol.MakeErrReply("ERR no such key")
 	}
-	encoding := "raw"
-	serLen := 0
+	var encoding string
+	var serLen int
 	switch v := entity.Data.(type) {
 	case []byte:
 		encoding = "embstr"
