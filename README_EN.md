@@ -161,7 +161,7 @@ Most READMEs read like commercials—they brag about every command name they reg
 Before you use or study Godis, here is the unvarnished ledger of what is real, what is approximated, and what is intentionally left out (documented in full detail in [`docs/COMPATIBILITY.md`](docs/COMPATIBILITY.md)):
 
 1. **How We Measure Compatibility**
-   - We don't guess. [`scripts/r4-1-cases.txt`](scripts/r4-1-cases.txt) runs **12,502 deterministic command cases** side-by-side against a real Redis 8.10 sidecar and diffs the wire responses and error strings.
+   - We don't guess. [`scripts/r4-1-cases.txt`](scripts/r4-1-cases.txt) runs **12,623 deterministic command cases** side-by-side against a real Redis 8.10 sidecar and diffs the wire responses and error strings.
    - Any raw `\r` or `\n` injected into error messages by user input is sanitized at the wire boundary (matching the Redis 8.10 security fix) so malformed input can never split a RESP frame.
 
 2. **Where We Use Different Algorithms (and Tell You Up Front)**

@@ -331,6 +331,14 @@ func TestR41SidecarAllowlistScaffold(t *testing.T) {
 		"XDEL-b85|1|XDEL",
 		"PFADD-b85|1|PFADD",
 		"PFCOUNT-b85|1|PFCOUNT",
+		"ARINSERT-0|0|ARINSERT",
+		"ARNEXT-11|11|ARNEXT",
+		"AROP-SUM|60|AROP",
+		"ARGREP-MATCH|2\\n4|ARGREP",
+		"ARRING-3|0|ARRING",
+		"JSONPATH-wild-price|[10,20]|JSON.GET",
+		"JSONPATH-recursive|[10,20,30]|JSON.GET",
+		"JSONPATH-nodelist-any|[\"b\"]|JSON.GET",
 	} {
 		if !strings.Contains(cases, marker) {
 			t.Fatalf("r4-1-cases.txt missing honesty/assert marker %q", marker)

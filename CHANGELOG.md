@@ -6,6 +6,10 @@
 
 ### Added
 
+- **R4-1 sidecar 扩表：R5 新命令确定性样例（2026-10-21）**，`scripts/r4-1-cases.txt` 12,502 → **12,623** 条：
+  - Array 扩展：ARINSERT/ARNEXT/ARSEEK 游标、ARLASTITEMS 写入序、AROP 聚合/位运算、ARGREP 的 MATCH/EXACT/AND/RE/LIMIT/GLOB、ARRING 环形覆盖
+  - JSONPath：`[*]`/`..` 投影、`sum()`/`length()` over nodelist、空结果、`@.tags[*]` 与 `@..price` 过滤
+  - `ARINFO`（map 字段序不稳定）与 subkey 通知（需 Pub/Sub 订阅者）以 `@skip` 诚实标注；`sidecar_allowlist_test.go` 增加对应 marker
 - **R5-20 JSONPath 收尾：`[*]`/`..` 与 nodelist 多值语义（Redis 8.10）**，测试 `TestR5JPWildcardAndRecursive`：
   - `[*]`/`.*` 通配与 `..` 递归下降顶层投影：`$.items[*].price`、`$..price`、`$.*`、`$..*`；对象值按字典序访问，保证结果确定性
   - nodelist 多值语义：多值路径参与 `==`/`!=`/大小比较、`in`/`nin`、集合关系与聚合函数时，任一节点满足即为真；`length()`/`sum()` 等直接作用于 nodelist

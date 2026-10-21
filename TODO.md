@@ -116,7 +116,7 @@
 
 ### R4 — 测试与文档
 
-- [ ] **R4-1 Redis 8.x 响应比对套件**：CI 中用 Redis 8 sidecar 做参考，diff 关键命令输出。（**远期非目标**；allowlist 已到 **12502** 条，`scripts/r4-1-cases.txt`。在 R5 第一波新命令落地前，暂停用同类命令的排列组合继续灌表；新命令各自加一条确定性 sidecar。**仍非** FT/模块/DUMP/集群全量）
+- [ ] **R4-1 Redis 8.x 响应比对套件**：CI 中用 Redis 8 sidecar 做参考，diff 关键命令输出。（**远期非目标**；allowlist 已到 **12,623** 条，`scripts/r4-1-cases.txt`。R5 收口后已补 Array 扩展 8 命令、`ARINFO` 之外的确定性路径，以及 JSONPath `[*]`/`..`/nodelist 共 37 条新样例；`ARINFO` 因 map 字段序不稳定、subkey 通知因需要 Pub/Sub 订阅者，均以 `@skip` 诚实标注。**仍非** FT/模块/DUMP/集群全量）
 - [ ] **R4-2 覆盖率提升**：`aof`、`pubsub`、`redis/protocol`、`redis/connection`、新数据类型包达到可接受覆盖。（**远期非目标**；**观察式门槛**见 coverall.yml 注释：Coveralls 趋势、无私有 % fail gate）
 - [x] **R4-3 文档同步 + 里程碑关闭**：`CHANGELOG` / `docs/COMPATIBILITY.md` / `TODO.md` / `兼容性改进计划.md` 勾选口径清空至仅剩远期篇；标明明确非目标列表。2026-10-12 再次同步：基线改为 Redis 8.10，R5 重开。
 
