@@ -8,6 +8,10 @@
 
 ### Added
 
+- **E6-2 随机差分测试（2026-10-23）**：新增 `scripts/rnddiff`（类型感知随机命令序列生成器，种子可重放；双发 Godis 与 Redis 8.10 sidecar 逐步对拍 + 每 2000 步全键空间状态摘要——每键 TYPE+规范化转储，跨引擎 DEBUG DIGEST 算法不同不可比；失败自动最小化为可重放文件）与入口 `scripts/rnd-diff.sh`。**验收：seed 42 与 seed 7 各 100,000 步 0 分歧**。首日抓到并根因修复两处分歧：
+  - `GETRANGE` 负索引越界：`utils.ConvertRange` 将 `start < -len` 判空，Redis 语义为换算后双端钳位（`lib/utils` 重写 + 实机钉死单测）
+  - `LRANGE` 负 stop 越界：`execLRange` 将 `stop < -len` 钳到 0，Redis 语义为空（`database/list.go` 修正；`string_test.go` 两个钉住旧错误行为的用例按 Redis 8.10 实机改写）
+  边界测试 `database/e6_rnddiff_test.go`；证据账本见 `docs/COMPATIBILITY.md`「随机差分测试」。
 - **E5-3 第二轮：服务端证清白（2026-10-23）**：新增 `redis/server/std/e2e_bench_test.go`（进程内 std server + 50 原生连接）。Go 客户端 ↔ Godis 在 Windows 原生与 WSL2 VM 内均为 **~86-90 万 ops/s**（每命令 ~55µs，P1=P16），推翻首轮「连接层每命令 ~2ms 串行点」假设。quick 矩阵中「比 Redis 慢 5-8×」为 redis-benchmark(C 客户端) ↔ Go 服务端的交互病理（同容器 loopback 亦 ~18k；GOMAXPROCS 1/2/4/32、--threads 1/4、GC、DB 层全部排除），根因开放并记录于 [`docs/PERFORMANCE.md`](docs/PERFORMANCE.md)「E5-3 第二轮」探针矩阵。实际业务客户端应落在快路径。
 - **E8-1 文档归档（2026-10-23）**：`兼容性改进计划.md`、`分析报告.md`、`REDISEARCH_8X_FEATURE_MATRIX.md`、`docs/REDIS8_COMPAT_AUDIT.md` → `docs/history/`；根目录活跃文档收敛为 README(_EN)/AGENTS/TODO/commands/CHANGELOG（演进方案为本地文档）；全部入站引用更新，清理 TODO 中本已失效的 `改进意见_2026-06.md` 链接。
 - **E8-3 运维 Runbook（2026-10-23）**：新增 [`docs/RUNBOOK.md`](docs/RUNBOOK.md)——升级与回滚（复制 + FAILOVER TO 协调切换、回滚基线）、官方 Redis→Godis 迁移边界（基础类型/HLL RDB 互通、FUNCTION DUMP 互通、扩展类型明确 ERR 不伪造）、备份恢复（单机 AOF/RDB、副本热备、Raft 集群）；仅收录已验证行为。

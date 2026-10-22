@@ -125,3 +125,8 @@ Redis 对照腿在同环境同波动，因此**比值可信、绝对值只作方
 - 绝对数字绑定本机容器环境；不同主机请重跑 `scripts/bench.sh` 取自己的基线；
 - 未覆盖：>512MB 大值、多机集群、Lua/FT/Vector 等扩展命令、复制链路开销；
 - 本基线不追 Redis 性能数字（演进方案非目标），目的：可复现方法 + 差距定位 + 回归对照起点。
+
+## 相关工具链
+
+- 性能基线：`bash scripts/bench.sh`（本文档）；DB 层与 e2e 基准：`go test ./database -bench BenchmarkE5`、`go test ./redis/server/std -bench BenchmarkE5E2E -cpu 50`。
+- **正确性随机差分（E6-2）**：`bash scripts/rnd-diff.sh`——类型感知随机命令序列双发 Godis 与 Redis 8.10 sidecar，逐步对拍 + 状态摘要 + 失败自动最小化；结果与已修分歧见 [`COMPATIBILITY.md`](COMPATIBILITY.md)「随机差分测试」。

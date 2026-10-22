@@ -348,6 +348,19 @@ UNWATCH、WAIT（简版）、BITOP、BITFIELD、SMOVE、LPOS、XCLAIM、SHUTDOWN
 - `go test ./...`；兼容批次测试见 `database/m2*_compat_test.go`、`m1_block_tx_bitmap_test.go` 等；RESP3 线格式见 `database/resp3_core_types_test.go`。
 - jemalloc 边界负向测：`database/memory_jemalloc_boundary_test.go`（`mem_allocator:go`、MALLOC-STATS 无 arena 伪表、`jemalloc-bg-thread` 不改 allocator）。
 
+## 随机差分测试（E6-2，2026-10-23）
+
+工具 [`scripts/rnd-diff.sh`](../scripts/rnd-diff.sh)（内部 `scripts/rnddiff`）：类型感知随机命令序列（种子可重放）覆盖 String/Hash/List/Set/ZSet 的确定性回复命令族与 DEL/EXISTS/TYPE/RENAME/EXPIRE/PERSIST；双发 Godis 与 Redis 8.10 sidecar，逐步对拍规范化回复，每 2000 步做全键空间状态摘要（每键 TYPE + 规范化转储；**不用跨引擎 `DEBUG DIGEST`**——两边摘要算法与序列化不同，必然假阳性）。失败自动最小化为可重放文件，`--replay` 复验。
+
+**已修分歧（首日）**：
+
+| 分歧 | 根因 | 修复 |
+|---|---|---|
+| `GETRANGE k -8 43` 返回空（Redis 返回全串） | `utils.ConvertRange` 将 `start < -len` 判为空；Redis 字符串族语义为负索引换算后双端钳位（end 仍负 → 0） | `ConvertRange` 重写为字符串族语义（GETRANGE/BITCOUNT/BITPOS 共用），`lib/utils/utils_test.go` 按 Redis 8.10 实机用例钉死 |
+| `LRANGE k -100 -99` 返回首元素（Redis 返回空） | `execLRange` 将 `stop < -len` 钳到 0；Redis 列表族语义为换算后保持负 → 空 | `execLRange` 修正 + `database/e6_rnddiff_test.go` 钉边界；`string_test.go` 中钉住旧错误行为的两个用例按实机改写 |
+
+**结果**：seed 42 × 100,000 步 **0 分歧**（4m18s，2026-10-23）；seed 7 × 100,000 步 0 分歧。范围外：无序回复原样序（HGETALL/SMEMBERS）、TTL 时变读数、阻塞命令、FT/JSON/Vector/TS 等扩展面（后续可扩生成器）。
+
 ---
 
 **最后更新：** 2026-10-21（R4-1 真实 Redis 8.10 全量 **12,634 断言 0 失败**；修复 sidecar runner 的 `@CMD`/引号分词/continue 模式、`ARLASTITEMS` 普通数组索引区间语义、JSONPath 顶层投影单元素数组与 `.0` 浮点格式、`ZPOPMAX`/`ZMPOP MAX` 降序、LCS tie-break、`+inf` score border、TS 错误码 `TSDB:`、HOTKEYS STOP 幂等、XREADGROUP CLAIM 回复 delivery count。R5-20 JSONPath 最后一块 `[*]`/`..` 通配/递归下降投影与 nodelist 多值语义已接通，R5-20 关闭；测试 `TestR5JPWildcardAndRecursive`。R5-18 Hash 字段级 subkey notifications 已按官方 8.8 文档接通：S/T/I/V 四通道、`<len>:<field>` 编码、HSET/HMSET/HSETNX/HDEL/HGETDEL/HGETEX/HINCRBY/HINCRBYFLOAT/HEXPIRE 族/HPERSIST/HSETEX 与主动/惰性过期；测试 `database/subkey_notify_test.go`。R5-19 Array preview 扩展 9 命令（`ARINSERT`/`ARNEXT`/`ARSEEK`/`ARINFO`/`ARLASTITEMS`/`AROP`/`ARGREP`/`ARRING`/`ARSCAN`）已接通，共 18 命令，opaque 持久化含 cursor/插入序，测试 `database/r5_array_ext_test.go` 与 `database/r5_array_scan_test.go`。R5 三波其余项见下：第一波：错误帧 CR/LF、`SUNIONCARD`/`SDIFFCARD`、`LMOVEM`/`BLMOVEM`、`XREAD`/`XREADGROUP` `MAXCOUNT`/`MAXSIZE`、`SLOWLOG GET` 第七字段、`AGGREGATE COUNT`、`SET IF*`、`DELEX`/`DIGEST`（XXH3）、`MSETEX`、`script_runner` 标志、`FT.ALIASLIST`、LRM 淘汰。第二波：`XREADGROUP CLAIM`、`XNACK`、`XADD IDMP`/`XCFGSET`、`INCREX`、时序 NaN/countNaN/countAll/多聚合器/`EXCLUDEEMPTY`/`TS.NRANGE`/`TS.QUERYLABELS`/`TS.READ`（含 BLOCK）、`RETURN_STRICT`。第三波：`HOTKEYS`（Godis 采样口径）、`HIMPORT`（fieldset→普通 Hash）、Array preview 18 命令 + `TYPE array` + Godis opaque、JSONPath 批次 1+2/3a+3+通配/递归/nodelist 全量（含 `~`、嵌套函数、`FPHA` 拒绝）。测试内存治理：database 测试峰值 8.9GB→约 0.7GB。FUNCTION DUMP 官方互通已完成（Redis RDB 风格 `0xF5` + RDB string + version/CRC64；RESTORE 支持 LZF 与旧 `GODISFN1`；Redis 8.10 双向实测）；原远期 6 项不变。）
