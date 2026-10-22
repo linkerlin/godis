@@ -251,13 +251,16 @@ func commandsAllow(cp *CommandPermissions, cmd string) bool {
 	if cp.AllowedCommands[cmd] {
 		return true
 	}
-	categories := GetCommandCategories(cmd)
-	for _, cat := range categories {
-		if allowed, exists := cp.AllowedCategories[cat]; exists {
-			if !allowed {
-				return false
+	// Only users with category rules need the category lookup; the common
+	// default user (+@all / plain command grants) skips it entirely.
+	if len(cp.AllowedCategories) > 0 {
+		for _, cat := range GetCommandCategories(cmd) {
+			if allowed, exists := cp.AllowedCategories[cat]; exists {
+				if !allowed {
+					return false
+				}
+				return true
 			}
-			return true
 		}
 	}
 	return cp.AllCommands
@@ -462,20 +465,24 @@ var CommandCategoryMap = map[string][]string{
 	"@scripting":   {"eval", "evalsha", "fcall", "fcall|ro", "script", "function"},
 }
 
-// GetCommandCategories returns the categories a command belongs to
-func GetCommandCategories(cmd string) []string {
-	cmd = strings.ToLower(cmd)
-
-	categories := make([]string, 0)
+// commandCategories is the inverse index of CommandCategoryMap, built once.
+// GetCommandCategories runs inside the per-command ACL check; scanning every
+// category list per call was a measured hotspot (docs/PERFORMANCE.md E5-3).
+var commandCategories = func() map[string][]string {
+	idx := make(map[string][]string, 512)
 	for cat, cmds := range CommandCategoryMap {
 		for _, c := range cmds {
-			if strings.ToLower(c) == cmd {
-				categories = append(categories, cat)
-				break
-			}
+			lc := strings.ToLower(c)
+			idx[lc] = append(idx[lc], cat)
 		}
 	}
-	if len(categories) > 0 {
+	return idx
+}()
+
+// GetCommandCategories returns the categories a command belongs to.
+// The returned slice is shared and immutable.
+func GetCommandCategories(cmd string) []string {
+	if categories, ok := commandCategories[strings.ToLower(cmd)]; ok {
 		return categories
 	}
 
