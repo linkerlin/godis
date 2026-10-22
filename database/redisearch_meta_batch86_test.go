@@ -104,4 +104,11 @@ func TestFTAliasAndDictArityBatch86(t *testing.T) {
 		"ERR wrong number of arguments for 'FT.DICTDEL' command")
 	asserts.AssertErrReply(t, db.Exec(nil, utils.ToCmdLine("FT.DICTDUMP")),
 		"ERR wrong number of arguments for 'FT.DICTDUMP' command")
+
+	// The engine registry and alias table are process-global: clean up so
+	// -count>1 reruns (and any future name collision) don't see stale state.
+	_ = db.Exec(nil, utils.ToCmdLine("FT.ALIASDEL", "b86alias"))
+	for _, idx := range []string{"b86idx", "b86a", "b86m", "b86z"} {
+		_ = db.Exec(nil, utils.ToCmdLine("FT.DROPINDEX", idx))
+	}
 }

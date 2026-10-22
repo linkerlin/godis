@@ -13,6 +13,13 @@ import (
 // search-max-aggregate-results (8.0 name), not MAXSEARCHRESULTS.
 func TestAggregateMaxResultsCap(t *testing.T) {
 	db := makeTestDB()
+	// The FT engine registry and ftConfig are process-global: drop any stale
+	// "cap" index from an earlier run and restore the cap config afterwards.
+	_ = db.Exec(nil, utils.ToCmdLine("FT.DROPINDEX", "cap"))
+	defer func() {
+		_ = db.Exec(nil, utils.ToCmdLine("FT.DROPINDEX", "cap"))
+		_ = db.Exec(nil, utils.ToCmdLine("FT.CONFIG", "SET", "MAXAGGREGATERESULTS", "2147483648"))
+	}()
 	asserts.AssertStatusReply(t, db.Exec(nil, utils.ToCmdLine(
 		"FT.CREATE", "cap", "SCHEMA", "v", "NUMERIC",
 	)), "OK")
@@ -25,6 +32,12 @@ func TestAggregateMaxResultsCap(t *testing.T) {
 	asserts.AssertStatusReply(t, db.Exec(nil, utils.ToCmdLine("FT.CONFIG", "SET", "MAXAGGREGATERESULTS", "3")), "OK")
 	r := db.Exec(nil, utils.ToCmdLine("FT.AGGREGATE", "cap", "*", "LOAD", "1", "@v"))
 	t.Logf("aggregate reply = %q", r.ToBytes())
+	// On failure, dump the global FT state so cross-test leaks (config or a
+	// resurrected engine) are visible in CI logs.
+	if body := string(r.ToBytes()); !strings.Contains(body, "$1\r\n2\r\n") {
+		t.Logf("MAXAGGREGATERESULTS=%q DEFAULT_DIALECT=%q TIMEOUT=%q",
+			getFTConfigString("MAXAGGREGATERESULTS"), getFTConfigString("DEFAULT_DIALECT"), getFTConfigString("TIMEOUT"))
+	}
 	// Redis reports total (LIMIT-before) as the first integer, and the page
 	// rows are clamped by the cap. Assert the PAGE has 3 rows: v=0,1,2 must be
 	// present and v=3,4 must not. (LOAD required: absent LOAD drops non-SORTABLE.)
@@ -37,8 +50,6 @@ func TestAggregateMaxResultsCap(t *testing.T) {
 	if strings.Contains(body, "$1\r\n3\r\n") || strings.Contains(body, "$1\r\n4\r\n") {
 		t.Fatalf("aggregate cap page should not contain v=3 or v=4: %s", body)
 	}
-	// Reset.
-	asserts.AssertStatusReply(t, db.Exec(nil, utils.ToCmdLine("FT.CONFIG", "SET", "MAXAGGREGATERESULTS", "2147483648")), "OK")
 }
 
 // TestExplainRealAST verifies FT.EXPLAIN renders the ACTUAL parsed AST (a

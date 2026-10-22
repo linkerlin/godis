@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"io/ioutil"
+	"net"
 	"os"
 	"path"
 	"testing"
@@ -18,6 +19,39 @@ import (
 	"github.com/linkerlin/godis/redis/protocol"
 	"github.com/linkerlin/godis/redis/protocol/asserts"
 )
+
+// startTestMaster runs an in-package master on an ephemeral port (masterCron
+// driven by a ticker) and returns a started client plus its host/port. These
+// tests used to dial 127.0.0.1:6379 and silently required an external Redis
+// there, which no CI runner provides (nightly race failed on connection
+// refused).
+func startTestMaster(t *testing.T) (cli *client.Client, host, port string) {
+	t.Helper()
+	master := mockServer()
+	addr, closeFn := startTCPListener(t, master)
+	t.Cleanup(closeFn)
+	cronStop := make(chan struct{})
+	t.Cleanup(func() { close(cronStop) })
+	go func() {
+		tk := time.NewTicker(100 * time.Millisecond)
+		defer tk.Stop()
+		for {
+			select {
+			case <-tk.C:
+				master.masterCron()
+			case <-cronStop:
+				return
+			}
+		}
+	}()
+	cli, err := client.MakeClient(addr)
+	if err != nil {
+		t.Fatalf("make master client: %v", err)
+	}
+	cli.Start()
+	host, port, _ = net.SplitHostPort(addr)
+	return cli, host, port
+}
 
 func TestReplicationSlaveSide(t *testing.T) {
 	skipReplicationTests(t)
@@ -37,11 +71,7 @@ func TestReplicationSlaveSide(t *testing.T) {
 	}
 	conn := connection.NewFakeConn()
 	server := mockServer()
-	masterCli, err := client.MakeClient("127.0.0.1:6379")
-	if err != nil {
-		t.Error(err)
-		return
-	}
+	masterCli, masterHost, masterPort := startTestMaster(t)
 	aofHandler, err := NewPersister(server, config.Properties.AppendFilename, true, aof.FsyncNo)
 	if err != nil {
 		t.Error(err)
@@ -49,12 +79,11 @@ func TestReplicationSlaveSide(t *testing.T) {
 	}
 	server.bindPersister(aofHandler)
 	server.Exec(conn, utils.ToCmdLine("set", "zz", "zz"))
-	masterCli.Start()
 
 	// sync with master
 	ret := masterCli.Send(utils.ToCmdLine("set", "1", "1"))
 	asserts.AssertStatusReply(t, ret, "OK")
-	ret = server.Exec(conn, utils.ToCmdLine("SLAVEOF", "127.0.0.1", "6379"))
+	ret = server.Exec(conn, utils.ToCmdLine("SLAVEOF", masterHost, masterPort))
 	asserts.AssertStatusReply(t, ret, "OK")
 	success := false
 	for i := 0; i < 30; i++ {
@@ -134,7 +163,7 @@ func TestReplicationSlaveSide(t *testing.T) {
 	asserts.AssertStatusReply(t, ret, "OK")
 	ret = server.Exec(conn, utils.ToCmdLine("GET", "1"))
 	asserts.AssertBulkReply(t, ret, "3")
-	ret = server.Exec(conn, utils.ToCmdLine("SLAVEOF", "127.0.0.1", "6379"))
+	ret = server.Exec(conn, utils.ToCmdLine("SLAVEOF", masterHost, masterPort))
 	asserts.AssertStatusReply(t, ret, "OK")
 	success = false
 	for i := 0; i < 30; i++ {
@@ -197,17 +226,12 @@ func TestReplicationFailover(t *testing.T) {
 	}
 	server.bindPersister(aofHandler)
 
-	masterCli, err := client.MakeClient("127.0.0.1:6379")
-	if err != nil {
-		t.Error(err)
-		return
-	}
-	masterCli.Start()
+	masterCli, masterHost, masterPort := startTestMaster(t)
 
 	// sync with master
 	ret := masterCli.Send(utils.ToCmdLine("set", "1", "1"))
 	asserts.AssertStatusReply(t, ret, "OK")
-	ret = server.Exec(conn, utils.ToCmdLine("SLAVEOF", "127.0.0.1", "6379"))
+	ret = server.Exec(conn, utils.ToCmdLine("SLAVEOF", masterHost, masterPort))
 	asserts.AssertStatusReply(t, ret, "OK")
 	success := false
 	for i := 0; i < 30; i++ {

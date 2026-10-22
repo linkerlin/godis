@@ -179,20 +179,30 @@ func TestReplicationMasterSide(t *testing.T) {
 	time.Sleep(time.Millisecond * 100) // wait write aof
 	asserts.AssertNotError(t, resp)
 	master.masterCron()
-	for {
-		payload := <-masterChan
-		if payload.Err != nil {
-			t.Error(payload.Err)
+	// Wait specifically for the SET c write to propagate. Breaking on the
+	// first non-ping payload races stale handshake replies queued during the
+	// full-sync phase (execute those too; they're harmless on the slave).
+	deadline := time.After(10 * time.Second)
+	sawSetC := false
+	for !sawSetC {
+		select {
+		case <-deadline:
+			t.Error("timed out waiting for SET c propagation")
 			return
-		}
-		cmdLine, ok := payload.Data.(*protocol.MultiBulkReply)
-		if !ok {
-			t.Error("unexpected payload: " + string(payload.Data.ToBytes()))
-			return
-		}
-		slave.Exec(replConn, cmdLine.Args)
-		if string(cmdLine.Args[0]) != "ping" {
-			break
+		case payload := <-masterChan:
+			if payload.Err != nil {
+				t.Error(payload.Err)
+				return
+			}
+			cmdLine, ok := payload.Data.(*protocol.MultiBulkReply)
+			if !ok {
+				t.Error("unexpected payload: " + string(payload.Data.ToBytes()))
+				return
+			}
+			slave.Exec(replConn, cmdLine.Args)
+			if string(cmdLine.Args[0]) == "set" && len(cmdLine.Args) > 1 && string(cmdLine.Args[1]) == "c" {
+				sawSetC = true
+			}
 		}
 	}
 

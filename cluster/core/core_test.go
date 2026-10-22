@@ -108,28 +108,46 @@ func TestClusterBootstrap(t *testing.T) {
 	// rebalance
 	leader.doRebalance()
 	time.Sleep(2 * time.Second)
-	for i := 0; i < 1000; i++ {
-		leaderSuccess := false
-		leader.raftNode.FSM.WithReadLock(func(fsm *raft.FSM) {
-			leaderSlots := len(fsm.Node2Slot[leaderCfg.RedisAdvertiseAddr])
-			followerSlots := len(fsm.Node2Slot[followerCfg.RedisAdvertiseAddr])
-			if len(fsm.Migratings) == 0 && leaderSlots > 0 && followerSlots > 0 {
-				leaderSuccess = true
+	// Wait for BOTH FSM views to converge. Checking only the leader's FSM
+	// races the final route-change propagation: for a moment the follower
+	// still routes a just-migrated slot back to the leader, and the GET loop
+	// below then receives a MOVED reply instead of a bulk (nightly -race hit
+	// exactly that window).
+	converged := false
+	for i := 0; i < 1000 && !converged; i++ {
+		converged = true
+		for _, node := range []*Cluster{leader, follower} {
+			nodeOK := false
+			node.raftNode.FSM.WithReadLock(func(fsm *raft.FSM) {
+				leaderSlots := len(fsm.Node2Slot[leaderCfg.RedisAdvertiseAddr])
+				followerSlots := len(fsm.Node2Slot[followerCfg.RedisAdvertiseAddr])
+				if len(fsm.Migratings) == 0 && leaderSlots > 0 && followerSlots > 0 {
+					nodeOK = true
+				}
+			})
+			if !nodeOK {
+				converged = false
 			}
-		})
-		if leaderSuccess {
-			t.Log("rebalance success")
-			break
-		} else {
+		}
+		if !converged {
 			time.Sleep(time.Second)
 		}
 	}
+	if !converged {
+		t.Error("rebalance did not converge on both nodes")
+		return
+	}
+	t.Log("rebalance success")
 
 	// set key-values for test
 	for key, value := range testEntries {
 		c := connection.NewFakeConn()
 		result := leader.Exec(c, utils.ToCmdLine("get", key))
-		result2 := result.(*protocol.BulkReply)
+		result2, ok := result.(*protocol.BulkReply)
+		if !ok {
+			t.Errorf("command [get] failed: %s", string(result.ToBytes()))
+			return
+		}
 		if string(result2.Arg) != value {
 			t.Errorf("command [get] failed: %s", string(result.ToBytes()))
 			return

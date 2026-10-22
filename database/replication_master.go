@@ -222,11 +222,12 @@ func (server *Server) saveForReplication() error {
 		}
 		return err
 	}
-	aofListener.readyToSend = true
-
 	// change bgSaveState and get waitSlaves for sending
 	waitSlaves := make(map[*slaveClient]struct{})
 	server.masterStatus.mu.Lock()
+	// Under the lock: Callback reads readyToSend on every write command; a
+	// plain store here raced exactly that read (nightly -race gate).
+	aofListener.readyToSend = true
 	server.masterStatus.bgSaveState = bgSaveFinish
 	for slave := range server.masterStatus.waitSlaves {
 		waitSlaves[slave] = struct{}{}
@@ -286,10 +287,10 @@ func (server *Server) rewriteRDB() error {
 		server.persister.RemoveListener(server.masterStatus.aofListener)
 	}
 	server.masterStatus.aofListener = aofListener
-	server.masterStatus.mu.Unlock()
-	// It is ok to know that new backlog is ready later, so we change readyToSend without sync
-	// But setting readyToSend=true must after new backlog is really ready (that means master.mu.Unlock)
+	// Under the lock (Callback reads it under the same lock). "Later is ok"
+	// still holds: slaves learn the new backlog is ready on the next tick.
 	aofListener.readyToSend = true
+	server.masterStatus.mu.Unlock()
 	return nil
 }
 
@@ -614,10 +615,12 @@ func (listener *replAofListener) Callback(cmdLines []CmdLine) {
 		reply := protocol.MakeMultiBulkReply(cmdLine)
 		listener.backlog.appendBytes(reply.ToBytes())
 	}
+	// readyToSend is written by saveForReplication under the same lock.
+	readyToSend := listener.readyToSend
 	listener.mdb.masterStatus.mu.Unlock()
 	// listener could receive updates generated during rdb saving in progress
 	// Do not send updates to slave before rdb saving is finished
-	if listener.readyToSend {
+	if readyToSend {
 		if err := listener.mdb.masterSendUpdatesToSlave(); err != nil {
 			logger.Errorf("masterSendUpdatesToSlave after receive aof error: %v", err)
 		}
