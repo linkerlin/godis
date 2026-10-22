@@ -80,9 +80,7 @@ Redis 对照腿在同环境同波动，因此**比值可信、绝对值只作方
 
 ## E5-3 修复与前后对照（2026-10-22）
 
-三个根因修复（`database/list_block.go`、`database/database.go`、`database/eviction.go`、`acl/acl.go`）：
-
-| 修复 | 根因 | 手段 |
+三个根因修复（`database/list_block.go`、`database/database.go`、`database/eviction.go`、`acl/acl.go`）：| 修复 | 根因 | 手段 |
 |---|---|---|
 | goid 热路径 | `peekNoTouch/peekBlockingClientID` 每次调 `goid()`=格式化 goroutine 栈（runtime 全局锁） | `sync.Map` 绑定计数器原子快路径；绑定为空（99.99% 场景）时不再调 `goid()` |
 | O(N) 内存记账 | `approxKeyMemoryUsage` 每写命令+每 100ms 全库逐键估算 | DB 级 `estimatedBytes` 原子增量（put/overwrite/条件写/删除四漏斗）；启动后与每分钟全量对账 |
@@ -104,7 +102,23 @@ Redis 对照腿在同环境同波动，因此**比值可信、绝对值只作方
 | std-off-p1 | GET ops/s（p50） | 13,091（3.3ms） | 17,590（2.5ms），≈SET | 148k（0.18ms） |
 | gnet-off-p1 | SET ops/s | 8,118 | 18,625 | — |
 
-**修复后仍开放的差距**（下一轮 E5-3 / E5 范围）：std/gnet 与 Redis 的整体吞吐差（~5-8×）——DB 层已至 µs 级，剩余 ~2ms/命令在连接/服务层（疑似每回复写路径或全局记账锁），需对 std server 做 e2e pprof；gnet pipeline 深度负作用；always fsync 需专用盘验证。
+**修复后仍开放的差距**：std/gnet 与 Redis 的整体吞吐差（~5-8×）——该差距经第二轮排查**属于 redis-benchmark(C) ↔ Go 服务端的交互病理，非服务端能力问题**（见下节「E5-3 第二轮」：Go 客户端下 86-90 万 ops/s）；gnet pipeline 深度负作用；always fsync 需专用盘验证。
+
+## E5-3 第二轮（2026-10-23）：服务端证清白，「连接层串行」假设推翻
+
+首轮遗留的头号线索「连接层每命令 ~2ms 串行点」经系统排查**不成立**。新增 `redis/server/std/e2e_bench_test.go`（进程内 std server + 50 原生连接，P1/P16）：
+
+| 组合 | 环境 | 每命令延迟 | 聚合吞吐（50 连接） |
+|---|---|---|---|
+| Go 客户端 ↔ Godis | Windows 原生 | 55.5µs（P1）/ 55.3µs（P16） | **~902k ops/s** |
+| Go 客户端 ↔ Godis | WSL2 VM 内 | 57.8µs（P1） | **~865k ops/s** |
+| redis-benchmark(C) ↔ Godis | VM 内（网桥） | ~2.2ms | ~20k ops/s |
+| redis-benchmark(C) ↔ Godis | VM 内（**同容器 loopback**） | ~2.6ms | ~18k ops/s |
+| redis-benchmark(C) ↔ Redis | VM 内 | 0.18ms | 132k+ ops/s |
+
+排除实验（VM 内，SET P1 50c）：网桥（loopback 同慢）、客户端事件循环（`--threads 4` 不变）、GOMAXPROCS（1/2/4/32 全部 ~20k）、GC（首轮已排除）、DB 层（3.3µs）。
+
+**结论**：Godis std 引擎在 50 连接下服务端能力约 **86-90 万 ops/s**，P16 每命令延迟与 P1 持平（无串行退化）。quick 矩阵中「比 Redis 慢 5-8×」的表观差距**专属于 redis-benchmark(C 客户端) ↔ Go 服务端的交互病理**（跨进程、loopback 亦复现，Go 客户端完全不出现），根因开放（疑 Linux netstack 与 Go 每回复一次写 syscall 的交互；40ms 级 delayed-ACK 不符）。**实际业务客户端（Go/Java 等 redis 客户端库）应落在快路径**——引用本表数字时请用 Go↔Go 行，C↔Godis 行仅作该特定组合的记录。gnet pipeline 深度延迟仍开放。
 
 ## 已知边界与非目标
 

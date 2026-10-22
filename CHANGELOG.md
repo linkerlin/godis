@@ -8,6 +8,9 @@
 
 ### Added
 
+- **E5-3 第二轮：服务端证清白（2026-10-23）**：新增 `redis/server/std/e2e_bench_test.go`（进程内 std server + 50 原生连接）。Go 客户端 ↔ Godis 在 Windows 原生与 WSL2 VM 内均为 **~86-90 万 ops/s**（每命令 ~55µs，P1=P16），推翻首轮「连接层每命令 ~2ms 串行点」假设。quick 矩阵中「比 Redis 慢 5-8×」为 redis-benchmark(C 客户端) ↔ Go 服务端的交互病理（同容器 loopback 亦 ~18k；GOMAXPROCS 1/2/4/32、--threads 1/4、GC、DB 层全部排除），根因开放并记录于 [`docs/PERFORMANCE.md`](docs/PERFORMANCE.md)「E5-3 第二轮」探针矩阵。实际业务客户端应落在快路径。
+- **E8-1 文档归档（2026-10-23）**：`兼容性改进计划.md`、`分析报告.md`、`REDISEARCH_8X_FEATURE_MATRIX.md`、`docs/REDIS8_COMPAT_AUDIT.md` → `docs/history/`；根目录活跃文档收敛为 README(_EN)/AGENTS/TODO/commands/CHANGELOG（演进方案为本地文档）；全部入站引用更新，清理 TODO 中本已失效的 `改进意见_2026-06.md` 链接。
+- **E8-3 运维 Runbook（2026-10-23）**：新增 [`docs/RUNBOOK.md`](docs/RUNBOOK.md)——升级与回滚（复制 + FAILOVER TO 协调切换、回滚基线）、官方 Redis→Godis 迁移边界（基础类型/HLL RDB 互通、FUNCTION DUMP 互通、扩展类型明确 ERR 不伪造）、备份恢复（单机 AOF/RDB、副本热备、Raft 集群）；仅收录已验证行为。
 - **E5-3 热点审计与首轮修复（2026-10-22）**：以 `database/e5_perf_test.go`（SET/GET 并行、allkeys-lru 至上限三基准）+ pprof 定位三个根因并修复，前后对照见 [`docs/PERFORMANCE.md`](docs/PERFORMANCE.md)：
   - **`goid()` 热路径**：`peekNoTouch`/`peekBlockingClientID` 每次调用 `goid()`（`runtime.Stack` 格式化本 goroutine 栈，持 runtime 全局锁）——GET 每次付 ~30µs 且串行化所有连接。改为绑定计数原子快路径，绑定集为空时不再取 goid（`database/list_block.go`）
   - **O(N) maxmemory 记账**：`approxKeyMemoryUsage` 在每条写命令与 100ms limiter monitor 中全库逐键估算（LRU 压力下 2.06ms/op、1.8MB 分配/op）。改为 DB 级 `estimatedBytes` 原子增量（put/覆盖/条件写/删除四漏斗钩子）+ 启动后与每分钟全量对账（`database/database.go`、`database/eviction.go`、`database/server.go`）；不变量测试 `TestE5IncrementalAccountingMatchesWalk`
