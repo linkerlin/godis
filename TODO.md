@@ -29,7 +29,7 @@
 - **E6 正确性纵深**：守住 `go test ./...` 全绿门禁（已知失败清单已于 2026-10-22 复验清零）；随机差分测试；崩溃一致性/故障注入；72h 长稳 soak。**E6-2 ✅（2026-10-23，`scripts/rnd-diff.sh`：seed 42/7 各 100k 步 0 分歧；GETRANGE/LRANGE 负索引边界两处真 bug 根因修复）**；**E6-3 ✅（2026-10-23，`e6chaos/` 真实子进程六场景全绿并已进 nightly 范围；根因修复：数据文件无视 `dir`、从库失联即自我提升两个真 bug）**；**E6-4 ✅（2026-10-23，`e6soak/` 运行器：负载循环 + HeapInuse/goroutine/FD 基线断言，nightly 默认 22s、本地 `SOAK_CYCLES` 可拉长至 72h 量级；12/40 周期验证曲线平）**；E6-1 保持中。
 - **E7 集群生产化**：go-redis/lettuce/ioredis/redis-cli -c 互操作认证；reshard 与 Raft 运维闭环；复制韧性演练。
 - **E7 集群生产化**：**E7-1 ✅（2026-10-23，`go test ./e7cluster` 智能客户端契约：拓扑/路由 200 键/MOVED 形态与跟随/CROSSSLOT/hash-tag；`scripts/cluster-interop.sh` 真实 `redis-cli -c` 冒烟：16384/16384 槽、双视图收敛、MOVED 跟随读通。观察项：del+add 后归属与请求方向相反——加入期再平衡，视图一致路由正确）**；**E7-2/3/4 ✅ 文档化收口（RUNBOOK「集群运维」：槽位重分配已验证路径 + reshard 工具链不支持的边界、成员管理、韧性事实映射到 e6chaos 证据；网络分区演练列为开放项）**。
-- **E8 工程收敛与发布**：**E8-1 ✅（2026-10-23 归档四份过程文档至 `docs/history/`，根目录活跃 md ≤6）**；**E8-3 ✅（`docs/RUNBOOK.md`：升级回滚/迁移边界/备份恢复 + 集群运维节，仅收录已验证行为）**；**E8-2 ✅（2026-10-23，巨型文件拆分：sortedset.go 1792→1280+527、config_cmd.go 2548→1366+1194、redisearch.go 2735→1403+1346，纯移动零逻辑改动，database 包最大文件 1403 行 ≤1500）**；v1.3.0 发版范围待用户拍板（E8-4）。
+- **E8 工程收敛与发布**：**E8-1 ✅（2026-10-23 归档四份过程文档至 `docs/history/`，根目录活跃 md ≤6）**；**E8-3 ✅（`docs/RUNBOOK.md`：升级回滚/迁移边界/备份恢复 + 集群运维节，仅收录已验证行为）**；**E8-2 ✅（2026-10-23，巨型文件拆分：sortedset.go 1792→1280+527、config_cmd.go 2548→1366+1194、redisearch.go 2735→1403+1346，纯移动零逻辑改动，database 包最大文件 1403 行 ≤1500）**；**E8-4 ✅（2026-10-23，v1.3.0 按建议范围发版：Redis 8.10 命令面 + E0–E4 内核治理 + E5–E8 全部成果；[Unreleased] 归档为 [v1.3.0]、新建空 Unreleased、tag 触发 release.yml）**。
 
 ---
 

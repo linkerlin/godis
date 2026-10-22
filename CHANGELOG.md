@@ -4,7 +4,9 @@
 
 ## [Unreleased]
 
-> 发版约定：发布时把 `[Unreleased]` 改为 `## [vX.Y.Z] - YYYY-MM-DD`，并新建空的 `[Unreleased]`；历史版本按 tag 倒序保留。当前最近 tag 为 `v1.2.9`。
+> 发版约定：发布时把 `[Unreleased]` 改为 `## [vX.Y.Z] - YYYY-MM-DD`，并新建空的 `[Unreleased]`；历史版本按 tag 倒序保留。当前最近 tag 为 `v1.3.0`。
+
+## [v1.3.0] - 2026-10-23
 
 ### Added
 
