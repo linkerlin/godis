@@ -8,6 +8,10 @@
 
 ### Added
 
+- **E6-3 崩溃一致性与故障注入（2026-10-23）**：新增 [`e6chaos/`](e6chaos/)——真实二进制子进程（测试内 `go build`）+ `Process.Kill`（≙ kill -9）的故障注入套件，断言不变量「每条已确认写在重启后仍在，或显式报错，绝不静默丢失」。六场景全绿（约 1 分钟，`-short` 跳过，nightly `go test -race -shuffle=on ./...` 自然包含）：AOF rewrite 中 kill -9（everysec/always × 30/90/200ms）、BGSAVE 中 kill -9、AOF 撕裂尾重启（fsync 失败等价物）、从库复制中途中断后重启重同步、主库宕机从库保持 replica。**抓到并根因修复两个真 bug**：
+  - **数据文件无视 `dir`**：AOF/RDB 相对文件名按进程 CWD 解析，同 CWD 多实例互踩同一文件（正是本套件首轮的假通过来源）→ `config.ResolveDataPath` 在 `SetupConfig` 将相对 `appendfilename`/`dbfilename` 归一化挂到 `dir`
+  - **从库失联即自我提升**（R-3 模式回归）：`setupMaster`/`connectWithMaster` 任意连接/握手失败即 `slaveOfNone()` 提升为 master 并清空复制配置（主库宕机后重连失败即脑裂）→ 后台失败仅记日志保持 replica；`receiveAOF` 退出清理死链；`slaveCron` 对断链退避重连；提升路径只剩 `REPLICAOF NO ONE` 与协调 FAILOVER
+  账本见 `docs/COMPATIBILITY.md`「崩溃一致性与故障注入」。
 - **E6-2 随机差分测试（2026-10-23）**：新增 `scripts/rnddiff`（类型感知随机命令序列生成器，种子可重放；双发 Godis 与 Redis 8.10 sidecar 逐步对拍 + 每 2000 步全键空间状态摘要——每键 TYPE+规范化转储，跨引擎 DEBUG DIGEST 算法不同不可比；失败自动最小化为可重放文件）与入口 `scripts/rnd-diff.sh`。**验收：seed 42 与 seed 7 各 100,000 步 0 分歧**。首日抓到并根因修复两处分歧：
   - `GETRANGE` 负索引越界：`utils.ConvertRange` 将 `start < -len` 判空，Redis 语义为换算后双端钳位（`lib/utils` 重写 + 实机钉死单测）
   - `LRANGE` 负 stop 越界：`execLRange` 将 `stop < -len` 钳到 0，Redis 语义为空（`database/list.go` 修正；`string_test.go` 两个钉住旧错误行为的用例按 Redis 8.10 实机改写）

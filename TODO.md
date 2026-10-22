@@ -26,7 +26,7 @@
 > 命令面扩展本周期冻结（只修 bug 不加新命令）。四个阶段的动机、现状基线快照、明细与验收标准见本地 `演进方案.md`（未入库）「六、下一周期演进路线（E5–E8）」；概要：
 
 - **E5 性能工程与基线**：基准矩阵（std/gnet × pipeline × AOF × eviction，同机对照 Redis 8.10）→ `docs/PERFORMANCE.md`；性能回归观察式门禁；pprof 热点审计。**E5-1 ✅（2026-10-22，`scripts/bench.sh` 双容器对称）**；**E5-2 ✅（weekly `bench.yml` 趋势工件，非门禁）**；**E5-3 ✅ 首轮（goid 热路径/O(N) 记账/ACL 扫描三根因修复：DB 层 GET 12×、淘汰 391×，容器 lru 40×；连接层 ~2ms 串行点与 gnet pipeline 延迟列下一轮）**。
-- **E6 正确性纵深**：守住 `go test ./...` 全绿门禁（已知失败清单已于 2026-10-22 复验清零）；随机差分测试；崩溃一致性/故障注入；72h 长稳 soak。**E6-2 ✅（2026-10-23，`scripts/rnd-diff.sh`：seed 42/7 各 100k 步 0 分歧；GETRANGE/LRANGE 负索引边界两处真 bug 根因修复）**；E6-1 保持中；E6-3/E6-4 未动。
+- **E6 正确性纵深**：守住 `go test ./...` 全绿门禁（已知失败清单已于 2026-10-22 复验清零）；随机差分测试；崩溃一致性/故障注入；72h 长稳 soak。**E6-2 ✅（2026-10-23，`scripts/rnd-diff.sh`：seed 42/7 各 100k 步 0 分歧；GETRANGE/LRANGE 负索引边界两处真 bug 根因修复）**；**E6-3 ✅（2026-10-23，`e6chaos/` 真实子进程六场景全绿并已进 nightly 范围；根因修复：数据文件无视 `dir`、从库失联即自我提升两个真 bug）**；E6-1 保持中；E6-4 未动。
 - **E7 集群生产化**：go-redis/lettuce/ioredis/redis-cli -c 互操作认证；reshard 与 Raft 运维闭环；复制韧性演练。
 - **E8 工程收敛与发布**：**E8-1 ✅（2026-10-23 归档四份过程文档至 `docs/history/`，根目录活跃 md ≤6）**；**E8-3 ✅（`docs/RUNBOOK.md`：升级回滚/迁移边界/备份恢复，仅收录已验证行为）**；剩余：巨型文件拆分（redisearch.go/config_cmd.go/sortedset.go，E8-2）、v1.3.0 发版范围（E8-4）。
 
