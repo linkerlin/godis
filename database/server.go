@@ -166,6 +166,10 @@ func newServerWithSize(dictSize int) (*Server, error) {
 	})
 	server.memLimiter.SetMemUsageFunc(server.approxKeyMemoryUsage)
 	server.memLimiter.Start()
+	// baseline the incremental maxmemory counters after dataset load, then
+	// keep them reconciled against a full walk once a minute
+	server.reconcileMemoryUsage()
+	server.startMemoryReconciler()
 
 	SetSlowLogLenProvider(func() int { return server.SlowLogLen() })
 

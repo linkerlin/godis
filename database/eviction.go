@@ -459,9 +459,10 @@ func (server *Server) syncMemoryConfig() {
 	}
 }
 
-// approxKeyMemoryUsage estimates dataset memory for maxmemory.
-// Per key: max(bytesPerKeyEstimate, estimateEntityBytes) so small keys stay
-// test-friendly (~128B) while large string/values are not severely undercounted.
+// approxKeyMemoryUsage reports dataset memory for maxmemory in O(databases):
+// incremental per-DB counters instead of the O(N) full walk that used to run
+// on every write command and in the 100ms limiter monitor (docs/PERFORMANCE.md
+// E5-3: the walk was the dominant cost under eviction pressure).
 // Still approximate (not jemalloc / Go allocator truth).
 func (server *Server) approxKeyMemoryUsage() int64 {
 	if server == nil {
@@ -469,19 +470,66 @@ func (server *Server) approxKeyMemoryUsage() int64 {
 	}
 	var n int64
 	for _, holder := range server.dbSet {
-		db := holder.Load().(*DB)
-		db.data.ForEach(func(key string, val interface{}) bool {
-			sz := int64(bytesPerKeyEstimate)
-			if entity, ok := val.(*database.DataEntity); ok && entity != nil {
-				if est := estimateEntityBytes(key, entity.Data, 5); est > sz {
-					sz = est
-				}
-			}
-			n += sz
-			return true
-		})
+		n += holder.Load().(*DB).estimatedBytes.Load()
 	}
 	return n
+}
+
+// accountedKeyBytes is the per-key maxmemory estimate: floor at
+// bytesPerKeyEstimate so small keys stay counted (~128B) while large values
+// are not severely undercounted. Same rule the pre-E5-3 full walk used;
+// nil entities/data count as the floor (placeholder puts).
+func accountedKeyBytes(key string, data interface{}) int64 {
+	if data == nil {
+		return bytesPerKeyEstimate
+	}
+	if est := estimateEntityBytes(key, data, 5); est > bytesPerKeyEstimate {
+		return est
+	}
+	return bytesPerKeyEstimate
+}
+
+// walkEstimatedBytes re-derives a DB's accounted bytes from a full scan
+// (reconciliation path; also the pre-E5-3 hot-path behavior).
+func walkEstimatedBytes(db *DB) int64 {
+	var n int64
+	db.data.ForEach(func(key string, val interface{}) bool {
+		if entity, ok := val.(*database.DataEntity); ok && entity != nil {
+			n += accountedKeyBytes(key, entity.Data)
+		} else {
+			n += bytesPerKeyEstimate
+		}
+		return true
+	})
+	return n
+}
+
+// reconcileMemoryUsage re-derives each DB counter from a full walk, healing
+// drift from in-place mutations of stored collections.
+func (server *Server) reconcileMemoryUsage() {
+	if server == nil {
+		return
+	}
+	for _, holder := range server.dbSet {
+		db := holder.Load().(*DB)
+		db.estimatedBytes.Store(walkEstimatedBytes(db))
+	}
+}
+
+// startMemoryReconciler reconciles incremental accounting once a minute.
+func (server *Server) startMemoryReconciler() {
+	go func() {
+		ticker := time.NewTicker(time.Minute)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				server.reconcileMemoryUsage()
+			case <-server.stopCron:
+				return
+			}
+		}
+	}()
 }
 
 // approxCmdWriteBytes estimates bytes a write command may add (for maxmemory).
@@ -517,16 +565,12 @@ func floorKeyEstimate(n int64) int64 {
 }
 
 func estimateStoredKeyBytes(db *DB, key string) int64 {
-	sz := int64(bytesPerKeyEstimate)
 	if db == nil {
-		return sz
+		return bytesPerKeyEstimate
 	}
 	entity, ok := db.GetEntity(key)
 	if !ok || entity == nil {
-		return sz
+		return bytesPerKeyEstimate
 	}
-	if est := estimateEntityBytes(key, entity.Data, 5); est > sz {
-		return est
-	}
-	return sz
+	return accountedKeyBytes(key, entity.Data)
 }

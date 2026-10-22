@@ -50,6 +50,11 @@ type DB struct {
 	// evictionManager for memory limit eviction (optional)
 	evictionManager *EvictionManager
 
+	// estimatedBytes is the incremental maxmemory accounting of db.data
+	// contents (see accountedKeyBytes); kept exact on put/remove, reconciled
+	// against a full walk by Server.reconcileMemoryUsage.
+	estimatedBytes atomic.Int64
+
 	// parent server (nil in isolated DB unit tests)
 	server *Server
 }
@@ -328,7 +333,19 @@ func (db *DB) GetEntity(key string) (*database.DataEntity, bool) {
 
 // PutEntity a DataEntity into DB
 func (db *DB) PutEntity(key string, entity *database.DataEntity) int {
+	// incremental maxmemory accounting (see accountedKeyBytes); *WithLock
+	// contract: the caller holds the shard write lock for key.
+	if raw, ok := db.data.GetWithLock(key); ok {
+		if old, ok := raw.(*database.DataEntity); ok && old != nil {
+			db.estimatedBytes.Add(-accountedKeyBytes(key, old.Data))
+		}
+	}
 	ret := db.data.PutWithLock(key, entity)
+	if entity != nil {
+		db.estimatedBytes.Add(accountedKeyBytes(key, entity.Data))
+	} else { // nil-entity placeholder put counts as the floor, like the walk
+		db.estimatedBytes.Add(bytesPerKeyEstimate)
+	}
 	if db.evictionManager != nil {
 		db.evictionManager.Touch(key)
 	}
@@ -343,12 +360,32 @@ func (db *DB) PutEntity(key string, entity *database.DataEntity) int {
 
 // PutIfExists edit an existing DataEntity
 func (db *DB) PutIfExists(key string, entity *database.DataEntity) int {
-	return db.data.PutIfExistsWithLock(key, entity)
+	raw, _ := db.data.GetWithLock(key)
+	ret := db.data.PutIfExistsWithLock(key, entity)
+	if ret > 0 {
+		if entity != nil {
+			if old, ok := raw.(*database.DataEntity); ok && old != nil {
+				db.estimatedBytes.Add(accountedKeyBytes(key, entity.Data) - accountedKeyBytes(key, old.Data))
+			} else {
+				db.estimatedBytes.Add(accountedKeyBytes(key, entity.Data))
+			}
+		} else {
+			db.estimatedBytes.Add(bytesPerKeyEstimate)
+		}
+	}
+	return ret
 }
 
 // PutIfAbsent insert an DataEntity only if the key not exists
 func (db *DB) PutIfAbsent(key string, entity *database.DataEntity) int {
 	ret := db.data.PutIfAbsentWithLock(key, entity)
+	if ret > 0 {
+		if entity != nil {
+			db.estimatedBytes.Add(accountedKeyBytes(key, entity.Data))
+		} else {
+			db.estimatedBytes.Add(bytesPerKeyEstimate)
+		}
+	}
 	// db.insertCallback may be set as nil, during `if` and actually callback
 	// so introduce a local variable `cb`
 	if cb := db.insertCallback; ret > 0 && cb != nil {
@@ -375,6 +412,7 @@ func (db *DB) removeKey(key string, notifyDel bool) {
 			if ed, ok := entity.Data.(*dict.ExpireDict); ok && ed != nil {
 				ed.Clear()
 			}
+			db.estimatedBytes.Add(-accountedKeyBytes(key, entity.Data))
 		}
 	}
 	signalTSWaiters(key) // TS.READ blocked clients reply empty on key removal
@@ -413,6 +451,7 @@ func (db *DB) Flush() {
 	db.data.Clear()
 	db.ttlMap.Clear()
 	db.versionMap.Clear()
+	db.estimatedBytes.Store(0)
 }
 
 /* ---- Lock Function ----- */
