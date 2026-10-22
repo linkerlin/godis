@@ -26,6 +26,11 @@
   - **TestReplicationMasterSide 传播等待**：改等真正的 `SET c` 传播（带 10s 超时），不再「首个非 ping 即 break」——-race 时序下先出队的是全同步阶段残留的握手回复
   - **FT 全局状态隔离**：`searchEngines`/`searchAliases`/`ftConfig` 均为进程级全局——`TestAggregateMaxResultsCap` 增加 stale 引擎防御性 DROP + 失败时转储全局 FT 配置（CI 曾现 total=6/2 行的异形回复，本地 8 轮全包 shuffle + 100 次重跑均不复现）；`TestFTAliasAndDictArityBatch86` 清理自己的全局别名与索引（-count>1 自泄漏）
   - **TestClusterBootstrap 双视图收敛**：rebalance 后同时等 leader 与 follower 两个 FSM 视图收敛（原先只等 leader，撞上路由变更传播窗口即收到 MOVED 直接 panic），GET 断言不再裸类型转换
+- **夜间 race 门禁第三批（2026-10-23，commit ae4ed5f）**：
+  - **AOF 回调热路径原子化**（产品级）：`DB.addAof` 由裸字段改为 `atomic.Value`（`addAof()`/`setAddAof()`/`getAddAof()`/`hasAddAof()` 垫片，全部读点零改动）——AOF rewrite、复制 backlog 接线、脚本抑制、SWAPDB 四类后台协程换写该回调，与每条写命令的读竞争（e6soak 抓到 `execSet` 读 vs `wireReplicationBacklogFeed` 写）
+  - **ACL 引擎全局原子化**（产品级）：`aclEngine` 改 `atomic.Pointer`——上一测试残留的异步迁移协程仍在读，下一测试的 `InitACLEngine` 重新赋值全局即竞争
+  - **重连 mock 同步化**：`TestReplicationSlaveSide` 对 `masterConn`/`lastRecvTime` 的字段戳改为持 `slaveStatus.mutex`（与 receiveAOF 协程写同字段竞争）；触发重连后即恢复 `ReplTimeout`（1s 超时会把慢速 CI 上的新会话反复掐断使其永不收敛）
+  - **HLL 精度测试定种子**：随机输入下 2% 容差是 ~2.6σ 检验，~1% 的 CI 运行会偶发越界；改用固定种子生成器，确定性断言
 
 ## [v1.3.0] - 2026-10-23
 
