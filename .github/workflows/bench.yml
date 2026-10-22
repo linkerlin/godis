@@ -1,0 +1,30 @@
+# E5-2 weekly performance observation — NOT a gate.
+# Runs the quick twin-container benchmark matrix (scripts/bench.sh) and uploads
+# results.tsv as an artifact for week-over-week trending.
+# Policy (same observational stance as coverall.yml / R4-2): never fail the job
+# on throughput drift; shared runners are noisy, compare shapes not absolutes.
+# Local numbers on a quiet machine remain the reference (docs/PERFORMANCE.md).
+name: Bench
+
+on:
+  schedule:
+    - cron: '0 5 * * 1' # Mondays 05:00 UTC
+  workflow_dispatch:
+
+jobs:
+  bench:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run quick benchmark matrix
+        run: |
+          docker build -q -t godis:bench .
+          BENCH_N=50000 bash scripts/bench.sh
+
+      - name: Upload results
+        uses: actions/upload-artifact@v4
+        with:
+          name: bench-results-${{ github.run_id }}
+          path: tmp/bench/results.tsv
+          if-no-files-found: error
