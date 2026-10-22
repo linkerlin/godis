@@ -1,6 +1,8 @@
 package config
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -83,5 +85,25 @@ func TestSplitConfigDirective(t *testing.T) {
 	_, _, ok = splitConfigDirective("# comment")
 	if ok {
 		t.Fatal("comment should be skipped")
+	}
+}
+
+func TestSetupConfigDefaultsAppendFilenameAndFsync(t *testing.T) {
+	conf := filepath.Join(t.TempDir(), "godis.conf")
+	if err := os.WriteFile(conf, []byte("appendonly yes\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	oldProps, oldPath := Properties, GetConfigFilePath()
+	defer func() { Properties = oldProps; SetConfigFilePath(oldPath) }()
+	if err := SetupConfig(conf); err != nil {
+		t.Fatal(err)
+	}
+	// Parity with CONFIG SET appendonly yes: empty filename/fsync at startup
+	// must fall back to the same defaults instead of opening the empty path.
+	if Properties.AppendFilename != "appendonly.aof" {
+		t.Fatalf("appendfilename default: got %q", Properties.AppendFilename)
+	}
+	if Properties.AppendFsync != "everysec" {
+		t.Fatalf("appendfsync default: got %q", Properties.AppendFsync)
 	}
 }

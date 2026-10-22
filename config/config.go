@@ -536,6 +536,15 @@ func SetupConfig(configFilename string) error {
 	if Properties.Dir == "" {
 		Properties.Dir = "."
 	}
+	// Startup path parity with CONFIG SET appendonly yes: default filename/fsync
+	// (config_cmd.go) — a config file with appendonly yes but no appendfilename
+	// must not try to open the empty path.
+	if Properties.AppendFilename == "" {
+		Properties.AppendFilename = "appendonly.aof"
+	}
+	if Properties.AppendFsync == "" {
+		Properties.AppendFsync = "everysec"
+	}
 	return nil
 }
 
