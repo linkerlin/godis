@@ -38,7 +38,7 @@ func (db *DB) wireExpireDict(hashKey string, ed *dict.ExpireDict) {
 
 // onHashFieldExpired propagates a TTL-driven field deletion (AOF HDEL + notify).
 func (db *DB) onHashFieldExpired(hashKey, field string) {
-	if db.addAof != nil {
+	if db.hasAddAof() {
 		db.addAof(utils.ToCmdLine3("hdel", []byte(hashKey), []byte(field)))
 	}
 	notifyKeyspaceEvent(db, "hdel", hashKey)
@@ -753,7 +753,7 @@ func execHExpireFamily(db *DB, args [][]byte, cmd string, at bool, unit time.Dur
 	// Persist the client command when anything mutated (align HGETEX/HPERSIST);
 	// Redis filters to successful fields only — Godis keeps the original line.
 	if mutated {
-		if db.addAof != nil {
+		if db.hasAddAof() {
 			db.addAof(utils.ToCmdLine3(cmd, args...))
 		}
 		if expireSet {

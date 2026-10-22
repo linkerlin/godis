@@ -83,11 +83,11 @@ func TestM2hProbBFTopKCF(t *testing.T) {
 func TestM2hTSDecrByAOFCmd(t *testing.T) {
 	db := makeTestDB()
 	var aofCmds []string
-	db.addAof = func(cmdLine CmdLine) {
+	db.setAddAof(func(cmdLine CmdLine) {
 		if len(cmdLine) > 0 {
 			aofCmds = append(aofCmds, strings.ToLower(string(cmdLine[0])))
 		}
-	}
+	})
 	key := "ts:m2h:decr"
 	db.Exec(nil, utils.ToCmdLine("TS.CREATE", key))
 	db.Exec(nil, utils.ToCmdLine("TS.ADD", key, "1000", "10"))

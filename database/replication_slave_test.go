@@ -132,10 +132,19 @@ func TestReplicationSlaveSide(t *testing.T) {
 
 	// test reconnect
 	config.Properties.ReplTimeout = 1
-	_ = server.slaveStatus.masterConn.Close()
+	// Field pokes go under slaveStatus.mutex: receiveAOF writes the same
+	// fields from its goroutine, and an unlocked mock raced it (-race gate).
+	server.slaveStatus.mutex.Lock()
+	if server.slaveStatus.masterConn != nil {
+		_ = server.slaveStatus.masterConn.Close()
+	}
 	server.slaveStatus.lastRecvTime = time.Now().Add(-time.Hour) // mock timeout
+	server.slaveStatus.mutex.Unlock()
 	server.slaveCron()
-	time.Sleep(3 * time.Second)
+	// The 1s ReplTimeout is only needed to trigger the reconnect; leaving it
+	// set would keep dropping the fresh session on a slow (race-instrumented)
+	// CI runner before it can ever converge.
+	config.Properties.ReplTimeout = 60
 	ret = masterCli.Send(utils.ToCmdLine("set", "1", "3"))
 	asserts.AssertStatusReply(t, ret, "OK")
 	success = false

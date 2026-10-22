@@ -70,11 +70,11 @@ func TestExpiredKeyPropagatesToAOF(t *testing.T) {
 	db := makeTestDB()
 	var mu sync.Mutex
 	var aofLines []CmdLine
-	db.addAof = func(line CmdLine) {
+	db.setAddAof(func(line CmdLine) {
 		mu.Lock()
 		aofLines = append(aofLines, line)
 		mu.Unlock()
-	}
+	})
 	asserts.AssertStatusReply(t, db.Exec(nil, utils.ToCmdLine("SET", "prop", "v")), "OK")
 	asserts.AssertIntReply(t, db.Exec(nil, utils.ToCmdLine("EXPIRE", "prop", "1")), 1)
 	waitUntilExpired(t, db, "prop", 3*time.Second)

@@ -25,8 +25,8 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 			config.Properties.RequirePass = value
 			// Sync the default ACL user's password (Redis 6+ semantics): AUTH
 			// checks aclEngine first, so requirepass alone would diverge.
-			if aclEngine != nil {
-				if u, ok := aclEngine.GetUser("default"); ok {
+			if aclEngine.Load() != nil {
+				if u, ok := aclEngine.Load().GetUser("default"); ok {
 					if value == "" {
 						u.ClearPasswords() // nopass
 					} else {

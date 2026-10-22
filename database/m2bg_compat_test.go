@@ -153,7 +153,7 @@ func TestM2bgLuaSetReplNoneSkipsAOF(t *testing.T) {
 	db := makeTestDB()
 	InitScriptingEngine(db)
 	var aofN int
-	db.addAof = func(CmdLine) { aofN++ }
+	db.setAddAof(func(CmdLine) { aofN++ })
 
 	r := db.Exec(nil, utils.ToCmdLine("EVAL", `
 redis.set_repl(redis.REPL_NONE)

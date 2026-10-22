@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/linkerlin/godis/acl"
@@ -15,7 +16,10 @@ import (
 	"github.com/linkerlin/godis/redis/protocol"
 )
 
-var aclEngine *acl.Engine
+// aclEngine is written by InitACLEngine (server startup, cluster test
+// construction) and read on every command; atomic so a leftover async
+// goroutine from a prior cluster test never races the re-init.
+var aclEngine atomic.Pointer[acl.Engine]
 
 // ACLLogEntry 表示ACL日志条目
 type ACLLogEntry struct {
@@ -149,11 +153,11 @@ func resetACLLog() {
 
 // InitACLEngine initializes the ACL engine
 func (server *Server) InitACLEngine() {
-	aclEngine = acl.NewEngine()
+	aclEngine.Store(acl.NewEngine())
 
 	aclPath := resolveACLFilePath()
 	if aclFileExists(aclPath) {
-		if err := aclEngine.LoadFromFile(aclPath); err != nil {
+		if err := aclEngine.Load().LoadFromFile(aclPath); err != nil {
 			logger.Errorf("load aclfile %s failed: %+v, falling back to default user", aclPath, err)
 		} else {
 			return
@@ -166,7 +170,7 @@ func (server *Server) InitACLEngine() {
 	} else {
 		rules = append(rules, "nopass")
 	}
-	_, _ = aclEngine.SetUser("default", rules)
+	_, _ = aclEngine.Load().SetUser("default", rules)
 }
 
 // execACL handles ACL subcommands
@@ -228,14 +232,14 @@ func execACLList(args [][]byte) redis.Reply {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'acl|list' command")
 	}
 
-	if aclEngine == nil {
+	if aclEngine.Load() == nil {
 		return protocol.MakeEmptyMultiBulkReply()
 	}
 
-	users := aclEngine.GetAllUsers()
+	users := aclEngine.Load().GetAllUsers()
 	result := make([][]byte, len(users))
 	for i, user := range users {
-		if u, ok := aclEngine.GetUser(user); ok {
+		if u, ok := aclEngine.Load().GetUser(user); ok {
 			result[i] = formatACLUser(u)
 		}
 	}
@@ -249,11 +253,11 @@ func execACLUsers(args [][]byte) redis.Reply {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'acl|users' command")
 	}
 
-	if aclEngine == nil {
+	if aclEngine.Load() == nil {
 		return protocol.MakeEmptyMultiBulkReply()
 	}
 
-	users := aclEngine.GetAllUsers()
+	users := aclEngine.Load().GetAllUsers()
 	result := make([][]byte, len(users))
 	for i, user := range users {
 		result[i] = []byte(user)
@@ -268,12 +272,12 @@ func execACLGetUser(args [][]byte) redis.Reply {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'acl|getuser' command")
 	}
 
-	if aclEngine == nil {
+	if aclEngine.Load() == nil {
 		return &protocol.NullBulkReply{}
 	}
 
 	username := string(args[0])
-	user, exists := aclEngine.GetUser(username)
+	user, exists := aclEngine.Load().GetUser(username)
 	if !exists {
 		return &protocol.NullBulkReply{}
 	}
@@ -287,7 +291,7 @@ func execACLSetUser(args [][]byte) redis.Reply {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'acl|setuser' command")
 	}
 
-	if aclEngine == nil {
+	if aclEngine.Load() == nil {
 		return protocol.MakeErrReply("ERR ACL engine not initialized")
 	}
 
@@ -297,7 +301,7 @@ func execACLSetUser(args [][]byte) redis.Reply {
 		rules[i-1] = string(args[i])
 	}
 
-	_, err := aclEngine.SetUser(username, rules)
+	_, err := aclEngine.Load().SetUser(username, rules)
 	if err != nil {
 		return protocol.MakeErrReply("ERR " + err.Error())
 	}
@@ -311,7 +315,7 @@ func execACLDelUser(args [][]byte) redis.Reply {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'acl|deluser' command")
 	}
 
-	if aclEngine == nil {
+	if aclEngine.Load() == nil {
 		return protocol.MakeIntReply(0)
 	}
 
@@ -320,7 +324,7 @@ func execACLDelUser(args [][]byte) redis.Reply {
 		names[i] = string(arg)
 	}
 
-	deleted := aclEngine.DelUser(names)
+	deleted := aclEngine.Load().DelUser(names)
 	return protocol.MakeIntReply(int64(deleted))
 }
 
@@ -329,7 +333,7 @@ func execACLCat(args [][]byte) redis.Reply {
 	if len(args) > 1 {
 		return protocol.MakeErrReply("ERR unknown subcommand or wrong number of arguments for 'CAT'. Try ACL HELP.")
 	}
-	if aclEngine == nil {
+	if aclEngine.Load() == nil {
 		return protocol.MakeEmptyMultiBulkReply()
 	}
 
@@ -570,14 +574,14 @@ func execACLDryRun(db *DB, args [][]byte) redis.Reply {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'acl|dryrun' command")
 	}
 
-	if aclEngine == nil {
+	if aclEngine.Load() == nil {
 		return protocol.MakeOkReply()
 	}
 
 	username := string(args[0])
 	command := string(args[1])
 
-	user, exists := aclEngine.GetUser(username)
+	user, exists := aclEngine.Load().GetUser(username)
 	if !exists {
 		return protocol.MakeErrReply("ERR User '" + username + "' not found")
 	}
@@ -636,14 +640,14 @@ func execACLSave(args [][]byte) redis.Reply {
 	if len(args) != 0 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'acl|save' command")
 	}
-	if aclEngine == nil {
+	if aclEngine.Load() == nil {
 		return protocol.MakeErrReply("ERR ACL engine not initialized")
 	}
 	path := resolveACLFilePath()
 	if path == "" {
 		return protocol.MakeErrReply("ERR ACL file not configured")
 	}
-	if err := aclEngine.SaveToFile(path); err != nil {
+	if err := aclEngine.Load().SaveToFile(path); err != nil {
 		return protocol.MakeErrReply("ERR " + err.Error())
 	}
 	return protocol.MakeOkReply()
@@ -653,7 +657,7 @@ func execACLLoad(args [][]byte) redis.Reply {
 	if len(args) != 0 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'acl|load' command")
 	}
-	if aclEngine == nil {
+	if aclEngine.Load() == nil {
 		return protocol.MakeErrReply("ERR ACL engine not initialized")
 	}
 	path := resolveACLFilePath()
@@ -663,7 +667,7 @@ func execACLLoad(args [][]byte) redis.Reply {
 	if !aclFileExists(path) {
 		return protocol.MakeErrReply("ERR ACL file not found")
 	}
-	if err := aclEngine.LoadFromFile(path); err != nil {
+	if err := aclEngine.Load().LoadFromFile(path); err != nil {
 		return protocol.MakeErrReply("ERR " + err.Error())
 	}
 	return protocol.MakeOkReply()

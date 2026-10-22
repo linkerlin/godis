@@ -303,14 +303,14 @@ func (server *Server) wireReplicationBacklogFeed(listener *replAofListener) {
 	}
 	for _, holder := range server.dbSet {
 		db := holder.Load().(*DB)
-		db.addAof = func(line CmdLine) {
+		db.setAddAof(func(line CmdLine) {
 			server.masterStatus.mu.RLock()
 			l := server.masterStatus.aofListener
 			server.masterStatus.mu.RUnlock()
 			if l != nil {
 				l.Callback([]CmdLine{line})
 			}
-		}
+		})
 	}
 }
 

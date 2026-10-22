@@ -155,9 +155,9 @@ func restoreFTIndexFromRDB(db *DB, args [][]byte) {
 	if len(args) == 0 {
 		return
 	}
-	old := db.addAof
-	db.addAof = func(CmdLine) {}
-	defer func() { db.addAof = old }()
+	old := db.getAddAof()
+	db.setAddAof(func(CmdLine) {})
+	defer func() { db.setAddAof(old) }()
 	r := execFTCreate(db, args)
 	if protocol.IsErrorReply(r) {
 		logger.Warn("rdb: FT.CREATE restore failed: " + string(r.ToBytes()))
@@ -181,14 +181,14 @@ func (server *Server) bindPersister(persister *aof.Persister) {
 	// bind SaveCmdLine
 	for _, db := range server.dbSet {
 		singleDB := db.Load().(*DB)
-		singleDB.addAof = func(line CmdLine) {
+		singleDB.setAddAof(func(line CmdLine) {
 			if atomic.LoadInt32(&singleDB.suppressAof) > 0 {
 				return
 			}
 			if config.Properties.AppendOnly && server.persister != nil { // config may be changed during runtime
 				server.persister.SaveCmdLine(singleDB.index, line)
 			}
-		}
+		})
 	}
 }
 

@@ -36,8 +36,12 @@ type DB struct {
 	// key -> version(uint32)
 	versionMap *dict.ConcurrentDict
 
-	// addaof is used to add command to aof
-	addAof      func(CmdLine)
+	// addAofVal holds the AOF append callback (addAof()/setAddAof()/getAddAof()
+	// shims). It is swapped by AOF rewrite, replication backlog wiring,
+	// scripting suppression and SWAPDB from background goroutines while every
+	// write command reads it, hence atomic.Value rather than a plain field
+	// (the nightly -race gate flagged the plain swap).
+	addAofVal   atomic.Value // func(CmdLine)
 	suppressAof int32
 
 	// callbacks
@@ -80,7 +84,6 @@ func makeDB() *DB {
 		data:       dict.MakeConcurrent(dataDictSize),
 		ttlMap:     dict.MakeConcurrent(ttlDictSize),
 		versionMap: dict.MakeConcurrent(dataDictSize),
-		addAof:     func(line CmdLine) {},
 	}
 	return db
 }
@@ -91,7 +94,6 @@ func makeDBWithSize(dictSize int) *DB {
 		data:       dict.MakeConcurrent(dictSize),
 		ttlMap:     dict.MakeConcurrent(ttlDictSize),
 		versionMap: dict.MakeConcurrent(dictSize),
-		addAof:     func(line CmdLine) {},
 	}
 	return db
 }
@@ -102,9 +104,32 @@ func makeBasicDB() *DB {
 		data:       dict.MakeConcurrent(dataDictSize),
 		ttlMap:     dict.MakeConcurrent(ttlDictSize),
 		versionMap: dict.MakeConcurrent(dataDictSize),
-		addAof:     func(line CmdLine) {},
 	}
 	return db
+}
+
+// addAof appends a command to the AOF via the current callback; no-op when
+// unset (unit-test DBs never wire one).
+func (db *DB) addAof(line CmdLine) {
+	if fn := db.getAddAof(); fn != nil {
+		fn(line)
+	}
+}
+
+func (db *DB) getAddAof() func(CmdLine) {
+	fn, _ := db.addAofVal.Load().(func(CmdLine))
+	return fn
+}
+
+func (db *DB) hasAddAof() bool {
+	return db.getAddAof() != nil
+}
+
+func (db *DB) setAddAof(fn func(CmdLine)) {
+	if fn == nil {
+		fn = func(CmdLine) {}
+	}
+	db.addAofVal.Store(fn)
 }
 
 // Exec executes command within one database
@@ -553,7 +578,7 @@ func (db *DB) Expire(key string, expireTime time.Time) {
 			db.addVersion(key)
 			// Propagate the expiry to replicas: the replication backlog is fed
 			// from the AOF, so an expired key must be DEL'd there too.
-			if db.addAof != nil {
+			if db.hasAddAof() {
 				db.addAof(utils.ToCmdLine3("del", []byte(key)))
 			}
 		}
@@ -583,7 +608,7 @@ func (db *DB) IsExpired(key string) bool {
 		db.removeKey(key, false)
 		db.addVersion(key)
 		// Propagate to replicas via the AOF-fed backlog (see Expire callback).
-		if db.addAof != nil {
+		if db.hasAddAof() {
 			db.addAof(utils.ToCmdLine3("del", []byte(key)))
 		}
 	}

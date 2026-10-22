@@ -14,14 +14,14 @@ func TestInitACLEngineOnServerStart(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewTestServer: %v", err)
 	}
-	if aclEngine == nil {
+	if aclEngine.Load() == nil {
 		t.Fatal("aclEngine should be initialized after NewTestServer")
 	}
-	users := aclEngine.GetAllUsers()
+	users := aclEngine.Load().GetAllUsers()
 	if len(users) == 0 {
 		t.Fatal("expected at least default ACL user")
 	}
-	_, ok := aclEngine.GetUser("default")
+	_, ok := aclEngine.Load().GetUser("default")
 	if !ok {
 		t.Fatal("default ACL user missing")
 	}
@@ -80,8 +80,8 @@ func TestHelloAuthUpdatesConnection(t *testing.T) {
 	c := connection.NewFakeConn()
 	// A previous test may have initialized the ACL default user with a
 	// different requirepass; clear it so HELLO AUTH uses the current password.
-	if aclEngine != nil {
-		if u, ok := aclEngine.GetUser("default"); ok {
+	if aclEngine.Load() != nil {
+		if u, ok := aclEngine.Load().GetUser("default"); ok {
 			u.ClearPasswords()
 		}
 	}

@@ -229,7 +229,7 @@ func (em *EvictionManager) EvictKeys(target int64) int {
 		em.db.removeKey(key, false)
 		em.db.addVersion(key)
 		notifyKeyspaceEvent(em.db, "evicted", key)
-		if em.db.addAof != nil {
+		if em.db.hasAddAof() {
 			em.db.addAof(utils.ToCmdLine3("del", []byte(key)))
 		}
 		em.db.RWUnLocks([]string{key}, nil)

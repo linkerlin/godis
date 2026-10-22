@@ -60,8 +60,8 @@ func TestNotifyEmptyStringAccepted(t *testing.T) {
 	// Ensure no requirepass is active (a prior test may have left one), so the
 	// CONFIG command below isn't NOAUTH-rejected.
 	config.Properties.RequirePass = ""
-	if aclEngine != nil {
-		if u, ok := aclEngine.GetUser("default"); ok {
+	if aclEngine.Load() != nil {
+		if u, ok := aclEngine.Load().GetUser("default"); ok {
 			u.ClearPasswords()
 		}
 	}

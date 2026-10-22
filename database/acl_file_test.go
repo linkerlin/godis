@@ -40,7 +40,7 @@ func TestACLFileSaveLoadOnRestart(t *testing.T) {
 	}
 	defer server2.Close()
 
-	user, ok := aclEngine.GetUser("app")
+	user, ok := aclEngine.Load().GetUser("app")
 	if !ok {
 		t.Fatal("app user should be loaded from aclfile")
 	}
@@ -60,7 +60,7 @@ func TestACLLoadCommand(t *testing.T) {
 	}
 	defer func() { config.Properties = oldProps }()
 
-	engine := aclEngine
+	engine := aclEngine.Load()
 	if engine == nil {
 		t.Fatal("acl engine not initialized")
 	}
@@ -73,7 +73,7 @@ func TestACLLoadCommand(t *testing.T) {
 	ret := testServer.Exec(c, utils.ToCmdLine("ACL", "LOAD"))
 	asserts.AssertStatusReply(t, ret, "OK")
 
-	if _, ok := aclEngine.GetUser("temp"); ok {
+	if _, ok := aclEngine.Load().GetUser("temp"); ok {
 		t.Fatal("ACL LOAD should replace in-memory users from file")
 	}
 }

@@ -51,7 +51,7 @@ func startTestReplicaPair(t *testing.T) (*Server, *Server, func()) {
 	master.bindPersister(persister)
 	for _, holder := range master.dbSet {
 		db := holder.Load().(*DB)
-		db.addAof = func(line CmdLine) { persister.SaveCmdLine(0, line) }
+		db.setAddAof(func(line CmdLine) { persister.SaveCmdLine(0, line) })
 	}
 	// Use real TCP listeners so replication handshake works.
 	masterAddr, closeMasterLn := startTCPListener(t, master)

@@ -2,8 +2,9 @@ package database
 
 import (
 	"encoding/binary"
-	"strings"
 	"math"
+	"math/rand"
+	"strings"
 	"testing"
 
 	"github.com/linkerlin/godis/datastruct/hll"
@@ -46,8 +47,13 @@ func TestHLLStoredAsString(t *testing.T) {
 func TestHLLCountAccuracy(t *testing.T) {
 	db := makeTestDB()
 	const n = 10000
+	// Seeded generator: with random inputs the 2% bound is a ~2.6σ test that
+	// fails on roughly 1 in 100 CI runs (the nightly -race gate hit one).
+	rng := rand.New(rand.NewSource(42))
+	buf := make([]byte, 8)
 	for i := 0; i < n; i++ {
-		db.Exec(nil, utils.ToCmdLine("PFADD", "acc", utils.RandString(8)))
+		binary.BigEndian.PutUint64(buf, rng.Uint64())
+		db.Exec(nil, utils.ToCmdLine("PFADD", "acc", string(buf)))
 	}
 	r := db.Exec(nil, utils.ToCmdLine("PFCOUNT", "acc"))
 	ir, ok := r.(*protocol.IntReply)

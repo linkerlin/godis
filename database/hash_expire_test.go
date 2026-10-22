@@ -206,11 +206,11 @@ func TestHashFieldLazyExpirePropagatesHDel(t *testing.T) {
 	db := makeTestDB()
 	var mu sync.Mutex
 	var aofLines []CmdLine
-	db.addAof = func(line CmdLine) {
+	db.setAddAof(func(line CmdLine) {
 		mu.Lock()
 		aofLines = append(aofLines, line)
 		mu.Unlock()
-	}
+	})
 
 	asserts.AssertIntReply(t, db.Exec(nil, utils.ToCmdLine("HSET", "hk", "f1", "v1", "f2", "v2")), 2)
 	reply := db.Exec(nil, utils.ToCmdLine("HPEXPIRE", "hk", "50", "FIELDS", "1", "f1"))
@@ -235,11 +235,11 @@ func TestHashFieldActiveExpirePropagatesHDel(t *testing.T) {
 	db := makeTestDB()
 	var mu sync.Mutex
 	var aofLines []CmdLine
-	db.addAof = func(line CmdLine) {
+	db.setAddAof(func(line CmdLine) {
 		mu.Lock()
 		aofLines = append(aofLines, line)
 		mu.Unlock()
-	}
+	})
 
 	asserts.AssertIntReply(t, db.Exec(nil, utils.ToCmdLine("HSET", "hk", "f1", "v1")), 1)
 	reply := db.Exec(nil, utils.ToCmdLine("HEXPIRE", "hk", "1", "FIELDS", "1", "f1"))
@@ -297,11 +297,11 @@ func TestHExpireWritesAofWhenMutated(t *testing.T) {
 			db := makeTestDB()
 			var mu sync.Mutex
 			var aofLines []CmdLine
-			db.addAof = func(line CmdLine) {
+			db.setAddAof(func(line CmdLine) {
 				mu.Lock()
 				aofLines = append(aofLines, line)
 				mu.Unlock()
-			}
+			})
 			asserts.AssertIntReply(t, db.Exec(nil, utils.ToCmdLine("HSET", "hk", "f1", "v1")), 1)
 			reply := db.Exec(nil, utils.ToCmdLine(tc.args...))
 			if got := intArray(reply); len(got) != 1 || got[0] != 1 {
@@ -320,11 +320,11 @@ func TestHExpireNoAofWhenAllConditionsFail(t *testing.T) {
 	db := makeTestDB()
 	var mu sync.Mutex
 	var aofLines []CmdLine
-	db.addAof = func(line CmdLine) {
+	db.setAddAof(func(line CmdLine) {
 		mu.Lock()
 		aofLines = append(aofLines, line)
 		mu.Unlock()
-	}
+	})
 	asserts.AssertIntReply(t, db.Exec(nil, utils.ToCmdLine("HSET", "hk", "f1", "v1")), 1)
 	reply := db.Exec(nil, utils.ToCmdLine("HEXPIRE", "hk", "60", "FIELDS", "1", "f1"))
 	if got := intArray(reply); len(got) != 1 || got[0] != 1 {

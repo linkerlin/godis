@@ -77,11 +77,11 @@ func TestM2uEvictPropagatesToAOF(t *testing.T) {
 	db := server.dbSet[0].Load().(*DB)
 	var mu sync.Mutex
 	var aofLines []CmdLine
-	db.addAof = func(line CmdLine) {
+	db.setAddAof(func(line CmdLine) {
 		mu.Lock()
 		aofLines = append(aofLines, line)
 		mu.Unlock()
-	}
+	})
 	asserts.AssertStatusReply(t, server.Exec(c, utils.ToCmdLine("CONFIG", "SET", "maxmemory-policy", "allkeys-random")), "OK")
 	asserts.AssertStatusReply(t, server.Exec(c, utils.ToCmdLine("CONFIG", "SET", "maxmemory", "384")), "OK")
 	for i := 0; i < 3; i++ {

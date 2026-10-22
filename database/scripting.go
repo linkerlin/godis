@@ -74,9 +74,9 @@ func initScriptingEngineLocked(db *DB) {
 				atomic.AddInt32(&target.suppressAof, 1)
 				defer atomic.AddInt32(&target.suppressAof, -1)
 				if target.server == nil {
-					saved := target.addAof
-					target.addAof = func(CmdLine) {}
-					defer func() { target.addAof = saved }()
+					saved := target.getAddAof()
+					target.setAddAof(func(CmdLine) {})
+					defer func() { target.setAddAof(saved) }()
 				}
 			}
 			result := target.execWithLock(nil, cmdLine)
@@ -98,10 +98,10 @@ func initScriptingEngineLocked(db *DB) {
 // scriptACLCheckCmd implements redis.acl_check_cmd using the default ACL user
 // when no connection-bound user is available inside nested script execution.
 func scriptACLCheckCmd(cmd string, args []string) bool {
-	if aclEngine == nil {
+	if aclEngine.Load() == nil {
 		return true
 	}
-	user, ok := aclEngine.GetUser("default")
+	user, ok := aclEngine.Load().GetUser("default")
 	if !ok {
 		return true
 	}

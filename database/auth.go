@@ -26,15 +26,15 @@ func connACLUsername(c redis.Connection) string {
 }
 
 func lookupACLUser(c redis.Connection) (*acl.User, bool) {
-	if aclEngine == nil {
+	if aclEngine.Load() == nil {
 		return nil, false
 	}
-	return aclEngine.GetUser(connACLUsername(c))
+	return aclEngine.Load().GetUser(connACLUsername(c))
 }
 
 // isAuthenticated reports whether the connection may execute protected commands.
 func isAuthenticated(c redis.Connection) bool {
-	if aclEngine != nil {
+	if aclEngine.Load() != nil {
 		user, ok := lookupACLUser(c)
 		if !ok || !user.Enabled {
 			return false
@@ -72,8 +72,8 @@ func checkProtectedMode(c redis.Connection) redis.Reply {
 	if config.Properties.RequirePass != "" {
 		return nil
 	}
-	if aclEngine != nil {
-		if u, ok := aclEngine.GetUser("default"); ok && u.HasPassword() {
+	if aclEngine.Load() != nil {
+		if u, ok := aclEngine.Load().GetUser("default"); ok && u.HasPassword() {
 			return nil
 		}
 	}
@@ -161,7 +161,7 @@ func CheckACLPermission(c redis.Connection, cmdName string, args [][]byte) redis
 }
 
 func checkACLPermission(c redis.Connection, cmdName string, args [][]byte) redis.Reply {
-	if aclEngine == nil || aclExemptCommands[cmdName] {
+	if aclEngine.Load() == nil || aclExemptCommands[cmdName] {
 		return nil
 	}
 	user, ok := lookupACLUser(c)
@@ -202,8 +202,8 @@ func checkACLPermission(c redis.Connection, cmdName string, args [][]byte) redis
 
 // authenticateCredentials validates username/password without binding a connection.
 func authenticateCredentials(username, password string) redis.Reply {
-	if aclEngine != nil {
-		_, err := aclEngine.Authenticate(username, password)
+	if aclEngine.Load() != nil {
+		_, err := aclEngine.Load().Authenticate(username, password)
 		if err != nil {
 			return protocol.MakeErrReply("ERR invalid username or password")
 		}

@@ -691,7 +691,7 @@ func (server *Server) loadDB(dbIndex int, newDB *DB) redis.Reply {
 		return protocol.MakeErrReply("ERR internal error")
 	}
 	newDB.index = dbIndex
-	newDB.addAof = oldDB.addAof // inherit oldDB
+	newDB.setAddAof(oldDB.getAddAof()) // inherit oldDB
 	// Inherit the server wiring that newServerWithSize sets up: without it,
 	// FLUSHDB/FLUSHALL would leave the new DB with a nil server (breaking
 	// CLIENT PAUSE and every other db.server-backed path) and lose eviction
