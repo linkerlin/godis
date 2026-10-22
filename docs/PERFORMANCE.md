@@ -68,11 +68,43 @@ Redis 对照腿在同环境同波动，因此**比值可信、绝对值只作方
 
 ## 发现与 E5-3 线索（按影响排序）
 
-1. **LRU 淘汰压力下写入崩塌（最高优先）**：同条件（32MB 上限、5 万键、-r 50000）Redis SET 367k ops/s，Godis 465 ops/s——约 **800×** 差距，p50 107ms。嫌疑：写路径逐命令内存估算 / 采样淘汰的锁与复杂度（E2 治理过 `EvictionManager`，但压力场景仍崩）。
-2. **pipeline 完全不涨吞吐**：std 引擎 P1→P16 吞吐持平（~22.5k），Redis 同环境 103k→571k。50 并发 / 22.5k ≈ 每命令 ~2.2ms 服务端成本，与 pipeline 深度无关——像是逐命令串行点（锁/通道/系统调用）。**GC 已排除**：`GOGC=800` 探针吞吐不变（18.0k→18.4k），小值场景几乎无 GC 周期。
-3. **GET 慢于 SET 且尾延迟差**：std 引擎 GET 13k vs SET 22.5k，P16 时 GET p99 高达 120-130ms（SET 4-5ms）。读路径比写路径多做的事（TRACKING 记账、惰性过期检查、ttlMap 读锁等）需要 pprof 定位。
-4. **gnet 引擎慢于 std 且 pipeline 负作用**：P1 就差 2.8×；P16 起 p50 爆到 89-132ms、P64 到 278-526ms——pipeline 越深延迟越差，怀疑批量回复路径（AsyncWrite 合并/唤醒）有逐命令开销。生产默认仍应选 std，gnet 待 E5-3 结论。
-5. **`appendfsync always` 308 ops/s**：本环境单次 fsync ~150ms（虚拟盘），Redis 同环境 everysec 也从 103k 掉到 55k；always 的差距归因需专用磁盘环境，此处只记录现象。
+> **2026-10-22 E5-3 更新**：线索 ①②③ 已定位根因并修复（见下节「E5-3 修复与前后对照」）；
+> ④（gnet pipeline 延迟）部分改善但未根治；⑤ 维持原判；新增一条连接层串行线索。
+
+1. **LRU 淘汰压力下写入崩塌（已修复，40×）**：同条件（32MB 上限、5 万键、-r 50000）Redis SET 367k ops/s，Godis 修复前 465 ops/s（~800×）。根因：`approxKeyMemoryUsage` 在**每条写命令**与 100ms limiter monitor 里对全库做 O(N) 逐键内存估算扫描。
+2. **pipeline 完全不涨吞吐（部分开放）**：std 引擎 P1→P16 吞吐持平，每命令存在与 pipeline 深度无关的串行成本。DB 层经 E5-3 修复后仅 3.3µs/op，但容器端到端仍 ~2.2ms/命令（50 并发、Little 定律成立）——**剩余串行点在连接/服务层，不在 DB 层**，是下一轮 pprof 的目标。
+3. **GET 慢于 SET（已修复，~12×）**：根因是 `GetEntity → peekNoTouch() → goid()`，而 `goid()` 用 `runtime.Stack` 格式化本 goroutine 栈（拿 runtime 全局锁），每次 GET 付 ~30µs 并把所有连接串行化。
+4. **gnet 引擎慢于 std 且 pipeline 负作用（部分改善）**：P1 修复后与 std 持平（2.3×），但 P16/P64 的 p50 仍高（43/169ms，修复前 89/278ms）——批量回复路径仍有逐命令开销，开放。
+5. **`appendfsync always` 308→608 ops/s**：仍受本环境虚拟盘 fsync 支配（Redis 同环境 everysec 也掉半），归因需专用磁盘环境。
+6. **ACL 检查占 Server.Exec 31.5%（已修复）**：`GetCommandCategories` 每次调用扫描全部类别表×逐命令 ToLower；改为启动时反向索引 + 无类别规则用户快路径。
+
+## E5-3 修复与前后对照（2026-10-22）
+
+三个根因修复（`database/list_block.go`、`database/database.go`、`database/eviction.go`、`acl/acl.go`）：
+
+| 修复 | 根因 | 手段 |
+|---|---|---|
+| goid 热路径 | `peekNoTouch/peekBlockingClientID` 每次调 `goid()`=格式化 goroutine 栈（runtime 全局锁） | `sync.Map` 绑定计数器原子快路径；绑定为空（99.99% 场景）时不再调 `goid()` |
+| O(N) 内存记账 | `approxKeyMemoryUsage` 每写命令+每 100ms 全库逐键估算 | DB 级 `estimatedBytes` 原子增量（put/overwrite/条件写/删除四漏斗）；启动后与每分钟全量对账 |
+| ACL 类别扫描 | `GetCommandCategories` 全类别表×ToLower；`commandsAllow` 无规则也扫 | 包初始化建反向索引；`AllowedCategories` 为空时跳过类别查询 |
+
+**DB 层基准前后**（`go test ./database -bench BenchmarkE5`，8 核 i9-13900HX，pprofile 见 `tmp/e5-*.out`）：
+
+| 基准 | 修复前 ns/op | 修复后 ns/op | 提升 |
+|---|---|---|---|
+| SET 并行（无淘汰） | 5,758（36 allocs） | 3,300（32 allocs） | 1.7× |
+| GET 并行 | 42,902（36 allocs） | 3,500（29 allocs） | **12×**，与 SET 持平 |
+| SET 淘汰压力（allkeys-lru 至上限） | 2,060,709（**1,791,730 B/op**） | 5,272（877 B/op） | **391×** |
+
+**容器端到端前后**（quick 矩阵同日复跑；注意 Redis 对照腿同日漂移 +30%，比值取同轮）：
+
+| 单元 | 指标 | 修复前 | 修复后 | 同轮 Redis |
+|---|---|---|---|---|
+| std-off-lru-p16 | SET ops/s（p50） | 465（107ms） | **18,543（2.5ms）** | 526k（0.8ms） |
+| std-off-p1 | GET ops/s（p50） | 13,091（3.3ms） | 17,590（2.5ms），≈SET | 148k（0.18ms） |
+| gnet-off-p1 | SET ops/s | 8,118 | 18,625 | — |
+
+**修复后仍开放的差距**（下一轮 E5-3 / E5 范围）：std/gnet 与 Redis 的整体吞吐差（~5-8×）——DB 层已至 µs 级，剩余 ~2ms/命令在连接/服务层（疑似每回复写路径或全局记账锁），需对 std server 做 e2e pprof；gnet pipeline 深度负作用；always fsync 需专用盘验证。
 
 ## 已知边界与非目标
 

@@ -8,6 +8,12 @@
 
 ### Added
 
+- **E5-3 热点审计与首轮修复（2026-10-22）**：以 `database/e5_perf_test.go`（SET/GET 并行、allkeys-lru 至上限三基准）+ pprof 定位三个根因并修复，前后对照见 [`docs/PERFORMANCE.md`](docs/PERFORMANCE.md)：
+  - **`goid()` 热路径**：`peekNoTouch`/`peekBlockingClientID` 每次调用 `goid()`（`runtime.Stack` 格式化本 goroutine 栈，持 runtime 全局锁）——GET 每次付 ~30µs 且串行化所有连接。改为绑定计数原子快路径，绑定集为空时不再取 goid（`database/list_block.go`）
+  - **O(N) maxmemory 记账**：`approxKeyMemoryUsage` 在每条写命令与 100ms limiter monitor 中全库逐键估算（LRU 压力下 2.06ms/op、1.8MB 分配/op）。改为 DB 级 `estimatedBytes` 原子增量（put/覆盖/条件写/删除四漏斗钩子）+ 启动后与每分钟全量对账（`database/database.go`、`database/eviction.go`、`database/server.go`）；不变量测试 `TestE5IncrementalAccountingMatchesWalk`
+  - **ACL 类别扫描**：`GetCommandCategories` 每次全类别表×逐项 ToLower（占 `Server.Exec` 31.5% CPU）。改为包初始化反向索引 + `AllowedCategories` 为空的快路径（`acl/acl.go`）
+  - 效果：DB 层 GET **12×**（42.9µs→3.5µs，与 SET 持平）、淘汰压力 SET **391×**（2.06ms→5.3µs）、SET 1.7×；容器端到端 lru 单元 SET **465→18,543 ops/s（40×，p50 107ms→2.5ms）**、gnet P1 2.3×。开放项：连接层每命令 ~2ms 串行点（DB 层已 µs 级）、gnet pipeline 深度延迟
+- **E5-2 性能趋势 workflow（2026-10-22）**：`.github/workflows/bench.yml` 每周一 05:00 UTC 跑 quick 双容器矩阵并上传 `results.tsv` 工件供周环比；观察式非门禁（同 R4-2 口径），不因吞吐漂移红灯。
 - **E5-1 性能基准矩阵（2026-10-22）**：新增 [`scripts/bench.sh`](scripts/bench.sh) 与 [`docs/PERFORMANCE.md`](docs/PERFORMANCE.md)。方法为双容器对称对照——Godis（仓库 Dockerfile）与 Redis 8.10 同 docker 网络、由同源 `redis-benchmark` 打两端，quick 矩阵 15 单元（std/gnet × pipeline 1/16/64 × AOF off/everysec/always × 32MB allkeys-lru）+ Redis 对照腿。要点结论：同环境 Redis P1 103k ops/s（p50 0.24ms），Godis std ~22.5k（p50 2.2ms）且 pipeline 不涨；LRU 淘汰压力下 Godis SET 465 vs Redis 367k ops/s（~800×）；GET 慢于 SET；gnet 慢于 std 且 pipeline 负作用；GOGC=800 探针排除 GC 主因。四条差距移交 E5-3（pprof 热点审计）。波动性：同单元 3 连跑 ±13%，跨时段可达 2×（Redis 对照同幅），<10% 门禁需 E5-2 专用 runner。
 - **修复：`appendonly yes` 缺 `appendfilename` 启动即败**：配置文件路径的空文件名导致 AOF persister 打开空路径、进程退出（`CONFIG SET appendonly yes` 运行期路径本就有默认值）。现启动路径同样兜底 `appendonly.aof`/`everysec` 默认（`config/config.go` `SetupConfig`、`main.go` 默认表），新增 `TestSetupConfigDefaultsAppendFilenameAndFsync`。
 - **下一周期演进路线 E5–E8（2026-10-22）**：本地 `演进方案.md`（未入库）新增第六节——**E5 性能工程与基线**（基准矩阵 std/gnet × pipeline × AOF × eviction 同机对照 Redis 8.10、回归观察式门禁、pprof 热点审计）、**E6 正确性纵深**（随机差分测试、崩溃一致性/故障注入、72h 长稳 soak、全绿门禁保持；同日复验全仓 `go test ./...` 47 包全绿）、**E7 集群生产化**（go-redis/lettuce/ioredis/redis-cli -c 互操作认证、reshard 与 Raft 运维闭环、复制韧性演练）、**E8 工程收敛**（根目录过程文档归档 `docs/history/`、巨型文件拆分、运维 runbook、v1.3.0 发版）。命令面扩展本周期冻结（只修 bug 不加新命令）。同步修正 `AGENTS.md`（Array 18 命令、FUNCTION DUMP/RESTORE 互通、sidecar 对拍与 shuffled race 常用命令）与 `TODO.md`（进度总览补 E0–E4 收口与 E5–E8 规划行、尾注日期）。
