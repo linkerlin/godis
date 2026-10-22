@@ -175,7 +175,7 @@ OK
 
 绝大多数项目的 README 只会告诉你它能做什么，然后悄悄把做不到的地方藏起来。但搞工程和搞科学一样，**第一原则是绝不欺骗自己——而你自己是最容易被糊弄过去的人**。
 
-把 Godis 当成工具或研究样本之前，请你先看清下面这份诚实的账单（完整细节全公开在 [`docs/COMPATIBILITY.md`](docs/COMPATIBILITY.md) 与 [`兼容性改进计划.md`](兼容性改进计划.md)）：
+把 Godis 当成工具或研究样本之前，请你先看清下面这份诚实的账单（完整细节全公开在 [`docs/COMPATIBILITY.md`](docs/COMPATIBILITY.md)，历史执行记录归档于 [`docs/history/`](docs/history/)）：
 
 1. **我们是怎么验证“兼容”的？**
    - 不是靠肉眼看几个 `OK`。仓库里的 [`scripts/r4-1-cases.txt`](scripts/r4-1-cases.txt) 攒下了 **12,634 条**确定性命令用例，直接拿真实的 Redis 8.10 实例当裁判（Sidecar），比对两边的输出和错误文案。

@@ -1,7 +1,7 @@
 # Godis 与 Redis 8.x 兼容性说明
 
 > 本文档描述 Godis **当前实现**与 Redis 的差异，避免「100% 兼容」的误导性表述。  
-> **对照基线：Redis Open Source 8.10**（[What's new in 8.10](https://redis.io/docs/latest/develop/whats-new/8-10/)，文档发布 2026-09-11）。8.0–8.2 的可独立收口项已关闭；R5 第一波（8.4–8.10 现有类型上的新命令）已落地，剩余增量见下文「Redis 8.10 增量」与 [`兼容性改进计划.md`](../兼容性改进计划.md) 的「〇、Redis 8.10 演进方案」。  
+> **对照基线：Redis Open Source 8.10**（[What's new in 8.10](https://redis.io/docs/latest/develop/whats-new/8-10/)，文档发布 2026-09-11）。8.0–8.2 的可独立收口项已关闭；R5 第一波（8.4–8.10 现有类型上的新命令）已落地，剩余增量见下文「Redis 8.10 增量」与 [`history/兼容性改进计划.md`](history/兼容性改进计划.md) 的「〇、Redis 8.10 演进方案」（R5 已收口）。  
 > 完整命令列表见 [`commands.md`](../commands.md)（部分条目可能尚未与代码同步）。
 
 ## 评估维度
@@ -341,7 +341,7 @@ UNWATCH、WAIT（简版）、BITOP、BITFIELD、SMOVE、LPOS、XCLAIM、SHUTDOWN
 | 8.10 | 词干 Malay / Tagalog | 归入完整搜索远期项 |
 | 8.10 | 查询超时更严 | 见上表 `RETURN-STRICT` 子集 |
 
-下一阶段的顺序、验收和明确不做项写在 [`兼容性改进计划.md`](../兼容性改进计划.md)「〇、Redis 8.10 演进方案」和 [`TODO.md`](../TODO.md) 的 R5。
+下一阶段的顺序、验收和明确不做项写在 [`history/兼容性改进计划.md`](history/兼容性改进计划.md)「〇、Redis 8.10 演进方案」和 [`TODO.md`](../TODO.md) 的 R5（均已完成/收口，存档）。
 
 ## 测试
 

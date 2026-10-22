@@ -473,4 +473,4 @@ cluster-seed 127.0.0.1:6399
 | Sharded Pub/Sub | ✅ | pubsub/sharded.go, cluster/sharded_pubsub.go |
 | ACL LOG | ✅ | database/acl.go |
 | Hash Field TTL | ✅ | database/hash.go, hash_expire.go（命令写 AOF；到期 HDEL；主动过期持键锁）；纯 AOF rewrite 写 `HPEXPIREAT … FIELDS` |
-| Redis 8.4–8.10 新命令面 | ✅ R5 全部收口 | 对照基线 Redis 8.10。第一波 R5-1～R5-11、第二波 R5-12～R5-17、第三波 R5-18～R5-22（`HOTKEYS`、`HIMPORT`、Array preview 18 命令（含 `ARSCAN`）+ `TYPE array` + opaque 持久化、Hash 字段级 subkey notifications S/T/I/V、JSONPath 过滤/算术/函数/`~`/嵌套/`[*]`/`..`/nodelist）均已落地。差距与近似口径见 `docs/COMPATIBILITY.md`「Redis 8.10 增量」；执行记录见 `兼容性改进计划.md`「〇」与 `TODO.md` R5 |
+| Redis 8.4–8.10 新命令面 | ✅ R5 全部收口 | 对照基线 Redis 8.10。第一波 R5-1～R5-11、第二波 R5-12～R5-17、第三波 R5-18～R5-22（`HOTKEYS`、`HIMPORT`、Array preview 18 命令（含 `ARSCAN`）+ `TYPE array` + opaque 持久化、Hash 字段级 subkey notifications S/T/I/V、JSONPath 过滤/算术/函数/`~`/嵌套/`[*]`/`..`/nodelist）均已落地。差距与近似口径见 `docs/COMPATIBILITY.md`「Redis 8.10 增量」；执行记录见 `docs/history/兼容性改进计划.md`「〇」与 `TODO.md` R5 |

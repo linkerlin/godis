@@ -2,7 +2,7 @@
 
 > **目标：** 从「功能演示型 Redis 实现」推进到「可在内网/测试环境长期跑的服务」。  
 > **原则：** 每阶段有可验证交付物（测试 / CI / 文档）；先收敛核心路径，再扩展功能面。  
-> **索引：** 历史审阅见 [`改进意见_2026-06.md`](改进意见_2026-06.md)；兼容边界见 [`docs/COMPATIBILITY.md`](docs/COMPATIBILITY.md)。
+> **索引：** 历史过程文档见 [`docs/history/`](docs/history/)（2026-10-23 归档）；兼容边界见 [`docs/COMPATIBILITY.md`](docs/COMPATIBILITY.md)。
 
 ---
 
@@ -28,13 +28,13 @@
 - **E5 性能工程与基线**：基准矩阵（std/gnet × pipeline × AOF × eviction，同机对照 Redis 8.10）→ `docs/PERFORMANCE.md`；性能回归观察式门禁；pprof 热点审计。**E5-1 ✅（2026-10-22，`scripts/bench.sh` 双容器对称）**；**E5-2 ✅（weekly `bench.yml` 趋势工件，非门禁）**；**E5-3 ✅ 首轮（goid 热路径/O(N) 记账/ACL 扫描三根因修复：DB 层 GET 12×、淘汰 391×，容器 lru 40×；连接层 ~2ms 串行点与 gnet pipeline 延迟列下一轮）**。
 - **E6 正确性纵深**：守住 `go test ./...` 全绿门禁（已知失败清单已于 2026-10-22 复验清零）；随机差分测试；崩溃一致性/故障注入；72h 长稳 soak。
 - **E7 集群生产化**：go-redis/lettuce/ioredis/redis-cli -c 互操作认证；reshard 与 Raft 运维闭环；复制韧性演练。
-- **E8 工程收敛与发布**：根目录过程文档归档 `docs/history/`；巨型文件拆分（redisearch.go/config_cmd.go/sortedset.go）；运维 runbook；v1.3.0 发版。
+- **E8 工程收敛与发布**：**E8-1 ✅（2026-10-23 归档四份过程文档至 `docs/history/`，根目录活跃 md ≤6）**；**E8-3 ✅（`docs/RUNBOOK.md`：升级回滚/迁移边界/备份恢复，仅收录已验证行为）**；剩余：巨型文件拆分（redisearch.go/config_cmd.go/sortedset.go，E8-2）、v1.3.0 发版范围（E8-4）。
 
 ---
 
 ## 已关闭：Redis 8.x 协议与命令兼容性深度落地
 
-> 来源：[`分析报告.md`](分析报告.md)（2026-06-29）。  
+> 来源：[`docs/history/分析报告.md`](docs/history/分析报告.md)（2026-06-29）。  
 > **关闭定义（2026-08-10）：** 8.4 之前可独立完成的正确性/兼容小项已扫清。进行中清单里的书面远期仍是下面 6 项。**该关闭不覆盖 Redis 8.4–8.10 新增命令**；那些项在 R5。**禁止宣称 100% Redis 兼容。** 边界见 [`docs/COMPATIBILITY.md`](docs/COMPATIBILITY.md)。
 
 ### R0 — 协议与命令分发基线（当前迭代）
@@ -136,7 +136,7 @@
 ### R5 — Redis 8.4–8.10 命令面（2026-10-12 重开）
 
 > 差距表：[`docs/COMPATIBILITY.md`](docs/COMPATIBILITY.md)「Redis 8.10 增量」。  
-> 顺序与验收：[`兼容性改进计划.md`](兼容性改进计划.md)「〇、Redis 8.10 演进方案」。  
+> 顺序与验收：[`docs/history/兼容性改进计划.md`](docs/history/兼容性改进计划.md)「〇、Redis 8.10 演进方案」（R5 已收口，归档存档）。  
 > 原则：先补客户端会直接调用、且能落在现有类型上的命令；每项带 arity / 缺键 / 错类型 / 一条成功路径测试。确定性回复再加一条 R4-1 sidecar。
 
 #### 第一波：现有类型上的新命令
