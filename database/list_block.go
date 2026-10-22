@@ -78,30 +78,55 @@ func BindBlockingClientID(id int64) {
 	if id == 0 {
 		return
 	}
-	boundBlockingClient.Store(goid(), id)
+	if _, loaded := boundBlockingClient.LoadOrStore(goid(), id); !loaded {
+		boundBlockingClientCount.Add(1)
+	}
 }
 
 // ClearBlockingClientID clears the goroutine binding.
 func ClearBlockingClientID() {
-	boundBlockingClient.Delete(goid())
+	if boundBlockingClientCount.Load() == 0 {
+		return
+	}
+	if _, ok := boundBlockingClient.LoadAndDelete(goid()); ok {
+		boundBlockingClientCount.Add(-1)
+	}
 }
 
+var boundBlockingClientCount atomic.Int32
+
 var boundNoTouch sync.Map // goid -> struct{}
+var boundNoTouchCount atomic.Int32
 
 func bindNoTouch() {
-	boundNoTouch.Store(goid(), struct{}{})
+	if _, loaded := boundNoTouch.LoadOrStore(goid(), struct{}{}); !loaded {
+		boundNoTouchCount.Add(1)
+	}
 }
 
 func clearNoTouch() {
-	boundNoTouch.Delete(goid())
+	if boundNoTouchCount.Load() == 0 {
+		return
+	}
+	if _, ok := boundNoTouch.LoadAndDelete(goid()); ok {
+		boundNoTouchCount.Add(-1)
+	}
 }
 
+// goid() formats the current goroutine stack under a runtime lock, so the
+// empty-map fast paths below keep every read command off it.
 func peekNoTouch() bool {
+	if boundNoTouchCount.Load() == 0 {
+		return false
+	}
 	_, ok := boundNoTouch.Load(goid())
 	return ok
 }
 
 func peekBlockingClientID() int64 {
+	if boundBlockingClientCount.Load() == 0 {
+		return 0
+	}
 	if v, ok := boundBlockingClient.Load(goid()); ok {
 		return v.(int64)
 	}
