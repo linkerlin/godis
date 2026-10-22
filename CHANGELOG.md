@@ -6,6 +6,21 @@
 
 > 发版约定：发布时把 `[Unreleased]` 改为 `## [vX.Y.Z] - YYYY-MM-DD`，并新建空的 `[Unreleased]`；历史版本按 tag 倒序保留。当前最近 tag 为 `v1.3.0`。
 
+### Changed
+
+- **Raft 存储迁移到 bbolt（2026-10-23）**：以 `cluster/raft/boltstore.go` 内置存储替换已归档的 `hashicorp/raft-boltdb`——其依赖的 `boltdb/bolt` 在 `-race`/checkptr 下提交空内联 bucket 时确定性 fatal（`Bucket.write` 的 `unsafe.Pointer` 转换被判「straddles multiple allocations」，nightly race 门禁因此连续红灯）。磁盘格式字节级兼容（`logs`/`conf` 桶、大端 uint64 键、msgpack 编码 raft.Log），既有 `raft.db` 直接可读（`TestBoltStore_ReadsRaftBoltdbFile` 钉死）。生产二进制不受 checkptr 影响，仅测试/CI 受益；依赖树移除 `boltdb/bolt` 与 `raft-boltdb`，新增 `go.etcd.io/bbolt v1.4.3`。
+
+### Fixed
+
+- **夜间 race 门禁 9 项失败全部根因修复（2026-10-23，run 39746237975/39859473345 复现并分类）**：
+  - **内存对账协程读实体无键锁**（E5-3 引入的回归）：`walkEstimatedBytes` 仅持 dict 分片锁即读取 Hash 内层 `SimpleDict`（`Len/Get`），与并发 HSET 竞争。改为两阶段：先快照键名，再逐键持读锁估算（保持全局「键锁→分片锁」顺序，不与命令死锁）
+  - **内存估算触发惰性过期级联**：`estimateExpireDictBytes` 用 `ExpireDict.Get`，对过期字段触发 `removeExpired` → `db.Remove` → 整键删除——估算函数在无键锁、无 AOF 的后台路径上改写数据。新增 `ExpireDict.Peek` 只读旁路，估算纯化
+  - **`slaveOfNone` 非原子写 `role`**：读方全部 `atomic.LoadInt32`，写方补齐 `atomic.StoreInt32`
+  - **复制 setup 协程逃逸 Close**：`setupMaster`/`connectWithMaster` 后台协程读全局 `config.Properties`，测试在 `Close()` 后恢复全局即竞争。`slaveStatus.setupWG` 在 stop/Close 时 join；`connectWithMaster` 改 `DialContext`（ctx cancel 立即中断在途拨号，join 有界）；`REPLICAOF` 先停旧会话再启新会话
+  - **std/gnet 优雅停机 Wait/Add 竞争**：`Close` 的 `inFlight.Wait()` 与 `Handle`/`OnTraffic` 的 `inFlight.Add(1)`（从零起算）恰为 sync.WaitGroup 禁止的组合。`flightMu` 序列化 closing 标志与 Add
+  - **FakeConn 测试连接竞争**：`Read` 唤醒后的拷贝/游标推进无锁、`notify` 快路径在锁外读 `waitOn`、`wait` 早退路径泄漏互斥锁。全部补齐锁纪律
+  - **测试隔离**：`TestLoadRDB` 依赖乱序他测碰巧写入 `test.rdb`（自身泄漏的全局配置所致）→ 自行播种并清理；std 四个服务器测试 join `ListenAndServe`，杜绝 handler 协程跨测试读全局；清理仓库根陈旧 `appendonly.aof`/`test.rdb`
+
 ## [v1.3.0] - 2026-10-23
 
 ### Added

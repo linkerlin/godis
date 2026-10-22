@@ -391,7 +391,7 @@ cluster-seed 127.0.0.1:6399
 ## 依赖
 
 - `github.com/hashicorp/raft` - Raft 共识
-- `github.com/hashicorp/raft-boltdb` - Raft 存储
+- `go.etcd.io/bbolt` - Raft 存储（`cluster/raft/boltstore.go` 内置 LogStore/StableStore，磁盘格式兼容旧 raft-boltdb 写的 raft.db）
 - `github.com/hdt3213/rdb` - RDB 格式支持
 - `github.com/panjf2000/gnet/v2` - 高性能网络（可选）
 - `github.com/cockroachdb/errors` - 错误处理
