@@ -545,7 +545,23 @@ func SetupConfig(configFilename string) error {
 	if Properties.AppendFsync == "" {
 		Properties.AppendFsync = "everysec"
 	}
+	// Honor `dir` for data files: relative AOF/RDB names resolve against the
+	// configured dir, not the process working directory (E6-3).
+	Properties.AppendFilename = ResolveDataPath(Properties.AppendFilename)
+	Properties.RDBFilename = ResolveDataPath(Properties.RDBFilename)
 	return nil
+}
+
+// ResolveDataPath joins a data file name with the configured dir when the
+// name is relative. Empty dir or "." keeps the name as-is (process cwd).
+func ResolveDataPath(name string) string {
+	if name == "" || filepath.IsAbs(name) {
+		return name
+	}
+	if Properties == nil || Properties.Dir == "" || Properties.Dir == "." {
+		return name
+	}
+	return filepath.Join(Properties.Dir, name)
 }
 
 func GetTmpDir() string {
