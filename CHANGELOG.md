@@ -20,6 +20,12 @@
   - **std/gnet 优雅停机 Wait/Add 竞争**：`Close` 的 `inFlight.Wait()` 与 `Handle`/`OnTraffic` 的 `inFlight.Add(1)`（从零起算）恰为 sync.WaitGroup 禁止的组合。`flightMu` 序列化 closing 标志与 Add
   - **FakeConn 测试连接竞争**：`Read` 唤醒后的拷贝/游标推进无锁、`notify` 快路径在锁外读 `waitOn`、`wait` 早退路径泄漏互斥锁。全部补齐锁纪律
   - **测试隔离**：`TestLoadRDB` 依赖乱序他测碰巧写入 `test.rdb`（自身泄漏的全局配置所致）→ 自行播种并清理；std 四个服务器测试 join `ListenAndServe`，杜绝 handler 协程跨测试读全局；清理仓库根陈旧 `appendonly.aof`/`test.rdb`
+- **夜间 race 门禁第二批（2026-10-23，commit ed9d0d0）**：首轮修复后 race 门禁史上最深推进，剩余 5 项失败全数处置——
+  - **复制 backlog 就绪标志竞争**（产品级）：`replAofListener.readyToSend` 写读均未持 `masterStatus.mu`（bgSave 协程的写 vs 每条写命令 Callback 的读）；两处写点（含 FAILOVER 路径注释自称「无同步亦可」那处）全部收进锁内
+  - **复制测试依赖外部 Redis**：`TestReplicationSlaveSide`/`TestReplicationFailover` 硬编码拨号 `127.0.0.1:6379`——CI 无此服务，自 race 门禁建立即连败（connection refused）；改为 `startTCPListener` 起包内 master（临时端口 + masterCron ticker）
+  - **TestReplicationMasterSide 传播等待**：改等真正的 `SET c` 传播（带 10s 超时），不再「首个非 ping 即 break」——-race 时序下先出队的是全同步阶段残留的握手回复
+  - **FT 全局状态隔离**：`searchEngines`/`searchAliases`/`ftConfig` 均为进程级全局——`TestAggregateMaxResultsCap` 增加 stale 引擎防御性 DROP + 失败时转储全局 FT 配置（CI 曾现 total=6/2 行的异形回复，本地 8 轮全包 shuffle + 100 次重跑均不复现）；`TestFTAliasAndDictArityBatch86` 清理自己的全局别名与索引（-count>1 自泄漏）
+  - **TestClusterBootstrap 双视图收敛**：rebalance 后同时等 leader 与 follower 两个 FSM 视图收敛（原先只等 leader，撞上路由变更传播窗口即收到 MOVED 直接 panic），GET 断言不再裸类型转换
 
 ## [v1.3.0] - 2026-10-23
 
