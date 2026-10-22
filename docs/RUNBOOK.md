@@ -41,3 +41,21 @@
 - 每节点各自的 AOF/RDB + Raft 存储（快照/日志在 Raft 数据目录，见 `example.conf` 的 `dir` 说明）。
 - 整簇恢复：停写 → 各节点留一份 Raft 数据与 AOF → 按原拓扑拉起；成员变更（`CLUSTER MEET`/`REPLICATE`/`FORGET`）后做一次 `CLUSTER SLOTS` 与 `GETKEYSINSLOT` 抽查对账。
 - 定期演练：按本节在测试环境完整走一遍，`DEBUG DIGEST` 校验数据一致。
+
+## 四、集群运维（E7：槽位与成员）
+
+**扩缩容/槽位重分配（已验证路径）**：加入新节点（`cluster-seed` 指向任一节点，或 `CLUSTER MEET ip port raft-port`）→ 在现有节点 `CLUSTER DELSLOTSRANGE a b` 释放区间 → 新节点 `CLUSTER ADDSLOTSRANGE a b` 认领 → 轮询**每个节点**的 `CLUSTER SLOTS` 直到视图一致（Raft 应用有秒级延迟）→ 客户端按 `CLUSTER SLOTS`/`-MOVED` 重定向自然迁移读写。该路径由 `go test ./e7cluster` 与 `scripts/cluster-interop.sh`（真实 `redis-cli -c`）双向验证。注意：DELSLOT 后区间内已存在的键仍留在原节点（无自动搬迁）——重分配应在新键写入前完成，或配合应用侧双写；**数据在线搬迁（`redis-cli --cluster reshard` 等工具链）尚不支持**，`SETSLOT MIGRATING/IMPORTING` 仅提供迁移标记与 `ASK` 缝（见 `docs/COMPATIBILITY.md`）。
+
+**成员管理（已验证）**：`CLUSTER REPLICATE <node>` 使本节点成为指定主节点的从库（写 FSM）；`CLUSTER FORGET <node>` 安全移除节点。`CLUSTER FAILOVER`/`RESET`/`SAVECONFIG`/`SET-CONFIG-EPOCH` 显式报不支持。
+
+**韧性事实（有测试背书）**：主库宕机后从库保持 replica 角色并退避重连（`e6chaos` 主宕场景）；复制中断重启后自动重同步收敛（`e6chaos` 中断场景）；计划内切换走 `FAILOVER TO`（见第一节）。**未演练**：网络分区下的仲裁行为（Raft 多数派语义，未做双节点分区实验）；生产环境 reshard 全流程。
+
+## 附：验证工具索引
+
+| 工具 | 用途 |
+|---|---|
+| `go test ./e7cluster` | 两节点集群互操作契约（拓扑/路由/MOVED/CROSSSLOT/hash-tag） |
+| `bash scripts/cluster-interop.sh` | 真实 `redis-cli -c` 跟随 MOVED 冒烟（需 docker） |
+| `go test ./e6chaos` | 崩溃一致性/复制韧性故障注入 |
+| `go test ./e6soak`（`SOAK_CYCLES` 可调） | 长稳负载循环 + 内存/goroutine/FD 基线 |
+| `bash scripts/rnd-diff.sh` | 与 Redis 8.10 随机差分对拍 |

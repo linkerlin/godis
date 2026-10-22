@@ -8,6 +8,8 @@
 
 ### Added
 
+- **E8-2 巨型文件拆分（2026-10-23）**：纯移动零逻辑改动——`sortedset.go` 1792→1280+527（集合运算族→`sortedset_ops.go`）、`config_cmd.go` 2548→1366+1194（CONFIG SET 大开关→`config_set.go`）、`redisearch.go` 2735→1403+1346（FT.SEARCH/AGGREGATE 执行器→`redisearch_query.go`）。database 包最大文件 1403 行（≤1500 验收线）；全仓测试零失败。
+- **E7 集群生产化收口（2026-10-23）**：E7-1 双腿互操作（见前条）；E7-2/3/4 以 [`docs/RUNBOOK.md`](docs/RUNBOOK.md)「集群运维」节文档化收口——已验证的槽位重分配路径（DELSLOTSRANGE/ADDSLOTSRANGE + 视图收敛轮询 + 客户端按 SLOTS/-MOVED 迁移）、成员管理（MEET/REPLICATE/FORGET）、韧性事实映射到 e6chaos 证据；诚实边界：`redis-cli --cluster reshard` 工具链不支持（键不自动搬迁，SETSLOT 仅迁移标记缝）、网络分区实验未做。
 - **E6-4 长稳 soak 运行器（2026-10-23）**：新增 [`e6soak/`](e6soak/)——进程内双 std server（主 + 复制从）上的负载循环：TTL 键与 Hash 字段过期（时间轮清理）、FT 索引增删、FLUSHDB、阻塞命令超时/唤醒双路径、主从写流收敛；每周期采样 **HeapInuse/goroutine/FD**（FD 仅 Linux）并在终态断言不高于基线阈值（heap +30%+64MB、goroutine +8、FD +16，注释标明可收紧）。nightly 默认 12 周期约 22s（`-short` 跳过，随 `go test -race -shuffle=on ./...` 跑）；本地长稳 `SOAK_CYCLES=20000`（约 72h 量级），每周期指标行即 soak 曲线。验证：12 周期 goroutine 全程持平 22、heap 47→51MB；40 周期复验通过。
 - **E6-3 崩溃一致性与故障注入（2026-10-23）**：新增 [`e6chaos/`](e6chaos/)——真实二进制子进程（测试内 `go build`）+ `Process.Kill`（≙ kill -9）的故障注入套件，断言不变量「每条已确认写在重启后仍在，或显式报错，绝不静默丢失」。六场景全绿（约 1 分钟，`-short` 跳过，nightly `go test -race -shuffle=on ./...` 自然包含）：AOF rewrite 中 kill -9（everysec/always × 30/90/200ms）、BGSAVE 中 kill -9、AOF 撕裂尾重启（fsync 失败等价物）、从库复制中途中断后重启重同步、主库宕机从库保持 replica。**抓到并根因修复两个真 bug**：
   - **数据文件无视 `dir`**：AOF/RDB 相对文件名按进程 CWD 解析，同 CWD 多实例互踩同一文件（正是本套件首轮的假通过来源）→ `config.ResolveDataPath` 在 `SetupConfig` 将相对 `appendfilename`/`dbfilename` 归一化挂到 `dir`
