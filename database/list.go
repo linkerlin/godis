@@ -275,7 +275,9 @@ func execLRange(db *DB, args [][]byte) redis.Reply {
 		return &protocol.EmptyMultiBulkReply{}
 	}
 
-	// compute index
+	// compute index (Redis list semantics: a negative stop beyond -size stays
+	// negative after conversion, which empties the range — it does NOT clamp
+	// to 0 like the string family in utils.ConvertRange)
 	size := list.Len() // assert: size > 0
 	if start < -1*size {
 		start = 0
@@ -285,7 +287,7 @@ func execLRange(db *DB, args [][]byte) redis.Reply {
 		return &protocol.EmptyMultiBulkReply{}
 	}
 	if stop < -1*size {
-		stop = 0
+		return &protocol.EmptyMultiBulkReply{}
 	} else if stop < 0 {
 		stop = size + stop + 1
 	} else if stop < size {

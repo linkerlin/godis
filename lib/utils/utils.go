@@ -58,31 +58,33 @@ func BytesEquals(a []byte, b []byte) bool {
 	return true
 }
 
-// ConvertRange converts redis index to go slice index
-// -1 => size-1
-// both inclusive [0, 10] => left inclusive right exclusive [0, 9)
-// out of bound to max inbound [size, size+1] => [-1, -1]
+// ConvertRange converts redis inclusive indices [start, end] to Go slice
+// bounds, matching Redis string-family semantics (GETRANGE/BITCOUNT/BITPOS):
+// negative offsets count back from the end; after the conversion both bounds
+// are clamped into range (start below zero becomes 0, a still-negative end
+// becomes 0, end past the last index becomes the last index). Returns
+// (-1, -1) for an empty range.
 func ConvertRange(start int64, end int64, size int64) (int, int) {
-	if start < -size {
-		return -1, -1
-	} else if start < 0 {
-		start = size + start
+	if start < 0 {
+		start += size
+		if start < 0 {
+			start = 0
+		}
 	} else if start >= size {
 		return -1, -1
 	}
-	if end < -size {
-		return -1, -1
-	} else if end < 0 {
-		end = size + end + 1
-	} else if end < size {
-		end = end + 1
-	} else {
-		end = size
+	if end < 0 {
+		end += size
+		if end < 0 {
+			end = 0
+		}
+	} else if end >= size {
+		end = size - 1
 	}
 	if start > end {
 		return -1, -1
 	}
-	return int(start), int(end)
+	return int(start), int(end+1)
 }
 
 // RemoveDuplicates removes duplicate byte slices from a 2D byte slice

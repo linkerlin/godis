@@ -642,8 +642,9 @@ func TestGetRange_StringExist_StartIsOutOfRange(t *testing.T) {
 	key := utils.RandString(10)
 	testDB.Exec(nil, utils.ToCmdLine2("SET", key, key))
 
+	// Redis 8.10: a start below -len clamps to 0 (E6-2 rnddiff fix)
 	actual := testDB.Exec(nil, utils.ToCmdLine("GetRange", key, fmt.Sprint(-len(key)-3), fmt.Sprint(len(key))))
-	asserts.AssertBulkReply(t, actual, "")
+	asserts.AssertBulkReply(t, actual, key)
 }
 
 func TestGetRange_StringExist_EndIdxIsOutOfRange(t *testing.T) {
@@ -651,8 +652,9 @@ func TestGetRange_StringExist_EndIdxIsOutOfRange(t *testing.T) {
 	key := utils.RandString(10)
 	testDB.Exec(nil, utils.ToCmdLine2("SET", key, key))
 
-	actual := testDB.Exec(nil, utils.ToCmdLine("GetRange", key, fmt.Sprint(0), fmt.Sprint(-len(key)-3)))
-	asserts.AssertBulkReply(t, actual, "")
+	// Redis 8.10: an end below -len clamps to 0 => first character (E6-2)
+	actual := testDB.Exec(nil, utils.ToCmdLine("GetRange", key, "0", fmt.Sprint(-len(key)-3)))
+	asserts.AssertBulkReply(t, actual, key[:1])
 }
 
 func TestGetRange_StringExist_StartIdxGreaterThanDataLen(t *testing.T) {
