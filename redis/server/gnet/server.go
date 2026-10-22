@@ -29,6 +29,10 @@ type GnetServer struct {
 	db       idatabase.DB
 	closing  gatomic.Boolean
 	inFlight sync.WaitGroup
+	// flightMu serializes the closing flag against inFlight.Add so Wait never
+	// races an Add-from-zero (sync.WaitGroup forbids exactly that pair; the
+	// nightly -race gate flagged Close's waiter vs OnTraffic's Add).
+	flightMu sync.Mutex
 }
 
 func NewGnetServer(db idatabase.DB) *GnetServer {
@@ -103,7 +107,13 @@ func (s *GnetServer) OnTraffic(c gnet.Conn) (action gnet.Action) {
 	if s.closing.Get() {
 		return gnet.Close
 	}
+	s.flightMu.Lock()
+	if s.closing.Get() {
+		s.flightMu.Unlock()
+		return gnet.Close
+	}
 	s.inFlight.Add(1)
+	s.flightMu.Unlock()
 	defer s.inFlight.Done()
 
 	conn := c.Context().(redis.Connection)
@@ -206,7 +216,9 @@ func (s *GnetServer) OnTraffic(c gnet.Conn) (action gnet.Action) {
 // Close stops the gnet engine after in-flight command handlers finish.
 func (s *GnetServer) Close() error {
 	logger.Info("gnet server shutting down...")
+	s.flightMu.Lock()
 	s.closing.Set(true)
+	s.flightMu.Unlock()
 
 	done := make(chan struct{})
 	go func() {

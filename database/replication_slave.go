@@ -48,6 +48,10 @@ type slaveStatus struct {
 	replOffset   int64
 	lastRecvTime time.Time
 	running      sync.WaitGroup
+	// setupWG tracks setupMaster goroutines so stopSlaveWithMutex can join
+	// them: after REPLICAOF NO ONE / Close returns, no goroutine is still
+	// reading config.Properties (tests restore globals right after Close).
+	setupWG sync.WaitGroup
 }
 
 var configChangedErr = errors.New("slaveStatus config changed")
@@ -68,6 +72,9 @@ func (server *Server) execSlaveOf(c redis.Connection, args [][]byte) redis.Reply
 		return protocol.MakeErrReply("ERR Invalid master port")
 	}
 	server.slaveStatus.mutex.Lock()
+	// Stop any previous attempt first so the new session starts from a clean
+	// slate (old dial/stream aborts via ctx cancel; the join is bounded).
+	server.slaveStatus.stopSlaveWithMutex()
 	atomic.StoreInt32(&server.role, slaveRole)
 	server.slaveStatus.masterHost = host
 	server.slaveStatus.masterPort = port
@@ -76,7 +83,11 @@ func (server *Server) execSlaveOf(c redis.Connection, args [][]byte) redis.Reply
 	// Demotion: stop master duties (disconnect slaves, detach the backlog feed)
 	// so replicated writes are not echoed back into a stale backlog.
 	server.stopMaster()
-	go server.setupMaster()
+	server.slaveStatus.setupWG.Add(1)
+	go func() {
+		defer server.slaveStatus.setupWG.Done()
+		server.setupMaster()
+	}()
 	return protocol.MakeOkReply()
 }
 
@@ -87,8 +98,9 @@ func (server *Server) slaveOfNone() {
 	server.slaveStatus.replId = ""
 	server.slaveStatus.replOffset = -1
 	// Publish master role before waiting so concurrent ROLE readers see the
-	// intended state even while receiveAOF is draining.
-	server.role = masterRole
+	// intended state even while receiveAOF is draining. Role readers use
+	// atomic.LoadInt32, so the store must be atomic too (race gate).
+	atomic.StoreInt32(&server.role, masterRole)
 	server.slaveStatus.stopSlaveWithMutex()
 	server.slaveStatus.mutex.Unlock()
 }
@@ -117,6 +129,8 @@ func (repl *slaveStatus) stopSlaveWithMutex() {
 		_ = conn.Close() // unblocks ParseStream / masterChan
 	}
 	repl.running.Wait()
+	// ctx cancel aborts the setup dial (DialContext), so this wait is bounded.
+	repl.setupWG.Wait()
 	repl.mutex.Lock()
 }
 
@@ -141,7 +155,7 @@ func (server *Server) setupMaster() {
 	server.slaveStatus.cancel = cancel
 	configVersion = server.slaveStatus.configVersion
 	server.slaveStatus.mutex.Unlock()
-	isFullReSync, err := server.connectWithMaster(configVersion)
+	isFullReSync, err := server.connectWithMaster(ctx, configVersion)
 	if err != nil {
 		// Background connect/handshake failure must NOT promote us to master
 		// (E6-3 / R-3): keep the replica role and let slaveCron retry. Only an
@@ -167,10 +181,16 @@ func (server *Server) setupMaster() {
 
 // connectWithMaster finishes handshake with master
 // returns: isFullReSync, error
-func (server *Server) connectWithMaster(configVersion int32) (bool, error) {
+func (server *Server) connectWithMaster(ctx context.Context, configVersion int32) (bool, error) {
 	addr := server.slaveStatus.masterHost + ":" + strconv.Itoa(server.slaveStatus.masterPort)
-	conn, err := net.Dial("tcp", addr)
+	// DialContext so stopSlaveWithMutex's ctx cancel aborts an in-flight dial
+	// immediately; a plain net.Dial would block for the OS connect timeout and
+	// make the setupWG join (and REPLICAOF NO ONE) hang behind it.
+	conn, err := (&net.Dialer{}).DialContext(ctx, "tcp", addr)
 	if err != nil {
+		if ctx.Err() != nil {
+			return false, configChangedErr
+		}
 		// No promotion on dial failure — setupMaster logs and slaveCron retries.
 		return false, errors.New("connect master failed " + err.Error())
 	}
@@ -559,6 +579,10 @@ func (server *Server) reconnectWithMaster() error {
 	server.slaveStatus.mutex.Lock()
 	defer server.slaveStatus.mutex.Unlock()
 	server.slaveStatus.stopSlaveWithMutex()
-	go server.setupMaster()
+	server.slaveStatus.setupWG.Add(1)
+	go func() {
+		defer server.slaveStatus.setupWG.Done()
+		server.setupMaster()
+	}()
 	return nil
 }

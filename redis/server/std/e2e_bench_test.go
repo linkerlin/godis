@@ -28,11 +28,16 @@ func startBenchServer(b *testing.B) string {
 		b.Fatal(err)
 	}
 	closeChan := make(chan struct{})
+	done := make(chan struct{})
 	b.Cleanup(func() {
 		close(closeChan)
 		_ = handler.Close()
+		<-done // no accept/Handle goroutine outlives the benchmark
 	})
-	go func() { tcp.ListenAndServe(listener, handler, closeChan) }()
+	go func() {
+		defer close(done)
+		tcp.ListenAndServe(listener, handler, closeChan)
+	}()
 	return listener.Addr().String()
 }
 

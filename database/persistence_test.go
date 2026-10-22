@@ -12,6 +12,7 @@ import (
 	"github.com/linkerlin/godis/config"
 	"github.com/linkerlin/godis/lib/utils"
 	"github.com/linkerlin/godis/redis/connection"
+	"github.com/linkerlin/godis/redis/protocol"
 	"github.com/linkerlin/godis/redis/protocol/asserts"
 )
 
@@ -20,10 +21,36 @@ func TestLoadRDB(t *testing.T) {
 	_, b, _, _ := runtime.Caller(0)
 	projectRoot := filepath.Dir(filepath.Dir(b))
 	os.Chdir(projectRoot)
+	oldProps := config.Properties
 	config.Properties = &config.ServerProperties{
 		AppendOnly:  false,
 		RDBFilename: "test.rdb", // set working directory to project root
 	}
+	// Seed test.rdb ourselves. This test used to depend on some other shuffled
+	// test happening to write test.rdb via the global config leaked below, so
+	// it failed on any shuffle order where it ran first.
+	_ = os.Remove(filepath.Join(projectRoot, "test.rdb")) // stale leftovers
+	seed := MustNewStandaloneServer()
+	seedCmds := [][]string{
+		{"SET", "str", "str"},
+		{"RPUSH", "list", "1", "2", "3", "4"},
+		{"HSET", "hash", "1", "1"},
+		{"ZADD", "zset", "1", "0", "1", "1"},
+		{"SADD", "set", "x"},
+	}
+	for _, cmd := range seedCmds {
+		if r := seed.Exec(connection.NewFakeConn(), utils.ToCmdLine(cmd...)); protocol.IsErrorReply(r) {
+			t.Fatalf("seed %v failed: %s", cmd, r.ToBytes())
+		}
+	}
+	if r := SaveRDB(seed, nil); protocol.IsErrorReply(r) {
+		t.Fatalf("seed SAVE failed: %s", r.ToBytes())
+	}
+	t.Cleanup(func() {
+		_ = os.Remove(filepath.Join(projectRoot, "test.rdb"))
+		config.Properties = oldProps
+	})
+
 	conn := connection.NewFakeConn()
 	rdbDB := MustNewStandaloneServer()
 	result := rdbDB.Exec(conn, utils.ToCmdLine("Get", "str"))

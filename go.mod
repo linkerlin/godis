@@ -3,19 +3,20 @@ module github.com/linkerlin/godis
 go 1.25.0
 
 require (
+	github.com/cespare/xxhash/v2 v2.3.0
 	github.com/cockroachdb/errors v1.12.0
+	github.com/hashicorp/go-msgpack v0.5.5
 	github.com/hashicorp/raft v1.7.0
-	github.com/hashicorp/raft-boltdb v0.0.0-20231211162105-6c830fa4535e
 	github.com/hdt3213/rdb v1.0.18
 	github.com/panjf2000/gnet/v2 v2.7.2
 	github.com/yuin/gopher-lua v1.1.1
+	github.com/zeebo/xxh3 v1.1.0
+	go.etcd.io/bbolt v1.4.3
 	modernc.org/sqlite v1.52.0
 )
 
 require (
 	github.com/armon/go-metrics v0.4.1 // indirect
-	github.com/boltdb/bolt v1.3.1 // indirect
-	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/cockroachdb/logtags v0.0.0-20230118201751-21c54148d20b // indirect
 	github.com/cockroachdb/redact v1.1.5 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
@@ -26,7 +27,6 @@ require (
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/hashicorp/go-hclog v1.6.2 // indirect
 	github.com/hashicorp/go-immutable-radix v1.0.0 // indirect
-	github.com/hashicorp/go-msgpack v0.5.5 // indirect
 	github.com/hashicorp/go-msgpack/v2 v2.1.1 // indirect
 	github.com/hashicorp/golang-lru v0.5.0 // indirect
 	github.com/klauspost/cpuid/v2 v2.2.10 // indirect
@@ -40,7 +40,6 @@ require (
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	github.com/rogpeppe/go-internal v1.9.0 // indirect
 	github.com/valyala/bytebufferpool v1.0.0 // indirect
-	github.com/zeebo/xxh3 v1.1.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	go.uber.org/zap v1.27.0 // indirect
 	golang.org/x/sync v0.20.0 // indirect

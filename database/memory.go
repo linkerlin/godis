@@ -258,7 +258,8 @@ func estimateExpireDictBytes(ed *dict.ExpireDict, samples int) int64 {
 	var sum int64
 	for _, field := range fields {
 		sz := int64(len(field) + 32)
-		if raw, ok := ed.Get(field); ok {
+		// Peek: 估算必须只读，Get 会对过期字段触发 removeExpired 级联
+		if raw, ok := ed.Peek(field); ok {
 			if b, ok := raw.([]byte); ok {
 				sz += int64(len(b))
 			}

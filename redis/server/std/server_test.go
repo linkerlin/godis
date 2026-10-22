@@ -24,7 +24,11 @@ func TestListenAndServe(t *testing.T) {
 		t.Error(err)
 		return
 	}
-	go tcp.ListenAndServe(listener, handler, closeChan)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		tcp.ListenAndServe(listener, handler, closeChan)
+	}()
 
 	conn, err := net.Dial("tcp", addr)
 	if err != nil {
@@ -46,8 +50,11 @@ func TestListenAndServe(t *testing.T) {
 		t.Error("get wrong response")
 		return
 	}
+	// Join the server before returning: a leaked Handle goroutine keeps reading
+	// config.Properties and races the next test's global config swap (-race).
+	_ = conn.Close()
 	closeChan <- struct{}{}
-	time.Sleep(time.Second)
+	<-done
 }
 
 func TestProtocolErrorClosesConnection(t *testing.T) {
@@ -60,8 +67,17 @@ func TestProtocolErrorClosesConnection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	go tcp.ListenAndServe(listener, handler, closeChan)
-	defer func() { closeChan <- struct{}{} }()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		tcp.ListenAndServe(listener, handler, closeChan)
+	}()
+	defer func() {
+		closeChan <- struct{}{}
+		// Join the server so no Handle goroutine outlives the test reading
+		// config.Properties while the next test swaps the global.
+		<-done
+	}()
 
 	conn, err := net.Dial("tcp", listener.Addr().String())
 	if err != nil {

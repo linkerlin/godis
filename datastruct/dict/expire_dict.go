@@ -136,6 +136,13 @@ func (ed *ExpireDict) Get(key string) (val interface{}, exists bool) {
 	return nil, false
 }
 
+// Peek 获取字段原始值，不做过期检查，也不触发删除回调。
+// 只读旁路（内存估算等）专用：估算绝不能引发惰性过期级联（删除键、
+// 改动回调在无键锁、无 AOF 的后台路径上执行）。
+func (ed *ExpireDict) Peek(key string) (val interface{}, exists bool) {
+	return ed.data.Get(key)
+}
+
 // GetWithExpire 获取字段值和剩余TTL
 func (ed *ExpireDict) GetWithExpire(key string) (val interface{}, ttl time.Duration, exists bool) {
 	ed.mu.RLock(key)

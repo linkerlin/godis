@@ -37,6 +37,10 @@ type Handler struct {
 	db         idatabase.DB
 	closing    gatomic.Boolean // refusing new client and new request
 	inFlight   sync.WaitGroup  // tracks active Handle goroutines
+	// flightMu serializes the closing flag against inFlight.Add so Wait never
+	// races an Add-from-zero (sync.WaitGroup forbids exactly that pair; the
+	// nightly -race gate flagged Close's waiter vs Handle's Add).
+	flightMu sync.Mutex
 }
 
 // MakeHandler creates a Handler instance
@@ -141,7 +145,13 @@ func (h *Handler) Handle(ctx context.Context, conn net.Conn) {
 		}
 		// Disable idle read deadline while a command (possibly blocking like BLPOP) is executing.
 		_ = conn.SetReadDeadline(time.Time{})
+		h.flightMu.Lock()
+		if h.closing.Get() {
+			h.flightMu.Unlock()
+			break
+		}
 		h.inFlight.Add(1)
+		h.flightMu.Unlock()
 		result := h.db.Exec(client, r.Args)
 		cmdName := ""
 		if len(r.Args) > 0 {
@@ -171,7 +181,9 @@ func (h *Handler) Handle(ctx context.Context, conn net.Conn) {
 // Close stops handler and waits for in-flight connections to finish.
 func (h *Handler) Close() error {
 	logger.Info("handler shutting down...")
+	h.flightMu.Lock()
 	h.closing.Set(true)
+	h.flightMu.Unlock()
 
 	done := make(chan struct{})
 	go func() {

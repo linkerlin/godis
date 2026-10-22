@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/hashicorp/raft"
-	raftboltdb "github.com/hashicorp/raft-boltdb"
 )
 
 type Node struct {
@@ -76,9 +75,7 @@ func StartNode(cfg *RaftConfig) (*Node, error) {
 		return nil, err
 	}
 
-	boltDB, err := raftboltdb.New(raftboltdb.Options{
-		Path: filepath.Join(cfg.Dir, "raft.db"),
-	})
+	boltDB, err := newBoltStore(filepath.Join(cfg.Dir, "raft.db"))
 	if err != nil {
 		return nil, err
 	}

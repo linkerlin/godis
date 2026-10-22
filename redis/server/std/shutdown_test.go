@@ -22,7 +22,11 @@ func TestHandlerGracefulShutdown(t *testing.T) {
 	}
 
 	closeChan := make(chan struct{})
-	go tcp.ListenAndServe(listener, handler, closeChan)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		tcp.ListenAndServe(listener, handler, closeChan)
+	}()
 
 	conn, err := net.Dial("tcp", listener.Addr().String())
 	if err != nil {
@@ -52,6 +56,12 @@ func TestHandlerGracefulShutdown(t *testing.T) {
 		buf := make([]byte, 64)
 		_, _ = conn2.Read(buf)
 	}
+
+	// Join the server (signal + wait) so no accept/Handle goroutine outlives
+	// the test reading config.Properties while the next test swaps the global.
+	_ = conn.Close()
+	closeChan <- struct{}{}
+	<-done
 }
 
 func TestHandlerCloseWaitsForInFlight(t *testing.T) {

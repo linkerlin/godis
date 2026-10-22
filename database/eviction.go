@@ -491,16 +491,33 @@ func accountedKeyBytes(key string, data interface{}) int64 {
 
 // walkEstimatedBytes re-derives a DB's accounted bytes from a full scan
 // (reconciliation path; also the pre-E5-3 hot-path behavior).
+//
+// Two phases: first snapshot key names under the dict shard locks, then
+// estimate each entity while holding its per-key read lock. Entity payloads
+// (e.g. a hash's inner SimpleDict) are only protected by the per-key lock
+// layer, so estimating them with just the shard lock held races concurrent
+// writers — the nightly -race gate flagged exactly that. Per-key locking
+// also preserves the global lock order (key lock before shard lock) that
+// commands use, so the walk cannot deadlock against them.
 func walkEstimatedBytes(db *DB) int64 {
-	var n int64
+	keys := make([]string, 0, 1024)
 	db.data.ForEach(func(key string, val interface{}) bool {
-		if entity, ok := val.(*database.DataEntity); ok && entity != nil {
-			n += accountedKeyBytes(key, entity.Data)
-		} else {
-			n += bytesPerKeyEstimate
-		}
+		keys = append(keys, key)
 		return true
 	})
+	var n int64
+	for _, key := range keys {
+		db.RWLocks(nil, []string{key})
+		val, exists := db.data.Get(key)
+		if exists {
+			if entity, ok := val.(*database.DataEntity); ok && entity != nil {
+				n += accountedKeyBytes(key, entity.Data)
+			} else {
+				n += bytesPerKeyEstimate
+			}
+		}
+		db.RWUnLocks(nil, []string{key})
+	}
 	return n
 }
 
