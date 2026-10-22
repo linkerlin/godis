@@ -143,17 +143,17 @@ func (server *Server) setupMaster() {
 	server.slaveStatus.mutex.Unlock()
 	isFullReSync, err := server.connectWithMaster(configVersion)
 	if err != nil {
-		// connect failed, abort master
+		// Background connect/handshake failure must NOT promote us to master
+		// (E6-3 / R-3): keep the replica role and let slaveCron retry. Only an
+		// explicit REPLICAOF NO ONE or a coordinated FAILOVER promotes.
 		logger.Error(err)
-		server.slaveOfNone()
 		return
 	}
 	if isFullReSync {
 		err = server.loadMasterRDB(configVersion)
 		if err != nil {
-			// load failed, abort master
+			// Full sync failed: stay a replica and retry on the next cron tick.
 			logger.Error(err)
-			server.slaveOfNone()
 			return
 		}
 	}
@@ -171,7 +171,7 @@ func (server *Server) connectWithMaster(configVersion int32) (bool, error) {
 	addr := server.slaveStatus.masterHost + ":" + strconv.Itoa(server.slaveStatus.masterPort)
 	conn, err := net.Dial("tcp", addr)
 	if err != nil {
-		server.slaveOfNone() // abort
+		// No promotion on dial failure — setupMaster logs and slaveCron retries.
 		return false, errors.New("connect master failed " + err.Error())
 	}
 	masterChan := parser.ParseStream(conn)
@@ -193,7 +193,6 @@ func (server *Server) connectWithMaster(configVersion int32) (bool, error) {
 			!strings.HasPrefix(reply.Error(), "NOPERM") &&
 			!strings.HasPrefix(reply.Error(), "ERR operation not permitted") {
 			logger.Error("Error reply to PING from master: " + string(reply.ToBytes()))
-			server.slaveOfNone() // abort
 			return false, nil
 		}
 	}
@@ -203,16 +202,13 @@ func (server *Server) connectWithMaster(configVersion int32) (bool, error) {
 		req := protocol.MakeMultiBulkReply(cmdLine)
 		_, err := conn.Write(req.ToBytes())
 		if err != nil {
-			server.slaveOfNone() // abort
 			return errors.New("send failed " + err.Error())
 		}
 		resp := <-masterChan
 		if resp.Err != nil {
-			server.slaveOfNone() // abort
 			return errors.New("read response failed: " + resp.Err.Error())
 		}
 		if !protocol.IsOKReply(resp.Data) {
-			server.slaveOfNone() // abort
 			return errors.New("unexpected auth response: " + string(resp.Data.ToBytes()))
 		}
 		return nil
@@ -418,6 +414,17 @@ func (server *Server) receiveAOF(ctx context.Context, configVersion int32) error
 	conn.SetMaster()
 	server.slaveStatus.running.Add(1)
 	defer server.slaveStatus.running.Done()
+	// When the link dies, clear it (unless reconfigured meanwhile) so slaveCron
+	// stops ACKing a dead socket and starts reconnecting. Role stays replica.
+	defer func() {
+		server.slaveStatus.mutex.Lock()
+		if server.slaveStatus.configVersion == configVersion && server.slaveStatus.masterConn == masterConn {
+			server.slaveStatus.masterConn = nil
+			server.slaveStatus.masterChan = nil
+		}
+		server.slaveStatus.mutex.Unlock()
+		_ = masterConn.Close()
+	}()
 	for {
 		select {
 		case payload, open := <-masterChan:
@@ -494,8 +501,16 @@ func (server *Server) slaveCron() {
 	masterConn := repl.masterConn
 	lastRecvTime := repl.lastRecvTime
 	replOffset := repl.replOffset
+	masterHost := repl.masterHost
 	repl.mutex.Unlock()
 	if masterConn == nil {
+		// Dead link while still configured as a replica: retry the connection.
+		// Failures keep role=slave (promotion is REPLICAOF NO ONE / FAILOVER only).
+		if masterHost != "" && atomic.LoadInt32(&server.role) == slaveRole {
+			if err := server.reconnectWithMaster(); err != nil {
+				logger.Error("reconnect failed " + err.Error())
+			}
+		}
 		return
 	}
 
