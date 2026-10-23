@@ -94,10 +94,13 @@ var connPool = sync.Pool{
 
 // RemoteAddr returns the remote network address
 func (c *Connection) RemoteAddr() string {
-	if c.conn == nil {
+	c.stateMu.RLock()
+	conn := c.conn
+	c.stateMu.RUnlock()
+	if conn == nil {
 		return ""
 	}
-	return c.conn.RemoteAddr().String()
+	return conn.RemoteAddr().String()
 }
 
 // LocalAddr returns the local network address of the connection.
@@ -105,10 +108,13 @@ func (c *Connection) LocalAddr() string {
 	if c.localAddr != "" {
 		return c.localAddr
 	}
-	if c.conn == nil {
+	c.stateMu.RLock()
+	conn := c.conn
+	c.stateMu.RUnlock()
+	if conn == nil {
 		return ""
 	}
-	return c.conn.LocalAddr().String()
+	return conn.LocalAddr().String()
 }
 
 // SetLocalAddr sets/overrides the local address (tests / synthetic conns).
@@ -128,9 +134,18 @@ func (c *Connection) Close() error {
 	c.writeClosed = true
 	c.writeMu.Unlock()
 	c.waitSending(10 * time.Second)
-	if c.conn != nil { // may be a fake conn for tests
-		_ = c.conn.Close()
+	c.stateMu.RLock()
+	rawConn := c.conn
+	c.stateMu.RUnlock()
+	if rawConn != nil { // may be a fake conn for tests
+		_ = rawConn.Close()
 	}
+	// Published under stateMu: NewConn's recycle-time store races stale
+	// readers (Name/RemoteAddr from replication paths holding this pointer).
+	c.stateMu.Lock()
+	c.conn = nil
+	c.clientName = ""
+	c.stateMu.Unlock()
 	c.flags = 0
 	c.subs = nil
 	c.psubs = nil
@@ -142,7 +157,6 @@ func (c *Connection) Close() error {
 	c.watching = nil
 	c.txErrors = nil
 	c.selectedDB = 0
-	c.clientName = ""
 	c.trackingID = ""
 	c.protocolVersion = 0
 	c.libName = ""
@@ -170,7 +184,9 @@ func NewConn(conn net.Conn) *Connection {
 			conn: conn,
 		}
 	}
+	c.stateMu.Lock()
 	c.conn = conn
+	c.stateMu.Unlock()
 	c.closeMu.Lock()
 	c.closed = false
 	c.closeMu.Unlock()
@@ -266,11 +282,15 @@ func (c *Connection) waitSending(timeout time.Duration) {
 }
 
 func (c *Connection) Name() string {
-	if c.clientName != "" {
-		return c.clientName
+	c.stateMu.RLock()
+	name := c.clientName
+	conn := c.conn
+	c.stateMu.RUnlock()
+	if name != "" {
+		return name
 	}
-	if c.conn != nil {
-		return c.conn.RemoteAddr().String()
+	if conn != nil {
+		return conn.RemoteAddr().String()
 	}
 	return ""
 }
@@ -283,10 +303,14 @@ func (c *Connection) GetClientID() int64 {
 }
 
 func (c *Connection) SetClientName(name string) {
+	c.stateMu.Lock()
 	c.clientName = name
+	c.stateMu.Unlock()
 }
 
 func (c *Connection) GetClientName() string {
+	c.stateMu.RLock()
+	defer c.stateMu.RUnlock()
 	return c.clientName
 }
 
