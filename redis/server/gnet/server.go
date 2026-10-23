@@ -73,6 +73,7 @@ func (s *GnetServer) Run(listenAddr string) error {
 
 func (s *GnetServer) OnBoot(eng gnet.Engine) (action gnet.Action) {
 	s.eng = eng
+	tcp.SeedMaxClientsFromConfig() // gnet bypasses tcp.ListenAndServe's startup seed
 	s.booted.Store(true)
 	return
 }

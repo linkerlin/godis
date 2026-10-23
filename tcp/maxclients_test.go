@@ -4,15 +4,13 @@ import (
 	"net"
 	"sync/atomic"
 	"testing"
-
-	"github.com/linkerlin/godis/config"
 )
 
 func TestTryAcceptClientRespectsMaxClients(t *testing.T) {
-	old := config.Properties
-	config.Properties = &config.ServerProperties{MaxClients: 1}
+	old := atomic.LoadInt64(&maxClientsLimit)
+	SetMaxClients(1)
 	defer func() {
-		config.Properties = old
+		SetMaxClients(int(old))
 		atomic.StoreInt32(&ClientCounter, 0)
 		atomic.StoreUint64(&RejectedConnections, 0)
 	}()
@@ -55,12 +53,7 @@ func (s *stubConn) Close() error {
 }
 
 func TestRejectConnectionMaxClients(t *testing.T) {
-	old := config.Properties
-	config.Properties = &config.ServerProperties{MaxClients: 1}
-	defer func() {
-		config.Properties = old
-		atomic.StoreUint64(&RejectedConnections, 0)
-	}()
+	defer atomic.StoreUint64(&RejectedConnections, 0)
 
 	conn := &stubConn{}
 	RejectConnectionMaxClients(conn)
@@ -76,10 +69,10 @@ func TestRejectConnectionMaxClients(t *testing.T) {
 }
 
 func TestTryAcceptClientUnlimitedWhenZero(t *testing.T) {
-	old := config.Properties
-	config.Properties = &config.ServerProperties{MaxClients: 0}
+	old := atomic.LoadInt64(&maxClientsLimit)
+	SetMaxClients(0)
 	defer func() {
-		config.Properties = old
+		SetMaxClients(int(old))
 		atomic.StoreInt32(&ClientCounter, 0)
 		atomic.StoreUint64(&RejectedConnections, 0)
 	}()
@@ -98,10 +91,10 @@ func TestTryAcceptClientUnlimitedWhenZero(t *testing.T) {
 }
 
 func TestTryAcceptClientReacceptAfterRelease(t *testing.T) {
-	old := config.Properties
-	config.Properties = &config.ServerProperties{MaxClients: 1}
+	old := atomic.LoadInt64(&maxClientsLimit)
+	SetMaxClients(1)
 	defer func() {
-		config.Properties = old
+		SetMaxClients(int(old))
 		atomic.StoreInt32(&ClientCounter, 0)
 		atomic.StoreUint64(&RejectedConnections, 0)
 	}()
@@ -122,10 +115,10 @@ func TestTryAcceptClientReacceptAfterRelease(t *testing.T) {
 }
 
 func TestGetRejectedConnections(t *testing.T) {
-	old := config.Properties
-	config.Properties = &config.ServerProperties{MaxClients: 1}
+	old := atomic.LoadInt64(&maxClientsLimit)
+	SetMaxClients(1)
 	defer func() {
-		config.Properties = old
+		SetMaxClients(int(old))
 		atomic.StoreInt32(&ClientCounter, 0)
 		atomic.StoreUint64(&RejectedConnections, 0)
 	}()

@@ -79,12 +79,14 @@ func ListenAndServe(listener net.Listener, handler tcp.Handler, closeChan <-chan
 
 	ctx := context.Background()
 	var waitDone sync.WaitGroup
-	// Snapshot keepalive at startup: reading the global per-connection raced
-	// config writes elsewhere (nightly -race); hot-reload was never a contract.
+	// Snapshot startup config once (hot values go through the atomic setters):
+	// per-accept reads of the global Properties pointer raced test/config
+	// writers (nightly -race).
 	keepAliveSec := 0
 	if config.Properties != nil {
 		keepAliveSec = config.Properties.TCPKeepAlive
 	}
+	SeedMaxClientsFromConfig()
 	for {
 		conn, err := listener.Accept()
 		if err != nil {

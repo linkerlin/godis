@@ -1,7 +1,8 @@
 package core
 
 import (
-	"os"
+	"fmt"
+	"net"
 	"testing"
 	"time"
 
@@ -12,25 +13,43 @@ import (
 	"github.com/linkerlin/godis/redis/protocol"
 )
 
+// testAddrs hands out free ports so cluster tests never collide on the fixed
+// ports older revisions used (shuffle/count>1 runs dialed a previous test's
+// still-listening cluster and failed to join).
+func testAddrs(t *testing.T) (redisAddr, raftAddr string) {
+	t.Helper()
+	p1 := freeTestPort(t)
+	p2 := freeTestPort(t)
+	return fmt.Sprintf("127.0.0.1:%d", p1), fmt.Sprintf("127.0.0.1:%d", p2)
+}
+
+func freeTestPort(t *testing.T) int {
+	t.Helper()
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := l.Addr().(*net.TCPAddr).Port
+	_ = l.Close()
+	return p
+}
+
 func TestClusterBootstrap(t *testing.T) {
 	skipHeavyTests(t)
 	// start leader
-	leaderDir := "test/0"
-	os.RemoveAll(leaderDir)
-	os.MkdirAll(leaderDir, 0777)
-	defer func() {
-		os.RemoveAll(leaderDir)
-	}()
+	leaderDir := t.TempDir()
+
 	RegisterDefaultCmd("get")
 	RegisterDefaultCmd("set")
 
 	// connection stub
 	connections := NewInMemConnectionFactory()
+	leaderRedis, leaderRaft := testAddrs(t)
 	leaderCfg := &Config{
 		RaftConfig: raft.RaftConfig{
-			RedisAdvertiseAddr: "127.0.0.1:6399",
-			RaftListenAddr:     "127.0.0.1:16666",
-			RaftAdvertiseAddr:  "127.0.0.1:16666",
+			RedisAdvertiseAddr: leaderRedis,
+			RaftListenAddr:     leaderRaft,
+			RaftAdvertiseAddr:  leaderRaft,
 			Dir:                leaderDir,
 		},
 		StartAsSeed:    true,
@@ -59,17 +78,13 @@ func TestClusterBootstrap(t *testing.T) {
 	}
 
 	// start follower
-	followerDir := "test/1"
-	os.RemoveAll(followerDir)
-	os.MkdirAll(followerDir, 0777)
-	defer func() {
-		os.RemoveAll(followerDir)
-	}()
+	followerDir := t.TempDir()
+	followerRedis, followerRaft := testAddrs(t)
 	followerCfg := &Config{
 		RaftConfig: raft.RaftConfig{
-			RedisAdvertiseAddr: "127.0.0.1:6499",
-			RaftListenAddr:     "127.0.0.1:16667",
-			RaftAdvertiseAddr:  "127.0.0.1:16667",
+			RedisAdvertiseAddr: followerRedis,
+			RaftListenAddr:     followerRaft,
+			RaftAdvertiseAddr:  followerRaft,
 			Dir:                followerDir,
 		},
 		StartAsSeed:    false,
@@ -158,23 +173,19 @@ func TestClusterBootstrap(t *testing.T) {
 func TestFailover(t *testing.T) {
 	skipHeavyTests(t)
 	// start leader
-	leaderDir := "test/0"
-	os.RemoveAll(leaderDir)
-	os.MkdirAll(leaderDir, 0777)
-	defer func() {
-		os.RemoveAll(leaderDir)
-	}()
+	leaderDir := t.TempDir()
 	RegisterCmd("slaveof", func(cluster *Cluster, c redis.Connection, cmdLine CmdLine) redis.Reply {
 		return protocol.MakeOkReply()
 	})
 
 	// connection stub
 	connections := NewInMemConnectionFactory()
+	leaderRedis, leaderRaft := testAddrs(t)
 	leaderCfg := &Config{
 		RaftConfig: raft.RaftConfig{
-			RedisAdvertiseAddr: "127.0.0.1:6399",
-			RaftListenAddr:     "127.0.0.1:26666",
-			RaftAdvertiseAddr:  "127.0.0.1:26666",
+			RedisAdvertiseAddr: leaderRedis,
+			RaftListenAddr:     leaderRaft,
+			RaftAdvertiseAddr:  leaderRaft,
 			Dir:                leaderDir,
 		},
 		StartAsSeed:    true,
@@ -189,17 +200,13 @@ func TestFailover(t *testing.T) {
 	connections.nodes[leaderCfg.RedisAdvertiseAddr] = leader
 
 	// start follower
-	followerDir := "test/1"
-	os.RemoveAll(followerDir)
-	os.MkdirAll(followerDir, 0777)
-	defer func() {
-		os.RemoveAll(followerDir)
-	}()
+	followerDir := t.TempDir()
+	followerRedis, followerRaft := testAddrs(t)
 	followerCfg := &Config{
 		RaftConfig: raft.RaftConfig{
-			RedisAdvertiseAddr: "127.0.0.1:6499",
-			RaftListenAddr:     "127.0.0.1:26667",
-			RaftAdvertiseAddr:  "127.0.0.1:26667",
+			RedisAdvertiseAddr: followerRedis,
+			RaftListenAddr:     followerRaft,
+			RaftAdvertiseAddr:  followerRaft,
 			Dir:                followerDir,
 		},
 		StartAsSeed:    false,

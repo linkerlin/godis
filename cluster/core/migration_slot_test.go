@@ -2,7 +2,6 @@ package core
 
 import (
 	"fmt"
-	"os"
 	"testing"
 	"time"
 
@@ -15,25 +14,19 @@ import (
 func TestDoMigrateSlot(t *testing.T) {
 	skipHeavyTests(t)
 
-	leaderDir := "test/migrate/0"
-	os.RemoveAll(leaderDir)
-	os.MkdirAll(leaderDir, 0777)
-	defer os.RemoveAll(leaderDir)
-
-	followerDir := "test/migrate/1"
-	os.RemoveAll(followerDir)
-	os.MkdirAll(followerDir, 0777)
-	defer os.RemoveAll(followerDir)
+	leaderDir := t.TempDir()
+	followerDir := t.TempDir()
 
 	RegisterDefaultCmd("get")
 	RegisterDefaultCmd("set")
 
 	connections := NewInMemConnectionFactory()
+	leaderRedis, leaderRaft := testAddrs(t)
 	leaderCfg := &Config{
 		RaftConfig: raft.RaftConfig{
-			RedisAdvertiseAddr: "127.0.0.1:7399",
-			RaftListenAddr:     "127.0.0.1:17666",
-			RaftAdvertiseAddr:  "127.0.0.1:17666",
+			RedisAdvertiseAddr: leaderRedis,
+			RaftListenAddr:     leaderRaft,
+			RaftAdvertiseAddr:  leaderRaft,
 			Dir:                leaderDir,
 		},
 		StartAsSeed:    true,
@@ -46,11 +39,12 @@ func TestDoMigrateSlot(t *testing.T) {
 	}
 	connections.nodes[leaderCfg.RedisAdvertiseAddr] = leader
 
+	followerRedis, followerRaft := testAddrs(t)
 	followerCfg := &Config{
 		RaftConfig: raft.RaftConfig{
-			RedisAdvertiseAddr: "127.0.0.1:7499",
-			RaftListenAddr:     "127.0.0.1:17667",
-			RaftAdvertiseAddr:  "127.0.0.1:17667",
+			RedisAdvertiseAddr: followerRedis,
+			RaftListenAddr:     followerRaft,
+			RaftAdvertiseAddr:  followerRaft,
 			Dir:                followerDir,
 		},
 		StartAsSeed:    false,
@@ -116,17 +110,15 @@ func TestDoMigrateSlot(t *testing.T) {
 func TestDoMigrateSlotRejectsWrongOwner(t *testing.T) {
 	skipHeavyTests(t)
 
-	dir := "test/migrate/wrong-owner"
-	os.RemoveAll(dir)
-	os.MkdirAll(dir, 0777)
-	defer os.RemoveAll(dir)
+	dir := t.TempDir()
 
 	connections := NewInMemConnectionFactory()
+	redisAddr, raftAddr := testAddrs(t)
 	cfg := &Config{
 		RaftConfig: raft.RaftConfig{
-			RedisAdvertiseAddr: "127.0.0.1:7599",
-			RaftListenAddr:     "127.0.0.1:18666",
-			RaftAdvertiseAddr:  "127.0.0.1:18666",
+			RedisAdvertiseAddr: redisAddr,
+			RaftListenAddr:     raftAddr,
+			RaftAdvertiseAddr:  raftAddr,
 			Dir:                dir,
 		},
 		StartAsSeed:    true,

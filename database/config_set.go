@@ -13,6 +13,7 @@ import (
 	"github.com/linkerlin/godis/lib/logger"
 	"github.com/linkerlin/godis/lib/memory"
 	"github.com/linkerlin/godis/redis/protocol"
+	"github.com/linkerlin/godis/tcp"
 )
 
 func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
@@ -128,6 +129,7 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'maxclients') - argument must be between 1 and 4294967295 inclusive")
 			}
 			config.Properties.MaxClients = int(n64)
+			tcp.SetMaxClients(int(n64))
 		case "maxmemory":
 			n, err := strconv.ParseInt(value, 10, 64)
 			if err != nil || n < 0 {

@@ -25,6 +25,16 @@
 
 ### Fixed
 
+- **race 门禁第八批（2026-10-23）：tcp/集群测试三处残余，门禁连续三轮全绿**：
+  - **tcp maxclients 每连接读全局**（产品级）：`TryAcceptClient` 在 accept 循环读 `config.Properties`，与配置写竞争。改为包级原子 `maxClientsLimit`（`SetMaxClients`/`GetMaxClients`/`SeedMaxClientsFromConfig`），`CONFIG SET maxclients` 热更新保留；gnet 引擎 `OnBoot` 补种子（不经过 `tcp.ListenAndServe`，不补则 maxclients 失效）。tcp/keepalive/maxclients 三组测试与 `lib/metrics` 的 Prometheus 测试改走原子接口
+  - **`cluster/core.RegisterCmd` 运行期写全局 map**：测试体内 `RegisterDefaultCmd` 与其它测试运行中的集群 `Exec` 并发读写 commands map。map 读写加 RWMutex（`lookupCmd`）
+  - **集群测试固定端口互踩**：`TestClusterBootstrap`/`TestFailover`/`TestDoMigrateSlot*` 硬编码 6399/6499 等端口且不 Close——shuffle 顺序里 join 拨号连到上一个测试仍在监听的集群。端口随机化（`testAddrs`）+ `t.TempDir()`
+- **race 门禁第七批（2026-10-23，commit 9c81c3f）：全量 shuffle race 门禁首次全绿**：
+  - **redis/client 关闭路径双形态竞争**（产品级）：`close(pendingReqs)` 与 `doHeartbeat` 的 send 并发（send-on-closed panic 窗口）+ `working.Wait` 与 `working.Add` 从零起算（WaitGroup 禁止组合——Add 对 reconnect 驱动的 Close 无 happens-before 边界）。重构为 `done` 广播：`pendingReqs` 永不 close、`handleWrite` 收 done 后 drain 退出、`Send`/`doHeartbeat` select 放弃、删除 working 机制
+  - **`dict.ConcurrentDict.Clear` 整体替换竞争**（产品级：FLUSHDB vs 任意在途命令）：`*dict = *MakeConcurrent(...)` 无锁换 `table` 指针，与 `spread()`/`RWLocks` 并发读竞争且破坏分片锁身份。改为逐分片持锁清空、原子递减 count
+  - **tcp keepalive 每连接读全局**：`applyTCPKeepAlive` 在 accept 循环内读 `config.Properties`，与测试期配置交换竞争。`ListenAndServe` 启动时快照一次（热更新本就无契约）
+  - **tcp maxclients 每连接读全局**：`TryAcceptClient` 同形状竞争。改为包级原子 `maxClientsLimit`（`SetMaxClients`/`SeedMaxClientsFromConfig`），`CONFIG SET maxclients` 热更新保留；gnet 引擎在 `OnBoot` 补种子（其不经过 `tcp.ListenAndServe`，不补则 maxclients 失效）
+  - **e7cluster 智能客户端补 ASK 跟随**：rebalance 迁移窗口可能给 SET 循环回 `-ASK`（慢 CI 轮次实抓）；mini client 补 `ASKING`+目标重试（集群客户端契约）
 - **夜间 race 门禁 9 项失败全部根因修复（2026-10-23，run 39746237975/39859473345 复现并分类）**：
   - **内存对账协程读实体无键锁**（E5-3 引入的回归）：`walkEstimatedBytes` 仅持 dict 分片锁即读取 Hash 内层 `SimpleDict`（`Len/Get`），与并发 HSET 竞争。改为两阶段：先快照键名，再逐键持读锁估算（保持全局「键锁→分片锁」顺序，不与命令死锁）
   - **内存估算触发惰性过期级联**：`estimateExpireDictBytes` 用 `ExpireDict.Get`，对过期字段触发 `removeExpired` → `db.Remove` → 整键删除——估算函数在无键锁、无 AOF 的后台路径上改写数据。新增 `ExpireDict.Peek` 只读旁路，估算纯化
@@ -51,7 +61,7 @@
   - **INFO 统计原子化**：`GenGodisInfoString` 对 `ExpiredKeys`/`EvictedKeys`/`KeyspaceHits`/`KeyspaceMisses`/`TotalCommands`/`TotalConnections` 六字段裸读（写方全为 `atomic.Add`）→ 全部 `atomic.Load`；`getExpiredStalePerc` 与 `CONFIG RESETSTAT` 的 `ExpiredStale` 同步收口
   - **`TestR5TSReadBlockWokenByAdd` 时序片**：goroutine 固定 sleep 150ms 可能在 `$` 哨兵解析前落地 ADD（哨兵跳过新样本→等满超时）；改 `waitTSWaiterRegistered` 等 waiter 真注册（哨兵必已解析）再 ADD，`-race -count=5` 稳定
 
-**race 门禁残余开放项（2026-10-23 第六批后）**：此前三条点名项已全部收口（见上）。剩余仅 shuffle 种子相关的偶发时序片（逐轮不同、无确定性失败）；下次夜间失败按「先对照已修根因类别、再最小化复现」处理。
+**race 门禁残余开放项（2026-10-23 第八批后）**：**零**。第八批后全仓 `go test -race -count=1 -shuffle=on -timeout 30m ./...` **连续三轮全绿**（exit 0 / 0 DATA RACE / 0 FAIL，三种 shuffle 种子）——该门禁自建立以来的首次稳定全绿。后续夜间再红按「先对照第七/八批根因类别、再最小化复现」处理。
 
 ## [v1.3.0] - 2026-10-23
 

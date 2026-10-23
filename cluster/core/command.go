@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"runtime/debug"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/linkerlin/godis/config"
@@ -19,12 +20,27 @@ type CmdLine = [][]byte
 // CmdFunc represents the handler of a redis command
 type CmdFunc func(cluster *Cluster, c redis.Connection, cmdLine CmdLine) redis.Reply
 
-var commands = make(map[string]CmdFunc)
+// commands is written by RegisterCmd — normally only from package init, but
+// tests register at runtime while other tests' clusters Exec concurrently
+// (the nightly -race gate caught exactly that pair), so guard it.
+var (
+	commandsMu sync.RWMutex
+	commands   = make(map[string]CmdFunc)
+)
 
 // RegisterCmd add command handler into cluster
 func RegisterCmd(name string, cmd CmdFunc) {
 	name = strings.ToLower(name)
+	commandsMu.Lock()
 	commands[name] = cmd
+	commandsMu.Unlock()
+}
+
+func lookupCmd(name string) (CmdFunc, bool) {
+	commandsMu.RLock()
+	cmd, ok := commands[name]
+	commandsMu.RUnlock()
+	return cmd, ok
 }
 
 // Exec executes command on cluster
@@ -68,7 +84,7 @@ func (cluster *Cluster) Exec(c redis.Connection, cmdLine [][]byte) (result redis
 	if reply := database.CheckACLPermission(c, cmdName, cmdLine[1:]); reply != nil {
 		return reply
 	}
-	cmdFunc, ok := commands[cmdName]
+	cmdFunc, ok := lookupCmd(cmdName)
 	if !ok {
 		keys, keylessLocal, exists := database.ResolveClusterCommandKeys(cmdLine)
 		if !exists {

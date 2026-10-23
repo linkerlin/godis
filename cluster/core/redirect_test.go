@@ -164,7 +164,7 @@ func TestSetSlotNodeClearsAsk(t *testing.T) {
 
 	// Own the slot in FSM, then mark MIGRATING → ASK
 	a.raftNode.ApplyLocal(&raft.LogEntry{
-		Event: raft.EventAddSlots,
+		Event:     raft.EventAddSlots,
 		SlotsTask: &raft.SlotsTask{NodeId: ids[0], Slots: []uint32{slot}},
 	})
 	r := execCluster(a, nil, [][]byte{
@@ -262,4 +262,3 @@ func TestFSMMigratingsAskWithoutLocalExporting(t *testing.T) {
 		t.Fatalf("ASK addr=%q want %q", ask.Addr, ids[1])
 	}
 }
-

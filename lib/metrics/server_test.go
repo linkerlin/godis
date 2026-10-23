@@ -7,7 +7,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/linkerlin/godis/config"
 	"github.com/linkerlin/godis/tcp"
 )
 
@@ -58,10 +57,10 @@ func TestStartEmptyAddr(t *testing.T) {
 }
 
 func TestWritePrometheusRejectedConnectionsValue(t *testing.T) {
-	old := config.Properties
-	config.Properties = &config.ServerProperties{MaxClients: 1}
+	oldLimit := tcp.GetMaxClients()
+	tcp.SetMaxClients(1)
 	defer func() {
-		config.Properties = old
+		tcp.SetMaxClients(oldLimit)
 		tcp.ClientCounter = 0
 		tcp.RejectedConnections = 0
 	}()
