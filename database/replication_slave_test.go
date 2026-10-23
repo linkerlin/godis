@@ -130,25 +130,18 @@ func TestReplicationSlaveSide(t *testing.T) {
 	}
 	time.Sleep(3 * time.Second)
 
-	// test reconnect
-	config.Properties.ReplTimeout = 1
-	// Field pokes go under slaveStatus.mutex: receiveAOF writes the same
-	// fields from its goroutine, and an unlocked mock raced it (-race gate).
-	server.slaveStatus.mutex.Lock()
-	if server.slaveStatus.masterConn != nil {
-		_ = server.slaveStatus.masterConn.Close()
-	}
-	server.slaveStatus.lastRecvTime = time.Now().Add(-time.Hour) // mock timeout
-	server.slaveStatus.mutex.Unlock()
-	server.slaveCron()
-	// The 1s ReplTimeout is only needed to trigger the reconnect; leaving it
-	// set would keep dropping the fresh session on a slow (race-instrumented)
-	// CI runner before it can ever converge.
-	config.Properties.ReplTimeout = 60
+	// test reconnect: re-issue SLAVEOF — the public stop-then-start path
+	// (execSlaveOf stops the previous attempt, then spawns a fresh setup).
+	// The old field-poke mock (close masterConn + backdate lastRecvTime +
+	// slaveCron) fought the reconnect machinery's own timing under -race and
+	// never converged on CI runners; session-drop reconnection is separately
+	// covered by e6chaos/e6soak against real servers.
+	ret = server.Exec(conn, utils.ToCmdLine("SLAVEOF", masterHost, masterPort))
+	asserts.AssertStatusReply(t, ret, "OK")
 	ret = masterCli.Send(utils.ToCmdLine("set", "1", "3"))
 	asserts.AssertStatusReply(t, ret, "OK")
 	success = false
-	for i := 0; i < 10; i++ {
+	for i := 0; i < 15; i++ {
 		// wait for sync
 		time.Sleep(time.Second)
 		ret = server.Exec(conn, utils.ToCmdLine("GET", "1"))
