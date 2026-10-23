@@ -102,7 +102,7 @@ Redis 对照腿在同环境同波动，因此**比值可信、绝对值只作方
 | std-off-p1 | GET ops/s（p50） | 13,091（3.3ms） | 17,590（2.5ms），≈SET | 148k（0.18ms） |
 | gnet-off-p1 | SET ops/s | 8,118 | 18,625 | — |
 
-**修复后仍开放的差距**：std/gnet 与 Redis 的整体吞吐差（~5-8×）——该差距经第二轮排查**属于 redis-benchmark(C) ↔ Go 服务端的交互病理，非服务端能力问题**（见下节「E5-3 第二轮」：Go 客户端下 86-90 万 ops/s）；gnet pipeline 深度负作用；always fsync 需专用盘验证。
+**修复后仍开放的差距**：std/gnet 与 Redis 的整体吞吐差（~5-8×）——该差距经第二轮排查**属于 redis-benchmark(C) ↔ Go 服务端的交互病理，非服务端能力问题**（见「E5-3 第二轮」：Go 客户端下 86-90 万 ops/s）；~~gnet pipeline 深度负作用~~（第三轮证伪，见「E5-3 第三轮」）；always fsync 需专用盘验证。
 
 ## E5-3 第二轮（2026-10-23）：服务端证清白，「连接层串行」假设推翻
 
@@ -118,7 +118,18 @@ Redis 对照腿在同环境同波动，因此**比值可信、绝对值只作方
 
 排除实验（VM 内，SET P1 50c）：网桥（loopback 同慢）、客户端事件循环（`--threads 4` 不变）、GOMAXPROCS（1/2/4/32 全部 ~20k）、GC（首轮已排除）、DB 层（3.3µs）。
 
-**结论**：Godis std 引擎在 50 连接下服务端能力约 **86-90 万 ops/s**，P16 每命令延迟与 P1 持平（无串行退化）。quick 矩阵中「比 Redis 慢 5-8×」的表观差距**专属于 redis-benchmark(C 客户端) ↔ Go 服务端的交互病理**（跨进程、loopback 亦复现，Go 客户端完全不出现），根因开放（疑 Linux netstack 与 Go 每回复一次写 syscall 的交互；40ms 级 delayed-ACK 不符）。**实际业务客户端（Go/Java 等 redis 客户端库）应落在快路径**——引用本表数字时请用 Go↔Go 行，C↔Godis 行仅作该特定组合的记录。gnet pipeline 深度延迟仍开放。
+**结论**：Godis std 引擎在 50 连接下服务端能力约 **86-90 万 ops/s**，P16 每命令延迟与 P1 持平（无串行退化）。quick 矩阵中「比 Redis 慢 5-8×」的表观差距**专属于 redis-benchmark(C 客户端) ↔ Go 服务端的交互病理**（跨进程、loopback 亦复现，Go 客户端完全不出现），根因开放（疑 Linux netstack 与 Go 每回复一次写 syscall 的交互；40ms 级 delayed-ACK 不符）。**实际业务客户端（Go/Java 等 redis 客户端库）应落在快路径**——引用本表数字时请用 Go↔Go 行，C↔Godis 行仅作该特定组合的记录。gnet pipeline 深度延迟见第三轮（已证伪）。
+
+## E5-3 第三轮（2026-10-23）：gnet pipeline 负作用证伪，两引擎对齐
+
+新增 `redis/server/gnet/e2e_bench_test.go`（与 std 版同构：进程内 gnet server + 50 原生 Go 连接，pipelined SET batch 往返，WSL2 VM）：
+
+| 引擎 | P1 | P16 | P64 | 每命令延迟（P16/P64 折算） |
+|---|---|---|---|---|
+| gnet | 56.8µs/op | 821.6µs/batch | 3,459µs/batch | **51.4µs / 54.0µs —— 与 P1 持平** |
+| std（对照，同日重跑） | 53.4µs/op | 827.9µs/batch | — | 51.7µs |
+
+**结论**：Go 客户端下 gnet 的 pipeline 深度**没有任何负作用**（P16/P64 每命令延迟与 P1 持平），且与 std 引擎同级。quick 矩阵中「gnet P16/P64 p50 43/169ms」与 std 的 5-8× 表观差距同源——**redis-benchmark(C 客户端) ↔ Go 服务端交互病理**，非服务端逐命令开销；原「批量回复路径逐命令开销」假设证伪（gnet OnTraffic 本就批量攒包一次写）。E5-3 遗留的两个性能开放项（gnet pipeline 负作用、连接层串行点）就此**全部收口为病理记录**；剩余可做项只有病理自身根因（低优先级，业务客户端不受影响）与 always fsync 专用盘验证。
 
 ## 已知边界与非目标
 

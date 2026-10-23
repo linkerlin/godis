@@ -191,15 +191,16 @@ func TestE6SoakLoadCycles(t *testing.T) {
 	final := sample()
 	t.Logf("final: heap=%d goroutines=%d fds=%d (cycles=%d)", final.heapInuse, final.goroutines, final.fds, cycles)
 
-	// ponytail: heap slack 30% + 64MB (GC timing noise), goroutine slack 8
-	// (one-shot workers), fd slack 16 (linux only) — tighten if flake-free.
-	if lim := base.heapInuse + base.heapInuse*3/10 + 64<<20; final.heapInuse > lim {
+	// ponytail: heap slack 15% + 32MB, goroutine slack 4, fd slack 8 (linux
+	// only). Tightened 2026-10-23 from 30%+64MB/+8/+16: 12- and 40-cycle runs
+	// showed goroutines flat and heap ~9% growth, so the old slack only hid leaks.
+	if lim := base.heapInuse + base.heapInuse*15/100 + 32<<20; final.heapInuse > lim {
 		t.Errorf("HeapInuse grew: baseline %d -> final %d (limit %d)", base.heapInuse, final.heapInuse, lim)
 	}
-	if final.goroutines > base.goroutines+8 {
+	if final.goroutines > base.goroutines+4 {
 		t.Errorf("goroutines grew: baseline %d -> final %d", base.goroutines, final.goroutines)
 	}
-	if base.fds > 0 && final.fds > base.fds+16 {
+	if base.fds > 0 && final.fds > base.fds+8 {
 		t.Errorf("fds grew: baseline %d -> final %d", base.fds, final.fds)
 	}
 }
