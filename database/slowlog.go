@@ -33,39 +33,49 @@ type SlowLogger struct {
 	threshold   int64
 	nextID      int64
 	logCommands [][]byte
+
+	// Truncation limits (Redis 8.10 slowlog-entry-max-argc /
+	// slowlog-entry-max-string-len); CONFIG SET hot-updated.
+	entryMaxArgc   int
+	entryMaxString int
 }
 
 func NewSlowLogger(maxEntries int, threshold int64) *SlowLogger {
 	entries := make([]*SlowLogEntry, maxEntries)
 	return &SlowLogger{
-		entries:     entries,
-		maxEntries:  maxEntries,
-		threshold:   threshold,
-		nextID:      1,
-		logCommands: [][]byte{},
+		entries:        entries,
+		maxEntries:     maxEntries,
+		threshold:      threshold,
+		nextID:         1,
+		logCommands:    [][]byte{},
+		entryMaxArgc:   slowlogEntryMaxArgc,
+		entryMaxString: slowlogEntryMaxString,
 	}
 }
 
 const (
-	// Redis SLOWLOG_ENTRY_MAX_ARGC and SLOWLOG_ENTRY_MAX_STRING
+	// Redis SLOWLOG_ENTRY_MAX_ARGC and SLOWLOG_ENTRY_MAX_STRING (8.10 defaults)
 	slowlogEntryMaxArgc   = 32
 	slowlogEntryMaxString = 128
 )
 
-func formatSlowlogArgs(args [][]byte) [][]byte {
+// formatSlowlogArgsLocked truncates args to the configured limits (called with
+// sl.mu held). Redis 8.10 formats: "prefix... (N more bytes)" per arg and a
+// trailing "... (N more arguments)" element past entryMaxArgc.
+func (sl *SlowLogger) formatSlowlogArgsLocked(args [][]byte) [][]byte {
 	total := len(args)
 	limit := total
 	truncatedArgs := 0
-	if total > slowlogEntryMaxArgc {
-		limit = slowlogEntryMaxArgc - 1
+	if total > sl.entryMaxArgc {
+		limit = sl.entryMaxArgc - 1
 		truncatedArgs = total - limit
 	}
 	out := make([][]byte, 0, limit+1)
 	for i := 0; i < limit; i++ {
 		arg := args[i]
-		if len(arg) > slowlogEntryMaxString {
-			more := len(arg) - slowlogEntryMaxString
-			s := string(arg[:slowlogEntryMaxString]) + "... (" + strconv.Itoa(more) + " more bytes)"
+		if len(arg) > sl.entryMaxString {
+			more := len(arg) - sl.entryMaxString
+			s := string(arg[:sl.entryMaxString]) + "... (" + strconv.Itoa(more) + " more bytes)"
 			out = append(out, []byte(s))
 		} else {
 			cp := make([]byte, len(arg))
@@ -77,6 +87,22 @@ func formatSlowlogArgs(args [][]byte) [][]byte {
 		out = append(out, []byte("... ("+strconv.Itoa(truncatedArgs)+" more arguments)"))
 	}
 	return out
+}
+
+// SetEntryMaxArgc updates the per-entry argument truncation limit
+// (CONFIG SET slowlog-entry-max-argc; Redis range 2..2^31-1).
+func (sl *SlowLogger) SetEntryMaxArgc(maxArgc int) {
+	sl.mu.Lock()
+	defer sl.mu.Unlock()
+	sl.entryMaxArgc = maxArgc
+}
+
+// SetEntryMaxString updates the per-argument string truncation limit
+// (CONFIG SET slowlog-entry-max-string-len; Redis range 1..2^63-1).
+func (sl *SlowLogger) SetEntryMaxString(maxString int) {
+	sl.mu.Lock()
+	defer sl.mu.Unlock()
+	sl.entryMaxString = maxString
 }
 
 func (sl *SlowLogger) Record(start time.Time, args [][]byte, peerAddr, clientName string) {
@@ -97,7 +123,7 @@ func (sl *SlowLogger) Record(start time.Time, args [][]byte, peerAddr, clientNam
 		ID:         sl.nextID,
 		Timestamp:  start,
 		Duration:   micros,
-		Command:    formatSlowlogArgs(args),
+		Command:    sl.formatSlowlogArgsLocked(args),
 		PeerId:     peerAddr,
 		ClientName: clientName,
 		Argc:       len(args),

@@ -1084,6 +1084,30 @@ func (server *Server) execConfigSet(kvPairs [][]byte) redis.Reply {
 			if server.slogLogger != nil {
 				server.slogLogger.SetMaxLen(n)
 			}
+		case "slowlog-entry-max-argc":
+			n, err := strconv.Atoi(value)
+			if err != nil {
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'slowlog-entry-max-argc') - argument couldn't be parsed into an integer")
+			}
+			if n < 2 || n > 2147483647 {
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'slowlog-entry-max-argc') - argument must be between 2 and 2147483647 inclusive")
+			}
+			config.Properties.SlowLogEntryMaxArgc = n
+			if server.slogLogger != nil {
+				server.slogLogger.SetEntryMaxArgc(n)
+			}
+		case "slowlog-entry-max-string-len":
+			n, err := strconv.ParseInt(value, 10, 64)
+			if err != nil {
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'slowlog-entry-max-string-len') - argument couldn't be parsed into an integer")
+			}
+			if n < 1 {
+				return protocol.MakeErrReply("ERR CONFIG SET failed (possibly related to argument 'slowlog-entry-max-string-len') - argument must be between 1 and 9223372036854775807 inclusive")
+			}
+			config.Properties.SlowLogEntryMaxStringLen = n
+			if server.slogLogger != nil {
+				server.slogLogger.SetEntryMaxString(int(n))
+			}
 		case "acllog-max-len":
 			n, err := strconv.Atoi(value)
 			if err != nil {

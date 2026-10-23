@@ -275,7 +275,7 @@ func TestR5W2IncrExInt(t *testing.T) {
 		"ERR value is not an integer or out of range")
 	// LBOUND > UBOUND.
 	asserts.AssertErrReply(t, testDB.Exec(nil, utils.ToCmdLine("INCREX", "r5w2:i1", "LBOUND", "10", "UBOUND", "5")),
-		"ERR LBOUND must be less than or equal to UBOUND")
+		"ERR LBOUND can't be greater than UBOUND")
 	testDB.Exec(nil, utils.ToCmdLine("DEL", "r5w2:i1", "r5w2:i2", "r5w2:i3", "r5w2:i4", "r5w2:i5"))
 }
 

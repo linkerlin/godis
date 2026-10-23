@@ -187,7 +187,7 @@ parseStreams:
 	}
 
 	if maxCount > 0 && count > 0 && maxCount < int64(count) {
-		return protocol.MakeErrReply("ERR MAXCOUNT can't be less than COUNT")
+		return protocol.MakeErrReply("ERR MAXCOUNT must be greater than or equal to COUNT")
 	}
 
 	startTime := time.Now()
@@ -364,7 +364,7 @@ parseStreams:
 	}
 
 	if maxCount > 0 && count > 0 && maxCount < int64(count) {
-		return protocol.MakeErrReply("ERR MAXCOUNT can't be less than COUNT")
+		return protocol.MakeErrReply("ERR MAXCOUNT must be greater than or equal to COUNT")
 	}
 
 	startTime := time.Now()

@@ -188,7 +188,7 @@ func TestR5XReadMaxCount(t *testing.T) {
 	}
 	// MAXCOUNT smaller than COUNT → error.
 	asserts.AssertErrReply(t, testDB.Exec(nil, utils.ToCmdLine(
-		"XREAD", "COUNT", "5", "MAXCOUNT", "4", "STREAMS", "r5s1", "0")), "ERR MAXCOUNT can't be less than COUNT")
+		"XREAD", "COUNT", "5", "MAXCOUNT", "4", "STREAMS", "r5s1", "0")), "ERR MAXCOUNT must be greater than or equal to COUNT")
 	// MAXSIZE always returns at least one entry.
 	r = testDB.Exec(nil, utils.ToCmdLine("XREAD", "MAXSIZE", "1", "STREAMS", "r5s1", "0"))
 	if _, isNil := r.(*protocol.NullBulkReply); isNil {

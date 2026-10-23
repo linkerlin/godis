@@ -54,7 +54,12 @@ type ServerProperties struct {
 
 	SlowLogSlowerThan int64 `cfg:"slowlog-log-slower-than"`
 	SlowLogMaxLen     int   `cfg:"slowlog-max-len"`
-	AclLogMaxLen      int   `cfg:"acllog-max-len"`
+	// SlowLogEntryMaxArgc / SlowLogEntryMaxStringLen: slowlog entry truncation
+	// (Redis 8.10). 0 = unset → Godis default 32/128; valid ranges 2..2^31-1
+	// and 1..2^63-1 are enforced on CONFIG SET.
+	SlowLogEntryMaxArgc      int   `cfg:"slowlog-entry-max-argc"`
+	SlowLogEntryMaxStringLen int64 `cfg:"slowlog-entry-max-string-len"`
+	AclLogMaxLen             int   `cfg:"acllog-max-len"`
 
 	Maxmemory       int64  `cfg:"maxmemory"`
 	MaxmemoryPolicy string `cfg:"maxmemory-policy"`

@@ -346,7 +346,7 @@ func execIncrEx(db *DB, args [][]byte) redis.Reply {
 		return protocol.MakeSyntaxErrReply()
 	}
 	if loSet && hiSet && ((floatMode && loF > hiF) || (!floatMode && loI > hiI)) {
-		return protocol.MakeErrReply("ERR LBOUND must be less than or equal to UBOUND")
+		return protocol.MakeErrReply("ERR LBOUND can't be greater than UBOUND")
 	}
 
 	entity, exists := db.GetEntity(key)

@@ -308,6 +308,8 @@ func getConfigMatches(pattern string) []configPair {
 		{"repl-backlog-size", strconv.FormatInt(getReplBacklogSizeConfig(), 10)},
 		{"slowlog-log-slower-than", strconv.FormatInt(config.Properties.SlowLogSlowerThan, 10)},
 		{"slowlog-max-len", strconv.Itoa(config.Properties.SlowLogMaxLen)},
+		{"slowlog-entry-max-argc", strconv.Itoa(config.Properties.SlowLogEntryMaxArgc)},
+		{"slowlog-entry-max-string-len", strconv.FormatInt(config.Properties.SlowLogEntryMaxStringLen, 10)},
 		{"acllog-max-len", strconv.Itoa(config.Properties.AclLogMaxLen)},
 		{"cluster-enabled", boolToString(config.Properties.ClusterEnable)},
 		{"cluster-as-seed", boolToString(config.Properties.ClusterAsSeed)},

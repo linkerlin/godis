@@ -153,7 +153,17 @@ func newServerWithSize(dictSize int) (*Server, error) {
 	if config.Properties.AclLogMaxLen <= 0 {
 		config.Properties.AclLogMaxLen = 128
 	}
+	// Unset (0) normalizes to the Redis 8.10 defaults so CONFIG GET shows the
+	// effective values (cluster mode normalizes here too via its inner server).
+	if config.Properties.SlowLogEntryMaxArgc <= 0 {
+		config.Properties.SlowLogEntryMaxArgc = slowlogEntryMaxArgc
+	}
+	if config.Properties.SlowLogEntryMaxStringLen <= 0 {
+		config.Properties.SlowLogEntryMaxStringLen = slowlogEntryMaxString
+	}
 	server.slogLogger = NewSlowLogger(config.Properties.SlowLogMaxLen, config.Properties.SlowLogSlowerThan)
+	server.slogLogger.SetEntryMaxArgc(config.Properties.SlowLogEntryMaxArgc)
+	server.slogLogger.SetEntryMaxString(int(config.Properties.SlowLogEntryMaxStringLen))
 
 	// initialize memory limiter from config
 	policy := config.Properties.MaxmemoryPolicy

@@ -6,8 +6,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/linkerlin/godis/config"
 	"github.com/linkerlin/godis/lib/utils"
+	"github.com/linkerlin/godis/redis/connection"
 	"github.com/linkerlin/godis/redis/protocol"
+	"github.com/linkerlin/godis/redis/protocol/asserts"
 )
 
 func TestSlowLogger_Record(t *testing.T) {
@@ -140,6 +143,93 @@ func TestSlowLogger_MaxEntries(t *testing.T) {
 	for i, entry := range entries {
 		if string(entry.Command[1]) != expected[i] {
 			t.Errorf("Position %d: expected %s, got %s", i, expected[i], entry.Command[1])
+		}
+	}
+}
+
+func TestSlowLogger_EntryLimits(t *testing.T) {
+	logger := NewSlowLogger(10, 0) // record everything
+	logger.SetEntryMaxArgc(3)
+	logger.SetEntryMaxString(5)
+
+	// Expectations pinned to Redis 8.10 output (docker redis:8.10-alpine):
+	// SET k abcdefghijklmno (15 bytes) → "SET","k","abcde... (10 more bytes)"
+	logger.Record(time.Now(), utils.ToCmdLine("SET", "k", "abcdefghijklmno"), "127.0.0.1:1", "")
+	// MSET a 1 b 2 c 3 d 4 e 5 (11 args) → "MSET","a","... (9 more arguments)"
+	logger.Record(time.Now(), utils.ToCmdLine("MSET", "a", "1", "b", "2", "c", "3", "d", "4", "e", "5"), "127.0.0.1:1", "")
+
+	entries := logger.GetEntries(2)
+	if len(entries) != 2 {
+		t.Fatalf("expected 2 entries, got %d", len(entries))
+	}
+	mset := entries[0] // newest first
+	if len(mset.Command) != 3 ||
+		string(mset.Command[0]) != "MSET" || string(mset.Command[1]) != "a" ||
+		string(mset.Command[2]) != "... (9 more arguments)" {
+		t.Errorf("MSET truncated args: %q", mset.Command)
+	}
+	if mset.Argc != 11 {
+		t.Errorf("MSET argc = %d, want 11", mset.Argc)
+	}
+	set := entries[1]
+	if len(set.Command) != 3 || string(set.Command[2]) != "abcde... (10 more bytes)" {
+		t.Errorf("SET truncated value: %q", set.Command)
+	}
+	if set.Argc != 3 {
+		t.Errorf("SET argc = %d, want 3", set.Argc)
+	}
+}
+
+func TestConfigSetSlowlogEntryLimits(t *testing.T) {
+	server := getTestServer()
+	c := connection.NewFakeConn()
+	oldArgc := config.Properties.SlowLogEntryMaxArgc
+	oldStr := config.Properties.SlowLogEntryMaxStringLen
+	oldSlower := config.Properties.SlowLogSlowerThan
+	defer func() {
+		server.Exec(c, utils.ToCmdLine("CONFIG", "SET", "slowlog-entry-max-argc", strconv.Itoa(oldArgc)))
+		server.Exec(c, utils.ToCmdLine("CONFIG", "SET", "slowlog-entry-max-string-len", strconv.FormatInt(oldStr, 10)))
+		server.Exec(c, utils.ToCmdLine("CONFIG", "SET", "slowlog-log-slower-than", strconv.FormatInt(oldSlower, 10)))
+	}()
+
+	asserts.AssertStatusReply(t, server.Exec(c, utils.ToCmdLine("CONFIG", "SET", "slowlog-entry-max-argc", "3")), "OK")
+	asserts.AssertStatusReply(t, server.Exec(c, utils.ToCmdLine("CONFIG", "SET", "slowlog-entry-max-string-len", "5")), "OK")
+	ret := server.Exec(c, utils.ToCmdLine("CONFIG", "GET", "slowlog-entry-max-argc", "slowlog-entry-max-string-len"))
+	got := string(ret.ToBytes())
+	if !strings.Contains(got, "slowlog-entry-max-argc\r\n$1\r\n3") ||
+		!strings.Contains(got, "slowlog-entry-max-string-len\r\n$1\r\n5") {
+		t.Fatalf("CONFIG GET: %q", got)
+	}
+
+	// Hot effect on recorded entries.
+	asserts.AssertStatusReply(t, server.Exec(c, utils.ToCmdLine("CONFIG", "SET", "slowlog-log-slower-than", "0")), "OK")
+	server.Exec(c, utils.ToCmdLine("SET", "sl-trunc", "abcdefghijklmno"))
+	slr := server.Exec(c, utils.ToCmdLine("SLOWLOG", "GET", "1"))
+	mr, ok := slr.(*protocol.MultiRawReply)
+	if !ok || len(mr.Replies) != 1 {
+		t.Fatalf("SLOWLOG GET 1: %s", slr.ToBytes())
+	}
+	fields, ok := mr.Replies[0].(*protocol.MultiRawReply)
+	if !ok || len(fields.Replies) != 7 {
+		t.Fatalf("entry fields: %s", mr.Replies[0].ToBytes())
+	}
+	cmds, ok := fields.Replies[3].(*protocol.MultiBulkReply)
+	if !ok || len(cmds.Args) != 3 || string(cmds.Args[2]) != "abcde... (10 more bytes)" {
+		t.Fatalf("truncated entry: %s", fields.Replies[3].ToBytes())
+	}
+
+	// Range validation pinned to Redis 8.10 messages.
+	bad := [][2]string{
+		{"slowlog-entry-max-argc", "1"},
+		{"slowlog-entry-max-argc", "0"},
+		{"slowlog-entry-max-argc", "-1"},
+		{"slowlog-entry-max-string-len", "0"},
+		{"slowlog-entry-max-string-len", "-5"},
+	}
+	for _, tc := range bad {
+		r := server.Exec(c, utils.ToCmdLine("CONFIG", "SET", tc[0], tc[1]))
+		if !protocol.IsErrorReply(r) || !strings.Contains(string(r.ToBytes()), "argument must be between") {
+			t.Errorf("CONFIG SET %s %s: want range error, got %s", tc[0], tc[1], r.ToBytes())
 		}
 	}
 }

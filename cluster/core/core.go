@@ -150,6 +150,13 @@ func NewCluster(cfg *Config) (*Cluster, error) {
 
 	// record slow log
 	cluster.slogLogger = dbimpl.NewSlowLogger(config.Properties.SlowLogMaxLen, config.Properties.SlowLogSlowerThan)
+	// Properties are normalized by the inner standalone server (0 → 32/128).
+	if config.Properties.SlowLogEntryMaxArgc > 0 {
+		cluster.slogLogger.SetEntryMaxArgc(config.Properties.SlowLogEntryMaxArgc)
+	}
+	if config.Properties.SlowLogEntryMaxStringLen > 0 {
+		cluster.slogLogger.SetEntryMaxString(int(config.Properties.SlowLogEntryMaxStringLen))
+	}
 
 	go cluster.clusterCron()
 	return cluster, nil

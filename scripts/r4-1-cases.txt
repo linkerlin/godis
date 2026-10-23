@@ -15838,3 +15838,11 @@ JSONPATH-recursive-filter|["b"]|JSON.GET sidecar:r5jp:wild:{{ID}} $.items[?(@..p
 
 
 
+
+# --- slowlog-entry-max-argc / max-string-len (Redis 8.10; messages pinned to 8.10) ---
+SLOWLOG-entry-argc-range|ERR CONFIG SET failed (possibly related to argument 'slowlog-entry-max-argc') - argument must be between 2 and 2147483647 inclusive|CONFIG SET slowlog-entry-max-argc 1
+SLOWLOG-entry-str-range|ERR CONFIG SET failed (possibly related to argument 'slowlog-entry-max-string-len') - argument must be between 1 and 9223372036854775807 inclusive|CONFIG SET slowlog-entry-max-string-len 0
+
+# --- texts aligned to Redis 8.10 probes (validation precedes key lookup) ---
+XREAD-maxcount-lt-count|ERR MAXCOUNT must be greater than or equal to COUNT|XREAD COUNT 5 MAXCOUNT 2 STREAMS nosuchstream:{{ID}} 0
+INCREX-lbound-gt-ubound|ERR LBOUND can't be greater than UBOUND|INCREX nosuchinc:{{ID}} BYINT 1 LBOUND 10 UBOUND 3
