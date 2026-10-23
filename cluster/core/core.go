@@ -91,6 +91,11 @@ func NewCluster(cfg *Config) (*Cluster, error) {
 
 	// Initialize rebalance manager after cluster is created
 	cluster.rebalanceManager = NewRebalanceManager(cluster)
+	// InMem stub clusters have no TCP endpoints; MOVED/ASK would point peers at
+	// unreachable addresses. Relay in-process instead (same as MakeTestCluster).
+	if _, isInMem := connections.(*InMemConnectionFactory); isInMem {
+		cluster.inmemProxy = true
+	}
 	cluster.pickNodeImpl = func(slotID uint32) string {
 		return defaultPickNodeImpl(cluster, slotID)
 	}

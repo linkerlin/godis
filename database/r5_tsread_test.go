@@ -95,6 +95,24 @@ func TestR5TSReadBlockTimeoutFlush(t *testing.T) {
 	testDB.Exec(nil, utils.ToCmdLine("DEL", "r5ts:2"))
 }
 
+// waitTSWaiterRegistered waits until a TS.READ waiter exists for key, i.e. the
+// blocked reader has resolved its cursor sentinel and is parked in the loop.
+// Replaces fixed sleeps: racing the ADD ahead of `$` resolution makes the
+// sentinel skip the new sample (nightly -race flake source).
+func waitTSWaiterRegistered(key string) bool {
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		tsWaitMu.Lock()
+		n := len(tsWaiters[key])
+		tsWaitMu.Unlock()
+		if n > 0 {
+			return true
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
+	return false
+}
+
 func TestR5TSReadBlockWokenByAdd(t *testing.T) {
 	testDB.Exec(nil, utils.ToCmdLine("DEL", "r5ts:3"))
 	asserts.AssertStatusReply(t, testDB.Exec(nil, utils.ToCmdLine("TS.CREATE", "r5ts:3")), "OK")
@@ -102,7 +120,9 @@ func TestR5TSReadBlockWokenByAdd(t *testing.T) {
 
 	// $ tail: only samples added after the call qualify.
 	go func() {
-		time.Sleep(150 * time.Millisecond)
+		if !waitTSWaiterRegistered("r5ts:3") {
+			return
+		}
 		testDB.Exec(nil, utils.ToCmdLine("TS.ADD", "r5ts:3", "400", "4"))
 	}()
 	start := time.Now()

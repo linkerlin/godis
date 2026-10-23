@@ -171,7 +171,7 @@ func resetServerStats() {
 	atomic.StoreUint64(&serverStats.EvictedKeys, 0)
 	atomic.StoreUint64(&serverStats.KeyspaceHits, 0)
 	atomic.StoreUint64(&serverStats.KeyspaceMisses, 0)
-	serverStats.ExpiredStale = 0
+	atomic.StoreInt64(&serverStats.ExpiredStale, 0)
 	errorReplyMu.Lock()
 	errorReplyCounts = map[string]uint64{}
 	errorReplyMu.Unlock()
@@ -518,8 +518,8 @@ func GenGodisInfoString(section string, db *Server) []byte {
 			"eventloop_cycles:%d\r\n"+
 			"eventloop_duration_sum:%d\r\n"+
 			"eventloop_duration_max:%d\r\n",
-			serverStats.TotalConnectionsReceived,
-			serverStats.TotalCommandsProcessed,
+			atomic.LoadUint64(&serverStats.TotalConnectionsReceived),
+			atomic.LoadUint64(&serverStats.TotalCommandsProcessed),
 			getInstantaneousOpsPerSec(),
 			getNetInputBytes(),
 			getNetOutputBytes(),
@@ -531,12 +531,12 @@ func GenGodisInfoString(section string, db *Server) []byte {
 			atomic.LoadUint64(&syncFullCount),
 			atomic.LoadUint64(&syncPartialOKCount),
 			atomic.LoadUint64(&syncPartialErrCount),
-			serverStats.ExpiredKeys,
+			atomic.LoadUint64(&serverStats.ExpiredKeys),
 			getExpiredStalePerc(),
 			uint64(0), // expired_time_cap_reached_count - TODO
-			serverStats.EvictedKeys,
-			serverStats.KeyspaceHits,
-			serverStats.KeyspaceMisses,
+			atomic.LoadUint64(&serverStats.EvictedKeys),
+			atomic.LoadUint64(&serverStats.KeyspaceHits),
+			atomic.LoadUint64(&serverStats.KeyspaceMisses),
 			atomic.LoadUint64(&serverStats.TotalErrorReplies),
 			atomic.LoadUint64(&serverStats.TotalReadsProcessed),
 			atomic.LoadUint64(&serverStats.TotalWritesProcessed),
@@ -926,10 +926,11 @@ func getInstantaneousOutputKbps() float64 {
 }
 
 func getExpiredStalePerc() float64 {
-	if serverStats.ExpiredKeys == 0 {
+	expired := atomic.LoadUint64(&serverStats.ExpiredKeys)
+	if expired == 0 {
 		return 0.0
 	}
-	return float64(serverStats.ExpiredStale) / float64(serverStats.ExpiredKeys) * 100
+	return float64(atomic.LoadInt64(&serverStats.ExpiredStale)) / float64(expired) * 100
 }
 
 // getGodisRunningMode return godis running mode
