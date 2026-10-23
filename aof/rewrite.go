@@ -173,7 +173,10 @@ func (persister *Persister) FinishRewrite(ctx *RewriteCtx) error {
 	}
 
 	// replace current aof file by tmp file
-	_ = persister.aofFile.Close()
+	persister.closeMu.Lock()
+	oldFile := persister.aofFile
+	persister.closeMu.Unlock()
+	_ = oldFile.Close()
 	// Windows cannot rename over an open/existing dest; ReplaceFile removes dest first.
 	replaceErr := utils.ReplaceFile(tmpFile.Name(), persister.aofFilename)
 	if replaceErr != nil {
@@ -185,7 +188,17 @@ func (persister *Persister) FinishRewrite(ctx *RewriteCtx) error {
 	if err != nil {
 		return errors.Wrap(err, "reopen aof file failed")
 	}
+	// Swap under closeMu: Close reads aofFile under the same lock from another
+	// goroutine, and a plain assignment raced exactly that read (nightly
+	// -race gate, TestConcurrentBackgroundRewriteRejected).
+	persister.closeMu.Lock()
+	if persister.closed {
+		persister.closeMu.Unlock()
+		_ = aofFile.Close()
+		return errors.New("persister closed during rewrite")
+	}
 	persister.aofFile = aofFile
+	persister.closeMu.Unlock()
 	if replaceErr != nil {
 		return errors.Wrap(replaceErr, "replace aof file failed")
 	}
