@@ -452,3 +452,63 @@ func TestE6ChaosMasterDownSlaveStaysReplica(t *testing.T) {
 		slave.dieWithLogs(t, "slave self-promoted after master loss (must stay replica and retry)")
 	}
 }
+
+// TestE6ChaosNetPartitionMasterFrozen drills the partition-shaped master loss:
+// SIGSTOP freezes the master process (TCP stays open, no RST/FIN — the replica
+// sees a silent black hole, unlike Kill). The replica must stay in replica
+// role during the partition and, once SIGCONT heals it, catch up without
+// losing any acknowledged write. Linux only (Windows has no SIGSTOP).
+func TestE6ChaosNetPartitionMasterFrozen(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("SIGSTOP partition drill is linux-only")
+	}
+	skipShort(t)
+	mdir, sdir := t.TempDir(), t.TempDir()
+	master := startServer(t, mdir,
+		"appendonly yes", "appendfsync everysec", "appendfilename appendonly.aof")
+	const n = 1000
+	loadKeys(t, master, "k", n)
+
+	slave := startServer(t, sdir, "appendonly yes", "appendfsync always", "appendfilename appendonly.aof")
+	slave.client(t).send("REPLICAOF", "127.0.0.1", strings.TrimPrefix(master.addr, "127.0.0.1:"))
+	if !waitDbsize(t, slave, n, 30*time.Second) {
+		slave.dieWithLogs(t, "initial sync incomplete")
+	}
+
+	// Partition: freeze the master. No RST reaches the replica, so this
+	// exercises the read-timeout/backoff path that used to self-promote.
+	if err := sigstop(master.cmd.Process); err != nil {
+		t.Fatalf("SIGSTOP master: %v", err)
+	}
+	time.Sleep(3 * time.Second)
+	if !infoContains(t, slave, "role:slave") {
+		slave.dieWithLogs(t, "slave self-promoted during partition (must stay replica)")
+	}
+	if err := sigcont(master.cmd.Process); err != nil {
+		t.Fatalf("SIGCONT master: %v", err)
+	}
+
+	// Healed: master serves again, replica catches up incrementally.
+	deadline := time.Now().Add(15 * time.Second)
+	for {
+		c, err := net.DialTimeout("tcp", master.addr, 500*time.Millisecond)
+		if err == nil {
+			cl := &rclient{conn: c, r: bufio.NewReader(c)}
+			if r := cl.send("PING"); strings.Contains(r, "PONG") {
+				_ = c.Close()
+				break
+			}
+			_ = c.Close()
+		}
+		if time.Now().After(deadline) {
+			master.dieWithLogs(t, "master did not recover after SIGCONT")
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	const m = 500
+	loadKeys(t, master, "post", m)
+	if !waitDbsize(t, slave, n+m, 30*time.Second) {
+		slave.dieWithLogs(t, "replica failed to catch up after partition healed")
+	}
+	assertAllKeysPresent(t, slave, "k", n)
+}
