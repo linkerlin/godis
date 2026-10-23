@@ -32,11 +32,12 @@
   - **重连 mock 同步化**：`TestReplicationSlaveSide` 对 `masterConn`/`lastRecvTime` 的字段戳改为持 `slaveStatus.mutex`（与 receiveAOF 协程写同字段竞争）；触发重连后即恢复 `ReplTimeout`（1s 超时会把慢速 CI 上的新会话反复掐断使其永不收敛）
   - **HLL 精度测试定种子**：随机输入下 2% 容差是 ~2.6σ 检验，~1% 的 CI 运行会偶发越界；改用固定种子生成器，确定性断言
 - **夜间 race 门禁第四批（2026-10-23，commit 710428f）**：`aof.Persister.FinishRewrite` 的 `aofFile` 换写收进 `closeMu`（`Close` 同锁读该字段，`TestConcurrentBackgroundRewriteRejected` 抓到配对竞争；closed 复检避免向已关闭 persister 换入新文件句柄）。
+- **夜间 race 门禁第五批（2026-10-23，commits 8b7faad/f7f1f80）**：`TestReplicationSlaveSide` 重连阶段改走公共 `SLAVEOF` 重发路径（原字段戳 mock 与重连机制自身时序互搏，CI 永不收敛）；连接池复用边界加锁——`Connection` 的 `conn`/`clientName` 经 `stateMu` 发布（`Name`/`RemoteAddr`/`LocalAddr`/`GetClientName` 读、`SetClientName`/Close 清空/NewConn 复用写；Close 先将 `conn` 置 nil 使残留读者得到安全空视图）。
 
-**race 门禁残余开放项（精确清单，2026-10-23）**：历史上该工作流从未绿过（自建立即因 checkptr 全灭）；四批修复后从「5 包即死、~16 处报告」收敛到 2 包、少数窄角。剩余：
-1. INFO 统计全局：过期回调协程写 vs `GenGodisInfoString` 读（`TestM2cfInfoTotalNetReplBytes`/`TestM2bgInfoKeyspaceAndExpired` 家族；写侧经 `onHashFieldExpired`/timewheel 任务，读侧在 `database/systemcmd.go`，具体全局字段待定位后原子化）
-2. 连接池复用 vs 残留读者：`connection.NewConn` 从池中复用并裸写元数据字段，上一连接生命周期内的残留协程（`removeSlave`→`Name()`）仍在读
-3. 集群迁移 MOVED 语义在 -race 时序下：`TestClusterBootstrap`/`TestDoMigrateSlot` 本地恒绿、CI 收 MOVED（含可疑的 `MOVED 0`）；且节点间数据复制 `dial 6499 refused`（测试 connectionStub 不起 Redis 端口）——迁移转发/期望需专项审查
+**race 门禁残余开放项（精确清单，2026-10-23，五批后）**：该工作流历史上从未绿过（自建立即因 checkptr 全灭）；五批修复后已无确定性失败，剩余为 shuffle 种子相关的窄角（每轮 3-7 个不等）：
+1. **集群迁移语义族**（最主要）：`TestClusterBootstrap`/`TestDoMigrateSlot`/`TestMigrateCopyKeepsSource`/`TestM2aeReplBacklogTipAndEmptyPartialSync` 本地恒绿、-race 时序下收 MOVED（含可疑 `MOVED 0`）；且集群测试 connectionStub 不起 Redis 端口，节点间数据复制 `dial refused`——迁移转发/期望需专项审查
+2. INFO 统计全局：过期回调协程写 vs `GenGodisInfoString` 读（`database/systemcmd.go`，具体字段待定位后原子化）
+3. 偶发时序片：如 `TestR5TSReadBlockWokenByAdd`（阻塞唤醒窗口）等，逐轮不同
 
 ## [v1.3.0] - 2026-10-23
 
