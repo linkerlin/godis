@@ -79,6 +79,12 @@ func ListenAndServe(listener net.Listener, handler tcp.Handler, closeChan <-chan
 
 	ctx := context.Background()
 	var waitDone sync.WaitGroup
+	// Snapshot keepalive at startup: reading the global per-connection raced
+	// config writes elsewhere (nightly -race); hot-reload was never a contract.
+	keepAliveSec := 0
+	if config.Properties != nil {
+		keepAliveSec = config.Properties.TCPKeepAlive
+	}
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
@@ -97,7 +103,7 @@ func ListenAndServe(listener net.Listener, handler tcp.Handler, closeChan <-chan
 			_ = conn.Close()
 			continue
 		}
-		applyTCPKeepAlive(conn)
+		applyTCPKeepAlive(conn, keepAliveSec)
 		waitDone.Add(1)
 		go func() {
 			defer func() {
@@ -110,9 +116,9 @@ func ListenAndServe(listener net.Listener, handler tcp.Handler, closeChan <-chan
 	waitDone.Wait()
 }
 
-// applyTCPKeepAlive sets TCP keepalive from tcp-keepalive (seconds; 0 disables).
-func applyTCPKeepAlive(conn net.Conn) {
-	if config.Properties == nil || config.Properties.TCPKeepAlive <= 0 {
+// applyTCPKeepAlive sets TCP keepalive (seconds; 0 disables).
+func applyTCPKeepAlive(conn net.Conn, seconds int) {
+	if seconds <= 0 {
 		return
 	}
 	tc, ok := conn.(*net.TCPConn)
@@ -120,5 +126,5 @@ func applyTCPKeepAlive(conn net.Conn) {
 		return
 	}
 	_ = tc.SetKeepAlive(true)
-	_ = tc.SetKeepAlivePeriod(time.Duration(config.Properties.TCPKeepAlive) * time.Second)
+	_ = tc.SetKeepAlivePeriod(time.Duration(seconds) * time.Second)
 }

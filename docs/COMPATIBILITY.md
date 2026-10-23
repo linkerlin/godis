@@ -36,7 +36,7 @@
 | 主题 | 说明 |
 |------|------|
 | 默认端口 | Redis 6379；Godis **6399** |
-| 集群 | ✅ 16384 槽 + CRC16；MOVED/ASK/ASKING/READONLY；NODES/SLOTS/INFO/SHARDS 读 FSM；ADDSLOTS/DELSLOTS* 写 FSM；MEET→`cluster.join`/EventJoin（需 `raft-port`，**非** Redis gossip）；SETSLOT 本地 MIGRATING/IMPORTING/STABLE；`NODE`→FSM `EventAssignSlots`（本节点清迁移态）；真实 `doMigrateSlot` 设 Importing/migratePeer、成功 finish 才 dropSlot；ASK 读 FSM Migratings；GETKEYSINSLOT/COUNTKEYSINSLOT 读本地 slotsManager；REPLICAS 读 FSM；**REPLICATE→FSM MasterSlaves**；**FORGET→EventForget 安全清理**；BUMPEPOCH 为 no-op（`BUMPED 0`）；`INFO cluster` 与 CLUSTER INFO 同源；消息计数映射 `cluster.heartbeat`/MEET/`cluster.join`（**`meet_received` 接本地 join**；**`cluster_bus_port:0`**，无真 gossip bus）；RESET/SAVECONFIG/CLUSTER FAILOVER 等仍 ERR |
+| 集群 | ✅ 16384 槽 + CRC16；MOVED/ASK/ASKING/READONLY；NODES/SLOTS/INFO/SHARDS 读 FSM；ADDSLOTS/DELSLOTS* 写 FSM；MEET→`cluster.join`/EventJoin（需 `raft-port`，**非** Redis gossip）；SETSLOT 本地 MIGRATING/IMPORTING/STABLE；`NODE`→FSM `EventAssignSlots`（本节点清迁移态；**让出槽且本地仍有键时拒绝**，文案同 8.10）；真实 `doMigrateSlot` 设 Importing/migratePeer、成功 finish 才 dropSlot；ASK 读 FSM Migratings；GETKEYSINSLOT/COUNTKEYSINSLOT 读本地 slotsManager；**`MIGRATE` 集群数据面已通（RESTORE 前自动尽力 ASKING，reshard 全链路见 `e7cluster TestE7ClusterReshardKeys`）**；REPLICAS 读 FSM；**REPLICATE→FSM MasterSlaves**；**FORGET→EventForget 安全清理**；BUMPEPOCH 为 no-op（`BUMPED 0`）；`INFO cluster` 与 CLUSTER INFO 同源；消息计数映射 `cluster.heartbeat`/MEET/`cluster.join`（**`meet_received` 接本地 join**；**`cluster_bus_port:0`**，无真 gossip bus）；RESET/SAVECONFIG/CLUSTER FAILOVER 等仍 ERR |
 | HLL | ✅ 算法/编码与 Redis 互通（xxHash64 + dense `HYLL` 编码 + 大范围修正）；sparse **读取→dense 提升**（写出仍 dense） |
 | EXEC | 已按 Redis：出错继续、不整事务回滚 |
 | BLPOP / XREAD BLOCK | 真阻塞（等待队列 + 写路径唤醒） |
@@ -302,7 +302,7 @@ UNWATCH、WAIT（简版）、BITOP、BITFIELD、SMOVE、LPOS、XCLAIM、SHUTDOWN
 | `XREADGROUP … CLAIM` | 8.4 | **R5-12 已接通**（`>` 读取前认领空闲 PEL，扩展四字段回复；XNACK 释放条目优先）。回复第 4 字段为认领前 delivery count（0-based），PEL/XPENDING 存 post-claim 1-based；被裁剪条目载荷已删（trim 后）时跳过而非返回 nil 载荷（近似） |
 | `XNACK` | 8.8 | **R5-13 已接通**（SILENT/FAIL/FATAL + RETRYCOUNT/FORCE）。释放条目间顺序按 ID 升序近似 FIFO（Redis 为 XNACK 时刻 FIFO） |
 | `XADD` `IDMP`/`IDMPAUTO` + `XCFGSET` | 8.6 | **R5-14 已接通**。`IDMPAUTO` 幂等 ID=条目内容摘要；全局默认 `stream-idmp-duration`/`stream-idmp-maxsize` 为 Godis 自选（300s/10000）；IDMP 记录不持久化（重启清空） |
-| `INCREX` | 8.8 | **R5-15 已接通**（BYINT/BYFLOAT、LBOUND/UBOUND、SATURATE、EX/PX/EXAT/PXAT/PERSIST、ENX）。`LBOUND>UBOUND` 等报错文案未对实机校验 |
+| `INCREX` | 8.8 | **R5-15 已接通**（BYINT/BYFLOAT、LBOUND/UBOUND、SATURATE、EX/PX/EXAT/PXAT/PERSIST、ENX）。`LBOUND>UBOUND` 报错文案已对 8.10 实机钉死：`ERR LBOUND can't be greater than UBOUND` |
 | 时序 `NaN`、`COUNTNAN`、`COUNTALL` | 8.6 | **R5-16 已接通**。聚合器除 countNaN/countAll 忽略 NaN；全 NaN 桶 count=0、其余聚合为 NaN |
 | 时序一条命令多个聚合器 | 8.8 | **R5-16 已接通**（`TS.RANGE`/`TS.REVRANGE`/`TS.MRANGE`/`TS.MREVRANGE`/`TS.NRANGE` 支持逗号分隔聚合器列表，行=时间戳+每聚合器一值） |
 | `TS.NRANGE`、`TS.NREVRANGE` | 8.10 | **R5-16 已接通**（裸 pivot NaN 填充 + 每键聚合器 + COUNT；`LATEST`/`FILTER_BY_TS`/`FILTER_BY_VALUE`/`ALIGN`/`BUCKETTIMESTAMP`/`EMPTY` 明确报不支持） |
@@ -319,11 +319,11 @@ UNWATCH、WAIT（简版）、BITOP、BITFIELD、SMOVE、LPOS、XCLAIM、SHUTDOWN
 | `AGGREGATE COUNT` | 8.8 | **R5-6 已接通**（`ZUNION`/`ZINTER`/`ZUNIONSTORE`/`ZINTERSTORE`；`ZDIFF` 无此选项）。`WEIGHTS` 语义=每含该成员的输入集贡献其权重 |
 | `SUNIONCARD` / `SDIFFCARD` | 8.10 | **R5-2 已接通**。`APPROX` 被接受但返回精确计数（精确值恒在 ~0.81% 近似误差界内）；`LIMIT` 早停 |
 | `LMOVEM` / `BLMOVEM` | 8.10 | **R5-3 已接通**（`COUNT`/`EXACTLY` × `OBO`/`BULK`）。AOF 以 `EXACTLY 实际条数` 回放保证确定性；`BLMOVEM` 与既有 `BLMOVE` 一样未实现 MULTI 内不阻塞的特例 |
-| `XREAD`/`XREADGROUP` `MAXCOUNT`/`MAXSIZE` | 8.10 | **R5-4 已接通**。`MAXSIZE` 字节按条目 RESP 线格式估算；`MAXCOUNT < COUNT` 的报错文案未对实机校验 |
-| `SLOWLOG GET` 第七字段 | 8.10 | **R5-5 已接通**（含命令名的参数总个数）。`slowlog-entry-max-argc`/`slowlog-entry-max-string-len` 截断配置仍缺 |
+| `XREAD`/`XREADGROUP` `MAXCOUNT`/`MAXSIZE` | 8.10 | **R5-4 已接通**。`MAXSIZE` 字节按条目 RESP 线格式估算；`MAXCOUNT < COUNT` 报错文案已对 8.10 实机钉死：`ERR MAXCOUNT must be greater than or equal to COUNT`（校验先于键查找） |
+| `SLOWLOG GET` 第七字段 | 8.10 | **R5-5 已接通**（含命令名的参数总个数）。**截断配置 `slowlog-entry-max-argc`（2..2³¹-1）/ `slowlog-entry-max-string-len`（1..2⁶³-1）已接通（2026-10-23）**：`CONFIG GET/SET` 热生效，范围/文案/截断格式（`... (N more bytes)`、`... (N more arguments)`）钉死 redis:8.10-alpine 实机；未配置默认 32/128 |
 | `script_runner` 命令标志 | 8.10 | **R5-9 已接通**，挂在 `EVAL`/`EVALSHA`/`EVAL_RO`/`EVALSHA_RO`/`FCALL`/`FCALL_RO`，`COMMAND INFO`/`DOCS` 可见 |
 | `FT.ALIASLIST` | 8.10 | **R5-10 已接通**。按索引名或别名查询，RESP2 数组 / RESP3 set，按名排序 |
-| 错误回复里的 `\r\n` | 8.10 | **R5-1 已接通**。`StandardErrReply`/`ProtocolErrReply` 序列化时把用户数据中的 CR/LF 映射为空格（`Error()` 保留原文）；映射为空格 vs Redis 官方实现的处理方式未逐字节比对 |
+| 错误回复里的 `\r\n` | 8.10 | **R5-1 已接通**。`StandardErrReply`/`ProtocolErrReply` 序列化时把用户数据中的 CR/LF 映射为空格（`Error()` 保留原文）；2026-10-23 对 8.10 实机逐字节验证一致（CR 与 LF 各替换为一个空格，`errors_test.go` 钉死） |
 
 ### 未注册的命令与行为
 
@@ -331,10 +331,10 @@ UNWATCH、WAIT（简版）、BITOP、BITFIELD、SMOVE、LPOS、XCLAIM、SHUTDOWN
 |------|------|------|
 | 8.4 | `CLUSTER MIGRATION` | 原子迁槽。与现有 gossip / ASM 远期项放在一起，本阶段不做 |
 | 8.6 | TLS 证书映射用户 | `tls-auth-clients-user`。TLS 仍是存取桩，本阶段不做 |
-| 8.8 | Array `ARINFO FULL` 的逐 slice 统计 | 基础 18 命令已接通（见上表）；`FULL` 接受但只返回基础字段（扁平槽模型没有真实 slice 目录） |
-| 8.8 | `JSON.SET` `FPHA` | 同质浮点数组的存储提示。当前 JSON 没有这层编码 |
+| 8.8 | Array `ARINFO FULL` 的逐 slice 统计 | 基础 18 命令已接通（见上表）；`FULL` 接受但只返回基础字段（扁平槽模型没有真实 slice 目录）。**评估结论（2026-10-23）：维持近似**——补齐需重构 Array 存储为真 slice 目录模型（动 opaque 持久化与全部 18 命令），收益仅诊断字段精确值，官方尚标 preview |
+| 8.8 | `JSON.SET` `FPHA` | 同质浮点数组的存储提示。**评估结论（2026-10-23）：维持明确拒绝**——「接受但按普通 JSON 存储」等于伪造语义（FPHA 的意义就是编码密度）；真编码层需重构 JSON 存储（gjson/sjson 之上加编码层并让全部 JSON 命令感知），不在当前范围 |
 | 8.8 | Hash 字段级键空间通知 | **R5-18 已接通**：官方 subkey notifications 四种通道（`S`/`T`/`I`/`V`，与 `K`/`E`/`A` 独立）；`HSET`/`HMSET`/`HSETNX`/`HDEL`/`HGETDEL`/`HGETEX`/`HINCRBY`/`HINCRBYFLOAT`/`HEXPIRE` 族/`HPERSIST`/`HSETEX` 与主动/惰性过期均发布字段名，字段按 `<len>:<field>` 长度前缀编码。近似：过期事件逐字段发布（官方为同批合并）；`HGETEX`/`HSETEX` 立即过期不额外合成 `hdel` |
-| 8.8 | `slowlog-entry-max-argc`、`slowlog-entry-max-string-len` | 慢日志截断（第七字段已接通，见上表） |
+| 8.8 | ~~`slowlog-entry-max-argc`、`slowlog-entry-max-string-len`~~ | **已接通（2026-10-23）**，见上表 SLOWLOG GET 行 |
 | 8.10 | JSONPath 扩展 | **R5-20 已全部接通（关闭）**：`[?(…)]` 过滤（任意字面量比较含 JSON 数组/对象深度相等、`!`、`&&`/`||`、括号、`@` 相对路径、过滤后投影）；`in`/`nin`；算术 `+ - * / %` 与一元 `-`；`size`/`sizeof`/`empty`；过滤内函数 `length()`/`abs()`/`ceiling()`/`floor()`/`first`/`last`/`min()`/`max()`/`avg()`/`sum()`/`stddev()`/`keys()`/`match()`（全串锚定）/`search()`/`concat()`/`subsetof`/`anyof`/`noneof`/`index()`/`append()`（查询期只读）（方法形与词形后缀）；`[*]`/`..` 通配/递归下降投影与 nodelist 多值语义（比较/`in`/`nin`/集合关系任一节点满足）已接通；顶层投影 `fn($)` 返回单元素数组（`[6.0]`/`[3]`，float 保留 `.0`）；`length()` over 通配 nodelist 返回 `[]`，`sum/min/max/avg/count` 可作用于 nodelist；词形 `first`/`last`/`concat` 为 Godis 扩展（Redis 8.10 仅接受方法形 `.first()`/`.last()`/`.concat()`）；`JSON.SET FPHA` 明确拒绝。近似：递归下降的对象键按字典序访问（确定性优先，非插入序）；通配/递归路径用于写命令时仍不支持 |
 | 8.10 | compact hash 模板 | `HIMPORT` fieldset 导入已接通（见上表）；按 schema 共享字段名的内部编码与 `hash_templates` 指标本阶段不做（见 0.4） |
 | 8.10 | `BACKUP` | `START`/`SEAL`/`ABORT`/`LIST`/`STATUS`/`CLEANUP`，基于 multi-part AOF。本阶段不做，也不用 `BGSAVE` 冒充 |

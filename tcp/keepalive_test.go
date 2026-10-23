@@ -5,7 +5,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/linkerlin/godis/config"
 )
 
 func TestApplyTCPKeepAlive(t *testing.T) {
@@ -33,10 +32,8 @@ func TestApplyTCPKeepAlive(t *testing.T) {
 	select {
 	case srv := <-done:
 		defer srv.Close()
-		old := config.Properties
-		config.Properties = &config.ServerProperties{TCPKeepAlive: 60}
-		defer func() { config.Properties = old }()
-		applyTCPKeepAlive(srv)
+		applyTCPKeepAlive(srv, 60)
+		applyTCPKeepAlive(srv, 0) // disabled path
 		// No panic / error path is enough; period is OS-specific.
 		_ = time.Second
 	case <-time.After(2 * time.Second):

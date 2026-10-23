@@ -30,9 +30,14 @@ type Client struct {
 	waitingReqs chan *request // waiting response
 	ticker      *time.Ticker
 	addr        string
-
-	status  int32
-	working *sync.WaitGroup // its counter presents unfinished requests(pending and waiting)
+	// done is closed by Close once; it lets Send/doHeartbeat/handleWrite
+	// abandon blocked channel ops. pendingReqs is never closed — a send can
+	// never race a close that doesn't happen; Close waits for nothing, so
+	// there is no WaitGroup Add-vs-Wait pair either (the nightly race gate
+	// caught both shapes: close(pendingReqs) vs heartbeat send, and
+	// working.Wait vs doHeartbeat.Add).
+	done   chan struct{}
+	status int32
 }
 
 // request is a message sends to redis server
@@ -61,7 +66,7 @@ func MakeClient(addr string) (*Client, error) {
 		conn:        conn,
 		pendingReqs: make(chan *request, chanSize),
 		waitingReqs: make(chan *request, chanSize),
-		working:     &sync.WaitGroup{},
+		done:        make(chan struct{}),
 	}, nil
 }
 
@@ -84,12 +89,8 @@ func (client *Client) Close() {
 		atomic.StoreInt32(&client.status, closed)
 		return
 	}
+	close(client.done) // unblock Send/doHeartbeat/heartbeat/handleWrite
 	client.ticker.Stop()
-	// stop new request
-	close(client.pendingReqs)
-
-	// wait stop process
-	client.working.Wait()
 
 	// clean
 	client.connMu.Lock()
@@ -154,14 +155,33 @@ func (client *Client) reconnect() {
 }
 
 func (client *Client) heartbeat() {
-	for range client.ticker.C {
-		client.doHeartbeat()
+	for {
+		select {
+		case <-client.done:
+			return
+		case <-client.ticker.C:
+			client.doHeartbeat()
+		}
 	}
 }
 
 func (client *Client) handleWrite() {
-	for req := range client.pendingReqs {
-		client.doRequest(req)
+	for {
+		select {
+		case req := <-client.pendingReqs:
+			client.doRequest(req)
+		case <-client.done:
+			// fail whatever was already queued, then stop
+			for {
+				select {
+				case req := <-client.pendingReqs:
+					req.err = errors.New("client closed")
+					req.waiting.Done()
+				default:
+					return
+				}
+			}
+		}
 	}
 }
 
@@ -176,9 +196,12 @@ func (client *Client) Send(args [][]byte) redis.Reply {
 		waiting:   &wait.Wait{},
 	}
 	req.waiting.Add(1)
-	client.working.Add(1)
-	defer client.working.Done()
-	client.pendingReqs <- req
+	select {
+	case client.pendingReqs <- req:
+	case <-client.done: // Close won: abandon instead of racing close(pendingReqs)
+		req.waiting.Done()
+		return protocol.MakeErrReply("client closed")
+	}
 	timeout := req.waiting.WaitWithTimeout(maxWait)
 	if timeout {
 		return protocol.MakeErrReply("server time out")
@@ -190,16 +213,23 @@ func (client *Client) Send(args [][]byte) redis.Reply {
 }
 
 func (client *Client) doHeartbeat() {
+	if atomic.LoadInt32(&client.status) != running {
+		return
+	}
 	request := &request{
 		args:      [][]byte{[]byte("PING")},
 		heartbeat: true,
 		waiting:   &wait.Wait{},
 	}
 	request.waiting.Add(1)
-	client.working.Add(1)
-	defer client.working.Done()
-	client.pendingReqs <- request
-	request.waiting.WaitWithTimeout(maxWait)
+	select {
+	case client.pendingReqs <- request:
+	case <-client.done: // Close won: abandon instead of racing close(pendingReqs)
+		request.waiting.Done()
+	}
+	if !request.waiting.WaitWithTimeout(maxWait) {
+		return
+	}
 }
 
 func (client *Client) doRequest(req *request) {

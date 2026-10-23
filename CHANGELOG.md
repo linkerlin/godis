@@ -6,9 +6,22 @@
 
 > 发版约定：发布时把 `[Unreleased]` 改为 `## [vX.Y.Z] - YYYY-MM-DD`，并新建空的 `[Unreleased]`；历史版本按 tag 倒序保留。当前最近 tag 为 `v1.3.0`。
 
+### Added
+
+- **reshard 数据面闭环（2026-10-23，commit 3572f71）**：`MIGRATE` 在 RESTORE 前自动发尽力 `ASKING`——集群目标仅在 IMPORTING 态放行外部槽的 RESTORE（reshard 工具链依赖的缝），单机目标拒绝 ASKING 无害忽略；`CLUSTER SETSLOT NODE` 拒绝在本地仍有键残留时把槽让给其它节点（防孤儿键，文案钉死 8.10 三节点实机：`ERR Can't assign hashslot N to a different node while I still hold keys for this hash slot.`）；新增 `e7cluster TestE7ClusterReshardKeys`——真实双子进程集群上跑完整工具序列（MIGRATING/IMPORTING 标记 → `GETKEYSINSLOT` 批取 → `MIGRATE` 批量搬 → 双端 `SETSLOT NODE` 收尾），断言键落新 owner、旧 owner 清空、未迁槽不受影响、`MOVED` 指向新 owner。运维口径见 RUNBOOK「数据在线搬迁」。
+- **`slowlog-entry-max-argc`（2..2³¹-1）/ `slowlog-entry-max-string-len`（1..2⁶³-1）配置（2026-10-23，commit 5096bb3）**：`CONFIG GET/SET` 热生效；范围校验、错误文案与截断格式（`... (N more bytes)`/`... (N more arguments)`）全部钉死 redis:8.10-alpine 实机；未配置归一化为默认 32/128（Redis 8.10 默认）。关闭 R5-5 遗留的「截断配置仍缺」尾巴。
+- **e6chaos 网络分区演练（2026-10-23，commit e550bd5）**：`TestE6ChaosNetPartitionMasterFrozen`——SIGSTOP 冻结主库（TCP 不断、无 RST/FIN，从库视角是「静默黑洞」，比 Kill 更接近分区形状）；断言分区期从库保持 replica 角色（E1-2 防脑裂回归）、SIGCONT 恢复后增量追平、分区前写全在。Linux only。
+- **gnet e2e 基准（2026-10-23，commit 5161608）**：`redis/server/gnet/e2e_bench_test.go`（与 std 版同构，50 原生连接 + pipelined SET 批往返）。
+
 ### Changed
 
 - **Raft 存储迁移到 bbolt（2026-10-23）**：以 `cluster/raft/boltstore.go` 内置存储替换已归档的 `hashicorp/raft-boltdb`——其依赖的 `boltdb/bolt` 在 `-race`/checkptr 下提交空内联 bucket 时确定性 fatal（`Bucket.write` 的 `unsafe.Pointer` 转换被判「straddles multiple allocations」，nightly race 门禁因此连续红灯）。磁盘格式字节级兼容（`logs`/`conf` 桶、大端 uint64 键、msgpack 编码 raft.Log），既有 `raft.db` 直接可读（`TestBoltStore_ReadsRaftBoltdbFile` 钉死）。生产二进制不受 checkptr 影响，仅测试/CI 受益；依赖树移除 `boltdb/bolt` 与 `raft-boltdb`，新增 `go.etcd.io/bbolt v1.4.3`。
+- **两处报错文案对齐 8.10 实机（2026-10-23，commit 5096bb3）**：`XREAD MAXCOUNT<COUNT` → `ERR MAXCOUNT must be greater than or equal to COUNT`；`INCREX LBOUND>UBOUND` → `ERR LBOUND can't be greater than UBOUND`（实测校验先于键查找，样例免 setup）。`SanitizeErrText`（R5-1 CR/LF 映射）逐字节验证一致（CR 与 LF 各替换为一个空格）并补钉死单测 `redis/protocol/errors_test.go`。
+- **e6soak 阈值收紧（2026-10-23，commit 5161608）**：heap 30%+64MB → **15%+32MB**、goroutine +8 → **+4**、FD +16 → **+8**（12/40 周期历史观测 goroutine 持平、heap ~9%，旧余量只会掩盖泄漏；收紧后 3 轮全绿）。
+
+### 性能结论（E5-3 收口）
+
+- **gnet pipeline 深度负作用证伪（2026-10-23）**：Go 客户端（50 连接、WSL2）下 gnet 每命令延迟 P1=56.8µs / P16=51.4µs / P64=54.0µs——**完全持平**，与 std（53.4/51.7µs）同级。quick 矩阵的「gnet P16/P64 p50 43/169ms」确认为 redis-benchmark(C) 交互病理（与 std 的 5-8× 表观差距同源）。「连接层串行点」与「批量回复路径逐命令开销」两个假设双双证伪；E5-3 遗留性能开放项全部收口为病理记录（见 `docs/PERFORMANCE.md`「E5-3 第三轮」）。
 
 ### Fixed
 
@@ -33,11 +46,12 @@
   - **HLL 精度测试定种子**：随机输入下 2% 容差是 ~2.6σ 检验，~1% 的 CI 运行会偶发越界；改用固定种子生成器，确定性断言
 - **夜间 race 门禁第四批（2026-10-23，commit 710428f）**：`aof.Persister.FinishRewrite` 的 `aofFile` 换写收进 `closeMu`（`Close` 同锁读该字段，`TestConcurrentBackgroundRewriteRejected` 抓到配对竞争；closed 复检避免向已关闭 persister 换入新文件句柄）。
 - **夜间 race 门禁第五批（2026-10-23，commits 8b7faad/f7f1f80）**：`TestReplicationSlaveSide` 重连阶段改走公共 `SLAVEOF` 重发路径（原字段戳 mock 与重连机制自身时序互搏，CI 永不收敛）；连接池复用边界加锁——`Connection` 的 `conn`/`clientName` 经 `stateMu` 发布（`Name`/`RemoteAddr`/`LocalAddr`/`GetClientName` 读、`SetClientName`/Close 清空/NewConn 复用写；Close 先将 `conn` 置 nil 使残留读者得到安全空视图）。
+- **夜间 race 门禁第六批：三条点名残余全部收口（2026-10-23，commit 18c1d14）**：
+  - **集群迁移语义族根因**：真 Raft 测试（`TestClusterBootstrap`/`TestDoMigrateSlot` 等）注入 `InMemConnectionFactory` 却未设 `inmemProxy`，走了生产 MOVED 语义——MOVED 指向的地址根本没有 TCP 服务（Linux 基线即确定性红：`MOVED 0 127.0.0.1:7499`；所谓「MOVED 0」就是字面的 0 号槽，并不可疑）。`NewCluster` 检测 inmem 工厂即启用进程内 Relay 语义；`cluster/core` 全包 `-race` 首次全绿（26s）
+  - **INFO 统计原子化**：`GenGodisInfoString` 对 `ExpiredKeys`/`EvictedKeys`/`KeyspaceHits`/`KeyspaceMisses`/`TotalCommands`/`TotalConnections` 六字段裸读（写方全为 `atomic.Add`）→ 全部 `atomic.Load`；`getExpiredStalePerc` 与 `CONFIG RESETSTAT` 的 `ExpiredStale` 同步收口
+  - **`TestR5TSReadBlockWokenByAdd` 时序片**：goroutine 固定 sleep 150ms 可能在 `$` 哨兵解析前落地 ADD（哨兵跳过新样本→等满超时）；改 `waitTSWaiterRegistered` 等 waiter 真注册（哨兵必已解析）再 ADD，`-race -count=5` 稳定
 
-**race 门禁残余开放项（精确清单，2026-10-23，五批后）**：该工作流历史上从未绿过（自建立即因 checkptr 全灭）；五批修复后已无确定性失败，剩余为 shuffle 种子相关的窄角（每轮 3-7 个不等）：
-1. **集群迁移语义族**（最主要）：`TestClusterBootstrap`/`TestDoMigrateSlot`/`TestMigrateCopyKeepsSource`/`TestM2aeReplBacklogTipAndEmptyPartialSync` 本地恒绿、-race 时序下收 MOVED（含可疑 `MOVED 0`）；且集群测试 connectionStub 不起 Redis 端口，节点间数据复制 `dial refused`——迁移转发/期望需专项审查
-2. INFO 统计全局：过期回调协程写 vs `GenGodisInfoString` 读（`database/systemcmd.go`，具体字段待定位后原子化）
-3. 偶发时序片：如 `TestR5TSReadBlockWokenByAdd`（阻塞唤醒窗口）等，逐轮不同
+**race 门禁残余开放项（2026-10-23 第六批后）**：此前三条点名项已全部收口（见上）。剩余仅 shuffle 种子相关的偶发时序片（逐轮不同、无确定性失败）；下次夜间失败按「先对照已修根因类别、再最小化复现」处理。
 
 ## [v1.3.0] - 2026-10-23
 

@@ -44,11 +44,13 @@
 
 ## 四、集群运维（E7：槽位与成员）
 
-**扩缩容/槽位重分配（已验证路径）**：加入新节点（`cluster-seed` 指向任一节点，或 `CLUSTER MEET ip port raft-port`）→ 在现有节点 `CLUSTER DELSLOTSRANGE a b` 释放区间 → 新节点 `CLUSTER ADDSLOTSRANGE a b` 认领 → 轮询**每个节点**的 `CLUSTER SLOTS` 直到视图一致（Raft 应用有秒级延迟）→ 客户端按 `CLUSTER SLOTS`/`-MOVED` 重定向自然迁移读写。该路径由 `go test ./e7cluster` 与 `scripts/cluster-interop.sh`（真实 `redis-cli -c`）双向验证。注意：DELSLOT 后区间内已存在的键仍留在原节点（无自动搬迁）——重分配应在新键写入前完成，或配合应用侧双写；**数据在线搬迁（`redis-cli --cluster reshard` 等工具链）尚不支持**，`SETSLOT MIGRATING/IMPORTING` 仅提供迁移标记与 `ASK` 缝（见 `docs/COMPATIBILITY.md`）。
+**扩缩容/槽位重分配（已验证路径）**：加入新节点（`cluster-seed` 指向任一节点，或 `CLUSTER MEET ip port raft-port`）→ 在现有节点 `CLUSTER DELSLOTSRANGE a b` 释放区间 → 新节点 `CLUSTER ADDSLOTSRANGE a b` 认领 → 轮询**每个节点**的 `CLUSTER SLOTS` 直到视图一致（Raft 应用有秒级延迟）→ 客户端按 `CLUSTER SLOTS`/`-MOVED` 重定向自然迁移读写。该路径由 `go test ./e7cluster` 与 `scripts/cluster-interop.sh`（真实 `redis-cli -c`）双向验证。注意：DELSLOT 后区间内已存在的键仍留在原节点（无自动搬迁）——重分配应在新键写入前完成，或配合应用侧双写。
+
+**数据在线搬迁（reshard，已验证路径，2026-10-23）**：源节点 `CLUSTER SETSLOT <slot> MIGRATING <目标id>` → 目标节点 `CLUSTER SETSLOT <slot> IMPORTING <源id>` → 循环 `CLUSTER GETKEYSINSLOT <slot> <batch>` + 在源执行 `MIGRATE <目标host> <目标port> "" 0 <timeout> KEYS k1 k2 …`（MIGRATE 内部自动先发 `ASKING` 放行目标端 IMPORTING 槽）→ 源与目标各执行 `CLUSTER SETSLOT <slot> NODE <目标id>` 收尾。源端在该槽仍有键残留时执行 `SETSLOT NODE` 会被拒绝（防孤儿键，文案与 Redis 8.10 一致）。全链路由 `go test ./e7cluster -run TestE7ClusterReshardKeys`（真实双子进程集群）钉死；`redis-cli --cluster reshard` 工具本体未逐项认证，但其协议序列即上述命令（依赖的 `CLUSTER MYID`/`GETKEYSINSLOT`/`MIGRATE` 均已支持）。
 
 **成员管理（已验证）**：`CLUSTER REPLICATE <node>` 使本节点成为指定主节点的从库（写 FSM）；`CLUSTER FORGET <node>` 安全移除节点。`CLUSTER FAILOVER`/`RESET`/`SAVECONFIG`/`SET-CONFIG-EPOCH` 显式报不支持。
 
-**韧性事实（有测试背书）**：主库宕机后从库保持 replica 角色并退避重连（`e6chaos` 主宕场景）；复制中断重启后自动重同步收敛（`e6chaos` 中断场景）；计划内切换走 `FAILOVER TO`（见第一节）。**未演练**：网络分区下的仲裁行为（Raft 多数派语义，未做双节点分区实验）；生产环境 reshard 全流程。
+**韧性事实（有测试背书）**：主库宕机后从库保持 replica 角色并退避重连（`e6chaos` 主宕场景）；复制中断重启后自动重同步收敛（`e6chaos` 中断场景）；**分区形状的主库失联**（SIGSTOP 冻结、无 RST/FIN）从库保持 replica、恢复后增量追平且分区前写全在（`e6chaos` 分区场景，Linux）；计划内切换走 `FAILOVER TO`（见第一节）。**未演练**：Raft 多数派双分区仲裁（双节点互看不见的真分区拓扑）。
 
 ## 附：验证工具索引
 

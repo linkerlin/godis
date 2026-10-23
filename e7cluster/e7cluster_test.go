@@ -318,7 +318,10 @@ func TestE7ClusterInterop(t *testing.T) {
 		t.Logf("note: CLUSTER KEYSLOT foo = %s", r)
 	}
 
-	// smart-client roundtrip: route each key to its owner, SET then GET back
+	// smart-client roundtrip: route each key to its owner, SET then GET back.
+	// Follow -ASK (rebalance may still be migrating a slot when the write
+	// lands — ASKING + retry at the target is the cluster client contract)
+	// and -MOVED alike.
 	cA, cB := seed.client(t), joiner.client(t)
 	defer cA.close()
 	defer cB.close()
@@ -328,6 +331,24 @@ func TestE7ClusterInterop(t *testing.T) {
 		}
 		return cB
 	}
+	sendFollow := func(addr string, args ...string) string {
+		r := clientFor(addr).send(args...)
+		for i := 0; i < 4; i++ {
+			fields := strings.Fields(r)
+			switch {
+			case strings.HasPrefix(r, "-MOVED "):
+				addr = fields[len(fields)-1]
+				r = clientFor(addr).send(args...)
+			case strings.HasPrefix(r, "-ASK "):
+				tc := clientFor(fields[len(fields)-1])
+				tc.send("ASKING")
+				r = tc.send(args...)
+			default:
+				return r
+			}
+		}
+		return r
+	}
 	for i := 0; i < 200; i++ {
 		key := fmt.Sprintf("e7key:%d", i)
 		slot := int(hashslot.Slot(key))
@@ -335,7 +356,7 @@ func TestE7ClusterInterop(t *testing.T) {
 		if !ok {
 			t.Fatalf("no owner for slot %d (key %s)", slot, key)
 		}
-		if r := clientFor(owner).send("SET", key, "v"+strconv.Itoa(i)); r != "+OK" {
+		if r := sendFollow(owner, "SET", key, "v"+strconv.Itoa(i)); r != "+OK" {
 			t.Fatalf("SET %s via owner %s: %s", key, owner, r)
 		}
 	}
@@ -343,7 +364,7 @@ func TestE7ClusterInterop(t *testing.T) {
 		key := fmt.Sprintf("e7key:%d", i)
 		slot := int(hashslot.Slot(key))
 		owner, _ := ownerOf(ranges, slot)
-		if got := clientFor(owner).send("GET", key); got != "v"+strconv.Itoa(i) {
+		if got := sendFollow(owner, "GET", key); got != "v"+strconv.Itoa(i) {
 			t.Fatalf("GET %s via owner %s: %q", key, owner, got)
 		}
 	}

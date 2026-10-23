@@ -425,8 +425,23 @@ func (dict *ConcurrentDict) RandomDistinctKeys(limit int) []string {
 }
 
 // Clear removes all keys in dict
+// Clear removes all entries. The shard table and its locks stay put —
+// swapping the whole struct raced concurrent spread()/RWLocks readers on
+// dict.table (nightly -race) and broke lock identity; clearing per shard
+// under each shard mutex keeps the linearization without any of that.
 func (dict *ConcurrentDict) Clear() {
-	*dict = *MakeConcurrent(dict.shardCount)
+	if dict == nil {
+		return
+	}
+	for _, s := range dict.table {
+		s.mutex.Lock()
+		n := len(s.m)
+		s.m = nil
+		s.mutex.Unlock()
+		if n > 0 {
+			atomic.AddInt32(&dict.count, -int32(n))
+		}
+	}
 }
 
 func (dict *ConcurrentDict) toLockIndices(keys []string, reverse bool) []uint32 {
