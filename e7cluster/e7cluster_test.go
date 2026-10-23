@@ -393,3 +393,139 @@ func TestE7ClusterInterop(t *testing.T) {
 		t.Fatalf("hash-tag MSET reply %q, want +OK", r)
 	}
 }
+
+// TestE7ClusterReshardKeys drills the full redis-cli --cluster reshard data
+// protocol against the real two-node cluster: MIGRATING/IMPORTING markers,
+// GETKEYSINSLOT batching, MIGRATE data plane, SETSLOT NODE route change on
+// both ends — then asserts keys live on the new owner and MOVED follows.
+func TestE7ClusterReshardKeys(t *testing.T) {
+	if testing.Short() {
+		t.Skip("cluster reshard skipped in short mode")
+	}
+	dirA, dirB := t.TempDir(), t.TempDir()
+	seed := startNode(t, "seed", dirA, "cluster-as-seed yes")
+	joiner := startNode(t, "joiner", dirB, "cluster-seed "+seed.addr)
+
+	// wait for the join to propagate (seed owns the whole ring)
+	deadline := time.Now().Add(30 * time.Second)
+	for {
+		r := joiner.trySend("CLUSTER", "NODES")
+		if len(r) > 20 && !strings.Contains(r, "IOERR") {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("joiner never joined\nseed logs:\n%s\njoiner logs:\n%s", seed.out.String(), joiner.out.String())
+		}
+		time.Sleep(300 * time.Millisecond)
+	}
+
+	seedID := strings.TrimPrefix(seed.trySend("CLUSTER", "MYID"), "$") // bulk payload line follows; use raw read below
+	if c := seed.client(t); true {
+		defer c.close()
+		seedID = c.send("CLUSTER", "MYID")
+	}
+	joinerC := joiner.client(t)
+	defer joinerC.close()
+	joinerID := joinerC.send("CLUSTER", "MYID")
+	t.Logf("seed id=%q joiner id=%q", seedID, joinerID)
+
+	// all slots on seed: write 60 keys
+	seedC := seed.client(t)
+	defer seedC.close()
+	const total = 60
+	for i := 0; i < total; i++ {
+		if r := seedC.send("SET", fmt.Sprintf("rs:%d", i), "v"+strconv.Itoa(i)); r != "+OK" {
+			t.Fatalf("SET rs:%d: %s", i, r)
+		}
+	}
+
+	// pick a populated slot on seed
+	targetSlot := -1
+	var slotKeys []string
+	for s := 0; s < hashslot.Count; s++ {
+		flat := seed.trySend("CLUSTER", "GETKEYSINSLOT", strconv.Itoa(s), "100")
+		if len(flat) > 0 && flat != "<nil>" && !strings.HasPrefix(flat, "-") && strings.Contains(flat, "rs:") {
+			targetSlot = s
+			for _, k := range strings.Fields(flat) {
+				if strings.HasPrefix(k, "rs:") {
+					slotKeys = append(slotKeys, k)
+				}
+			}
+			break
+		}
+	}
+	if targetSlot < 0 || len(slotKeys) == 0 {
+		t.Fatalf("no populated slot found")
+	}
+	t.Logf("resharding slot %d (%d keys) seed -> joiner", targetSlot, len(slotKeys))
+
+	// reshard protocol, redis-cli --cluster order
+	if r := seedC.send("CLUSTER", "SETSLOT", strconv.Itoa(targetSlot), "MIGRATING", joinerID); r != "+OK" {
+		t.Fatalf("SETSLOT MIGRATING: %s (id=%q)", r, joinerID)
+	}
+	if r := joinerC.send("CLUSTER", "SETSLOT", strconv.Itoa(targetSlot), "IMPORTING", seedID); r != "+OK" {
+		t.Fatalf("SETSLOT IMPORTING: %s (id=%q)", r, seedID)
+	}
+	host, jport, _ := net.SplitHostPort(joiner.addr)
+	// move in batches of 10, exactly like the tool
+	for i := 0; i < len(slotKeys); i += 10 {
+		end := i + 10
+		if end > len(slotKeys) {
+			end = len(slotKeys)
+		}
+		args := []string{"MIGRATE", host, jport, "", "0", "5000", "KEYS"}
+		args = append(args, slotKeys[i:end]...)
+		if r := seedC.send(args...); r != "+OK" {
+			t.Fatalf("MIGRATE batch %d: %s", i, r)
+		}
+	}
+	// route change on both ends
+	if r := seedC.send("CLUSTER", "SETSLOT", strconv.Itoa(targetSlot), "NODE", joinerID); r != "+OK" {
+		t.Fatalf("SETSLOT NODE (seed): %s", r)
+	}
+	if r := joinerC.send("CLUSTER", "SETSLOT", strconv.Itoa(targetSlot), "NODE", joinerID); r != "+OK" {
+		t.Fatalf("SETSLOT NODE (joiner): %s", r)
+	}
+
+	// seed no longer holds the keys; joiner serves them; MOVED points there
+	deadline = time.Now().Add(30 * time.Second)
+	for {
+		flat := seed.trySend("CLUSTER", "GETKEYSINSLOT", strconv.Itoa(targetSlot), "100")
+		if flat == "*0" || flat == "<nil>" || flat == "" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("seed still holds keys in slot %d: %q", targetSlot, flat)
+		}
+		time.Sleep(300 * time.Millisecond)
+	}
+	for _, k := range slotKeys {
+		i, _ := strconv.Atoi(strings.TrimPrefix(k, "rs:"))
+		if got := joinerC.send("GET", k); got != "v"+strconv.Itoa(i) {
+			t.Fatalf("joiner GET %s = %q", k, got)
+		}
+	}
+	// non-migrated keys of other slots still answer on seed
+	for i := 0; i < total; i++ {
+		k := fmt.Sprintf("rs:%d", i)
+		if int(hashslot.Slot(k)) == targetSlot {
+			continue
+		}
+		if got := seedC.send("GET", k); got != "v"+strconv.Itoa(i) {
+			t.Fatalf("seed GET %s = %q (slot not moved)", k, got)
+		}
+	}
+	// MOVED from the old owner now points at the new owner and the value
+	// survives the redirect-follow
+	deadline = time.Now().Add(30 * time.Second)
+	for {
+		r := seedC.send("GET", slotKeys[0])
+		if strings.HasPrefix(r, "-MOVED") && strings.Contains(r, joiner.addr) {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("GET via seed after reshard = %q, want MOVED to %s", r, joiner.addr)
+		}
+		time.Sleep(300 * time.Millisecond)
+	}
+}

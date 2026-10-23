@@ -289,6 +289,21 @@ func (cluster *Cluster) clearLocalSlotMigrate(slot uint32) {
 	st.mu.Unlock()
 }
 
+// localKeysInSlot counts keys the local slotsManager tracks for slot (the
+// same registry GETKEYSINSLOT reads).
+func (cluster *Cluster) localKeysInSlot(slot uint32) int {
+	if cluster.slotsManager == nil {
+		return 0
+	}
+	st := cluster.slotsManager.getSlot(slot)
+	if st == nil || st.keys == nil {
+		return 0
+	}
+	st.mu.RLock()
+	defer st.mu.RUnlock()
+	return st.keys.Len()
+}
+
 // execSetSlotNode writes slot ownership to the FSM (EventAssignSlots) and clears local migrate state.
 func (cluster *Cluster) execSetSlotNode(c redis.Connection, cmdLine CmdLine, slot uint32, nodeID string) redis.Reply {
 	if cluster.isClusterReplica() {
@@ -296,6 +311,13 @@ func (cluster *Cluster) execSetSlotNode(c redis.Connection, cmdLine CmdLine, slo
 	}
 	if nodeID == "" {
 		return protocol.MakeErrReply("ERR Invalid node id")
+	}
+	// Redis 8.10: handing a slot to a different node while local keys remain
+	// would orphan them (the new owner never serves them) — refuse.
+	// Message pinned to a 3-node redis:8.10-alpine probe.
+	if nodeID != cluster.SelfID() && cluster.localKeysInSlot(slot) > 0 {
+		return protocol.MakeErrReply(fmt.Sprintf(
+			"ERR Can't assign hashslot %d to a different node while I still hold keys for this hash slot.", slot))
 	}
 
 	// No raft node: keep local-admin semantics (same as ADDSLOTS with nil raft).
