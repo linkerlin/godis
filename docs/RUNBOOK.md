@@ -56,7 +56,7 @@
 
 | 工具 | 用途 |
 |---|---|
-| `go test ./e7cluster` | 两节点集群互操作契约（拓扑/路由/MOVED/CROSSSLOT/hash-tag；e7retry：迁移窗口 ASK/ASKING 重试契约 + 陈旧拓扑 MOVED 收敛） |
+| `go test ./e7cluster` | 两节点集群互操作契约（拓扑/路由/MOVED/CROSSSLOT/hash-tag；e7retry：迁移窗口 ASK/ASKING 重试契约 + 陈旧拓扑 MOVED 收敛；e7goredis：go-redis v9 真实 ClusterClient 认证——拓扑发现/路由/实时 reshard 重试/Sharded PubSub） |
 | `bash scripts/cluster-interop.sh` | 真实 `redis-cli -c` 跟随 MOVED 冒烟（需 docker） |
 | `go test ./e6chaos` | 崩溃一致性/复制韧性故障注入 |
 | `go test ./e6soak`（`SOAK_CYCLES` 可调） | 长稳负载循环 + 内存/goroutine/FD 基线 |

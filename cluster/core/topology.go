@@ -175,27 +175,30 @@ func (v clusterView) slotsReply() redis.Reply {
 		if _, isSlave := v.slaveMaster[id]; isSlave {
 			continue
 		}
-		host, port := parseAddr(id)
-		nodeInfo := []redis.Reply{
-			protocol.MakeBulkReply([]byte(host)),
-			protocol.MakeIntReply(port),
-			protocol.MakeBulkReply([]byte(id)),
+		// Redis spec: each node inside a slot entry is a nested
+		// [host, port, id] array — cluster clients (go-redis, lettuce,
+		// ioredis) parse nodes with ReadArrayLen and break on a flat
+		// host/port/id tail.
+		nodeReply := func(host string, port int64, id string) redis.Reply {
+			return protocol.MakeMultiRawReply([]redis.Reply{
+				protocol.MakeBulkReply([]byte(host)),
+				protocol.MakeIntReply(port),
+				protocol.MakeBulkReply([]byte(id)),
+			})
 		}
+		host, port := parseAddr(id)
+		nodes := []redis.Reply{nodeReply(host, port, id)}
 		// Append replicas (Redis CLUSTER SLOTS node list: master then replicas).
 		for _, slave := range v.masterSlave[id] {
 			sh, sp := parseAddr(slave)
-			nodeInfo = append(nodeInfo,
-				protocol.MakeBulkReply([]byte(sh)),
-				protocol.MakeIntReply(sp),
-				protocol.MakeBulkReply([]byte(slave)),
-			)
+			nodes = append(nodes, nodeReply(sh, sp, slave))
 		}
 		for _, rg := range slotRangePairs(v.nodeSlots[id]) {
 			entry := []redis.Reply{
 				protocol.MakeIntReply(int64(rg[0])),
 				protocol.MakeIntReply(int64(rg[1])),
 			}
-			entry = append(entry, nodeInfo...)
+			entry = append(entry, nodes...)
 			entries = append(entries, protocol.MakeMultiRawReply(entry))
 		}
 	}

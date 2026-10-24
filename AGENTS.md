@@ -399,6 +399,7 @@ cluster-seed 127.0.0.1:6399
 - `github.com/tidwall/sjson` - JSON 修改
 - `github.com/bits-and-blooms/bloom` - Bloom Filter
 - `github.com/seiflotfy/cuckoofilter` - Cuckoo Filter
+- `github.com/redis/go-redis/v9` - e2e 互操作认证（仅测试，`e7cluster/e7goredis_test.go`）
 
 ## 支持的命令
 
