@@ -61,7 +61,7 @@
 | 工具 | 用途 |
 |---|---|
 | `go test ./e7cluster` | 两节点集群互操作契约（拓扑/路由/MOVED/CROSSSLOT/hash-tag；e7retry：迁移窗口 ASK/ASKING 重试契约 + 陈旧拓扑 MOVED 收敛；e7goredis：go-redis v9 真实 ClusterClient 认证——拓扑发现/路由/实时 reshard 重试/RESP3/经典与 Sharded PubSub/**副本只读 READONLY + go-redis ReadOnly 副本路由**） |
-| `go test ./redis/server/std -run TestE2EGoRedis` | go-redis v9 单机真实客户端认证（RESP2/RESP3/pipeline/阻塞/PubSub/Lua/二进制安全/SCAN/AUTH/事务+WATCH） |
+| `go test ./redis/server/std -run TestE2EGoRedis` | go-redis v9 单机真实客户端认证（RESP2/RESP3/pipeline/阻塞/PubSub/Lua/二进制安全/SCAN/AUTH/事务+WATCH/ACL 多用户/RESP3 客户端缓存失效推送） |
 | `go test ./redis/server/gnet -run TestE2EGoRedisGnet` | go-redis v9 gnet 异步前端同款电池（核心/阻塞/PubSub/1MB 二进制半包/事务）——与 std 电池对齐 |
 | `bash scripts/cluster-interop.sh` | 真实 `redis-cli -c` 跟随 MOVED 冒烟（需 docker） |
 | `go test ./e6chaos` | 崩溃一致性/复制韧性故障注入 |

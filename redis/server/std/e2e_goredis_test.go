@@ -395,3 +395,156 @@ func TestE2EGoRedisTransactions(t *testing.T) {
 		t.Fatalf("grtx:ctr = %q, %v — want interfering write 999 to survive", v, err)
 	}
 }
+
+// TestE2EGoRedisACL certifies multi-user access control with a real client:
+// AUTH with username+password, command and key-pattern permission gates with
+// the exact NOPERM error family, ACL LOG recording of denials, and DELUSER
+// revocation. This is the shape every production Go service with a restricted
+// app user exercises.
+func TestE2EGoRedisACL(t *testing.T) {
+	if testing.Short() {
+		t.Skip("go-redis ACL e2e skipped in short mode")
+	}
+	addr := startGoRedisServer(t)
+	admin := mustGoRedis(t, addr, 2)
+	ctx := context.Background()
+
+	if v, err := admin.Do(ctx, "ACL", "WHOAMI").Result(); err != nil || v != "default" {
+		t.Fatalf("default WHOAMI = %v, %v", v, err)
+	}
+	// read-only user on the reader:* keyspace
+	if err := admin.Do(ctx, "ACL", "SETUSER", "reader", "on", ">readerpw", "~reader:*", "+GET").Err(); err != nil {
+		t.Fatalf("ACL SETUSER reader: %v", err)
+	}
+
+	// wrong password rejected at AUTH
+	bad := goredis.NewClient(&goredis.Options{Addr: addr, Username: "reader", Password: "nope"})
+	if err := bad.Ping(ctx).Err(); err == nil {
+		t.Fatal("Ping with wrong reader password succeeded")
+	}
+	_ = bad.Close()
+
+	reader := goredis.NewClient(&goredis.Options{Addr: addr, Username: "reader", Password: "readerpw"})
+	t.Cleanup(func() { _ = reader.Close() })
+	if err := reader.Ping(ctx).Err(); err != nil {
+		t.Fatalf("reader Ping: %v", err)
+	}
+	// ACL itself is an admin-scope command: a +GET-only user must be denied
+	// (same categorization as real Redis)
+	if err := reader.Do(ctx, "ACL", "WHOAMI").Err(); err == nil || !strings.Contains(err.Error(), "NOPERM") {
+		t.Fatalf("reader ACL WHOAMI = %v, want NOPERM", err)
+	}
+
+	// allowed: GET on a key inside the reader:* pattern
+	if err := admin.Set(ctx, "reader:doc", "rv", 0).Err(); err != nil {
+		t.Fatalf("admin SET: %v", err)
+	}
+	if v, err := reader.Get(ctx, "reader:doc").Result(); err != nil || v != "rv" {
+		t.Fatalf("reader GET = %q, %v", v, err)
+	}
+
+	// denied: command not granted (+GET only)
+	if err := reader.Set(ctx, "reader:doc", "x", 0).Err(); err == nil || !strings.Contains(err.Error(), "NOPERM") {
+		t.Fatalf("reader SET = %v, want NOPERM", err)
+	}
+	// denied: key outside the pattern
+	if err := admin.Set(ctx, "open:doc", "v", 0).Err(); err != nil {
+		t.Fatalf("admin SET open:doc: %v", err)
+	}
+	if err := reader.Get(ctx, "open:doc").Err(); err == nil || !strings.Contains(err.Error(), "NOPERM") {
+		t.Fatalf("reader GET open:doc = %v, want NOPERM", err)
+	}
+
+	// ACL LOG recorded the denials
+	logged, err := admin.Do(ctx, "ACL", "LOG").Result()
+	if err != nil {
+		t.Fatalf("ACL LOG: %v", err)
+	}
+	entries, ok := logged.([]interface{})
+	if !ok || len(entries) == 0 {
+		t.Fatalf("ACL LOG = %#v, want non-empty after denials", logged)
+	}
+
+	// revocation: DELUSER, then fresh auth with the deleted user must fail
+	if err := admin.Do(ctx, "ACL", "DELUSER", "reader").Err(); err != nil {
+		t.Fatalf("ACL DELUSER: %v", err)
+	}
+	zombie := goredis.NewClient(&goredis.Options{Addr: addr, Username: "reader", Password: "readerpw"})
+	defer func() { _ = zombie.Close() }()
+	if err := zombie.Ping(ctx).Err(); err == nil {
+		t.Fatal("Ping with deleted user succeeded")
+	}
+}
+
+// TestE2EGoRedisClientTracking certifies RESP3 client-side caching end to
+// end: the client caches a GET result, a write from another connection evicts
+// it via the server's invalidate push, and the next read sees the new value.
+// The cache-stats assertions make a vacuous pass impossible — if the server
+// rejected CLIENT TRACKING ON, go-redis silently disables CSC and the cache
+// would never populate.
+func TestE2EGoRedisClientTracking(t *testing.T) {
+	if testing.Short() {
+		t.Skip("go-redis client tracking e2e skipped in short mode")
+	}
+	addr := startGoRedisServer(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	csc := goredis.NewLocalCache(goredis.CacheConfig{MaxEntries: 128})
+	rdb := goredis.NewClient(&goredis.Options{
+		Addr:            addr,
+		Protocol:        3,
+		ClientSideCache: csc,
+		DialTimeout:     3 * time.Second,
+		ReadTimeout:     5 * time.Second,
+		WriteTimeout:    5 * time.Second,
+	})
+	t.Cleanup(func() { _ = rdb.Close() })
+	other := mustGoRedis(t, addr, 2)
+
+	if err := rdb.Set(ctx, "trk:k", "v1", 0).Err(); err != nil {
+		t.Fatalf("SET v1: %v", err)
+	}
+	if v, err := rdb.Get(ctx, "trk:k").Result(); err != nil || v != "v1" {
+		t.Fatalf("GET v1 = %q, %v", v, err)
+	}
+	// the read must have populated the cache — proves CLIENT TRACKING ON was
+	// accepted and the tracking registration is live
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		if csc.Len() >= 1 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("cache never populated (Entries=%d) — CLIENT TRACKING likely rejected or read not tracked", csc.Len())
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	// second read is served from the cache, not the server
+	if v, err := rdb.Get(ctx, "trk:k").Result(); err != nil || v != "v1" {
+		t.Fatalf("cached GET = %q, %v", v, err)
+	}
+	if csc.Stats().Hits == 0 {
+		t.Fatal("second GET recorded no cache hit — CSC not serving")
+	}
+
+	// a write from ANOTHER connection must evict the cached entry via the
+	// server's invalidate push
+	if err := other.Set(ctx, "trk:k", "v2", 0).Err(); err != nil {
+		t.Fatalf("other SET v2: %v", err)
+	}
+	deadline = time.Now().Add(3 * time.Second)
+	for {
+		if csc.Len() == 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("invalidate push did not evict (Entries=%d)", csc.Len())
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	// the evicted read must observe the new value
+	if v, err := rdb.Get(ctx, "trk:k").Result(); err != nil || v != "v2" {
+		t.Fatalf("GET after invalidation = %q, %v — want fresh v2", v, err)
+	}
+}
