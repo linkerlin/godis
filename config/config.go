@@ -565,6 +565,12 @@ func SetupConfig(configFilename string) error {
 	if Properties.AppendFsync == "" {
 		Properties.AppendFsync = "everysec"
 	}
+	// Redis parity: dbfilename defaults to dump.rdb. Without this the save
+	// path fell back to dump.rdb while startup load silently skipped, so a
+	// SAVE'd dataset was never restored after restart.
+	if Properties.RDBFilename == "" {
+		Properties.RDBFilename = "dump.rdb"
+	}
 	// Honor `dir` for data files: relative AOF/RDB names resolve against the
 	// configured dir, not the process working directory (E6-3).
 	Properties.AppendFilename = ResolveDataPath(Properties.AppendFilename)
