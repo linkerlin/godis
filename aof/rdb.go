@@ -274,6 +274,16 @@ func encodeEngineToRDB(tmpFile *os.File, eng database.DBEngine) error {
 			return err
 		}
 	}
+	// Real Redis parity: functions survive an RDB restart. The official
+	// FUNCTION DUMP payload rides in a "lua" aux field (unknown aux fields are
+	// ignored by other implementations); restored in Server.LoadRDB.
+	if fp, ok := eng.(functionDumpProvider); ok {
+		if payload := fp.DumpFunctionsPayload(); len(payload) > 0 {
+			if err := encoder.WriteAux("lua", string(payload)); err != nil {
+				return err
+			}
+		}
+	}
 	for i := 0; i < config.Properties.Databases; i++ {
 		keyCount, ttlCount, _ := eng.GetDBSize(i)
 		if keyCount == 0 {

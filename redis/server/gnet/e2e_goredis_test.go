@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"math/rand"
 	"net"
+	"strings"
 	"testing"
 	"time"
 
@@ -413,5 +414,78 @@ func TestE2EGoRedisGnetStreams(t *testing.T) {
 	}).Result()
 	if err != nil || start != "0-0" || len(claimed) != 2 {
 		t.Fatalf("XAUTOCLAIM = (%q, %#v), %v", start, claimed, err)
+	}
+}
+
+// TestE2EGoRedisGnetScriptingFunctions brings the async event-loop frontend
+// to parity with the std battery's scripting coverage: nested Lua replies,
+// error propagation, EVAL_RO gating, the NOSCRIPT retry contract, and the
+// Functions API through gnet's parser and reply path.
+func TestE2EGoRedisGnetScriptingFunctions(t *testing.T) {
+	if testing.Short() {
+		t.Skip("gnet scripting/functions e2e skipped in short mode")
+	}
+	rdb := mustGoRedisGnet(t, startGoRedisGnetServer(t), 2)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	// nested array + error propagation
+	nested, err := rdb.Eval(ctx, "return {{'a','b'}, 3}", []string{}).Result()
+	if err != nil {
+		t.Fatalf("EVAL nested: %v", err)
+	}
+	arr, ok := nested.([]interface{})
+	if !ok || len(arr) != 2 {
+		t.Fatalf("EVAL nested reply = %#v", nested)
+	}
+	inner, ok := arr[0].([]interface{})
+	if !ok || len(inner) != 2 || inner[0] != "a" || inner[1] != "b" || arr[1] != int64(3) {
+		t.Fatalf("EVAL nested reply = %#v", nested)
+	}
+	if _, err := rdb.Eval(ctx, "return redis.error_reply('GBOOM')", []string{}).Result(); err == nil || !strings.Contains(err.Error(), "GBOOM") {
+		t.Fatalf("error_reply through gnet = %v, want GBOOM", err)
+	}
+
+	// EVAL_RO: reads pass, writes rejected
+	if err := rdb.Set(ctx, "gsg:k", "gv", 0).Err(); err != nil {
+		t.Fatalf("SET: %v", err)
+	}
+	if v, err := rdb.EvalRO(ctx, "return redis.call('GET', KEYS[1])", []string{"gsg:k"}).Result(); err != nil || fmt.Sprint(v) != "gv" {
+		t.Fatalf("EVALRO GET = %v, %v", v, err)
+	}
+	if _, err := rdb.EvalRO(ctx, "return redis.call('SET', KEYS[1], 'nope')", []string{"gsg:k"}).Result(); err == nil {
+		t.Fatal("EVALRO SET succeeded through gnet, want write rejection")
+	}
+
+	// NOSCRIPT retry contract (EVALSHA → NOSCRIPT → EVAL) through gnet
+	script := goredis.NewScript("return {KEYS[1], ARGV[1]}")
+	for i := 0; i < 2; i++ {
+		rv, err := script.Run(ctx, rdb, []string{"gsk"}, "gv").Result()
+		if err != nil {
+			t.Fatalf("Script.Run #%d: %v", i, err)
+		}
+		sarr, ok := rv.([]interface{})
+		if !ok || len(sarr) != 2 || sarr[0] != "gsk" || sarr[1] != "gv" {
+			t.Fatalf("Script.Run #%d reply = %#v", i, rv)
+		}
+	}
+
+	// Functions API through gnet
+	const libCode = `#!lua name=gnetlib
+redis.register_function('gget', function(keys, args) return redis.call('GET', keys[1]) end)
+redis.register_function('gcount', function(keys, args) return tostring(#args) end, {flags={'no-writes'}})
+`
+	if v, err := rdb.FunctionLoad(ctx, libCode).Result(); err != nil || v != "gnetlib" {
+		t.Fatalf("FUNCTION LOAD = %q, %v", v, err)
+	}
+	if v, err := rdb.FCall(ctx, "gget", []string{"gsg:k"}).Result(); err != nil || fmt.Sprint(v) != "gv" {
+		t.Fatalf("FCALL = %v, %v", v, err)
+	}
+	if v, err := rdb.FCallRO(ctx, "gcount", []string{}, "x", "y").Result(); err != nil || fmt.Sprint(v) != "2" {
+		t.Fatalf("FCALL_RO = %v, %v", v, err)
+	}
+	libs, err := rdb.FunctionList(ctx, goredis.FunctionListQuery{LibraryNamePattern: "gnetlib"}).Result()
+	if err != nil || len(libs) != 1 || libs[0].Name != "gnetlib" || libs[0].Engine != "LUA" {
+		t.Fatalf("FUNCTION LIST = %#v, %v", libs, err)
 	}
 }

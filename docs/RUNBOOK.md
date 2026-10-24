@@ -64,6 +64,6 @@
 | `go test ./redis/server/std -run TestE2EGoRedis` | go-redis v9 单机真实客户端认证（RESP2/RESP3/pipeline/阻塞/PubSub/二进制安全/SCAN/AUTH/事务+WATCH/ACL 多用户/RESP3 客户端缓存失效推送/**Lua 脚本（嵌套回复/EVAL_RO/NOSCRIPT 重试）+ Functions 全 API（LOAD 裸库名/FCALL+RO/flags/DUMP-RESTORE 往返）**） |
 | `go test ./redis/server/gnet -run TestE2EGoRedisGnet` | go-redis v9 gnet 异步前端同款电池（核心/阻塞/PubSub/1MB 二进制半包/事务）——与 std 电池对齐 |
 | `bash scripts/cluster-interop.sh` | 真实 `redis-cli -c` 跟随 MOVED 冒烟（需 docker） |
-| `go test ./e6chaos` | 崩溃一致性/复制韧性故障注入（零损失演练 + `TestE6GoRedis*`：go-redis 真实客户端跨重启的类型化数据面认证——AOF 全类型含墓碑/字段 TTL/键 TTL，RDB 快照内容与边界） |
+| `go test ./e6chaos` | 崩溃一致性/复制韧性故障注入（零损失演练 + `TestE6GoRedis*`：go-redis 真实客户端跨重启的类型化数据面认证——AOF 全类型含墓碑/字段 TTL/键 TTL，RDB 快照内容与边界；Functions 跨崩溃存活（AOF 重放 + RDB `lua` aux）而 Script cache 易失） |
 | `go test ./e6soak`（`SOAK_CYCLES` 可调） | 长稳负载循环 + 内存/goroutine/FD 基线 |
 | `bash scripts/rnd-diff.sh` | 与 Redis 8.10 随机差分对拍 |

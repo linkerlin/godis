@@ -802,4 +802,27 @@ redis.register_function('mycount', function(keys, args) return tostring(#args) e
 	if v, err := rdb.FCall(ctx, "myget", []string{"fk"}).Result(); err != nil || fmt.Sprint(v) != "fv" {
 		t.Fatalf("FCALL after RESTORE = %v, %v", v, err)
 	}
+
+	// reset semantics: SCRIPT FLUSH drops the script cache, FUNCTION FLUSH
+	// drops every library — both take effect immediately
+	flushed := goredis.NewScript("return 1")
+	if _, err := flushed.Run(ctx, rdb, []string{}).Result(); err != nil {
+		t.Fatalf("Script.Run before FLUSH: %v", err)
+	}
+	if err := rdb.ScriptFlush(ctx).Err(); err != nil {
+		t.Fatalf("SCRIPT FLUSH: %v", err)
+	}
+	if _, err := rdb.EvalSha(ctx, flushed.Hash(), []string{}).Result(); err == nil || !strings.Contains(err.Error(), "NOSCRIPT") {
+		t.Fatalf("EVALSHA after SCRIPT FLUSH = %v, want NOSCRIPT", err)
+	}
+	if err := rdb.FunctionFlush(ctx).Err(); err != nil {
+		t.Fatalf("FUNCTION FLUSH: %v", err)
+	}
+	libsAfter, err := rdb.FunctionList(ctx, goredis.FunctionListQuery{}).Result()
+	if err != nil || len(libsAfter) != 0 {
+		t.Fatalf("FUNCTION LIST after FLUSH = %#v, %v", libsAfter, err)
+	}
+	if _, err := rdb.FCall(ctx, "myget", []string{"fk"}).Result(); err == nil {
+		t.Fatal("FCALL after FUNCTION FLUSH succeeded, want function-not-found error")
+	}
 }

@@ -48,7 +48,11 @@ func (server *Server) LoadRDB(dec *core.Decoder) error {
 	}
 	var pendingFTCreates []pendingFT
 	var moduleErr error
+	var functionsPayload []byte
 
+	// withSpecialOpCode surfaces aux fields (the "lua" field carries the
+	// FUNCTION DUMP payload written by encodeEngineToRDB).
+	dec.WithSpecialOpCode()
 	err := dec.Parse(func(o rdb.RedisObject) bool {
 		// Official Redis module RDB (typeModule2): refuse loudly — never silent drop.
 		if mo, ok := o.(*model.ModuleTypeObject); ok {
@@ -57,6 +61,12 @@ func (server *Server) LoadRDB(dec *core.Decoder) error {
 				mo.ModuleType, mo.GetKey(),
 			)
 			return false
+		}
+		if ao, ok := o.(*model.AuxObject); ok {
+			if ao.Key == "lua" && len(ao.Value) > 0 {
+				functionsPayload = []byte(ao.Value)
+			}
+			return true
 		}
 		db, err := server.selectDBSafe(o.GetDBIndex())
 		if err != nil {
@@ -145,6 +155,11 @@ func (server *Server) LoadRDB(dec *core.Decoder) error {
 			continue
 		}
 		restoreFTIndexFromRDB(db, p.args)
+	}
+	if len(functionsPayload) > 0 {
+		if err := server.RestoreFunctionsPayload(functionsPayload); err != nil {
+			return fmt.Errorf("restore functions from RDB failed: %w", err)
+		}
 	}
 	return nil
 }

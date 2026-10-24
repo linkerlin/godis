@@ -10,6 +10,7 @@ package e6chaos
 
 import (
 	"context"
+	"fmt"
 	"strconv"
 	"strings"
 	"testing"
@@ -417,4 +418,104 @@ func TestE6ChaosPsyncHandshake(t *testing.T) {
 		master.dieWithLogs(t, "out-of-range full sync payload missing")
 	}
 	_ = c4.conn.Close()
+}
+
+// TestE6GoRedisFunctionsRestart pins the durability split that real Redis
+// guarantees: FUNCTIONS survive a crash (AOF replay / RDB aux field) with
+// flags intact, while the SCRIPT cache is ephemeral — after a restart
+// EVALSHA returns NOSCRIPT and go-redis's Script.Run must self-heal.
+func TestE6GoRedisFunctionsRestart(t *testing.T) {
+	skipShort(t)
+	dir := t.TempDir()
+
+	const libCode = `#!lua name=durlib
+redis.register_function('durget', function(keys, args) return redis.call('GET', keys[1]) end)
+redis.register_function('durcount', function(keys, args) return tostring(#args) end, {flags={'no-writes'}})
+`
+	script := goredis.NewScript("return 'sv'")
+
+	// --- AOF leg: functions replay from `function load` commands
+	cs := startServer(t, dir, "appendonly yes", "appendfsync always")
+	rdb := mustChildGoRedis(t, cs)
+	ctx := context.Background()
+	if v, err := rdb.FunctionLoad(ctx, libCode).Result(); err != nil || v != "durlib" {
+		t.Fatalf("FUNCTION LOAD = %q, %v", v, err)
+	}
+	if err := rdb.Set(ctx, "gfr:k", "gfv", 0).Err(); err != nil {
+		t.Fatalf("SET: %v", err)
+	}
+	if v, err := rdb.FCall(ctx, "durget", []string{"gfr:k"}).Result(); err != nil || fmt.Sprint(v) != "gfv" {
+		t.Fatalf("FCALL pre-crash = %v, %v", v, err)
+	}
+	if err := script.Load(ctx, rdb).Err(); err != nil {
+		t.Fatalf("SCRIPT LOAD: %v", err)
+	}
+	if v, err := script.Run(ctx, rdb, []string{}).Result(); err != nil || v != "sv" {
+		t.Fatalf("EVALSHA pre-crash = %v, %v", v, err)
+	}
+
+	cs.kill()
+	t.Cleanup(func() {})
+
+	cs2 := startServer(t, dir, "appendonly yes", "appendfsync always")
+	rdb2 := mustChildGoRedis(t, cs2)
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		if _, err := rdb2.Get(ctx, "gfr:k").Result(); err == nil {
+			break
+		} else if time.Now().After(deadline) {
+			cs2.dieWithLogs(t, "AOF replay did not restore gfr:k")
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	libs, err := rdb2.FunctionList(ctx, goredis.FunctionListQuery{LibraryNamePattern: "durlib"}).Result()
+	if err != nil || len(libs) != 1 || libs[0].Name != "durlib" {
+		t.Fatalf("FUNCTION LIST after AOF restart = %#v, %v — library lost", libs, err)
+	}
+	if v, err := rdb2.FCall(ctx, "durget", []string{"gfr:k"}).Result(); err != nil || fmt.Sprint(v) != "gfv" {
+		t.Fatalf("FCALL after AOF restart = %v, %v", v, err)
+	}
+	// no-writes flag survived → FCALL_RO still accepted
+	if v, err := rdb2.FCallRO(ctx, "durcount", []string{}, "a").Result(); err != nil || fmt.Sprint(v) != "1" {
+		t.Fatalf("FCALL_RO after AOF restart = %v, %v — flags lost", v, err)
+	}
+	// SCRIPT cache is ephemeral (real Redis parity): EVALSHA → NOSCRIPT
+	if err := script.Run(ctx, rdb2, []string{}).Err(); err != nil {
+		t.Fatalf("Script.Run after restart should self-heal NOSCRIPT, got %v", err)
+	}
+
+	// --- RDB leg: functions ride in the RDB "lua" aux field
+	rdbDir := t.TempDir()
+	cs3 := startServer(t, rdbDir, "appendonly no")
+	rdb3 := mustChildGoRedis(t, cs3)
+	if v, err := rdb3.FunctionLoad(ctx, libCode).Result(); err != nil || v != "durlib" {
+		t.Fatalf("RDB leg FUNCTION LOAD = %q, %v", v, err)
+	}
+	if err := rdb3.Set(ctx, "gfr:rk", "rv", 0).Err(); err != nil {
+		t.Fatalf("RDB leg SET: %v", err)
+	}
+	if err := rdb3.Save(ctx).Err(); err != nil {
+		t.Fatalf("SAVE: %v", err)
+	}
+
+	cs3.kill()
+	t.Cleanup(func() {})
+
+	cs4 := startServer(t, rdbDir, "appendonly no")
+	rdb4 := mustChildGoRedis(t, cs4)
+	deadline = time.Now().Add(10 * time.Second)
+	for {
+		if v, err := rdb4.Get(ctx, "gfr:rk").Result(); err == nil && v == "rv" {
+			break
+		} else if time.Now().After(deadline) {
+			cs4.dieWithLogs(t, "RDB load did not restore gfr:rk")
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	if v, err := rdb4.FCall(ctx, "durget", []string{"gfr:rk"}).Result(); err != nil || fmt.Sprint(v) != "rv" {
+		t.Fatalf("FCALL after RDB restart = %v, %v — functions not restored from RDB", v, err)
+	}
+	if v, err := rdb4.FCallRO(ctx, "durcount", []string{}, "a", "b").Result(); err != nil || fmt.Sprint(v) != "2" {
+		t.Fatalf("FCALL_RO after RDB restart = %v, %v — flags not restored from RDB", v, err)
+	}
 }

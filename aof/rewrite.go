@@ -43,6 +43,13 @@ type functionLoadCmdProvider interface {
 	RestoreFunctionLoadCmds(cmds [][][]byte)
 }
 
+// functionDumpProvider is an optional interface implemented by DBEngine to
+// export the official FUNCTION DUMP payload for RDB saves (embedded as the
+// "lua" aux field so functions survive a restart).
+type functionDumpProvider interface {
+	DumpFunctionsPayload() []byte
+}
+
 // rewriteLocked performs AOF rewrite; caller must hold the rewrite slot.
 func (persister *Persister) rewriteLocked() error {
 	ctx, err := persister.StartRewrite()

@@ -45,6 +45,56 @@ func (server *Server) RestoreFunctionLoadCmds(cmds [][][]byte) {
 	RestoreFunctionLoadCmds(cmds)
 }
 
+// DumpFunctionsPayload returns the official FUNCTION DUMP payload of all
+// loaded libraries, or nil when none are loaded. RDB saves embed it in a
+// "lua" aux field so functions survive a restart (real Redis parity).
+func (server *Server) DumpFunctionsPayload() []byte {
+	scriptExecMu.Lock()
+	defer scriptExecMu.Unlock()
+
+	libs := make([]functionLibraryDump, 0)
+	if funcEngine != nil {
+		names := funcEngine.ListLibraries()
+		sort.Strings(names)
+		for _, name := range names {
+			lib, _ := funcEngine.GetLibrary(name)
+			if lib == nil || lib.Code == "" {
+				continue
+			}
+			libs = append(libs, functionLibraryDump{Name: lib.Name, Code: lib.Code})
+		}
+	}
+	if len(libs) == 0 {
+		return nil
+	}
+	return encodeFunctionDump(libs)
+}
+
+// RestoreFunctionsPayload replaces the function engine contents from a
+// FUNCTION DUMP payload (REPLACE policy). Called on RDB load; no AOF is
+// written — the payload came from disk, not from a client command.
+func (server *Server) RestoreFunctionsPayload(payload []byte) error {
+	scriptExecMu.Lock()
+	defer scriptExecMu.Unlock()
+
+	libs, err := decodeFunctionDump(payload)
+	if err != nil {
+		return err
+	}
+	if len(libs) == 0 {
+		return nil
+	}
+	if funcEngine == nil {
+		initFunctionsEngineLocked(nil)
+	}
+	for _, lib := range libs {
+		if _, err := funcEngine.LoadLibrary(lib.Name, lib.Code, true); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // GetFunctionLoadCmds returns FUNCTION LOAD REPLACE commands for all currently loaded libraries.
 func GetFunctionLoadCmds() [][][]byte {
 	scriptExecMu.Lock()
