@@ -67,11 +67,56 @@ func (cluster *Cluster) isClusterReplica() bool {
 	return yes
 }
 
-// proposeSlotsChange validates slot ownership then Propose/ApplyLocal / leader-forward.
+// proposeSlotsChange validates slot ownership then Propose/ApplyLocal /
+// leader-forward. Slot changes are attributed to the REQUESTING node (the
+// node the client sent the command to — Redis semantics), which is `self`
+// on the direct path.
 func (cluster *Cluster) proposeSlotsChange(c redis.Connection, cmdLine CmdLine, event int, slots []uint32) redis.Reply {
 	if cluster == nil {
 		return protocol.MakeErrReply("ERR This instance has cluster support disabled")
 	}
+	return cluster.proposeSlotsChangeFor(c, cmdLine, event, cluster.SelfID(), slots, false)
+}
+
+// clusterSlotsChangeCommand carries a follower-requested slot change to the
+// leader with the REQUESTER's node id: forwarding the raw command would
+// re-execute on the leader with NodeId=leader and assign the slots to the
+// wrong node.
+const clusterSlotsChangeCommand = "cluster.slots.change"
+
+func init() {
+	RegisterCmd(clusterSlotsChangeCommand, execClusterSlotsChange)
+}
+
+// execClusterSlotsChange (leader-side): <requesterId> <add|remove> <slot...>
+func execClusterSlotsChange(cluster *Cluster, c redis.Connection, cmdLine CmdLine) redis.Reply {
+	if len(cmdLine) < 4 {
+		return protocol.MakeArgNumErrReply(clusterSlotsChangeCommand)
+	}
+	nodeID := string(cmdLine[1])
+	event := raft.EventAddSlots
+	switch string(cmdLine[2]) {
+	case "add":
+	case "remove":
+		event = raft.EventRemoveSlots
+	default:
+		return protocol.MakeErrReply("ERR bad event for " + clusterSlotsChangeCommand)
+	}
+	slots := make([]uint32, 0, len(cmdLine)-3)
+	for _, a := range cmdLine[3:] {
+		n, err := strconv.ParseInt(string(a), 10, 64)
+		if err != nil || n < 0 || n >= int64(hashslot.Count) {
+			return protocol.MakeErrReply("ERR Invalid or out of range slot")
+		}
+		slots = append(slots, uint32(n))
+	}
+	return cluster.proposeSlotsChangeFor(c, cmdLine, event, nodeID, slots, true)
+}
+
+// proposeSlotsChangeFor is the single slot-change path. nodeID is who the
+// slots change for; forwarded=true means we are the leader executing a
+// follower's request (the follower already ran the local guards).
+func (cluster *Cluster) proposeSlotsChangeFor(c redis.Connection, cmdLine CmdLine, event int, nodeID string, slots []uint32, forwarded bool) redis.Reply {
 	if len(slots) == 0 {
 		return protocol.MakeOkReply()
 	}
@@ -79,19 +124,30 @@ func (cluster *Cluster) proposeSlotsChange(c redis.Connection, cmdLine CmdLine, 
 	if cluster.raftNode == nil {
 		return protocol.MakeOkReply()
 	}
-	if cluster.isClusterReplica() {
-		return protocol.MakeErrReply("ERR Please use SETSLOT only with masters.")
+	// The REQUESTER must be a master (follower side: self; leader side of a
+	// forward: the requester named in the command).
+	requester := nodeID
+	if !forwarded {
+		requester = cluster.SelfID()
+	}
+	if cluster.raftNode.FSM != nil {
+		var replica bool
+		cluster.raftNode.FSM.WithReadLock(func(fsm *raft.FSM) {
+			_, replica = fsm.SlaveMasters[requester]
+		})
+		if replica {
+			return protocol.MakeErrReply("ERR Please use SETSLOT only with masters.")
+		}
 	}
 
-	self := cluster.SelfID()
-	if errReply := cluster.validateSlotsChange(event, self, slots); errReply != nil {
+	if errReply := cluster.validateSlotsChange(event, nodeID, slots); errReply != nil {
 		return errReply
 	}
 
 	entry := &raft.LogEntry{
 		Event: event,
 		SlotsTask: &raft.SlotsTask{
-			NodeId: self,
+			NodeId: nodeID,
 			Slots:  slots,
 		},
 	}
@@ -103,7 +159,18 @@ func (cluster *Cluster) proposeSlotsChange(c redis.Connection, cmdLine CmdLine, 
 				return protocol.MakeErrReply(err.Error())
 			}
 			defer cluster.connections.ReturnPeerClient(leaderConn)
-			return leaderConn.Send(cmdLine)
+			// Forward with the requester's id, not the raw command.
+			args := make([][]byte, 0, len(slots)+3)
+			args = append(args, []byte(clusterSlotsChangeCommand), []byte(nodeID))
+			if event == raft.EventAddSlots {
+				args = append(args, []byte("add"))
+			} else {
+				args = append(args, []byte("remove"))
+			}
+			for _, s := range slots {
+				args = append(args, []byte(strconv.FormatUint(uint64(s), 10)))
+			}
+			return leaderConn.Send(args)
 		}
 		if _, err := cluster.raftNode.Propose(entry); err != nil {
 			return protocol.MakeErrReply(err.Error())

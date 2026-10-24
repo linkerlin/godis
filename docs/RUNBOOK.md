@@ -50,7 +50,9 @@
 
 **Pub/Sub 语义（2026-10-24 已验证）**：经典 `PUBLISH` 在集群内广播——本地执行后中继到每个其它主节点（内部命令 `cluster.pubsub.relay`，对端不再扩散）；尽力而为：对端失联仅漏投；副本本地订阅者不在覆盖内（masters only）。`SPUBLISH` 保持按槽路由（Sharded）。由 `TestE7GoRedisClassicPubsubCrossNode`（跨节点双向投递）与 `TestE7GoRedisShardedPubsub` 钉死。
 
-**成员管理（已验证）**：`CLUSTER REPLICATE <node>` 使本节点成为指定主节点的从库（写 FSM）；`CLUSTER FORGET <node>` 安全移除节点。`CLUSTER FAILOVER`/`RESET`/`SAVECONFIG`/`SET-CONFIG-EPOCH` 显式报不支持。
+**成员管理（已验证）**：`CLUSTER REPLICATE <node>` 使本节点成为指定主节点的从库（写 FSM）；`CLUSTER FORGET <node>` 安全移除节点。`CLUSTER FAILOVER`/`RESET`/`SAVECONFIG`/`SET-CONFIG-EPOCH` 显式报不支持。加入期自动再平衡可用 `cluster-auto-rebalance no` 关闭（默认 `yes`）——手工钉槽位/迁移演练时建议关闭，避免与手工分配竞争。
+
+**副本读（2026-10-24 已验证）**：副本默认对读回 `-MOVED`（Redis 语义）；连接发 `READONLY` 后可读其主持有的槽位（写仍拒绝）。`CLUSTER SLOTS` 按规范把副本嵌套列在主节点之后，真实客户端（go-redis `ReadOnly:true`）据此把读路由到副本层。副本断开即时清理主侧注册（`AfterClientClose`），连接对象不复用——不存在跨连接的复制流串扰。由 `TestE7GoRedisClusterReplicaReads`（READONLY 三态 + go-redis 副本路由）钉死。
 
 **韧性事实（有测试背书）**：主库宕机后从库保持 replica 角色并退避重连（`e6chaos` 主宕场景）；复制中断重启后自动重同步收敛（`e6chaos` 中断场景）；**分区形状的主库失联**（SIGSTOP 冻结、无 RST/FIN）从库保持 replica、恢复后增量追平且分区前写全在（`e6chaos` 分区场景，Linux）；计划内切换走 `FAILOVER TO`（见第一节）。**未演练**：Raft 多数派双分区仲裁（双节点互看不见的真分区拓扑）。
 
@@ -58,8 +60,8 @@
 
 | 工具 | 用途 |
 |---|---|
-| `go test ./e7cluster` | 两节点集群互操作契约（拓扑/路由/MOVED/CROSSSLOT/hash-tag；e7retry：迁移窗口 ASK/ASKING 重试契约 + 陈旧拓扑 MOVED 收敛；e7goredis：go-redis v9 真实 ClusterClient 认证——拓扑发现/路由/实时 reshard 重试/RESP3/经典与 Sharded PubSub） |
-| `go test ./redis/server/std -run TestE2EGoRedis` | go-redis v9 单机真实客户端认证（RESP2/RESP3/pipeline/阻塞/PubSub/Lua） |
+| `go test ./e7cluster` | 两节点集群互操作契约（拓扑/路由/MOVED/CROSSSLOT/hash-tag；e7retry：迁移窗口 ASK/ASKING 重试契约 + 陈旧拓扑 MOVED 收敛；e7goredis：go-redis v9 真实 ClusterClient 认证——拓扑发现/路由/实时 reshard 重试/RESP3/经典与 Sharded PubSub/**副本只读 READONLY + go-redis ReadOnly 副本路由**） |
+| `go test ./redis/server/std -run TestE2EGoRedis` | go-redis v9 单机真实客户端认证（RESP2/RESP3/pipeline/阻塞/PubSub/Lua/二进制安全/SCAN/AUTH） |
 | `bash scripts/cluster-interop.sh` | 真实 `redis-cli -c` 跟随 MOVED 冒烟（需 docker） |
 | `go test ./e6chaos` | 崩溃一致性/复制韧性故障注入 |
 | `go test ./e6soak`（`SOAK_CYCLES` 可调） | 长稳负载循环 + 内存/goroutine/FD 基线 |

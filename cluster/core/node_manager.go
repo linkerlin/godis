@@ -199,6 +199,9 @@ func execClusterMeet(cluster *Cluster, c redis.Connection, cmdLine CmdLine) redi
 func (cluster *Cluster) doRebalance() {
 	cluster.rebalanceManager.mu.Lock()
 	defer cluster.rebalanceManager.mu.Unlock()
+	if !cluster.rebalanceManager.rebalanceConfig.AutoRebalance {
+		return // cluster-auto-rebalance no: slot assignments are hand-pinned
+	}
 	pendingTasks, err := cluster.makeRebalancePlan()
 	if err != nil {
 		logger.Errorf("makeRebalancePlan err: %v", err)

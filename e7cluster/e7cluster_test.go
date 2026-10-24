@@ -216,15 +216,24 @@ func parseSlots(t *testing.T, flat string) []slotRange {
 		n, err := strconv.Atoi(strings.TrimPrefix(s, ":")) // int replies keep the ':'
 		return n, err == nil
 	}
+	isInt := func(s string) bool { return strings.HasPrefix(s, ":") }
 	var ranges []slotRange
-	for i := 0; i+4 <= len(fields); i += 5 {
+	// Each entry is :start :end followed by one or more (host, :port, id)
+	// triplets — master first, then replicas (nested arrays flatten here).
+	for i := 0; i+4 <= len(fields); {
 		start, ok1 := atoi(fields[i])
 		end, ok2 := atoi(fields[i+1])
 		port, ok3 := atoi(fields[i+3])
-		if !ok1 || !ok2 || !ok3 {
+		if !ok1 || !ok2 || !ok3 || isInt(fields[i+2]) {
+			i++
 			continue
 		}
 		ranges = append(ranges, slotRange{start: start, end: end, host: fields[i+2], port: port})
+		j := i + 2 // skip the master triplet and any replica triplets
+		for j+3 <= len(fields) && !isInt(fields[j]) && isInt(fields[j+1]) && !isInt(fields[j+2]) {
+			j += 3
+		}
+		i = j
 	}
 	return ranges
 }
@@ -330,10 +339,12 @@ func TestE7ClusterInterop(t *testing.T) {
 	if hashslot.Slot(sk1) == hashslot.Slot(sk2) {
 		sk2 = "crosstest:y"
 	}
-	if r := cA.send("SADD", sk1, "x"); !strings.HasPrefix(r, ":") {
-		t.Fatalf("SADD seed: %s", r)
+	// SADD must land on sk1's owner — either half may own it
+	sk1Owner, _ := ownerOf(ranges, int(hashslot.Slot(sk1)))
+	if r := sendFollow(sk1Owner, "SADD", sk1, "x"); !strings.HasPrefix(r, ":") {
+		t.Fatalf("SADD via %s: %s", sk1Owner, r)
 	}
-	if r := cA.send("SUNION", sk1, sk2); !strings.Contains(r, "CROSSSLOT") {
+	if r := sendFollow(sk1Owner, "SUNION", sk1, sk2); !strings.Contains(r, "CROSSSLOT") {
 		t.Fatalf("cross-slot SUNION reply %q, want CROSSSLOT", r)
 	}
 

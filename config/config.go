@@ -256,11 +256,14 @@ type ServerProperties struct {
 	// ReplBacklogSize is Redis repl-backlog-size (bytes); used when allocating master backlog.
 	ReplBacklogSize int64 `cfg:"repl-backlog-size"`
 
-	ClusterEnable     bool   `cfg:"cluster-enable"`
-	ClusterAsSeed     bool   `cfg:"cluster-as-seed"`
-	ClusterSeed       string `cfg:"cluster-seed"`
-	RaftListenAddr    string `cfg:"raft-listen-address"`
-	RaftAdvertiseAddr string `cfg:"raft-advertise-address"`
+	ClusterEnable bool   `cfg:"cluster-enable"`
+	ClusterAsSeed bool   `cfg:"cluster-as-seed"`
+	ClusterSeed   string `cfg:"cluster-seed"`
+	// ClusterAutoRebalance toggles the leader cron's join-time slot
+	// rebalance (default yes). Set no to pin slot assignments by hand.
+	ClusterAutoRebalance bool   `cfg:"cluster-auto-rebalance"`
+	RaftListenAddr       string `cfg:"raft-listen-address"`
+	RaftAdvertiseAddr    string `cfg:"raft-advertise-address"`
 	// If the node join the cluster as a replica of another node,
 	// set MasterInCluster as the RedisAdvertiseAddr of it's master node
 	MasterInCluster string `cfg:"master-in-cluster"`
@@ -328,6 +331,13 @@ func GetSaveConfig() string {
 	return ""
 }
 
+// defaultsSnapshot is the pristine default config from init(): parse()
+// seeds file-loaded configs from it so keys absent from the file keep
+// their defaults (previously they fell to zero values — hz, keepalive,
+// replica-read-only, cluster-auto-rebalance were all silently 0/false on
+// every file-launched node).
+var defaultsSnapshot *ServerProperties
+
 func init() {
 	// A few stats we don't want to reset: server startup time, and peak mem.
 	EachTimeServerInfo = &ServerInfo{
@@ -354,6 +364,7 @@ func init() {
 		ClientOutputBufferLimit:         "normal 0 0 0 slave 268435456 67108864 60 pubsub 33554432 8388608 60",
 		MinReplicasMaxLag:               10,
 		ClusterRequireFullCoverage:      true,
+		ClusterAutoRebalance:            true,
 		ClusterNodeTimeout:              15000,
 		ClusterMigrationBarrier:         1,
 		StopWritesOnBgsaveError:         true,
@@ -439,12 +450,16 @@ func init() {
 		LuaTimeLimit:                    5000,
 		RunID:                           utils.RandString(40),
 	}
+	defaultsSnapshot = Properties
 	SetSaveConfig(Properties.Save)
 	SetProtoMaxBulkLen(Properties.ProtoMaxBulkLen)
 }
 
 func parse(src io.Reader) (*ServerProperties, error) {
 	config := &ServerProperties{}
+	if defaultsSnapshot != nil {
+		*config = *defaultsSnapshot // file lines below override defaults
+	}
 
 	// read config file
 	rawMap := make(map[string]string)

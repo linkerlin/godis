@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/linkerlin/godis/config"
 	"github.com/linkerlin/godis/lib/logger"
 )
 
@@ -119,9 +120,15 @@ type SlotDistribution struct {
 
 // NewRebalanceManager creates a new rebalancing manager
 func NewRebalanceManager(cluster *Cluster) *RebalanceManager {
+	auto := true
+	if config.Properties != nil {
+		auto = config.Properties.ClusterAutoRebalance
+	}
+	cfg := DefaultRebalanceConfig()
+	cfg.AutoRebalance = auto
 	return &RebalanceManager{
 		cluster:         cluster,
-		rebalanceConfig: DefaultRebalanceConfig(),
+		rebalanceConfig: cfg,
 	}
 }
 

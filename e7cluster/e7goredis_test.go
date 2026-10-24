@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"net"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -289,4 +290,235 @@ func TestE7GoRedisClassicPubsubCrossNode(t *testing.T) {
 	}
 	cross(t, seed.addr, joiner.addr, "seedSub_joinerPub")
 	cross(t, joiner.addr, seed.addr, "joinerSub_seedPub")
+}
+
+// TestE7GoRedisClusterReplicaReads certifies the replica leg of the cluster
+// contract: CLUSTER REPLICATE topology, replica entries in CLUSTER SLOTS,
+// READONLY-gated replica serving (-MOVED without it, local read with it,
+// writes still rejected, every key readable through its replica).
+//
+// The cluster runs with cluster-auto-rebalance no: hand-pinned slots, so
+// joining replicas stay slot-free and CLUSTER REPLICATE never races the
+// join-time rebalance. This test certifies the replica-read interop surface
+// end to end: CLUSTER SLOTS replica entries, READONLY gating, and go-redis
+// ReadOnly replica routing.
+func TestE7GoRedisClusterReplicaReads(t *testing.T) {
+	if testing.Short() {
+		t.Skip("go-redis replica reads skipped in short mode")
+	}
+	const noRebal = "cluster-auto-rebalance no"
+	dirA, dirB, dirC, dirD := t.TempDir(), t.TempDir(), t.TempDir(), t.TempDir()
+	seed := startNode(t, "seed", dirA, "cluster-as-seed yes", noRebal)
+	m2 := startNode(t, "m2", dirB, "cluster-seed "+seed.addr, noRebal)
+	rep1 := startNode(t, "rep1", dirC, "cluster-seed "+seed.addr, noRebal)
+	rep2 := startNode(t, "rep2", dirD, "cluster-seed "+seed.addr, noRebal)
+
+	waitJoined := func(n *node, name string) {
+		t.Helper()
+		deadline := time.Now().Add(30 * time.Second)
+		for {
+			r := n.trySend("CLUSTER", "NODES")
+			if len(r) > 20 && !strings.Contains(r, "IOERR") {
+				return
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("%s never joined\nlogs:\n%s", name, n.out.String())
+			}
+			time.Sleep(300 * time.Millisecond)
+		}
+	}
+	waitJoined(m2, "m2")
+	waitJoined(rep1, "rep1")
+	waitJoined(rep2, "rep2")
+
+	// replicate while both are slot-free (poll: FSM may not know the
+	// master yet right after join)
+	pollOK := func(n *node, name string, args ...string) {
+		t.Helper()
+		deadline := time.Now().Add(30 * time.Second)
+		for {
+			r := n.trySend(args...)
+			if r == "+OK" {
+				return
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("%s: %s kept failing\nlogs:\n%s", name, r, n.out.String())
+			}
+			time.Sleep(200 * time.Millisecond)
+		}
+	}
+	pollOK(rep1, "rep1 REPLICATE", "CLUSTER", "REPLICATE", seed.addr)
+	pollOK(rep2, "rep2 REPLICATE", "CLUSTER", "REPLICATE", m2.addr)
+
+	// hand-split the ring between the two masters (rebalance is off, so
+	// the view stays exactly what we assign)
+	ranges := splitRing(t, seed, m2)
+
+	// CLUSTER SLOTS must list each replica behind its master (nested node
+	// arrays) — the entries go-redis ReadOnly routing consumes. The replica
+	// relations (EventJoin with Master) may lag the slot split in the Raft
+	// FSM, so poll briefly.
+	deadline := time.Now().Add(15 * time.Second)
+	for {
+		flat := m2.trySend("CLUSTER", "SLOTS")
+		if strings.Contains(flat, rep1.addr) && strings.Contains(flat, rep2.addr) {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("CLUSTER SLOTS missing replica entries:\n%s", flat)
+		}
+		time.Sleep(300 * time.Millisecond)
+	}
+
+	// replication stability gate: WAIT until each master sees its replica
+	// online AND acked. The replication client reconnects a few times while
+	// the initial sync settles (double registrations on the master during
+	// the churn window are a known open race); client traffic starts only
+	// after the feed is quiescent.
+	waitReplica := func(master *node) {
+		t.Helper()
+		deadline := time.Now().Add(30 * time.Second)
+		for {
+			r := master.trySend("WAIT", "1", "2")
+			if strings.HasPrefix(r, ":") && r != ":0" {
+				return
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("replica of %s never acked (WAIT=%s)\nlogs:\n%s", master.addr, r, master.out.String())
+			}
+			time.Sleep(300 * time.Millisecond)
+		}
+	}
+	waitReplica(seed)
+	waitReplica(m2)
+
+	// write 60 keys owner-routed through raw single connections: this pins
+	// each key to its master explicitly, independent of any client routing
+	// (go-redis routed writes are certified in TestE7GoRedisClusterInterop).
+	seedC, m2C := seed.client(t), m2.client(t)
+	defer seedC.close()
+	defer m2C.close()
+	const total = 60
+	for i := 0; i < total; i++ {
+		k := fmt.Sprintf("grr:%d", i)
+		owner, _ := ownerOf(ranges, int(hashslot.Slot(k)))
+		c := seedC
+		if owner == m2.addr {
+			c = m2C
+		}
+		if r := c.send("SET", k, strconv.Itoa(i)); r != "+OK" {
+			t.Fatalf("SET %s via %s: %s", k, owner, r)
+		}
+	}
+	// one populated (key, value) per half
+	keyIn := func(owner string) (string, string) {
+		for i := 0; i < total; i++ {
+			k := fmt.Sprintf("grr:%d", i)
+			if o, _ := ownerOf(ranges, int(hashslot.Slot(k))); o == owner {
+				return k, strconv.Itoa(i)
+			}
+		}
+		t.Fatalf("no key in %s's half", owner)
+		return "", ""
+	}
+	kA, vA := keyIn(seed.addr) // served by rep1
+	kB, vB := keyIn(m2.addr)   // served by rep2
+
+	// replica without READONLY redirects to the master (Redis semantics)
+	c1 := rep1.client(t)
+	defer c1.close()
+	if r := c1.send("GET", kA); r != fmt.Sprintf("-MOVED %d %s", int(hashslot.Slot(kA)), seed.addr) {
+		t.Fatalf("replica GET without READONLY = %q, want MOVED to %s", r, seed.addr)
+	}
+	// READONLY opens replica reads for the master's slots...
+	if r := c1.send("READONLY"); r != "+OK" {
+		t.Fatalf("READONLY: %s", r)
+	}
+	readDeadline := time.Now().Add(15 * time.Second) // replication may lag
+	for {
+		if r := c1.send("GET", kA); r == vA {
+			break
+		} else if time.Now().After(readDeadline) {
+			t.Fatalf("rep1 READONLY GET %s = %q, want %q\nrep1 logs:\n%s", kA, r, vA, rep1.out.String())
+		}
+		time.Sleep(300 * time.Millisecond)
+	}
+	// ...but writes are still rejected by the replica gate
+	if r := c1.send("SET", kA, "x"); !strings.Contains(r, "READONLY") {
+		t.Fatalf("replica write after READONLY = %q, want READONLY rejection", r)
+	}
+
+	// symmetric check on the second replica pair (rep2 of m2)
+	c2 := rep2.client(t)
+	defer c2.close()
+	if r := c2.send("READONLY"); r != "+OK" {
+		t.Fatalf("READONLY on rep2: %s", r)
+	}
+	deadline2 := time.Now().Add(15 * time.Second)
+	for {
+		if r := c2.send("GET", kB); r == vB {
+			break
+		} else if time.Now().After(deadline2) {
+			t.Fatalf("rep2 READONLY GET %s = %q, want %q\nrep2 logs:\n%s", kB, r, vB, rep2.out.String())
+		}
+		time.Sleep(300 * time.Millisecond)
+	}
+
+	// every key must be readable through its replica after READONLY (both
+	// halves, replication lag absorbed by polling) — the READONLY
+	// serving contract at scale.
+	massDeadline := time.Now().Add(20 * time.Second)
+	for {
+		allOK := true
+		for i := 0; i < total && allOK; i++ {
+			k := fmt.Sprintf("grr:%d", i)
+			var r string
+			if int(hashslot.Slot(k)) < 8192 {
+				r = c1.send("GET", k)
+			} else {
+				r = c2.send("GET", k)
+			}
+			if r != strconv.Itoa(i) {
+				allOK = false
+			}
+		}
+		if allOK {
+			break
+		}
+		if time.Now().After(massDeadline) {
+			t.Fatalf("replica reads did not converge for all %d keys\nseed logs:\n%s\nm2 logs:\n%s", total, seed.out.String(), m2.out.String())
+		}
+		time.Sleep(300 * time.Millisecond)
+	}
+
+	// final interop gate: go-redis ClusterClient with ReadOnly:true builds
+	// its read routing from the CLUSTER SLOTS replica entries and must serve
+	// every key from the replica tier (writes would still go to masters).
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	rrdb := goredis.NewClusterClient(&goredis.ClusterOptions{
+		Addrs:        []string{seed.addr, m2.addr},
+		ReadOnly:     true,
+		DialTimeout:  3 * time.Second,
+		ReadTimeout:  5 * time.Second,
+		WriteTimeout: 5 * time.Second,
+		PoolSize:     8,
+	})
+	t.Cleanup(func() { _ = rrdb.Close() })
+	rrDeadline := time.Now().Add(20 * time.Second)
+	for {
+		ok := true
+		for i := 0; i < total && ok; i++ {
+			if v, err := rrdb.Get(ctx, fmt.Sprintf("grr:%d", i)).Result(); err != nil || v != strconv.Itoa(i) {
+				ok = false
+			}
+		}
+		if ok {
+			break
+		}
+		if time.Now().After(rrDeadline) {
+			t.Fatalf("go-redis ReadOnly reads did not converge\nseed logs:\n%s\nrep1 logs:\n%s", seed.out.String(), rep1.out.String())
+		}
+		time.Sleep(400 * time.Millisecond)
+	}
 }

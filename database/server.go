@@ -256,11 +256,8 @@ func (server *Server) Exec(c redis.Connection, cmdLine [][]byte) (result redis.R
 	if reply := checkProtectedMode(c); reply != nil {
 		return reply
 	}
-	// ping
-	if cmdName == "ping" {
-		return Ping(c, cmdLine[1:])
-	}
-	// authenticate
+	// authenticate — only AUTH/HELLO pre-gate (Redis semantics: with
+	// requirepass set even PING gets NOAUTH until authenticated)
 	if cmdName == "auth" {
 		return Auth(c, cmdLine[1:])
 	}
@@ -273,6 +270,10 @@ func (server *Server) Exec(c redis.Connection, cmdLine [][]byte) (result redis.R
 	}
 	if !isAuthenticated(c) {
 		return protocol.MakeErrReply("NOAUTH Authentication required")
+	}
+	// ping
+	if cmdName == "ping" {
+		return Ping(c, cmdLine[1:])
 	}
 	if reply := checkACLPermission(c, cmdName, cmdLine[1:]); reply != nil {
 		return reply
@@ -590,6 +591,9 @@ func (server *Server) AfterClientClose(c redis.Connection) {
 	RemoveMonitorClient(c)
 	pubsub.UnsubscribeAll(server.hub, c)
 	shardedHub.AfterClientClose(c)
+	// Drop the replication-master registration of this connection: a replica
+	// disconnect must not leave a stale feed target behind.
+	server.removeSlaveConn(c)
 }
 
 // Close graceful shutdown database

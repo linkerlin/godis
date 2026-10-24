@@ -8,9 +8,12 @@ package std
 //	go test ./redis/server/std -run TestE2EGoRedis -v
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"math/rand"
 	"net"
+	"strings"
 	"testing"
 	"time"
 
@@ -217,5 +220,108 @@ func TestE2EGoRedisStandalonePubSub(t *testing.T) {
 	}
 	if m, ok := pmsg.(*goredis.Message); !ok || m.Channel != "gr:pat:x" || m.Payload != "phello" {
 		t.Fatalf("pattern message = %#v", pmsg)
+	}
+}
+
+// TestE2EGoRedisBinarySafety pins framing safety: a 1MB blob studded with
+// RESP metacharacters and a unicode key must round-trip byte-identical.
+func TestE2EGoRedisBinarySafety(t *testing.T) {
+	if testing.Short() {
+		t.Skip("go-redis binary safety skipped in short mode")
+	}
+	rdb := mustGoRedis(t, startGoRedisServer(t), 2)
+	ctx := context.Background()
+
+	rng := rand.New(rand.NewSource(42))
+	blob := make([]byte, 1<<20)
+	rng.Read(blob)
+	for _, off := range []int{0, 4096, 333333, 1<<20 - 16} {
+		copy(blob[off:], "*1\r\n$3\r\nGET\r\n+-:,\r\n\x00\xff")
+	}
+	if err := rdb.Set(ctx, "gr:bin", string(blob), 0).Err(); err != nil {
+		t.Fatalf("SET binary: %v", err)
+	}
+	got, err := rdb.Get(ctx, "gr:bin").Bytes()
+	if err != nil {
+		t.Fatalf("GET binary: %v", err)
+	}
+	if !bytes.Equal(got, blob) {
+		t.Fatalf("binary roundtrip mismatch: got %d bytes, want %d", len(got), len(blob))
+	}
+	const ukey = "gr:键:क-vs-🌍"
+	if err := rdb.Set(ctx, ukey, "uv", 0).Err(); err != nil {
+		t.Fatalf("SET unicode key: %v", err)
+	}
+	if v, err := rdb.Get(ctx, ukey).Result(); err != nil || v != "uv" {
+		t.Fatalf("GET unicode key = %q, %v", v, err)
+	}
+}
+
+// TestE2EGoRedisScan iterates the whole keyspace via SCAN cursors with a
+// MATCH pattern and small COUNT — the iteration loop real clients run.
+func TestE2EGoRedisScan(t *testing.T) {
+	if testing.Short() {
+		t.Skip("go-redis scan e2e skipped in short mode")
+	}
+	rdb := mustGoRedis(t, startGoRedisServer(t), 2)
+	ctx := context.Background()
+	const total = 60
+	for i := 0; i < total; i++ {
+		if err := rdb.Set(ctx, fmt.Sprintf("grscan:%d", i), i, 0).Err(); err != nil {
+			t.Fatalf("SET grscan:%d: %v", i, err)
+		}
+	}
+	var cursor uint64
+	found := map[string]bool{}
+	for {
+		keys, next, err := rdb.Scan(ctx, cursor, "grscan:*", 10).Result()
+		if err != nil {
+			t.Fatalf("SCAN at %d: %v", cursor, err)
+		}
+		for _, k := range keys {
+			found[k] = true
+		}
+		if next == 0 {
+			break
+		}
+		cursor = next
+	}
+	if len(found) < total {
+		t.Fatalf("SCAN found %d keys, want >= %d", len(found), total)
+	}
+}
+
+// TestE2EGoRedisAuth exercises requirepass hot-reload with a real client:
+// CONFIG SET requirepass immediately gates unauthenticated conns (NOAUTH),
+// wrong passwords are rejected at AUTH, correct ones keep working.
+func TestE2EGoRedisAuth(t *testing.T) {
+	if testing.Short() {
+		t.Skip("go-redis auth e2e skipped in short mode")
+	}
+	addr := startGoRedisServer(t)
+	plain := mustGoRedis(t, addr, 2)
+	authed := goredis.NewClient(&goredis.Options{Addr: addr, Password: "godis-e2e-pw"})
+	t.Cleanup(func() { _ = authed.Close() })
+	ctx := context.Background()
+
+	if err := plain.ConfigSet(ctx, "requirepass", "godis-e2e-pw").Err(); err != nil {
+		t.Fatalf("CONFIG SET requirepass: %v", err)
+	}
+	defer func() {
+		if err := authed.ConfigSet(ctx, "requirepass", "").Err(); err != nil {
+			t.Errorf("restore requirepass: %v", err)
+		}
+	}()
+
+	if err := authed.Ping(ctx).Err(); err != nil {
+		t.Fatalf("Ping with correct password: %v", err)
+	}
+	if err := plain.Ping(ctx).Err(); err == nil || !strings.Contains(err.Error(), "NOAUTH") {
+		t.Fatalf("Ping on previously-unauthenticated conn = %v, want NOAUTH", err)
+	}
+	bad := goredis.NewClient(&goredis.Options{Addr: addr, Password: "wrong-pw"})
+	defer bad.Close()
+	if err := bad.Ping(ctx).Err(); err == nil {
+		t.Fatal("Ping with wrong password succeeded, want AUTH error")
 	}
 }

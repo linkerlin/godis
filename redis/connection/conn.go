@@ -6,8 +6,6 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
-
-	"github.com/linkerlin/godis/lib/logger"
 )
 
 var globalClientID atomic.Uint64
@@ -86,10 +84,20 @@ type Connection struct {
 	lastCommand     string // lowercase last command name for CLIENT LIST
 }
 
-var connPool = sync.Pool{
-	New: func() interface{} {
-		return &Connection{}
-	},
+// NewConn creates Connection instance.
+// Connections are NOT recycled: long-lived registries (replication slaveMap,
+// pubsub hubs) key on the connection pointer, and handing a closed object to
+// the next inbound connection would alias those registries onto the new
+// client's socket.
+func NewConn(conn net.Conn) *Connection {
+	c := &Connection{
+		conn: conn,
+	}
+	now := time.Now()
+	c.createdAt = now
+	c.lastActive = now
+	c.clientID = globalClientID.Add(1)
+	return c
 }
 
 // RemoteAddr returns the remote network address
@@ -171,35 +179,7 @@ func (c *Connection) Close() error {
 	c.stateMu.Lock()
 	c.lastCommand = ""
 	c.stateMu.Unlock()
-	connPool.Put(c)
 	return nil
-}
-
-// NewConn creates Connection instance
-func NewConn(conn net.Conn) *Connection {
-	c, ok := connPool.Get().(*Connection)
-	if !ok {
-		logger.Error("connection pool make wrong type")
-		return &Connection{
-			conn: conn,
-		}
-	}
-	c.stateMu.Lock()
-	c.conn = conn
-	c.stateMu.Unlock()
-	c.closeMu.Lock()
-	c.closed = false
-	c.closeMu.Unlock()
-	c.writeMu.Lock()
-	c.writeClosed = false
-	c.writeMu.Unlock()
-	now := time.Now()
-	c.createdAt = now
-	c.lastActive = now
-	if c.clientID == 0 {
-		c.clientID = globalClientID.Add(1)
-	}
-	return c
 }
 
 // SetClientTimesForTest sets age/idle clocks (tests only).

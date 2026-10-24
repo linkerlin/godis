@@ -60,9 +60,6 @@ func (cluster *Cluster) Exec(c redis.Connection, cmdLine [][]byte) (result redis
 	if cmdName == "auth" {
 		return database.Auth(c, cmdLine[1:])
 	}
-	if cmdName == "ping" {
-		return database.Ping(c, cmdLine[1:])
-	}
 	if cmdName == "dbsize" {
 		dbsize, _, _ := cluster.db.GetDBSize(0)
 		return protocol.MakeIntReply(int64(dbsize))
@@ -80,6 +77,11 @@ func (cluster *Cluster) Exec(c redis.Connection, cmdLine [][]byte) (result redis
 
 	if !isAuthenticated(c) {
 		return protocol.MakeErrReply("NOAUTH Authentication required")
+	}
+	// ping — post-gate like Redis (unauthenticated PING gets NOAUTH when
+	// requirepass is set)
+	if cmdName == "ping" {
+		return database.Ping(c, cmdLine[1:])
 	}
 	// Enforce ACL (users, keys, channels) in cluster mode too. Previously only
 	// requirepass was checked, so ACL users were silently bypassed on clusters.
@@ -218,6 +220,17 @@ func routeByKeyAndSlot(cluster *Cluster, c redis.Connection, args [][]byte, key 
 		importing := st.state == slotStateImporting
 		st.mu.RUnlock()
 		if importing || peer == self || peer == "" {
+			return cluster.db.Exec(c, args)
+		}
+	}
+
+	// READONLY replica serving: a client that sent READONLY may read slots
+	// owned by this node's master from this replica (Redis cluster replica
+	// reads). Writes still land in the paths below and are rejected by the
+	// replica read-only gate in the server layer.
+	if cc := asClusterConn(c); cc != nil && cc.IsClusterReadOnly() &&
+		cluster.raftNode != nil && cluster.raftNode.FSM != nil {
+		if master := cluster.raftNode.FSM.GetMaster(cluster.SelfID()); master != "" && master == peer {
 			return cluster.db.Exec(c, args)
 		}
 	}

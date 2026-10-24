@@ -569,6 +569,29 @@ func (server *Server) removeSlave(slave *slaveClient) {
 	logger.Info("disconnect with slave " + slave.conn.Name())
 }
 
+// removeSlaveConn drops the slave registration of a closing connection, if any.
+// Called from AfterClientClose: when a replica disconnects, the handler closes
+// its connection without going through removeSlave, which left a stale
+// slaveClient in slaveMap/onlineSlaves keyed by the connection pointer. A later
+// inbound connection could then be served that same connection object and the
+// backlog feed would write replication frames onto the new client's socket.
+func (server *Server) removeSlaveConn(c redis.Connection) {
+	if server.masterStatus == nil {
+		return
+	}
+	server.masterStatus.mu.Lock()
+	slave, ok := server.masterStatus.slaveMap[c]
+	if ok {
+		delete(server.masterStatus.slaveMap, c)
+		delete(server.masterStatus.waitSlaves, slave)
+		delete(server.masterStatus.onlineSlaves, slave)
+	}
+	server.masterStatus.mu.Unlock()
+	if ok {
+		logger.Info("disconnect with slave " + slave.conn.Name())
+	}
+}
+
 func (server *Server) setSlaveOnline(slave *slaveClient, currentOffset int64) {
 	server.masterStatus.mu.Lock()
 	defer server.masterStatus.mu.Unlock()
