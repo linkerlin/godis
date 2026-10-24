@@ -7,10 +7,12 @@ import (
 	"sync"
 	"time"
 
+	"github.com/linkerlin/godis/cluster/raft"
 	"github.com/linkerlin/godis/config"
 	"github.com/linkerlin/godis/database"
 	"github.com/linkerlin/godis/interface/redis"
 	"github.com/linkerlin/godis/lib/logger"
+	"github.com/linkerlin/godis/lib/utils"
 	"github.com/linkerlin/godis/redis/protocol"
 )
 
@@ -84,6 +86,17 @@ func (cluster *Cluster) Exec(c redis.Connection, cmdLine [][]byte) (result redis
 	if reply := database.CheckACLPermission(c, cmdName, cmdLine[1:]); reply != nil {
 		return reply
 	}
+	// Classic PUBLISH broadcasts cluster-wide in Redis: subscribers live on
+	// every node, so execute locally and relay to each peer master (the
+	// relay command runs PUBLISH locally WITHOUT re-broadcasting, or the
+	// peers would ping-pong forever). SPUBLISH is the slot-routed sharded
+	// variant and keeps its DefaultFunc routing.
+	if cmdName == "publish" && len(cmdLine) == 3 {
+		reply := cluster.db.Exec(c, cmdLine)
+		cluster.relayPublishToPeers(cmdLine)
+		cluster.slogLogger.Record(GodisExecCommandStartUnixTime, cmdLine, c.RemoteAddr(), c.GetClientName())
+		return reply
+	}
 	cmdFunc, ok := lookupCmd(cmdName)
 	if !ok {
 		keys, keylessLocal, exists := database.ResolveClusterCommandKeys(cmdLine)
@@ -120,6 +133,52 @@ func isAuthenticated(c redis.Connection) bool {
 
 func RegisterDefaultCmd(name string) {
 	RegisterCmd(name, DefaultFunc)
+}
+
+// pubsubRelayCommand carries a PUBLISH to a peer master. The peer runs the
+// PUBLISH locally WITHOUT re-broadcasting (that would ping-pong forever).
+const pubsubRelayCommand = "cluster.pubsub.relay"
+
+func init() {
+	RegisterCmd(pubsubRelayCommand, execPubsubRelay)
+}
+
+func execPubsubRelay(cluster *Cluster, _ redis.Connection, cmdLine CmdLine) redis.Reply {
+	if len(cmdLine) != 3 {
+		return protocol.MakeArgNumErrReply(pubsubRelayCommand)
+	}
+	return cluster.db.Exec(nil, utils.ToCmdLine("publish", string(cmdLine[1]), string(cmdLine[2])))
+}
+
+// relayPublishToPeers fans a just-executed PUBLISH out to every other master
+// (best-effort: a down peer simply misses the message, like a partitioned
+// Redis node). Replica-local subscribers are not covered — masters only.
+func (cluster *Cluster) relayPublishToPeers(publishCmd CmdLine) {
+	if cluster.raftNode == nil || cluster.raftNode.FSM == nil {
+		return
+	}
+	self := cluster.SelfID()
+	var peers []string
+	cluster.raftNode.FSM.WithReadLock(func(fsm *raft.FSM) {
+		for _, ms := range fsm.MasterSlaves {
+			if ms != nil && ms.MasterId != self {
+				peers = append(peers, ms.MasterId)
+			}
+		}
+	})
+	if len(peers) == 0 {
+		return
+	}
+	relay := utils.ToCmdLine(pubsubRelayCommand, string(publishCmd[1]), string(publishCmd[2]))
+	for _, peer := range peers { // sends stay outside the FSM read lock
+		peerConn, err := cluster.connections.BorrowPeerClient(peer)
+		if err != nil {
+			logger.Warn(fmt.Sprintf("pubsub relay to %s failed: %v", peer, err))
+			continue
+		}
+		_ = peerConn.Send(relay)
+		cluster.connections.ReturnPeerClient(peerConn)
+	}
 }
 
 // DefaultFunc routes a single-key (or same-slot multi-key) command or returns

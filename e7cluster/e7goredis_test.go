@@ -35,6 +35,18 @@ func mustGoRedis(t *testing.T, seed, joiner *node) *goredis.ClusterClient {
 	return rdb
 }
 
+// mustGoRedisPinned returns a plain single-node client bound to addr.
+func mustGoRedisPinned(t *testing.T, addr string) *goredis.Client {
+	t.Helper()
+	rdb := goredis.NewClient(&goredis.Options{
+		Addr:        addr,
+		DialTimeout: 3 * time.Second,
+		PoolSize:    4,
+	})
+	t.Cleanup(func() { _ = rdb.Close() })
+	return rdb
+}
+
 // TestE7GoRedisClusterInterop certifies: topology discovery, 200-key
 // routing across both halves, hash-tag MSET/MGET, and — the core — a live
 // reshard (markers → half migrated → client writes through the window →
@@ -192,4 +204,89 @@ func TestE7GoRedisShardedPubsub(t *testing.T) {
 	if m, ok := msg.(*goredis.Message); !ok || m.Channel != ch || m.Payload != "hello" {
 		t.Fatalf("sharded message = %#v, want channel %q payload %q", msg, ch, "hello")
 	}
+}
+
+// TestE7GoRedisResp3Cluster certifies the cluster routing path over RESP3
+// (HELLO 3 handshake on every pooled conn, map/array/double replies).
+func TestE7GoRedisResp3Cluster(t *testing.T) {
+	if testing.Short() {
+		t.Skip("go-redis RESP3 cluster skipped in short mode")
+	}
+	seed, joiner := bootTwoNodes(t)
+	waitSlotsQuiet(t, seed, joiner)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	rdb := goredis.NewClusterClient(&goredis.ClusterOptions{
+		Addrs:        []string{seed.addr, joiner.addr},
+		Protocol:     3,
+		DialTimeout:  3 * time.Second,
+		ReadTimeout:  5 * time.Second,
+		WriteTimeout: 5 * time.Second,
+		PoolSize:     8,
+	})
+	t.Cleanup(func() { _ = rdb.Close() })
+
+	if err := rdb.Ping(ctx).Err(); err != nil {
+		t.Fatalf("go-redis Ping RESP3: %v", err)
+	}
+	for i := 0; i < 60; i++ {
+		if err := rdb.Set(ctx, fmt.Sprintf("gr3:%d", i), i, 0).Err(); err != nil {
+			t.Fatalf("RESP3 SET gr3:%d: %v", i, err)
+		}
+	}
+	for i := 0; i < 60; i++ {
+		if v, err := rdb.Get(ctx, fmt.Sprintf("gr3:%d", i)).Result(); err != nil || v != strconv.Itoa(i) {
+			t.Fatalf("RESP3 GET gr3:%d = %q, %v", i, v, err)
+		}
+	}
+	// hash in one slot: HGETALL is a RESP3 map reply through cluster routing
+	if err := rdb.HSet(ctx, "{gr3tag}h", map[string]interface{}{"a": "1", "b": "2"}).Err(); err != nil {
+		t.Fatalf("RESP3 HSET: %v", err)
+	}
+	m, err := rdb.HGetAll(ctx, "{gr3tag}h").Result()
+	if err != nil || len(m) != 2 || m["a"] != "1" || m["b"] != "2" {
+		t.Fatalf("RESP3 HGETALL = %v, %v", m, err)
+	}
+	vals, err := rdb.MGet(ctx, "gr3:0", "gr3:1", "{gr3tag}h").Result()
+	if err != nil || len(vals) != 3 {
+		t.Fatalf("RESP3 MGET = %v, %v", vals, err)
+	}
+}
+
+// TestE7GoRedisClassicPubsubCrossNode pins the cluster PUBLISH broadcast:
+// a subscriber pinned to node A must receive a message published to node B
+// (Redis broadcasts classic pub/sub cluster-wide; only SPUBLISH is
+// slot-routed). Both directions are asserted.
+func TestE7GoRedisClassicPubsubCrossNode(t *testing.T) {
+	if testing.Short() {
+		t.Skip("go-redis classic pubsub cluster skipped in short mode")
+	}
+	seed, joiner := bootTwoNodes(t)
+	waitSlotsQuiet(t, seed, joiner)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	const ch = "grc:chan"
+	cross := func(t *testing.T, subAddr, pubAddr, tag string) {
+		t.Helper()
+		sub, pub := mustGoRedisPinned(t, subAddr), mustGoRedisPinned(t, pubAddr)
+		ps := sub.Subscribe(ctx, ch)
+		defer ps.Close()
+		if _, err := ps.Receive(ctx); err != nil {
+			t.Fatalf("SUBSCRIBE on %s: %v", subAddr, err)
+		}
+		if err := pub.Publish(ctx, ch, tag).Err(); err != nil {
+			t.Fatalf("PUBLISH via %s: %v", pubAddr, err)
+		}
+		msg, err := ps.ReceiveTimeout(ctx, 3*time.Second)
+		if err != nil {
+			t.Fatalf("no cross-node message %q within 3s (sub=%s pub=%s): %v\nseed logs:\n%s\njoiner logs:\n%s",
+				tag, subAddr, pubAddr, err, seed.out.String(), joiner.out.String())
+		}
+		if m, ok := msg.(*goredis.Message); !ok || m.Channel != ch || m.Payload != tag {
+			t.Fatalf("cross-node message = %#v, want %q", msg, tag)
+		}
+	}
+	cross(t, seed.addr, joiner.addr, "seedSub_joinerPub")
+	cross(t, joiner.addr, seed.addr, "joinerSub_seedPub")
 }

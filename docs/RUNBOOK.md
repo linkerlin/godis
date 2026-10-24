@@ -48,6 +48,8 @@
 
 **数据在线搬迁（reshard，已验证路径，2026-10-23；多键批修复 2026-10-24）**：源节点 `CLUSTER SETSLOT <slot> MIGRATING <目标id>` → 目标节点 `CLUSTER SETSLOT <slot> IMPORTING <源id>` → 循环 `CLUSTER GETKEYSINSLOT <slot> <batch>` + 在源执行 `MIGRATE <目标host> <目标port> "" 0 <timeout> KEYS k1 k2 …`（MIGRATE 内部在**每条** RESTORE 前自动重发 `ASKING` 放行目标端 IMPORTING 槽——标志一次性，只发一次会让多键批从第 2 键起被 `-MOVED` 弹回，2026-10-24 修复并由 `TestE7ClusterAskRetryContract` 钉死）→ 源与目标各执行 `CLUSTER SETSLOT <slot> NODE <目标id>` 收尾。源端在该槽仍有键残留时执行 `SETSLOT NODE` 会被拒绝（防孤儿键，文案与 Redis 8.10 一致）。全链路由 `go test ./e7cluster -run TestE7ClusterReshardKeys`（真实双子进程集群）钉死；`redis-cli --cluster reshard` 工具本体未逐项认证，但其协议序列即上述命令（依赖的 `CLUSTER MYID`/`GETKEYSINSLOT`/`MIGRATE` 均已支持）。
 
+**Pub/Sub 语义（2026-10-24 已验证）**：经典 `PUBLISH` 在集群内广播——本地执行后中继到每个其它主节点（内部命令 `cluster.pubsub.relay`，对端不再扩散）；尽力而为：对端失联仅漏投；副本本地订阅者不在覆盖内（masters only）。`SPUBLISH` 保持按槽路由（Sharded）。由 `TestE7GoRedisClassicPubsubCrossNode`（跨节点双向投递）与 `TestE7GoRedisShardedPubsub` 钉死。
+
 **成员管理（已验证）**：`CLUSTER REPLICATE <node>` 使本节点成为指定主节点的从库（写 FSM）；`CLUSTER FORGET <node>` 安全移除节点。`CLUSTER FAILOVER`/`RESET`/`SAVECONFIG`/`SET-CONFIG-EPOCH` 显式报不支持。
 
 **韧性事实（有测试背书）**：主库宕机后从库保持 replica 角色并退避重连（`e6chaos` 主宕场景）；复制中断重启后自动重同步收敛（`e6chaos` 中断场景）；**分区形状的主库失联**（SIGSTOP 冻结、无 RST/FIN）从库保持 replica、恢复后增量追平且分区前写全在（`e6chaos` 分区场景，Linux）；计划内切换走 `FAILOVER TO`（见第一节）。**未演练**：Raft 多数派双分区仲裁（双节点互看不见的真分区拓扑）。
@@ -56,7 +58,8 @@
 
 | 工具 | 用途 |
 |---|---|
-| `go test ./e7cluster` | 两节点集群互操作契约（拓扑/路由/MOVED/CROSSSLOT/hash-tag；e7retry：迁移窗口 ASK/ASKING 重试契约 + 陈旧拓扑 MOVED 收敛；e7goredis：go-redis v9 真实 ClusterClient 认证——拓扑发现/路由/实时 reshard 重试/Sharded PubSub） |
+| `go test ./e7cluster` | 两节点集群互操作契约（拓扑/路由/MOVED/CROSSSLOT/hash-tag；e7retry：迁移窗口 ASK/ASKING 重试契约 + 陈旧拓扑 MOVED 收敛；e7goredis：go-redis v9 真实 ClusterClient 认证——拓扑发现/路由/实时 reshard 重试/RESP3/经典与 Sharded PubSub） |
+| `go test ./redis/server/std -run TestE2EGoRedis` | go-redis v9 单机真实客户端认证（RESP2/RESP3/pipeline/阻塞/PubSub/Lua） |
 | `bash scripts/cluster-interop.sh` | 真实 `redis-cli -c` 跟随 MOVED 冒烟（需 docker） |
 | `go test ./e6chaos` | 崩溃一致性/复制韧性故障注入 |
 | `go test ./e6soak`（`SOAK_CYCLES` 可调） | 长稳负载循环 + 内存/goroutine/FD 基线 |
