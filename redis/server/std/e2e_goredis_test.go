@@ -325,3 +325,73 @@ func TestE2EGoRedisAuth(t *testing.T) {
 		t.Fatal("Ping with wrong password succeeded, want AUTH error")
 	}
 }
+
+// TestE2EGoRedisTransactions certifies MULTI/EXEC and optimistic WATCH with a
+// real client: TxPipeline queuing and reply-position commands, plus a
+// conflicting write from another client between WATCH and EXEC aborting the
+// first attempt — the caller owns the optimistic-retry loop (go-redis
+// surfaces a watch abort as TxFailedErr and does not retry internally).
+func TestE2EGoRedisTransactions(t *testing.T) {
+	if testing.Short() {
+		t.Skip("go-redis transactions e2e skipped in short mode")
+	}
+	addr := startGoRedisServer(t)
+	rdb := mustGoRedis(t, addr, 2)
+	other := mustGoRedis(t, addr, 2)
+	ctx := context.Background()
+
+	// TxPipeline: MULTI ... EXEC with reply-position commands
+	pipe := rdb.TxPipeline()
+	setCmd := pipe.Set(ctx, "grtx:a", "1", 0)
+	incrCmd := pipe.Incr(ctx, "grtx:ctr")
+	if _, err := pipe.Exec(ctx); err != nil {
+		t.Fatalf("TxPipeline exec: %v", err)
+	}
+	if err := setCmd.Err(); err != nil || setCmd.Val() != "OK" {
+		t.Fatalf("tx SET = %v, %v", setCmd.Val(), err)
+	}
+	if v, err := incrCmd.Result(); err != nil || v != 1 {
+		t.Fatalf("tx INCR = %d, %v", v, err)
+	}
+
+	// optimistic locking across a conflicting write
+	attempts := 0
+	for {
+		err := rdb.Watch(ctx, func(tx *goredis.Tx) error {
+			attempts++
+			v, err := tx.Get(ctx, "grtx:ctr").Int()
+			if err != nil && err != goredis.Nil {
+				return err
+			}
+			if attempts == 1 {
+				if err := other.Set(ctx, "grtx:ctr", 999, 0).Err(); err != nil {
+					return err
+				}
+			}
+			_, err = tx.TxPipelined(ctx, func(p goredis.Pipeliner) error {
+				p.Set(ctx, "grtx:res", v+1, 0)
+				return nil
+			})
+			return err
+		}, "grtx:ctr")
+		if err == goredis.TxFailedErr {
+			continue // watch aborted — optimistic retry
+		}
+		if err != nil {
+			t.Fatalf("Watch: %v", err)
+		}
+		break
+	}
+	if attempts != 2 {
+		t.Fatalf("Watch attempts = %d, want 2 (conflict must abort attempt 1)", attempts)
+	}
+	// attempt 1 read ctr=1 (res=2) and was aborted; attempt 2 read 999 and
+	// committed res=1000 — the committed value proves EXEC was retried
+	if v, err := rdb.Get(ctx, "grtx:res").Result(); err != nil || v != "1000" {
+		t.Fatalf("grtx:res = %q, %v — want attempt-2 commit 1000", v, err)
+	}
+	// the interfering write must have survived (that's what aborted attempt 1)
+	if v, err := rdb.Get(ctx, "grtx:ctr").Result(); err != nil || v != "999" {
+		t.Fatalf("grtx:ctr = %q, %v — want interfering write 999 to survive", v, err)
+	}
+}
