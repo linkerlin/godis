@@ -66,9 +66,10 @@ func TestM2ayACLCheckCmd(t *testing.T) {
 		_ = server.Exec(c, utils.ToCmdLine("ACL", "SETUSER", "default", "+set"))
 	}()
 
-	asserts.AssertIntReply(t, server.Exec(c, utils.ToCmdLine(
+	// Lua false is a null bulk in RESP2 (real Redis semantics).
+	asserts.AssertNullBulk(t, server.Exec(c, utils.ToCmdLine(
 		"EVAL", `return redis.acl_check_cmd('set', 'k', 'v')`, "0",
-	)), 0)
+	)))
 	asserts.AssertIntReply(t, server.Exec(c, utils.ToCmdLine(
 		"EVAL", `return redis.acl_check_cmd('get', 'k')`, "0",
 	)), 1)

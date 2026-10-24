@@ -165,8 +165,9 @@ func (e *Engine) parseLibrary(name, code string) (*Library, error) {
 		}
 	}
 
-	// Parse table-style registrations with flags
-	tablePattern := regexp.MustCompile(`(?s)redis\.register_function\s*\{\s*name\s*=\s*['"]([^'"]+)['"]\s*,\s*callback\s*=\s*(function\s*\([^)]*\).*?\bend)\s*(?:,\s*flags\s*=\s*\{([^}]*)\})?\s*\}`)
+	// Parse table-style registrations with flags. Real Redis documents the
+	// keys as function_name=/callback=; name= is kept as a godis superset.
+	tablePattern := regexp.MustCompile(`(?s)redis\.register_function\s*\{\s*(?:function_name|name)\s*=\s*['"]([^'"]+)['"]\s*,\s*callback\s*=\s*(function\s*\([^)]*\).*?\bend)\s*(?:,\s*flags\s*=\s*\{([^}]*)\})?\s*\}`)
 	tableMatches := tablePattern.FindAllStringSubmatch(code, -1)
 
 	for _, match := range tableMatches {
@@ -191,7 +192,8 @@ func (e *Engine) parseLibrary(name, code string) (*Library, error) {
 	}
 
 	if len(lib.Functions) == 0 {
-		return nil, fmt.Errorf("no functions found in library")
+		// Real Redis wording (functions.c), pinned against redis:8.10-alpine.
+		return nil, fmt.Errorf("No functions registered")
 	}
 
 	return lib, nil
@@ -345,10 +347,51 @@ func (e *Engine) Call(functionName string, keys []string, args []string) (interf
 
 	result, err := e.scriptEngine.EvalWithContext(ctx, script, keys, args)
 	if err != nil {
+		// Read-only rejections cross the Lua boundary pre-formatted (real
+		// Redis returns them bare); remap the raising line from our wrapper
+		// script coordinates back to the original library source.
+		if msg, ok := remapRORejection(err.Error(), lib.Code); ok {
+			return nil, fmt.Errorf("%s", msg)
+		}
 		return nil, fmt.Errorf("function execution failed: %v", err)
 	}
 
 	return result, nil
+}
+
+// functionPrologueLines is the number of lines buildExecutionScript places
+// before the library body (registration shim + blanks), so a raising line of
+// N inside the wrapper is N-functionPrologueLines inside the shebang-stripped
+// body.
+const functionPrologueLines = 10
+
+var roRejectionRe = regexp.MustCompile(`^(ERR Write commands are not allowed from read-only scripts\. script: [^,]+), on @(user_script|user_function):(\d+)\.$`)
+
+// remapRORejection detects a read-only-script rejection and rewrites its line
+// number from the execution-script frame to the library source frame.
+func remapRORejection(msg, libCode string) (string, bool) {
+	m := roRejectionRe.FindStringSubmatch(msg)
+	if m == nil {
+		return "", false
+	}
+	execLine := 0
+	for _, c := range m[3] {
+		if c < '0' || c > '9' {
+			return "", false
+		}
+		execLine = execLine*10 + int(c-'0')
+	}
+	shebang := 0
+	for _, line := range strings.Split(libCode, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "#!") {
+			shebang++
+		}
+	}
+	libLine := execLine - functionPrologueLines + shebang
+	if libLine < 1 {
+		libLine = 1
+	}
+	return fmt.Sprintf("%s, on @%s:%d.", m[1], m[2], libLine), true
 }
 
 // GetRunningFunction returns currently running function info
@@ -387,11 +430,11 @@ func (e *Engine) buildExecutionScript(libCode, funcName string, keys, args []str
 	// GopherEngine already provides redis.call/pcall; only add register_function.
 	script := `
 local __godis_funcs = {}
-redis.register_function = function(name, callback, flags)
-	if type(name) == "table" then
-		__godis_funcs[name.name] = name.callback
+redis.register_function = function(arg1, callback, flags)
+	if type(arg1) == "table" then
+		__godis_funcs[arg1.function_name or arg1.name] = arg1.callback
 	else
-		__godis_funcs[name] = callback
+		__godis_funcs[arg1] = callback
 	end
 end
 

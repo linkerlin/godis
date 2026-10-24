@@ -51,18 +51,20 @@ func TestM2nFunctionAPIVersion(t *testing.T) {
 	db := makeTestDB()
 	InitFunctionsEngine(db)
 
-	okCode := "#!lua name=mylib api_version=1.0\nredis.register_function('f', function(keys, args) return 1 end)"
+	// Real Redis 8.10 rejects api_version entirely — only name= is a valid
+	// shebang token, and any other key=value errors as invalid metadata.
+	okCode := "#!lua name=mylib\nredis.register_function('f', function(keys, args) return 1 end)"
 	r := db.Exec(nil, utils.ToCmdLine("FUNCTION", "LOAD", okCode))
 	if protocol.IsErrorReply(r) {
-		t.Fatalf("valid api_version: %s", r.ToBytes())
+		t.Fatalf("valid load: %s", r.ToBytes())
 	}
 
-	bad := "#!lua name=badlib api_version=2.0\nredis.register_function('g', function(keys, args) return 1 end)"
+	bad := "#!lua name=badlib api_version=1.0\nredis.register_function('g', function(keys, args) return 1 end)"
 	br := db.Exec(nil, utils.ToCmdLine("FUNCTION", "LOAD", bad))
 	if !protocol.IsErrorReply(br) {
-		t.Fatalf("api_version=2.0 should fail, got %s", br.ToBytes())
+		t.Fatalf("api_version should fail, got %s", br.ToBytes())
 	}
-	if !strings.Contains(string(br.ToBytes()), "Invalid API version") {
+	if !strings.Contains(string(br.ToBytes()), "Invalid metadata value given: api_version=1.0") {
 		t.Fatalf("unexpected error: %s", br.ToBytes())
 	}
 }

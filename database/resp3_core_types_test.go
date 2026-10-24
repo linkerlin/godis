@@ -465,7 +465,7 @@ func TestResp3FunctionListLibraryMaps(t *testing.T) {
 	db := makeTestDB()
 	InitFunctionsEngine(db)
 	_ = db.Exec(nil, utils.ToCmdLine("FUNCTION", "FLUSH"))
-	code := "#!lua name=resp3flib api_version=1.0\n" +
+	code := "#!lua name=resp3flib\n" +
 		"redis.register_function('resp3f', function(keys, args) return 1 end)"
 	if r := db.Exec(nil, utils.ToCmdLine("FUNCTION", "LOAD", code)); protocol.IsErrorReply(r) {
 		t.Fatalf("LOAD: %s", r.ToBytes())

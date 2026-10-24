@@ -88,7 +88,8 @@ func TestM2blLuaSetrespOutput(t *testing.T) {
 	}
 
 	r = db.Exec(nil, utils.ToCmdLine("EVAL", `redis.setresp(2); return false`, "0"))
-	asserts.AssertIntReply(t, r, 0)
+	// Real Redis RESP2: Lua false is a null bulk, not :0.
+	asserts.AssertNullBulk(t, r)
 }
 
 func TestM2blConfigAnnounceHost(t *testing.T) {

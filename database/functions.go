@@ -12,6 +12,7 @@ import (
 	"github.com/linkerlin/godis/functions"
 	"github.com/linkerlin/godis/interface/redis"
 	"github.com/linkerlin/godis/redis/protocol"
+	"github.com/linkerlin/godis/scripting"
 )
 
 // Global functions engine
@@ -151,6 +152,31 @@ var funcDB *DB
 
 func makeFuncDBExec() func(cmd string, args ...string) (interface{}, error) {
 	return func(cmd string, args ...string) (interface{}, error) {
+		// Script/function management and nested invocation are not allowed
+		// from a Redis Function (same as from EVAL); it also prevents
+		// re-entering scriptExecMu, which would deadlock.
+		switch strings.ToLower(cmd) {
+		case "eval", "evalsha", "eval_ro", "evalsha_ro",
+			"fcall", "fcall_ro", "script", "function":
+			return nil, fmt.Errorf("ERR This Redis command is not allowed from script")
+		}
+		// FCALL_RO runs with scriptReadOnly armed (see execFCallInternal);
+		// writes inside the function are rejected like EVAL_RO. Marker
+		// passthrough: the engine returns this text verbatim (real Redis
+		// names the function and line).
+		if scriptReadOnly {
+			if c, ok := cmdTable[strings.ToLower(cmd)]; ok && c.extra != nil {
+				for _, s := range c.extra.signs {
+					if s == "write" {
+						unit := "user_script"
+						if roGateIsFunc {
+							unit = "user_function"
+						}
+						return nil, fmt.Errorf("%sERR Write commands are not allowed from read-only scripts. script: %s, on @%s.", scripting.ROGateMarker, roGateUnit, unit)
+					}
+				}
+			}
+		}
 		cmdLine := make([][]byte, 0, len(args)+1)
 		cmdLine = append(cmdLine, []byte(cmd))
 		for _, arg := range args {
@@ -692,6 +718,14 @@ func execFCallInternal(db *DB, args [][]byte, readonly bool) redis.Reply {
 		return protocol.MakeErrReply("ERR function is not read-only, use FCALL instead of FCALL_RO")
 	}
 
+	if readonly {
+		// Arm the read-only gate for the nested redis.call in makeFuncDBExec.
+		scriptReadOnly = true
+		roGateUnit = funcName
+		roGateIsFunc = true
+		defer func() { scriptReadOnly = false; roGateUnit = ""; roGateIsFunc = false }()
+	}
+
 	// Extract keys and args
 	keys := make([]string, numKeys)
 	for i := 0; i < numKeys; i++ {
@@ -706,7 +740,12 @@ func execFCallInternal(db *DB, args [][]byte, readonly bool) redis.Reply {
 	// Execute function
 	result, err := funcEngine.Call(funcName, keys, argsList)
 	if err != nil {
-		return protocol.MakeErrReply(fmt.Sprintf("ERR %v", err))
+		// RO-gate rejections already carry the "ERR " prefix.
+		msg := err.Error()
+		if !strings.HasPrefix(msg, "ERR ") {
+			msg = "ERR " + msg
+		}
+		return protocol.MakeErrReply(msg)
 	}
 
 	return goToRedisReply(result)
@@ -743,39 +782,49 @@ func extractLibraryName(code string) string {
 
 // parseFunctionShebang parses #!lua name=... [api_version=1.0]
 func parseFunctionShebang(code string) (string, redis.Reply) {
-	lines := strings.Split(code, "\n")
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if !strings.HasPrefix(line, "#!") {
-			continue
-		}
-		// Expect #!lua ...
-		rest := strings.TrimSpace(strings.TrimPrefix(line, "#!"))
-		fields := strings.Fields(rest)
-		if len(fields) == 0 || !strings.EqualFold(fields[0], "lua") {
-			return "", protocol.MakeErrReply("ERR Unknown library engine")
-		}
-		libName := ""
-		apiVersion := "1.0"
-		hasAPI := false
-		for _, part := range fields[1:] {
-			if strings.HasPrefix(part, "name=") {
-				libName = strings.TrimPrefix(part, "name=")
-			} else if strings.HasPrefix(part, "api_version=") {
-				apiVersion = strings.TrimPrefix(part, "api_version=")
-				hasAPI = true
-			}
-		}
-		if libName == "" {
-			// Redis: shebang present but unusable → Invalid library metadata
+	// Real Redis (functions.c) contract, pinned against redis:8.10-alpine:
+	// the shebang must be the FIRST line and terminated by a newline; the
+	// engine must be lua; the only supported metadata token is name=<lib>
+	// whose value may hold [A-Za-z0-9_]. Everything else has a specific
+	// error message clients and tooling match on.
+	nl := strings.IndexByte(code, '\n')
+	if nl < 0 {
+		// Without a newline no shebang line can be isolated: a code blob
+		// is "missing" metadata, a shebang-looking blob is invalid metadata.
+		if strings.HasPrefix(strings.TrimSpace(code), "#!") {
 			return "", protocol.MakeErrReply("ERR Invalid library metadata")
 		}
-		if hasAPI && apiVersion != "1.0" {
-			return "", protocol.MakeErrReply("ERR Invalid API version in shebang")
-		}
-		return libName, nil
+		return "", protocol.MakeErrReply("ERR Missing library metadata")
 	}
-	return "", protocol.MakeErrReply("ERR Missing library metadata")
+	first := strings.TrimSpace(code[:nl])
+	if !strings.HasPrefix(first, "#!") {
+		return "", protocol.MakeErrReply("ERR Missing library metadata")
+	}
+	fields := strings.Fields(strings.TrimPrefix(first, "#!"))
+	if len(fields) == 0 {
+		return "", protocol.MakeErrReply("ERR Invalid library metadata")
+	}
+	if !strings.EqualFold(fields[0], "lua") {
+		return "", protocol.MakeErrReply(fmt.Sprintf("ERR Engine '%s' not found", fields[0]))
+	}
+	libName := ""
+	for _, part := range fields[1:] {
+		val, ok := strings.CutPrefix(part, "name=")
+		if !ok || val == "" {
+			return "", protocol.MakeErrReply("ERR Invalid metadata value given: " + part)
+		}
+		libName = val
+	}
+	if libName == "" {
+		return "", protocol.MakeErrReply("ERR Invalid library metadata")
+	}
+	for i := 0; i < len(libName); i++ {
+		c := libName[i]
+		if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '_') {
+			return "", protocol.MakeErrReply("ERR Library names can only contain letters, numbers, or underscores(_) and must be at least one character long")
+		}
+	}
+	return libName, nil
 }
 
 func formatLibraryInfoReply(lib *functions.Library, withCode bool) redis.Reply {

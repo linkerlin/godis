@@ -201,7 +201,8 @@ func ConvertToRedisReplyWithResp(v interface{}, respVer int) redis.Reply {
 		if val {
 			return protocol.MakeIntReply(1)
 		}
-		return protocol.MakeIntReply(0)
+		// Real Redis (RESP2): Lua false converts to a null bulk, not :0.
+		return protocol.MakeNullBulkReply()
 	case []interface{}:
 		replies := make([]redis.Reply, 0, len(val))
 		for _, elem := range val {

@@ -91,7 +91,7 @@ func TestM2zFCallGopherLua(t *testing.T) {
 	db := makeTestDB()
 	InitFunctionsEngine(db)
 	db.Exec(nil, utils.ToCmdLine("FUNCTION", "FLUSH"))
-	code := "#!lua name=m2zlib api_version=1.0\n" +
+	code := "#!lua name=m2zlib\n" +
 		"redis.register_function('m2z_get', function(keys, args) return redis.call('GET', keys[1]) end)"
 	r := db.Exec(nil, utils.ToCmdLine("FUNCTION", "LOAD", code))
 	if protocol.IsErrorReply(r) {

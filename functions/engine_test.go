@@ -156,3 +156,36 @@ func hasShebang(code string) bool {
 	}
 	return false
 }
+
+// Real Redis documents the table form with function_name=/callback= keys;
+// name= is a godis superset. Regression for the load-vs-call divergence: the
+// parser accepted both, but the runtime shim only resolved name=, so the
+// function loaded yet failed at call time with "table index is nil" (bug #19).
+func TestEngineTableFormFunctionNameKey(t *testing.T) {
+	e := NewEngine(4)
+	code := "#!lua name=tl\n" +
+		"redis.register_function{function_name=\"tf\", callback=function(keys, args) return \"ok\" end}\n"
+	if _, err := e.LoadLibrary("tl", code, false); err != nil {
+		t.Fatalf("LoadLibrary: %v", err)
+	}
+	if _, ok := e.GetFunction("tf"); !ok {
+		t.Fatal("function_name= table form did not register tf")
+	}
+	v, err := e.Call("tf", nil, nil)
+	if err != nil || v != "ok" {
+		t.Fatalf("Call tf: %v %v", v, err)
+	}
+}
+
+// The read-only rejection must carry the line in original library-source
+// coordinates, not the execution-wrapper frame.
+func TestRemapRORejectionLine(t *testing.T) {
+	code := "#!lua name=w\nredis.register_function{function_name=\"wfn\", callback=function() return redis.call(\"SET\",\"k\",\"v\") end, flags={\"no-writes\"}}\n"
+	msg, ok := remapRORejection("ERR Write commands are not allowed from read-only scripts. script: wfn, on @user_function:11.", code)
+	if !ok || msg != "ERR Write commands are not allowed from read-only scripts. script: wfn, on @user_function:2." {
+		t.Fatalf("remapRORejection: %q ok=%v", msg, ok)
+	}
+	if _, ok := remapRORejection("ERR function execution failed: oops", code); ok {
+		t.Fatal("generic error must not be treated as a read-only rejection")
+	}
+}

@@ -258,6 +258,12 @@ func (e *GopherEngine) EvalWithContext(ctx context.Context, script string, keys 
 		if execCtx.Err() == context.Canceled {
 			return nil, fmt.Errorf("ERR Error running script (call to f_): @user_script: script killed by user")
 		}
+		// The RO gate raises a pre-formatted rejection; return it verbatim
+		// (with the raising line restored to the tail) instead of wrapping it
+		// in the traceback text.
+		if clean, prefix, ok := splitROGateMessage(err.Error()); ok {
+			return nil, fmt.Errorf("%s", applyROGateLine(clean, prefix))
+		}
 		return nil, fmt.Errorf("ERR Error running script (call to f_): @user_script: %v", err)
 	}
 

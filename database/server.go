@@ -269,7 +269,7 @@ func (server *Server) Exec(c redis.Connection, cmdLine [][]byte) (result redis.R
 		return HelloWithRole(c, cmdLine[1:], roleName)
 	}
 	if !isAuthenticated(c) {
-		return protocol.MakeErrReply("NOAUTH Authentication required")
+		return protocol.MakeErrReply("NOAUTH Authentication required.")
 	}
 	// ping
 	if cmdName == "ping" {

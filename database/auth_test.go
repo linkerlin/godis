@@ -47,9 +47,11 @@ func TestExecAuthWithACLNopassDefault(t *testing.T) {
 	config.Properties.RequirePass = ""
 	defer func() { config.Properties.RequirePass = oldPass }()
 
-	// With ACL default user on nopass, AUTH succeeds (no legacy bypass).
+	// Real Redis 8.10: AUTH against a passwordless default user is refused —
+	// nopass means no AUTH is needed, not that any password passes.
 	reply := db.Exec(nil, utils.ToCmdLine("AUTH", "anything"))
-	asserts.AssertStatusReply(t, reply, "OK")
+	asserts.AssertErrReply(t, reply,
+		"ERR AUTH <password> called without any password configured for the default user. Are you sure your configuration is correct?")
 }
 
 func TestACLSetUserAfterEngineInit(t *testing.T) {
@@ -63,17 +65,19 @@ func TestACLSetUserAfterEngineInit(t *testing.T) {
 
 func TestACLPermissionDenied(t *testing.T) {
 	c := connection.NewFakeConn()
-	ret := testServer.Exec(c, utils.ToCmdLine("ACL", "SETUSER", "reader", "on", "-@all", "+get"))
+	// real Redis: nopass users reject explicit AUTH — give reader a password
+	// Real Redis: command grants still need a key pattern for key access.
+	ret := testServer.Exec(c, utils.ToCmdLine("ACL", "SETUSER", "reader", "on", "-@all", "+get", "~*", ">readerpw"))
 	asserts.AssertStatusReply(t, ret, "OK")
 
-	ret = testServer.Exec(c, utils.ToCmdLine("AUTH", "reader", "nopass"))
+	ret = testServer.Exec(c, utils.ToCmdLine("AUTH", "reader", "readerpw"))
 	asserts.AssertStatusReply(t, ret, "OK")
 
 	ret = testServer.Exec(c, utils.ToCmdLine("GET", "k"))
 	asserts.AssertNotError(t, ret)
 
 	ret = testServer.Exec(c, utils.ToCmdLine("SET", "k", "v"))
-	asserts.AssertErrReply(t, ret, "NOPERM User reader has no permissions to run the 'SET' command")
+	asserts.AssertErrReply(t, ret, "NOPERM User reader has no permissions to run the 'set' command")
 }
 
 func TestHelloAuthUpdatesConnection(t *testing.T) {
@@ -116,7 +120,7 @@ func TestAuthLegacyRequirePass(t *testing.T) {
 	asserts.AssertErrReply(t, ret, "WRONGPASS invalid username-password pair or user is disabled.")
 
 	ret = testServer.Exec(c, utils.ToCmdLine("GET", "A"))
-	asserts.AssertErrReply(t, ret, "NOAUTH Authentication required")
+	asserts.AssertErrReply(t, ret, "NOAUTH Authentication required.")
 
 	ret = testServer.Exec(c, utils.ToCmdLine("AUTH", passwd))
 	asserts.AssertStatusReply(t, ret, "OK")

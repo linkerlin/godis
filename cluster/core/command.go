@@ -85,7 +85,7 @@ func (cluster *Cluster) Exec(c redis.Connection, cmdLine [][]byte) (result redis
 	}
 
 	if !isAuthenticated(c) {
-		return protocol.MakeErrReply("NOAUTH Authentication required")
+		return protocol.MakeErrReply("NOAUTH Authentication required.")
 	}
 	// ping — post-gate like Redis (unauthenticated PING gets NOAUTH when
 	// requirepass is set)

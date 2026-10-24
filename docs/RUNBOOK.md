@@ -67,3 +67,4 @@
 | `go test ./e6chaos` | 崩溃一致性/复制韧性故障注入（零损失演练 + `TestE6GoRedis*`：go-redis 真实客户端跨重启的类型化数据面认证——AOF 全类型含墓碑/字段 TTL/键 TTL，RDB 快照内容与边界；Functions 跨崩溃存活（AOF 重放 + RDB `lua` aux）而 Script cache 易失） |
 | `go test ./e6soak`（`SOAK_CYCLES` 可调） | 长稳负载循环 + 内存/goroutine/FD 基线 |
 | `bash scripts/rnd-diff.sh` | 与 Redis 8.10 随机差分对拍 |
+| `REDISCLI="docker exec -i r41-sidecar redis-cli" GODIS_HOST=host.docker.internal bash scripts/redis-sidecar-diff.sh` | 与 redis:8.10-alpine 确定性用例逐字节对拍（`scripts/r4-1-cases.txt`，15,900+ 条；`@CMD` setup、`@admin <pw> <cmd>` 认证态 setup、`@auth [user pass\|pass]` 断言内联认证；`R41_CONTINUE=1` 失败继续、`R41_ID` 隔离键空间）。**`REDIS_HOST` 必须保持默认 `127.0.0.1`**——真实侧由容器内 redis-cli 直连本容器；宿主 `127.0.0.1:6379` 若被其它 Redis（如 WSL2 内常驻实例）抢注，`host.docker.internal` 转发会被截走打到错误实例。Windows 下逐条 `docker exec` 每次约 0.4s（全量约 2.7h）；快速路径：容器内装 bash 后把 runner+用例 `docker cp` 进去跑（`apk add bash`，`REDISCLI=redis-cli REDIS_HOST=127.0.0.1 GODIS_HOST=host.docker.internal`，全量约 10 分钟） |

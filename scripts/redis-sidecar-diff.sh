@@ -22,8 +22,16 @@ ID="${R41_ID:-$$}"
 FAILS=0
 
 # --raw keeps multi-line replies comparable across sides.
-redis_cli() { "${CLI}" --raw -h "${REDIS_HOST}" -p "${REDIS_PORT}" "$@"; }
-godis_cli() { "${CLI}" --raw -h "${GODIS_HOST}" -p "${GODIS_PORT}" "$@"; }
+# REDISCLI may carry arguments (e.g. "docker exec -i r41-sidecar redis-cli");
+# word-split it once so both helpers invoke the real argv. stdin is detached:
+# docker exec -i would otherwise consume the case file the read-loop streams.
+read -ra CLI_ARR <<< "${REDISCLI:-redis-cli}"
+redis_cli() { "${CLI_ARR[@]}" --raw -h "${REDIS_HOST}" -p "${REDIS_PORT}" "${AUTH_ARGS[@]}" "$@" </dev/null; }
+godis_cli() { "${CLI_ARR[@]}" --raw -h "${GODIS_HOST}" -p "${GODIS_PORT}" "${AUTH_ARGS[@]}" "$@" </dev/null; }
+
+# AUTH_ARGS carries the inline-auth flags installed by the @auth directive:
+# one token → default-user password (-a), two tokens → named user (--user/--pass).
+AUTH_ARGS=()
 
 die() { echo "$*" >&2; exit 1; }
 
@@ -65,23 +73,26 @@ subst() {
 
 # split_args performs quote-aware whitespace splitting for case command lines,
 # so paths like `$.users[?(@.age > 20)].name` (quoted) stay one argv.
+# An explicit empty argument ("") is preserved (e.g. CONFIG SET requirepass "").
 split_args() {
-  local s="$1" cur="" quote="" out=()
+  local s="$1" cur="" quote="" out=() quoted=0
   local i c
   for ((i = 0; i < ${#s}; i++)); do
     c="${s:i:1}"
     if [[ -n "${quote}" ]]; then
       if [[ "${c}" == "${quote}" ]]; then
         quote=""
+        quoted=1
       else
         cur+="${c}"
       fi
     else
       case "${c}" in
         " "|$'\t')
-          if [[ -n "${cur}" ]]; then
+          if [[ -n "${cur}" || ${quoted} -eq 1 ]]; then
             out+=("${cur}")
             cur=""
+            quoted=0
           fi
           ;;
         "'"|'"')
@@ -97,7 +108,7 @@ split_args() {
       esac
     fi
   done
-  if [[ -n "${cur}" ]]; then
+  if [[ -n "${cur}" || ${quoted} -eq 1 ]]; then
     out+=("${cur}")
   fi
   printf '%s\n' "${out[@]}"
@@ -149,6 +160,18 @@ run_setup() {
   godis_cli "${args[@]}" >/dev/null 2>&1 || true
 }
 
+# run_admin executes an authenticated setup command on both sides with inline
+# AUTH (-a): every redis-cli invocation is a fresh connection. Output is
+# discarded. Used for sections that must flip server-wide auth state
+# (requirepass) and restore it afterwards.
+run_admin() {
+  local pw="$1"
+  shift
+  local -a args=("$@")
+  redis_cli -a "${pw}" --no-auth-warning "${args[@]}" >/dev/null 2>&1 || true
+  godis_cli -a "${pw}" "${args[@]}" >/dev/null 2>&1 || true
+}
+
 run_eq() {
   local label="$1" want="$2"
   shift 2
@@ -183,8 +206,33 @@ run_cases() {
       continue
     fi
     if [[ "${expanded}" == @* ]]; then
+      # @auth [<user> <pass> | <pass>]: inline auth for the assertion commands
+      # that follow; bare @auth clears it.
+      if [[ "${expanded}" =~ ^@auth[[:space:]]*$ ]]; then
+        AUTH_ARGS=()
+        continue
+      fi
+      if [[ "${expanded}" =~ ^@auth([[:space:]]|$) ]]; then
+        mapfile -t args < <(split_args "${expanded#@auth}")
+        if [[ ${#args[@]} -ge 2 ]]; then
+          AUTH_ARGS=(--user "${args[0]}" --pass "${args[1]}" --no-auth-warning)
+        elif [[ ${#args[@]} -eq 1 ]]; then
+          AUTH_ARGS=(-a "${args[0]}" --no-auth-warning)
+        else
+          AUTH_ARGS=()
+        fi
+        continue
+      fi
       raw="${expanded:1}"
       mapfile -t args < <(split_args "${raw}")
+      # @admin <password> <command...>: authenticated setup (see run_admin).
+      if [[ ${#args[@]} -gt 0 && "${args[0],,}" == "admin" ]]; then
+        if [[ ${#args[@]} -lt 2 ]]; then
+          die "bad @admin line: ${line}"
+        fi
+        run_admin "${args[1]}" "${args[@]:2}"
+        continue
+      fi
       # @CMD marks an explicit setup command; strip the marker before invoking
       # redis-cli (other @-prefixed lines are raw setup commands).
       if [[ ${#args[@]} -gt 0 && "${args[0],,}" == "cmd" ]]; then
@@ -211,12 +259,12 @@ run_cases() {
 load_allowlist
 
 if [[ "${1:-}" == "--selfcheck" ]]; then
-  if ! command -v "${CLI}" >/dev/null 2>&1; then
-    echo "R4-1 selfcheck: ${CLI} not on PATH (install later; allowlist still documented)"
+  if ! command -v "${CLI_ARR[0]}" >/dev/null 2>&1; then
+    echo "R4-1 selfcheck: ${CLI_ARR[0]} not on PATH (install later; allowlist still documented)"
     exit 0
   fi
-  if ! "${CLI}" --help 2>&1 | grep -q -- '--raw'; then
-    echo "R4-1 selfcheck: ${CLI} present but --raw unsupported; upgrade redis-cli"
+  if ! "${CLI_ARR[@]}" --help 2>&1 | grep -q -- '--raw'; then
+    echo "R4-1 selfcheck: ${CLI_ARR[0]} present but --raw unsupported; upgrade redis-cli"
     exit 0
   fi
   echo "R4-1 selfcheck ok: cases=$(basename "${CASES}"); allowlist=${ALLOWLIST}; full suite (FT/modules/DUMP/cluster) out of scope"

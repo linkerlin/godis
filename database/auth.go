@@ -184,7 +184,8 @@ func checkACLPermission(c redis.Connection, cmdName string, args [][]byte) redis
 	}
 	if !user.CheckCommand(cmdName) {
 		addACLLogEntry(c, "command", "toplevel", cmdName, user.Name)
-		return protocol.MakeErrReply("NOPERM User " + user.Name + " has no permissions to run the '" + strings.ToUpper(cmdName) + "' command")
+		// Real Redis prints the normalized (lowercase) command name.
+		return protocol.MakeErrReply("NOPERM User " + user.Name + " has no permissions to run the '" + strings.ToLower(cmdName) + "' command")
 	}
 
 	var writeKeys, readKeys []string
@@ -193,21 +194,22 @@ func checkACLPermission(c redis.Connection, cmdName string, args [][]byte) redis
 	}
 	if !user.CheckPermission(cmdName, writeKeys, readKeys) {
 		addACLLogEntry(c, "key", "toplevel", cmdName, user.Name)
-		return protocol.MakeErrReply("NOPERM this user has no permissions to access one of the keys used as arguments")
+		// Text pinned against redis:8.10-alpine.
+		return protocol.MakeErrReply("NOPERM No permissions to access a key")
 	}
 
 	switch cmdName {
 	case "publish", "spublish":
 		if len(args) >= 1 && !user.CheckChannel(string(args[0])) {
 			addACLLogEntry(c, "channel", "toplevel", string(args[0]), user.Name)
-			return protocol.MakeErrReply("NOPERM this user has no permissions to access one of the channels used as arguments")
+			return protocol.MakeErrReply("NOPERM No permissions to access a channel")
 		}
 	case "subscribe", "ssubscribe", "psubscribe":
 		for _, a := range args {
 			ch := string(a)
 			if !user.CheckChannel(ch) {
 				addACLLogEntry(c, "channel", "toplevel", ch, user.Name)
-				return protocol.MakeErrReply("NOPERM this user has no permissions to access one of the channels used as arguments")
+				return protocol.MakeErrReply("NOPERM No permissions to access a channel")
 			}
 		}
 	}
@@ -215,23 +217,38 @@ func checkACLPermission(c redis.Connection, cmdName string, args [][]byte) redis
 }
 
 // authenticateCredentials validates username/password without binding a connection.
+// Error texts are pinned byte-for-byte against redis:8.10-alpine.
 func authenticateCredentials(username, password string) redis.Reply {
+	const wrongPass = "WRONGPASS invalid username-password pair or user is disabled."
+	const noPassword = "ERR AUTH <password> called without any password configured for the default user. Are you sure your configuration is correct?"
 	if aclEngine.Load() != nil {
-		_, err := aclEngine.Load().Authenticate(username, password)
+		user, err := aclEngine.Load().Authenticate(username, password)
 		if err != nil {
-			return protocol.MakeErrReply("WRONGPASS invalid username-password pair or user is disabled.")
+			return protocol.MakeErrReply(wrongPass)
 		}
-		// Honor runtime requirepass for the default user (tests / CONFIG SET).
-		if config.Properties.RequirePass != "" && username == "default" && password != config.Properties.RequirePass {
-			return protocol.MakeErrReply("WRONGPASS invalid username-password pair or user is disabled.")
+		// requirepass acts as the DEFAULT user's password (CONFIG SET
+		// requirepass) — it wins over the user's stored passwords.
+		if config.Properties.RequirePass != "" && username == "default" {
+			if password != config.Properties.RequirePass {
+				return protocol.MakeErrReply(wrongPass)
+			}
+			return protocol.MakeOkReply()
+		}
+		// A passwordless user never matches an explicit AUTH (real Redis:
+		// nopass means no AUTH is needed, not that any password passes).
+		if !user.HasPassword() {
+			if username == "default" {
+				return protocol.MakeErrReply(noPassword)
+			}
+			return protocol.MakeErrReply(wrongPass)
 		}
 		return protocol.MakeOkReply()
 	}
 	if config.Properties.RequirePass == "" {
-		return protocol.MakeErrReply("ERR Client sent AUTH, but no password is set. Did you mean AUTH <username> <password>?")
+		return protocol.MakeErrReply(noPassword)
 	}
 	if password != config.Properties.RequirePass {
-		return protocol.MakeErrReply("WRONGPASS invalid username-password pair or user is disabled.")
+		return protocol.MakeErrReply(wrongPass)
 	}
 	return protocol.MakeOkReply()
 }

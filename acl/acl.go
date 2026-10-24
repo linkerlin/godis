@@ -222,7 +222,8 @@ func (u *User) CheckPermission(cmd string, writeKeys, readKeys []string) bool {
 	return false
 }
 
-// CheckChannel checks Pub/Sub channel access (&pattern). Empty channels = allow all.
+// CheckChannel checks Pub/Sub channel access (&pattern). Real Redis: a user
+// with no channel rules can access no channels (default boots with &*).
 func (u *User) CheckChannel(channel string) bool {
 	u.mu.RLock()
 	defer u.mu.RUnlock()
@@ -231,7 +232,7 @@ func (u *User) CheckChannel(channel string) bool {
 		return false
 	}
 	if len(u.Channels) == 0 {
-		return true
+		return false
 	}
 	for _, ch := range u.Channels {
 		if ch.Allowed && matchPattern(ch.Pattern, channel) {
@@ -267,8 +268,10 @@ func commandsAllow(cp *CommandPermissions, cmd string) bool {
 }
 
 func keysAllow(patterns []KeyPattern, key string, write bool) bool {
+	// Real Redis: a user with no key patterns can access no keys (the default
+	// user is bootstrapped with an explicit ~*).
 	if len(patterns) == 0 {
-		return true
+		return false
 	}
 	allowed := false
 	hasPattern := false

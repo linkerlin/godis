@@ -74,7 +74,7 @@ func TestM2cgInfoUnblockedWatchedAndCPUMainThread(t *testing.T) {
 	}
 }
 
-func TestM2cgACLCatJSONSearchVector(t *testing.T) {
+func TestM2cgACLCatJSONSearch(t *testing.T) {
 	db := makeTestDB()
 	cats := db.Exec(nil, utils.ToCmdLine("ACL", "CAT"))
 	mb, ok := cats.(*protocol.MultiBulkReply)
@@ -85,10 +85,14 @@ func TestM2cgACLCatJSONSearchVector(t *testing.T) {
 	for _, a := range mb.Args {
 		joined += string(a) + " "
 	}
-	for _, want := range []string{"json", "search", "vector"} {
+	for _, want := range []string{"json", "search"} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("ACL CAT missing %s: %s", want, joined)
 		}
+	}
+	// Real Redis 8.10 has no "vector" category (VS.* commands live in none).
+	if strings.Contains(joined, "vector") {
+		t.Fatalf("ACL CAT should not list vector: %s", joined)
 	}
 
 	r := db.Exec(nil, utils.ToCmdLine("ACL", "CAT", "json"))

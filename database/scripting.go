@@ -28,6 +28,14 @@ var scriptDB *DB
 // are rejected. Guarded by scriptExecMu.
 var scriptReadOnly bool
 
+// RO-gate message context (guarded by scriptExecMu): the script SHA or
+// function name reported in the read-only rejection, and whether it comes
+// from a Redis Function (@user_function) or a script (@user_script).
+var (
+	roGateUnit   string
+	roGateIsFunc bool
+)
+
 // InitScriptingEngine initializes the scripting engine
 func InitScriptingEngine(db *DB) {
 	scriptExecMu.Lock()
@@ -55,7 +63,9 @@ func initScriptingEngineLocked(db *DB) {
 				if c, ok := cmdTable[strings.ToLower(cmd)]; ok && c.extra != nil {
 					for _, s := range c.extra.signs {
 						if s == "write" {
-							return nil, fmt.Errorf("ERR Write commands are not allowed from read-only scripts")
+							// Marker passthrough: the engine returns this text
+							// verbatim (real Redis names the script and line).
+							return nil, fmt.Errorf("%sERR Write commands are not allowed from read-only scripts. script: %s, on @user_script.", scripting.ROGateMarker, roGateUnit)
 						}
 					}
 				}
@@ -180,7 +190,9 @@ func execEvalRO(db *DB, args [][]byte) redis.Reply {
 	scriptExecMu.Lock()
 	defer scriptExecMu.Unlock()
 	scriptReadOnly = true
-	defer func() { scriptReadOnly = false }()
+	roGateUnit = scripting.Sha1Hex(string(args[0]))
+	roGateIsFunc = false
+	defer func() { scriptReadOnly = false; roGateUnit = ""; roGateIsFunc = false }()
 	return execEvalLocked(db, args)
 }
 
@@ -189,7 +201,9 @@ func execEvalShaRO(db *DB, args [][]byte) redis.Reply {
 	scriptExecMu.Lock()
 	defer scriptExecMu.Unlock()
 	scriptReadOnly = true
-	defer func() { scriptReadOnly = false }()
+	roGateUnit = string(args[0])
+	roGateIsFunc = false
+	defer func() { scriptReadOnly = false; roGateUnit = ""; roGateIsFunc = false }()
 	return execEvalShaLocked(db, args)
 }
 

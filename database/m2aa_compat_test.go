@@ -39,7 +39,7 @@ func TestM2aaFunctionEngineFromShebang(t *testing.T) {
 	db := makeTestDB()
 	InitFunctionsEngine(db)
 	db.Exec(nil, utils.ToCmdLine("FUNCTION", "FLUSH"))
-	code := "#!lua name=m2aalib api_version=1.0\n" +
+	code := "#!lua name=m2aalib\n" +
 		"redis.register_function('m2aa_one', function(keys, args) return 1 end)"
 	r := db.Exec(nil, utils.ToCmdLine("FUNCTION", "LOAD", code))
 	if protocol.IsErrorReply(r) {

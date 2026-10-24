@@ -345,7 +345,6 @@ func execACLCat(args [][]byte) redis.Reply {
 			"admin", "fast", "slow", "blocking", "dangerous", "connection",
 			"transaction", "scripting",
 			"bloom", "cuckoo", "cms", "topk", "tdigest", "search", "timeseries", "json",
-			"vector",
 		}
 		result := make([][]byte, len(categories))
 		for i, cat := range categories {

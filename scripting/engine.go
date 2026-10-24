@@ -6,11 +6,50 @@ import (
 	"encoding/hex"
 	"fmt"
 	"os"
+	"regexp"
+	"strings"
 	"sync"
 
 	"github.com/linkerlin/godis/interface/redis"
 	"github.com/linkerlin/godis/lib/logger"
 )
+
+// ROGateMarker prefixes a pre-formatted read-only-script rejection raised by
+// the nested-command gate, so the engine boundary can return it verbatim
+// without the "Error running script" traceback wrap (real Redis replies with
+// the bare message).
+const ROGateMarker = "\x00godis:rogate\x00"
+
+var roGateLineRe = regexp.MustCompile(`<string>:(\d+):`)
+
+// splitROGateMessage detects a marker-prefixed rejection. luaPrefix carries
+// the gopher-lua position prefix ("<string>:2: ") that RaiseError prepends.
+func splitROGateMessage(msg string) (clean, luaPrefix string, ok bool) {
+	idx := strings.Index(msg, ROGateMarker)
+	if idx < 0 {
+		return "", "", false
+	}
+	return msg[idx+len(ROGateMarker):], msg[:idx], true
+}
+
+// applyROGateLine moves the raising Lua line into the message tail, matching
+// real Redis: "on @user_script:2." rather than a "<string>:2: " prefix. The
+// trailing gopher-lua traceback is dropped — real Redis's rejection is bare.
+func applyROGateLine(msg, luaPrefix string) string {
+	if i := strings.Index(msg, "stack traceback:"); i >= 0 {
+		msg = strings.TrimRight(msg[:i], " \n\t")
+	}
+	if m := roGateLineRe.FindStringSubmatch(luaPrefix); m != nil {
+		return regexp.MustCompile(`(on @user_(?:script|function))\.`).ReplaceAllString(msg, "$1:"+m[1]+".")
+	}
+	return msg
+}
+
+// Sha1Hex returns the hex SHA1 of a script, matching Redis script naming.
+func Sha1Hex(script string) string {
+	sum := sha1.Sum([]byte(script))
+	return hex.EncodeToString(sum[:])
+}
 
 // EngineType represents the type of Lua engine
 type EngineType int

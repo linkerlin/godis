@@ -85,6 +85,9 @@ func (e *LuaEngine) ExecuteWithCancel(code string, keys []string, args []string,
 	// Execute the Lua code
 	result, err := ctx.execute(code)
 	if err != nil {
+		if clean, _, ok := splitROGateMessage(err.Error()); ok {
+			return nil, fmt.Errorf("%s", clean)
+		}
 		return nil, fmt.Errorf("ERR Error running script: %v", err)
 	}
 	
