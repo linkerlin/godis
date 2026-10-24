@@ -33,18 +33,32 @@ func lookupACLUser(c redis.Connection) (*acl.User, bool) {
 }
 
 // isAuthenticated reports whether the connection may execute protected commands.
+// IsConnectionAuthenticated reports whether the connection may execute
+// protected commands. Exported for the cluster dispatch, which shares the
+// same gate: requirepass pins only the default user's password; ACL users
+// pass on their own credentials.
+func IsConnectionAuthenticated(c redis.Connection) bool {
+	return isAuthenticated(c)
+}
+
 func isAuthenticated(c redis.Connection) bool {
 	if aclEngine.Load() != nil {
 		user, ok := lookupACLUser(c)
 		if !ok || !user.Enabled {
 			return false
 		}
-		// Runtime requirepass always gates access for connections.
+		// Runtime requirepass always gates access for connections — but it
+		// only pins the DEFAULT user's password (Redis semantics: requirepass
+		// is a shortcut for `ACL SETUSER default >pw`). Non-default ACL users
+		// authenticate with their own credentials and must not be gated by it.
 		if config.Properties.RequirePass != "" {
 			if c == nil {
 				return false
 			}
-			return c.GetPassword() == config.Properties.RequirePass
+			if user.Name == "default" {
+				return c.GetPassword() == config.Properties.RequirePass
+			}
+			return c.IsACLAuthenticated()
 		}
 		if !user.HasPassword() {
 			return true
@@ -205,19 +219,19 @@ func authenticateCredentials(username, password string) redis.Reply {
 	if aclEngine.Load() != nil {
 		_, err := aclEngine.Load().Authenticate(username, password)
 		if err != nil {
-			return protocol.MakeErrReply("ERR invalid username or password")
+			return protocol.MakeErrReply("WRONGPASS invalid username-password pair or user is disabled.")
 		}
 		// Honor runtime requirepass for the default user (tests / CONFIG SET).
 		if config.Properties.RequirePass != "" && username == "default" && password != config.Properties.RequirePass {
-			return protocol.MakeErrReply("ERR invalid password")
+			return protocol.MakeErrReply("WRONGPASS invalid username-password pair or user is disabled.")
 		}
 		return protocol.MakeOkReply()
 	}
 	if config.Properties.RequirePass == "" {
-		return protocol.MakeErrReply("ERR Client sent AUTH, but no password is set")
+		return protocol.MakeErrReply("ERR Client sent AUTH, but no password is set. Did you mean AUTH <username> <password>?")
 	}
 	if password != config.Properties.RequirePass {
-		return protocol.MakeErrReply("ERR invalid password")
+		return protocol.MakeErrReply("WRONGPASS invalid username-password pair or user is disabled.")
 	}
 	return protocol.MakeOkReply()
 }

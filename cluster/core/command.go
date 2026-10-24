@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/linkerlin/godis/cluster/raft"
-	"github.com/linkerlin/godis/config"
 	"github.com/linkerlin/godis/database"
 	"github.com/linkerlin/godis/interface/redis"
 	"github.com/linkerlin/godis/lib/logger"
@@ -59,6 +58,16 @@ func (cluster *Cluster) Exec(c redis.Connection, cmdLine [][]byte) (result redis
 	cmdName := strings.ToLower(string(cmdLine[0]))
 	if cmdName == "auth" {
 		return database.Auth(c, cmdLine[1:])
+	}
+	// HELLO is pre-gate like AUTH — it carries the AUTH credentials for
+	// RESP3 clients (go-redis with Username/Password sends HELLO n AUTH …);
+	// behind the gate it answered NOAUTH and the connection never came up.
+	if cmdName == "hello" {
+		roleName := "master"
+		if server, ok := cluster.db.(*database.Server); ok {
+			roleName = server.RoleName()
+		}
+		return database.HelloWithRole(c, cmdLine[1:], roleName)
 	}
 	if cmdName == "dbsize" {
 		dbsize, _, _ := cluster.db.GetDBSize(0)
@@ -126,11 +135,12 @@ func (cluster *Cluster) Exec(c redis.Connection, cmdLine [][]byte) (result redis
 
 }
 
+// isAuthenticated delegates to the shared database gate. The old local copy
+// only compared GetPassword() against requirepass, so non-default ACL users
+// authenticated with their own credentials were still rejected with NOAUTH
+// (requirepass is a shortcut for the DEFAULT user's password in Redis).
 func isAuthenticated(c redis.Connection) bool {
-	if config.Properties.RequirePass == "" {
-		return true
-	}
-	return c.GetPassword() == config.Properties.RequirePass
+	return database.IsConnectionAuthenticated(c)
 }
 
 func RegisterDefaultCmd(name string) {

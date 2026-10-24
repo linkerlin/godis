@@ -35,7 +35,7 @@ func TestExecAuthRejectsWithoutPassword(t *testing.T) {
 	defer func() { config.Properties.RequirePass = oldPass }()
 
 	reply := db.Exec(nil, utils.ToCmdLine("AUTH", "wrong"))
-	asserts.AssertErrReply(t, reply, "ERR invalid password")
+	asserts.AssertErrReply(t, reply, "WRONGPASS invalid username-password pair or user is disabled.")
 
 	reply = db.Exec(nil, utils.ToCmdLine("AUTH", "secret"))
 	asserts.AssertStatusReply(t, reply, "OK")
@@ -113,7 +113,7 @@ func TestAuthLegacyRequirePass(t *testing.T) {
 	asserts.AssertErrReply(t, ret, "ERR wrong number of arguments for 'auth' command")
 
 	ret = testServer.Exec(c, utils.ToCmdLine("AUTH", passwd+"wrong"))
-	asserts.AssertErrReply(t, ret, "ERR invalid password")
+	asserts.AssertErrReply(t, ret, "WRONGPASS invalid username-password pair or user is disabled.")
 
 	ret = testServer.Exec(c, utils.ToCmdLine("GET", "A"))
 	asserts.AssertErrReply(t, ret, "NOAUTH Authentication required")

@@ -29,6 +29,15 @@ const (
 	slaveRole
 )
 
+// RoleName reports "master" or "slave" for the HELLO reply role field —
+// cluster dispatch needs it pre-auth-gate (HELLO carries AUTH credentials).
+func (server *Server) RoleName() string {
+	if atomic.LoadInt32(&server.role) == slaveRole {
+		return "slave"
+	}
+	return "master"
+}
+
 type slaveStatus struct {
 	mutex  sync.Mutex
 	ctx    context.Context
