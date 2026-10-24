@@ -161,14 +161,16 @@ func execFunctionLoad(db *DB, args [][]byte) redis.Reply {
 	}
 
 	// Load library
-	numFuncs, err := funcEngine.LoadLibrary(libName, code, replace)
-	if err != nil {
+	if _, err := funcEngine.LoadLibrary(libName, code, replace); err != nil {
 		return protocol.MakeErrReply(fmt.Sprintf("ERR %v", err))
 	}
 
 	cmdLine := append([][]byte{[]byte("function"), []byte("load")}, args...)
 	db.addAof(cmdLine)
-	return protocol.MakeBulkReply([]byte(fmt.Sprintf("%s:%d", libName, numFuncs)))
+	// Redis parity: FUNCTION LOAD returns the bare library name. The old
+	// "name:numFuncs" suffix broke clients that key on the returned name —
+	// go-redis's FunctionLoad contract is the library name verbatim.
+	return protocol.MakeBulkReply([]byte(libName))
 }
 
 // execFunctionList lists functions/libraries.

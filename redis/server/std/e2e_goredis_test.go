@@ -3,7 +3,8 @@ package std
 // Real-client standalone certification: the same in-process std server the
 // e2e benchmark drives, exercised through go-redis v9 — the paths every
 // production Go service uses. Covers both RESP2 and RESP3 (HELLO 3) wire
-// modes, pipelining, blocking lists, classic pub/sub, and Lua scripting.
+// modes, pipelining, blocking lists, classic pub/sub, Lua scripting, the
+// Functions API, streams, transactions/WATCH, ACL, and client-side caching.
 //
 //	go test ./redis/server/std -run TestE2EGoRedis -v
 
@@ -669,5 +670,136 @@ func TestE2EGoRedisStreams(t *testing.T) {
 	}
 	if n, err := rdb.XLen(ctx, "gs:t").Result(); err != nil || n != 0 {
 		t.Fatalf("XLEN after XDEL = %d, %v", n, err)
+	}
+}
+
+// TestE2EGoRedisScripting pins the Lua scripting interop contract beyond the
+// core battery: nested reply shapes, error propagation (both error_reply and
+// runtime errors), read-only EVAL_RO gating, SCRIPT EXISTS, and the NOSCRIPT
+// retry contract — go-redis's Script.Run transparently falls back from
+// EVALSHA to EVAL when the server has not cached the script yet.
+func TestE2EGoRedisScripting(t *testing.T) {
+	if testing.Short() {
+		t.Skip("go-redis scripting e2e skipped in short mode")
+	}
+	rdb := mustGoRedis(t, startGoRedisServer(t), 2)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	// nested array reply from Lua
+	rv, err := rdb.Eval(ctx, "return {{'a','b'}, 3}", []string{}).Result()
+	if err != nil {
+		t.Fatalf("EVAL nested: %v", err)
+	}
+	arr, ok := rv.([]interface{})
+	if !ok || len(arr) != 2 {
+		t.Fatalf("EVAL nested reply = %#v", rv)
+	}
+	inner, ok := arr[0].([]interface{})
+	if !ok || len(inner) != 2 || inner[0] != "a" || inner[1] != "b" || arr[1] != int64(3) {
+		t.Fatalf("EVAL nested reply = %#v", rv)
+	}
+
+	// error_reply propagation
+	if _, err := rdb.Eval(ctx, "return redis.error_reply('BOOM custom')", []string{}).Result(); err == nil || !strings.Contains(err.Error(), "BOOM custom") {
+		t.Fatalf("error_reply = %v, want BOOM custom", err)
+	}
+	// runtime error propagation
+	if _, err := rdb.Eval(ctx, "error('kaboom')", []string{}).Result(); err == nil || !strings.Contains(err.Error(), "kaboom") {
+		t.Fatalf("runtime error = %v, want kaboom", err)
+	}
+
+	// read-only script path: reads allowed, writes rejected
+	if err := rdb.Set(ctx, "gro:k", "rv", 0).Err(); err != nil {
+		t.Fatalf("SET: %v", err)
+	}
+	if v, err := rdb.EvalRO(ctx, "return redis.call('GET', KEYS[1])", []string{"gro:k"}).Result(); err != nil || fmt.Sprint(v) != "rv" {
+		t.Fatalf("EVAL_RO GET = %v, %v", v, err)
+	}
+	if _, err := rdb.EvalRO(ctx, "return redis.call('SET', KEYS[1], 'nope')", []string{"gro:k"}).Result(); err == nil {
+		t.Fatal("EVAL_RO SET succeeded, want write rejection")
+	}
+
+	// NOSCRIPT retry contract via go-redis's Script helper
+	script := goredis.NewScript("return {KEYS[1], ARGV[1]}")
+	for i := 0; i < 2; i++ { // first run: EVALSHA→NOSCRIPT→EVAL; second: cached EVALSHA
+		rv, err := script.Run(ctx, rdb, []string{"gsk"}, "gv").Result()
+		if err != nil {
+			t.Fatalf("Script.Run #%d: %v", i, err)
+		}
+		arr, ok := rv.([]interface{})
+		if !ok || len(arr) != 2 || arr[0] != "gsk" || arr[1] != "gv" {
+			t.Fatalf("Script.Run #%d reply = %#v", i, rv)
+		}
+	}
+	exists, err := rdb.ScriptExists(ctx, script.Hash()).Result()
+	if err != nil || len(exists) != 1 || !exists[0] {
+		t.Fatalf("SCRIPT EXISTS = %v, %v", exists, err)
+	}
+}
+
+// TestE2EGoRedisFunctions certifies the Redis Functions API with a real
+// client: shebang library load, FCALL key/argv passing, FCALL_RO on a
+// no-writes-flagged function, FUNCTION LIST metadata, DUMP/DELETE/RESTORE
+// round trip, and duplicate-load rejection.
+func TestE2EGoRedisFunctions(t *testing.T) {
+	if testing.Short() {
+		t.Skip("go-redis functions e2e skipped in short mode")
+	}
+	rdb := mustGoRedis(t, startGoRedisServer(t), 2)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	const libCode = `#!lua name=mylib
+redis.register_function('myget', function(keys, args) return redis.call('GET', keys[1]) end)
+redis.register_function('mycount', function(keys, args) return tostring(#args) end, {flags={'no-writes'}})
+`
+	if v, err := rdb.FunctionLoad(ctx, libCode).Result(); err != nil || v != "mylib" {
+		t.Fatalf("FUNCTION LOAD = %q, %v", v, err)
+	}
+	// duplicate load is rejected
+	if _, err := rdb.FunctionLoad(ctx, libCode).Result(); err == nil {
+		t.Fatal("duplicate FUNCTION LOAD succeeded, want error")
+	}
+
+	if err := rdb.Set(ctx, "fk", "fv", 0).Err(); err != nil {
+		t.Fatalf("SET: %v", err)
+	}
+	if v, err := rdb.FCall(ctx, "myget", []string{"fk"}).Result(); err != nil || fmt.Sprint(v) != "fv" {
+		t.Fatalf("FCALL myget = %v, %v", v, err)
+	}
+	// no-writes function via FCALL and FCALL_RO, with argv passing
+	if v, err := rdb.FCall(ctx, "mycount", []string{}, "a", "b", "c").Result(); err != nil || fmt.Sprint(v) != "3" {
+		t.Fatalf("FCALL mycount = %v, %v", v, err)
+	}
+	if v, err := rdb.FCallRO(ctx, "mycount", []string{}, "x").Result(); err != nil || fmt.Sprint(v) != "1" {
+		t.Fatalf("FCALL_RO mycount = %v, %v", v, err)
+	}
+
+	libs, err := rdb.FunctionList(ctx, goredis.FunctionListQuery{LibraryNamePattern: "mylib"}).Result()
+	if err != nil || len(libs) != 1 {
+		t.Fatalf("FUNCTION LIST = %#v, %v", libs, err)
+	}
+	// real Redis reports the engine as uppercase "LUA"
+	if libs[0].Name != "mylib" || libs[0].Engine != "LUA" {
+		t.Fatalf("FUNCTION LIST entry = %+v", libs[0])
+	}
+
+	// DUMP → DELETE → dead function → RESTORE → working again
+	dump, err := rdb.FunctionDump(ctx).Bytes()
+	if err != nil || len(dump) == 0 {
+		t.Fatalf("FUNCTION DUMP: %d bytes, %v", len(dump), err)
+	}
+	if err := rdb.FunctionDelete(ctx, "mylib").Err(); err != nil {
+		t.Fatalf("FUNCTION DELETE: %v", err)
+	}
+	if _, err := rdb.FCall(ctx, "myget", []string{"fk"}).Result(); err == nil {
+		t.Fatal("FCALL after DELETE succeeded, want function-not-found error")
+	}
+	if err := rdb.FunctionRestore(ctx, string(dump)).Err(); err != nil {
+		t.Fatalf("FUNCTION RESTORE: %v", err)
+	}
+	if v, err := rdb.FCall(ctx, "myget", []string{"fk"}).Result(); err != nil || fmt.Sprint(v) != "fv" {
+		t.Fatalf("FCALL after RESTORE = %v, %v", v, err)
 	}
 }

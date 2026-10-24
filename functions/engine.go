@@ -23,10 +23,11 @@ type Function struct {
 	SHA         string
 }
 
-// IsReadOnly returns true if function is read-only
+// IsReadOnly returns true if function is read-only. Redis has exactly two
+// function flags, "readonly" and "no-writes" — both permit FCALL_RO.
 func (f *Function) IsReadOnly() bool {
 	for _, flag := range f.Flags {
-		if strings.EqualFold(flag, "readonly") {
+		if strings.EqualFold(flag, "readonly") || strings.EqualFold(flag, "no-writes") {
 			return true
 		}
 	}
@@ -140,8 +141,11 @@ func (e *Engine) parseLibrary(name, code string) (*Library, error) {
 	//   flags = { 'readonly' }
 	// }
 
-	// Simple regex-based parsing for function registrations
-	registerPattern := regexp.MustCompile(`(?s)redis\.register_function\s*\(\s*['"]([^'"]+)['"]\s*,\s*(function\s*\([^)]*\).*?\bend)\s*\)`)
+	// Simple regex-based parsing for function registrations. The flags third
+	// argument of the documented positional form is optional — without it,
+	// redis.register_function('f', fn, {flags={'no-writes'}}) was silently
+	// dropped from the registry and FCALL reported "Function not found".
+	registerPattern := regexp.MustCompile(`(?s)redis\.register_function\s*\(\s*['"]([^'"]+)['"]\s*,\s*(function\s*\([^)]*\).*?\bend)\s*(?:,\s*(\{.*?\})\s*)?\)`)
 	matches := registerPattern.FindAllStringSubmatch(code, -1)
 
 	for _, match := range matches {
@@ -152,6 +156,7 @@ func (e *Engine) parseLibrary(name, code string) (*Library, error) {
 			fn := &Function{
 				Name:    funcName,
 				Library: name,
+				Flags:   parseFunctionFlags(match[3]),
 				Code:    funcCode,
 				SHA:     computeSHA(funcCode),
 			}
@@ -173,22 +178,10 @@ func (e *Engine) parseLibrary(name, code string) (*Library, error) {
 				flagsStr = match[3]
 			}
 
-			// Parse flags
-			var flags []string
-			if flagsStr != "" {
-				flagPattern := regexp.MustCompile(`['"]([^'"]+)['"]`)
-				flagMatches := flagPattern.FindAllStringSubmatch(flagsStr, -1)
-				for _, fm := range flagMatches {
-					if len(fm) >= 2 {
-						flags = append(flags, fm[1])
-					}
-				}
-			}
-
 			fn := &Function{
 				Name:    funcName,
 				Library: name,
-				Flags:   flags,
+				Flags:   parseFunctionFlags(flagsStr),
 				Code:    funcCode,
 				SHA:     computeSHA(funcCode),
 			}
@@ -202,6 +195,23 @@ func (e *Engine) parseLibrary(name, code string) (*Library, error) {
 	}
 
 	return lib, nil
+}
+
+// parseFunctionFlags extracts quoted flag names from a flags-table literal,
+// accepting both the inner content ("'no-writes'") and the whole table
+// ("{flags={'no-writes'}}").
+func parseFunctionFlags(flagsStr string) []string {
+	if flagsStr == "" {
+		return nil
+	}
+	flagPattern := regexp.MustCompile(`['"]([^'"]+)['"]`)
+	var flags []string
+	for _, fm := range flagPattern.FindAllStringSubmatch(flagsStr, -1) {
+		if len(fm) >= 2 {
+			flags = append(flags, fm[1])
+		}
+	}
+	return flags
 }
 
 // DeleteLibrary deletes a library and its functions
