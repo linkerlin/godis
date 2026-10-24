@@ -184,13 +184,14 @@ func execMigrate(db *DB, args [][]byte) redis.Reply {
 		return wrapTargetErr(selReply)
 	}
 
-	// Best-effort ASKING: a cluster-mode target serves a foreign slot's
-	// RESTORE only after ASKING (the importing seam reshard tooling relies
-	// on). Standalone targets reject ASKING — harmless to ignore; real
-	// transport errors surface on the RESTORE call right after.
-	_ = client.call(utils.ToCmdLine("ASKING"))
-
 	for _, item := range items {
+		// Best-effort ASKING before every RESTORE: the flag is one-shot
+		// (Redis semantics), so a single call before the loop would let the
+		// second key of a multi-key batch bounce with MOVED. A cluster-mode
+		// target serves a foreign slot's RESTORE only while importing — the
+		// seam reshard tooling relies on; standalone targets reject ASKING,
+		// which is harmless to ignore.
+		_ = client.call(utils.ToCmdLine("ASKING"))
 		restoreArgs := [][]byte{
 			[]byte("RESTORE"),
 			[]byte(item.key),

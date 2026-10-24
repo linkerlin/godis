@@ -8,6 +8,7 @@
 
 ### Added
 
+- **e7cluster 互操作重试契约用例（2026-10-24）**：`e7cluster/e7retry_test.go` 在真实双子进程集群上钉死集群客户端的重试契约——`TestE7ClusterAskRetryContract`：迁移半开窗口（MIGRATING/IMPORTING 标记 + 只迁一半键）内已迁键在源端回精确 `-ASK <slot> <addr>`、客户端 `ASKING`+目标重试取值、未迁键源端继续服务、目标端无 `ASKING` 必须 `-MOVED` 弹回源端、缺失键的写（SET）同样 `-ASK`、`ASKING` 一次性（同连接下一命令即弹回）、`GETKEYSINSLOT` 半开计数、`SETSLOT NODE` 孤儿键拒绝、收尾后陈旧拓扑客户端每次恰好 1 跳 MOVED 收敛到新 owner；`TestE7ClusterMovedRetryLoop`：60 键全部故意发往错误节点，断言首答精确 `-MOVED <slot> <owner>` 且 2 次尝试内收敛。配套：`waitSlotsQuiet`（等加入期自动再平衡静止：视图 2 段连续稳定 + 双 owner 探针）与 `bootTwoNodes`/`splitRing` 共用 helper（两个旧测试的内联流程抽出）；`TestE7ClusterReshardKeys` 的 60 键读写改走 MOVED/ASK 跟随（不再赌再平衡时序，消除与互操作测试连跑时的偶发失败）。
 - **reshard 数据面闭环（2026-10-23，commit 3572f71）**：`MIGRATE` 在 RESTORE 前自动发尽力 `ASKING`——集群目标仅在 IMPORTING 态放行外部槽的 RESTORE（reshard 工具链依赖的缝），单机目标拒绝 ASKING 无害忽略；`CLUSTER SETSLOT NODE` 拒绝在本地仍有键残留时把槽让给其它节点（防孤儿键，文案钉死 8.10 三节点实机：`ERR Can't assign hashslot N to a different node while I still hold keys for this hash slot.`）；新增 `e7cluster TestE7ClusterReshardKeys`——真实双子进程集群上跑完整工具序列（MIGRATING/IMPORTING 标记 → `GETKEYSINSLOT` 批取 → `MIGRATE` 批量搬 → 双端 `SETSLOT NODE` 收尾），断言键落新 owner、旧 owner 清空、未迁槽不受影响、`MOVED` 指向新 owner。运维口径见 RUNBOOK「数据在线搬迁」。
 - **`slowlog-entry-max-argc`（2..2³¹-1）/ `slowlog-entry-max-string-len`（1..2⁶³-1）配置（2026-10-23，commit 5096bb3）**：`CONFIG GET/SET` 热生效；范围校验、错误文案与截断格式（`... (N more bytes)`/`... (N more arguments)`）全部钉死 redis:8.10-alpine 实机；未配置归一化为默认 32/128（Redis 8.10 默认）。关闭 R5-5 遗留的「截断配置仍缺」尾巴。
 - **e6chaos 网络分区演练（2026-10-23，commit e550bd5）**：`TestE6ChaosNetPartitionMasterFrozen`——SIGSTOP 冻结主库（TCP 不断、无 RST/FIN，从库视角是「静默黑洞」，比 Kill 更接近分区形状）；断言分区期从库保持 replica 角色（E1-2 防脑裂回归）、SIGCONT 恢复后增量追平、分区前写全在。Linux only。
@@ -25,6 +26,7 @@
 
 ### Fixed
 
+- **多键 `MIGRATE` 到集群目标从第 2 个键起必败（2026-10-24，e7retry 重试契约用例实抓）**：`execMigrate` 只在 RESTORE 循环前发一次尽力 `ASKING`，而 ASKING 是一次性标志（Redis 语义，下一条命令即消费）——批内第一条 RESTORE 吃掉标志后，后续 RESTORE 全被目标端 `-MOVED` 弹回（`ERR Target instance replied with error: MOVED …`）。3572f71 缝的缺口：`TestE7ClusterReshardKeys` 一直绿只是因为它扫到的槽恰为单键。修复：每条 RESTORE 前重新武装 `ASKING`（`database/migrate.go`）；6 键一批的 `TestE7ClusterAskRetryContract` 钉死该回归。
 - **race 门禁第八批（2026-10-23）：tcp/集群测试三处残余，门禁连续三轮全绿**：
   - **tcp maxclients 每连接读全局**（产品级）：`TryAcceptClient` 在 accept 循环读 `config.Properties`，与配置写竞争。改为包级原子 `maxClientsLimit`（`SetMaxClients`/`GetMaxClients`/`SeedMaxClientsFromConfig`），`CONFIG SET maxclients` 热更新保留；gnet 引擎 `OnBoot` 补种子（不经过 `tcp.ListenAndServe`，不补则 maxclients 失效）。tcp/keepalive/maxclients 三组测试与 `lib/metrics` 的 Prometheus 测试改走原子接口
   - **`cluster/core.RegisterCmd` 运行期写全局 map**：测试体内 `RegisterDefaultCmd` 与其它测试运行中的集群 `Exec` 并发读写 commands map。map 读写加 RWMutex（`lookupCmd`）

@@ -46,7 +46,7 @@
 
 **扩缩容/槽位重分配（已验证路径）**：加入新节点（`cluster-seed` 指向任一节点，或 `CLUSTER MEET ip port raft-port`）→ 在现有节点 `CLUSTER DELSLOTSRANGE a b` 释放区间 → 新节点 `CLUSTER ADDSLOTSRANGE a b` 认领 → 轮询**每个节点**的 `CLUSTER SLOTS` 直到视图一致（Raft 应用有秒级延迟）→ 客户端按 `CLUSTER SLOTS`/`-MOVED` 重定向自然迁移读写。该路径由 `go test ./e7cluster` 与 `scripts/cluster-interop.sh`（真实 `redis-cli -c`）双向验证。注意：DELSLOT 后区间内已存在的键仍留在原节点（无自动搬迁）——重分配应在新键写入前完成，或配合应用侧双写。
 
-**数据在线搬迁（reshard，已验证路径，2026-10-23）**：源节点 `CLUSTER SETSLOT <slot> MIGRATING <目标id>` → 目标节点 `CLUSTER SETSLOT <slot> IMPORTING <源id>` → 循环 `CLUSTER GETKEYSINSLOT <slot> <batch>` + 在源执行 `MIGRATE <目标host> <目标port> "" 0 <timeout> KEYS k1 k2 …`（MIGRATE 内部自动先发 `ASKING` 放行目标端 IMPORTING 槽）→ 源与目标各执行 `CLUSTER SETSLOT <slot> NODE <目标id>` 收尾。源端在该槽仍有键残留时执行 `SETSLOT NODE` 会被拒绝（防孤儿键，文案与 Redis 8.10 一致）。全链路由 `go test ./e7cluster -run TestE7ClusterReshardKeys`（真实双子进程集群）钉死；`redis-cli --cluster reshard` 工具本体未逐项认证，但其协议序列即上述命令（依赖的 `CLUSTER MYID`/`GETKEYSINSLOT`/`MIGRATE` 均已支持）。
+**数据在线搬迁（reshard，已验证路径，2026-10-23；多键批修复 2026-10-24）**：源节点 `CLUSTER SETSLOT <slot> MIGRATING <目标id>` → 目标节点 `CLUSTER SETSLOT <slot> IMPORTING <源id>` → 循环 `CLUSTER GETKEYSINSLOT <slot> <batch>` + 在源执行 `MIGRATE <目标host> <目标port> "" 0 <timeout> KEYS k1 k2 …`（MIGRATE 内部在**每条** RESTORE 前自动重发 `ASKING` 放行目标端 IMPORTING 槽——标志一次性，只发一次会让多键批从第 2 键起被 `-MOVED` 弹回，2026-10-24 修复并由 `TestE7ClusterAskRetryContract` 钉死）→ 源与目标各执行 `CLUSTER SETSLOT <slot> NODE <目标id>` 收尾。源端在该槽仍有键残留时执行 `SETSLOT NODE` 会被拒绝（防孤儿键，文案与 Redis 8.10 一致）。全链路由 `go test ./e7cluster -run TestE7ClusterReshardKeys`（真实双子进程集群）钉死；`redis-cli --cluster reshard` 工具本体未逐项认证，但其协议序列即上述命令（依赖的 `CLUSTER MYID`/`GETKEYSINSLOT`/`MIGRATE` 均已支持）。
 
 **成员管理（已验证）**：`CLUSTER REPLICATE <node>` 使本节点成为指定主节点的从库（写 FSM）；`CLUSTER FORGET <node>` 安全移除节点。`CLUSTER FAILOVER`/`RESET`/`SAVECONFIG`/`SET-CONFIG-EPOCH` 显式报不支持。
 
@@ -56,7 +56,7 @@
 
 | 工具 | 用途 |
 |---|---|
-| `go test ./e7cluster` | 两节点集群互操作契约（拓扑/路由/MOVED/CROSSSLOT/hash-tag） |
+| `go test ./e7cluster` | 两节点集群互操作契约（拓扑/路由/MOVED/CROSSSLOT/hash-tag；e7retry：迁移窗口 ASK/ASKING 重试契约 + 陈旧拓扑 MOVED 收敛） |
 | `bash scripts/cluster-interop.sh` | 真实 `redis-cli -c` 跟随 MOVED 冒烟（需 docker） |
 | `go test ./e6chaos` | 崩溃一致性/复制韧性故障注入 |
 | `go test ./e6soak`（`SOAK_CYCLES` 可调） | 长稳负载循环 + 内存/goroutine/FD 基线 |

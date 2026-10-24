@@ -242,76 +242,10 @@ func TestE7ClusterInterop(t *testing.T) {
 	if testing.Short() {
 		t.Skip("cluster interop skipped in short mode")
 	}
-	dirA, dirB := t.TempDir(), t.TempDir()
-	seed := startNode(t, "seed", dirA, "cluster-as-seed yes")
-	joiner := startNode(t, "joiner", dirB, "cluster-seed "+seed.addr)
-
-	// wait for the join to propagate, then split the slot space
-	deadline := time.Now().Add(30 * time.Second)
-	for {
-		r := joiner.trySend("CLUSTER", "NODES")
-		if len(r) > 20 && !strings.Contains(r, "IOERR") {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("joiner never joined\nseed logs:\n%s\njoiner logs:\n%s", seed.out.String(), joiner.out.String())
-		}
-		time.Sleep(300 * time.Millisecond)
-	}
-	// The seed claims the whole ring at boot; carve the upper half for the
-	// joiner (no data yet, so a plain del+add is enough). Each step waits for
-	// FSM propagation on the joiner before the next (raft apply lag).
-	if r := seed.trySend("CLUSTER", "DELSLOTSRANGE", "8192", "16383"); strings.HasPrefix(r, "-") {
-		t.Fatalf("DELSLOTSRANGE on seed: %s\nlogs:\n%s", r, seed.out.String())
-	}
-	deadline = time.Now().Add(30 * time.Second)
-	for {
-		flat := joiner.trySend("CLUSTER", "SLOTS")
-		if rs := parseSlots(t, flat); len(rs) == 1 {
-			if o, ok := ownerOf(rs, 8192); !ok || o == "" {
-				break
-			}
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("upper half still assigned: %q\nseed logs:\n%s", flat, seed.out.String())
-		}
-		time.Sleep(300 * time.Millisecond)
-	}
-	var addOK bool
-	deadline = time.Now().Add(30 * time.Second)
-	for !addOK {
-		if r := joiner.trySend("CLUSTER", "ADDSLOTSRANGE", "8192", "16383"); !strings.HasPrefix(r, "-") {
-			addOK = true
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("ADDSLOTSRANGE on joiner kept failing\nlogs:\n%s", joiner.out.String())
-		}
-		time.Sleep(500 * time.Millisecond)
-	}
-
-	// wait until BOTH nodes see the split: each node owns one half, all
-	// 16384 slots covered (smart clients only rely on this shape)
-	var ranges []slotRange
-	deadline = time.Now().Add(30 * time.Second)
-	for {
-		flat := joiner.trySend("CLUSTER", "SLOTS")
-		ranges = parseSlots(t, flat)
-		if len(ranges) == 2 {
-			o1, _ := ownerOf(ranges, 1)
-			o2, _ := ownerOf(ranges, 16383)
-			if (o1 == seed.addr && o2 == joiner.addr) || (o1 == joiner.addr && o2 == seed.addr) {
-				t.Logf("topology ready: slots 0-8191 -> %s, 8192-16383 -> %s (seed=%s joiner=%s)",
-					o1, o2, seed.addr, joiner.addr)
-				break
-			}
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("topology incomplete: slots=%q (seed=%s joiner=%s)\nseed logs:\n%s\njoiner logs:\n%s",
-				flat, seed.addr, joiner.addr, seed.out.String(), joiner.out.String())
-		}
-		time.Sleep(300 * time.Millisecond)
-	}
+	seed, joiner := bootTwoNodes(t)
+	// split the ring: lower half on seed, upper half on joiner (bootTwoNodes
+	// and splitRing wait for FSM propagation between steps)
+	ranges := splitRing(t, seed, joiner)
 
 	// slot math sanity against the server's own view
 	if r := seed.trySend("CLUSTER", "KEYSLOT", "foo"); r != ":12182" { // known CRC16 vector
@@ -423,22 +357,7 @@ func TestE7ClusterReshardKeys(t *testing.T) {
 	if testing.Short() {
 		t.Skip("cluster reshard skipped in short mode")
 	}
-	dirA, dirB := t.TempDir(), t.TempDir()
-	seed := startNode(t, "seed", dirA, "cluster-as-seed yes")
-	joiner := startNode(t, "joiner", dirB, "cluster-seed "+seed.addr)
-
-	// wait for the join to propagate (seed owns the whole ring)
-	deadline := time.Now().Add(30 * time.Second)
-	for {
-		r := joiner.trySend("CLUSTER", "NODES")
-		if len(r) > 20 && !strings.Contains(r, "IOERR") {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("joiner never joined\nseed logs:\n%s\njoiner logs:\n%s", seed.out.String(), joiner.out.String())
-		}
-		time.Sleep(300 * time.Millisecond)
-	}
+	seed, joiner := bootTwoNodes(t) // seed owns the whole ring
 
 	seedID := strings.TrimPrefix(seed.trySend("CLUSTER", "MYID"), "$") // bulk payload line follows; use raw read below
 	if c := seed.client(t); true {
@@ -450,12 +369,37 @@ func TestE7ClusterReshardKeys(t *testing.T) {
 	joinerID := joinerC.send("CLUSTER", "MYID")
 	t.Logf("seed id=%q joiner id=%q", seedID, joinerID)
 
-	// all slots on seed: write 60 keys
+	// all slots on seed at boot — but the join-time rebalance may flip some
+	// to the joiner while the test runs, so data-plane ops follow
+	// -MOVED/-ASK like a real cluster client instead of racing it
 	seedC := seed.client(t)
 	defer seedC.close()
+	clientFor := func(addr string) *rclient {
+		if addr == joiner.addr {
+			return joinerC
+		}
+		return seedC
+	}
+	followFrom := func(start *rclient, args ...string) string {
+		r := start.send(args...)
+		for i := 0; i < 4; i++ {
+			fields := strings.Fields(r)
+			switch {
+			case strings.HasPrefix(r, "-MOVED "):
+				r = clientFor(fields[len(fields)-1]).send(args...)
+			case strings.HasPrefix(r, "-ASK "):
+				tc := clientFor(fields[len(fields)-1])
+				tc.send("ASKING")
+				r = tc.send(args...)
+			default:
+				return r
+			}
+		}
+		return r
+	}
 	const total = 60
 	for i := 0; i < total; i++ {
-		if r := seedC.send("SET", fmt.Sprintf("rs:%d", i), "v"+strconv.Itoa(i)); r != "+OK" {
+		if r := followFrom(seedC, "SET", fmt.Sprintf("rs:%d", i), "v"+strconv.Itoa(i)); r != "+OK" {
 			t.Fatalf("SET rs:%d: %s", i, r)
 		}
 	}
@@ -509,7 +453,7 @@ func TestE7ClusterReshardKeys(t *testing.T) {
 	}
 
 	// seed no longer holds the keys; joiner serves them; MOVED points there
-	deadline = time.Now().Add(30 * time.Second)
+	deadline := time.Now().Add(30 * time.Second)
 	for {
 		flat := seed.trySend("CLUSTER", "GETKEYSINSLOT", strconv.Itoa(targetSlot), "100")
 		if flat == "*0" || flat == "<nil>" || flat == "" {
@@ -522,7 +466,7 @@ func TestE7ClusterReshardKeys(t *testing.T) {
 	}
 	for _, k := range slotKeys {
 		i, _ := strconv.Atoi(strings.TrimPrefix(k, "rs:"))
-		if got := joinerC.send("GET", k); got != "v"+strconv.Itoa(i) {
+		if got := followFrom(joinerC, "GET", k); got != "v"+strconv.Itoa(i) {
 			t.Fatalf("joiner GET %s = %q", k, got)
 		}
 	}
@@ -532,7 +476,7 @@ func TestE7ClusterReshardKeys(t *testing.T) {
 		if int(hashslot.Slot(k)) == targetSlot {
 			continue
 		}
-		if got := seedC.send("GET", k); got != "v"+strconv.Itoa(i) {
+		if got := followFrom(seedC, "GET", k); got != "v"+strconv.Itoa(i) {
 			t.Fatalf("seed GET %s = %q (slot not moved)", k, got)
 		}
 	}
