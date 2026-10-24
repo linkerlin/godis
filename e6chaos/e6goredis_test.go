@@ -10,6 +10,8 @@ package e6chaos
 
 import (
 	"context"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -231,4 +233,188 @@ func TestE6GoRedisRdbRestart(t *testing.T) {
 	if n, err := rdb2.Exists(ctx, "gr:after").Result(); err != nil || n != 0 {
 		t.Fatalf("post-snapshot write survived restart: exists=%d, %v", n, err)
 	}
+}
+
+// TestE6GoRedisReplicationRoundTrip certifies standalone replication with a
+// real client end to end: typed writes on the master, WAIT-based ack gating,
+// read-your-writes through the replica (read-only gate enforced), then
+// REPLICAOF NO ONE promotion — the promoted node accepts writes and keeps its
+// replicated data.
+func TestE6GoRedisReplicationRoundTrip(t *testing.T) {
+	skipShort(t)
+	mdir, sdir := t.TempDir(), t.TempDir()
+	master := startServer(t, mdir, "appendonly no")
+	replica := startServer(t, sdir, "appendonly no")
+	mrdb := mustChildGoRedis(t, master)
+	ctx := context.Background()
+
+	// attach the replica (same command path the harness's mini tests use)
+	if r := replica.client(t).send("REPLICAOF", "127.0.0.1", strings.TrimPrefix(master.addr, "127.0.0.1:")); !strings.HasPrefix(r, "+") {
+		replica.dieWithLogs(t, "REPLICAOF: "+r)
+	}
+
+	if err := mrdb.Set(ctx, "gr:str", "v1", 0).Err(); err != nil {
+		t.Fatalf("master SET: %v", err)
+	}
+	if err := mrdb.HSet(ctx, "gr:h", map[string]interface{}{"a": "1", "b": "2"}).Err(); err != nil {
+		t.Fatalf("master HSET: %v", err)
+	}
+	if err := mrdb.Set(ctx, "gr:ttl", "v", 120*time.Second).Err(); err != nil {
+		t.Fatalf("master SET ex: %v", err)
+	}
+	if err := mrdb.Set(ctx, "gr:gone", "v", 0).Err(); err != nil {
+		t.Fatalf("master SET gone: %v", err)
+	}
+	if n, err := mrdb.Del(ctx, "gr:gone").Result(); err != nil || n != 1 {
+		t.Fatalf("master DEL = %d, %v", n, err)
+	}
+	// replication stability gate: the replica acked everything above
+	if n, err := mrdb.Do(ctx, "WAIT", "1", "10000").Int(); err != nil || n < 1 {
+		t.Fatalf("WAIT = %v, %v", n, err)
+	}
+
+	// read-your-writes through the REPLICA with a real client
+	srdb := mustChildGoRedis(t, replica)
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		if v, err := srdb.Get(ctx, "gr:str").Result(); err == nil && v == "v1" {
+			break
+		} else if time.Now().After(deadline) {
+			replica.dieWithLogs(t, "replica GET gr:str = "+v+", replication did not converge")
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	m, err := srdb.HGetAll(ctx, "gr:h").Result()
+	if err != nil || len(m) != 2 || m["a"] != "1" || m["b"] != "2" {
+		t.Fatalf("replica HGETALL = %v, %v", m, err)
+	}
+	ttl, err := srdb.TTL(ctx, "gr:ttl").Result()
+	if err != nil || ttl <= 0 || ttl > 120*time.Second {
+		t.Fatalf("replica TTL = %v, %v", ttl, err)
+	}
+	if n, err := srdb.Exists(ctx, "gr:gone").Result(); err != nil || n != 0 {
+		t.Fatalf("replica serves DELed key: exists=%d, %v", n, err)
+	}
+
+	// the replica gate: writes must be rejected with READONLY
+	if err := srdb.Set(ctx, "gr:str", "x", 0).Err(); err == nil || !strings.Contains(err.Error(), "READONLY") {
+		t.Fatalf("replica SET = %v, want READONLY rejection", err)
+	}
+
+	// promotion: REPLICAOF NO ONE — role flips, data is kept, writes accepted
+	if r := replica.client(t).send("REPLICAOF", "NO", "ONE"); !strings.HasPrefix(r, "+") {
+		replica.dieWithLogs(t, "REPLICAOF NO ONE: "+r)
+	}
+	deadline = time.Now().Add(10 * time.Second)
+	for {
+		if err := srdb.Set(ctx, "gr:promoted", "p", 0).Err(); err == nil {
+			break
+		} else if time.Now().After(deadline) {
+			replica.dieWithLogs(t, "promoted replica still rejects writes: " + err.Error())
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	if v, err := srdb.Get(ctx, "gr:promoted").Result(); err != nil || v != "p" {
+		t.Fatalf("promoted GET = %q, %v", v, err)
+	}
+	if v, err := srdb.Get(ctx, "gr:str").Result(); err != nil || v != "v1" {
+		t.Fatalf("promoted replica lost replicated data: %q, %v", v, err)
+	}
+}
+
+// readSyncBulk consumes the RDB payload that follows a +FULLRESYNC header:
+// one "$<len>\r\n" bulk plus its trailing CRLF.
+func readSyncBulk(c *rclient) (int, error) {
+	line, err := c.r.ReadString('\n')
+	if err != nil {
+		return 0, err
+	}
+	line = strings.TrimRight(line, "\r\n")
+	if !strings.HasPrefix(line, "$") {
+		return 0, strconv.ErrSyntax
+	}
+	n, err := strconv.Atoi(line[1:])
+	if err != nil {
+		return 0, err
+	}
+	buf := make([]byte, n+2)
+	if _, err := readFull(c.r, buf); err != nil {
+		return 0, err
+	}
+	return n, nil
+}
+
+// TestE6ChaosPsyncHandshake pins the replication handshake wire contract that
+// every real replica and replication tool depends on: REPLCONF preamble, the
+// +FULLRESYNC <replid> <offset> header followed by the RDB bulk, +CONTINUE
+// partial resync at a valid offset, and forced full resync for a foreign
+// replid or an out-of-backlog offset.
+func TestE6ChaosPsyncHandshake(t *testing.T) {
+	skipShort(t)
+	dir := t.TempDir()
+	master := startServer(t, dir, "appendonly no")
+
+	// --- full sync: PSYNC ? -1 → +FULLRESYNC <replid> <offset> + RDB bulk
+	c1 := master.client(t)
+	if r := c1.send("REPLCONF", "listening-port", "0"); !strings.HasPrefix(r, "+") {
+		master.dieWithLogs(t, "REPLCONF listening-port: "+r)
+	}
+	if r := c1.send("REPLCONF", "capa", "psync2"); !strings.HasPrefix(r, "+") {
+		master.dieWithLogs(t, "REPLCONF capa: "+r)
+	}
+	r := c1.send("PSYNC", "?", "-1")
+	if !strings.HasPrefix(r, "+FULLRESYNC ") {
+		master.dieWithLogs(t, "PSYNC ? -1: "+r)
+	}
+	fields := strings.Fields(strings.TrimPrefix(r, "+")) // FULLRESYNC <replid> <offset>
+	if len(fields) != 3 {
+		master.dieWithLogs(t, "malformed FULLRESYNC header: "+r)
+	}
+	replid, offStr := fields[1], fields[2]
+	if len(replid) != 40 {
+		master.dieWithLogs(t, "replid length = "+strconv.Itoa(len(replid))+", want 40 hex chars")
+	}
+	offset, err := strconv.ParseInt(offStr, 10, 64)
+	if err != nil || offset < 0 {
+		master.dieWithLogs(t, "FULLRESYNC offset not an integer: "+offStr)
+	}
+	rdbBytes, err := readSyncBulk(c1)
+	if err != nil || rdbBytes <= 0 {
+		master.dieWithLogs(t, "RDB sync payload missing or unreadable")
+	}
+	_ = c1.conn.Close()
+
+	// --- partial resync at the synced offset: +CONTINUE with the same replid
+	c2 := master.client(t)
+	if r := c2.send("REPLCONF", "capa", "psync2"); !strings.HasPrefix(r, "+") {
+		master.dieWithLogs(t, "REPLCONF capa (c2): "+r)
+	}
+	r2 := c2.send("PSYNC", replid, strconv.FormatInt(offset, 10))
+	if !strings.HasPrefix(r2, "+CONTINUE ") {
+		master.dieWithLogs(t, "PSYNC at tip: "+r2+", want +CONTINUE")
+	}
+	if !strings.Contains(r2, replid) {
+		master.dieWithLogs(t, "+CONTINUE replid mismatch: "+r)
+	}
+	_ = c2.conn.Close()
+
+	// --- foreign replid → forced full resync
+	c3 := master.client(t)
+	if r := c3.send("PSYNC", "0000000000000000000000000000000000000000", "0"); !strings.HasPrefix(r, "+FULLRESYNC ") {
+		master.dieWithLogs(t, "PSYNC foreign id: "+r+", want +FULLRESYNC")
+	}
+	if n, err := readSyncBulk(c3); err != nil || n <= 0 {
+		master.dieWithLogs(t, "foreign-id full sync payload missing")
+	}
+	_ = c3.conn.Close()
+
+	// --- offset beyond the backlog → forced full resync
+	c4 := master.client(t)
+	if r := c4.send("PSYNC", replid, strconv.FormatInt(offset+1_000_000, 10)); !strings.HasPrefix(r, "+FULLRESYNC ") {
+		master.dieWithLogs(t, "PSYNC out-of-range offset: "+r+", want +FULLRESYNC")
+	}
+	if n, err := readSyncBulk(c4); err != nil || n <= 0 {
+		master.dieWithLogs(t, "out-of-range full sync payload missing")
+	}
+	_ = c4.conn.Close()
 }
