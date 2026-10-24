@@ -333,3 +333,85 @@ func TestE2EGoRedisGnetTransactions(t *testing.T) {
 		t.Fatalf("grtx:ctr = %q, %v — want interfering write 999 to survive", v, err)
 	}
 }
+
+// TestE2EGoRedisGnetStreams mirrors the std frontend's streams battery over
+// the async frontend: blocking XREAD takes gnet's isMayBlockCmd goroutine +
+// AsyncWrite path, group lifecycle and trim ride the batched write path.
+func TestE2EGoRedisGnetStreams(t *testing.T) {
+	if testing.Short() {
+		t.Skip("go-redis gnet streams e2e skipped in short mode")
+	}
+	addr := startGoRedisGnetServer(t)
+	rdb := mustGoRedisGnet(t, addr, 2)
+	other := mustGoRedisGnet(t, addr, 2)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	if _, err := rdb.XAdd(ctx, &goredis.XAddArgs{Stream: "gs", ID: "5-0", Values: map[string]interface{}{"k": "v0"}}).Result(); err != nil {
+		t.Fatalf("XADD explicit: %v", err)
+	}
+	id1, err := rdb.XAdd(ctx, &goredis.XAddArgs{Stream: "gs", Values: map[string]interface{}{"k": "v1"}}).Result()
+	if err != nil {
+		t.Fatalf("XADD auto: %v", err)
+	}
+	id2, err := rdb.XAdd(ctx, &goredis.XAddArgs{Stream: "gs", Values: map[string]interface{}{"k": "v2"}}).Result()
+	if err != nil {
+		t.Fatalf("XADD auto 2: %v", err)
+	}
+	if id2 <= id1 {
+		t.Fatalf("auto IDs not monotonic: %q then %q", id1, id2)
+	}
+	msgs, err := rdb.XRange(ctx, "gs", "-", "+").Result()
+	if err != nil || len(msgs) != 3 || msgs[0].ID != "5-0" || msgs[2].Values["k"] != "v2" {
+		t.Fatalf("XRANGE = %#v, %v", msgs, err)
+	}
+
+	// blocking XREAD (goroutine + AsyncWrite path): late producer wakes it
+	prodDone := make(chan error, 1)
+	go func() {
+		time.Sleep(300 * time.Millisecond)
+		prodDone <- other.XAdd(ctx, &goredis.XAddArgs{Stream: "gs:block", Values: map[string]interface{}{"k": "wake"}}).Err()
+	}()
+	bl, err := rdb.XRead(ctx, &goredis.XReadArgs{Streams: []string{"gs:block", "$"}, Block: 5 * time.Second}).Result()
+	if err != nil {
+		t.Fatalf("blocking XREAD: %v", err)
+	}
+	if err := <-prodDone; err != nil {
+		t.Fatalf("producer XADD: %v", err)
+	}
+	if len(bl) != 1 || len(bl[0].Messages) != 1 || bl[0].Messages[0].Values["k"] != "wake" {
+		t.Fatalf("blocking XREAD = %#v", bl)
+	}
+	if _, err := rdb.XRead(ctx, &goredis.XReadArgs{Streams: []string{"gs:block", "$"}, Block: 300 * time.Millisecond}).Result(); err != goredis.Nil {
+		t.Fatalf("XREAD timeout = %v, want redis.Nil", err)
+	}
+
+	// consumer group lifecycle
+	if err := rdb.XGroupCreate(ctx, "gs", "g1", "0").Err(); err != nil {
+		t.Fatalf("XGROUP CREATE: %v", err)
+	}
+	batch, err := rdb.XReadGroup(ctx, &goredis.XReadGroupArgs{Group: "g1", Consumer: "c1", Streams: []string{"gs", ">"}}).Result()
+	if err != nil || len(batch) != 1 || len(batch[0].Messages) != 3 {
+		t.Fatalf("XREADGROUP > = %#v, %v", batch, err)
+	}
+	first := batch[0].Messages[0].ID
+	pending, err := rdb.XPending(ctx, "gs", "g1").Result()
+	if err != nil || pending.Count != 3 {
+		t.Fatalf("XPENDING = %+v, %v", pending, err)
+	}
+	if n, err := rdb.XAck(ctx, "gs", "g1", first).Result(); err != nil || n != 1 {
+		t.Fatalf("XACK = %d, %v", n, err)
+	}
+	if pending, err := rdb.XPending(ctx, "gs", "g1").Result(); err != nil || pending.Count != 2 {
+		t.Fatalf("XPENDING after ack = %+v, %v", pending, err)
+	}
+
+	// XAUTOCLAIM across consumers
+	time.Sleep(120 * time.Millisecond)
+	claimed, start, err := rdb.XAutoClaim(ctx, &goredis.XAutoClaimArgs{
+		Stream: "gs", Group: "g1", Consumer: "c2", MinIdle: 50 * time.Millisecond, Start: "0-0",
+	}).Result()
+	if err != nil || start != "0-0" || len(claimed) != 2 {
+		t.Fatalf("XAUTOCLAIM = (%q, %#v), %v", start, claimed, err)
+	}
+}

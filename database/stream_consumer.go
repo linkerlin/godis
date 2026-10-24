@@ -943,12 +943,15 @@ func execXPending(db *DB, args [][]byte) redis.Reply {
 			first = false
 		}
 
-		// 构建消费者列表
-		consumerReplies := make([]redis.Reply, 0, len(consumers)*2)
+		// 构建消费者列表 — each consumer is its own nested [name, count]
+		// array (the flat pair-per-consumer shape breaks real client
+		// parsers, e.g. go-redis XPending)
+		consumerReplies := make([]redis.Reply, 0, len(consumers))
 		for name, c := range consumers {
-			consumerReplies = append(consumerReplies,
+			consumerReplies = append(consumerReplies, protocol.MakeMultiRawReply([]redis.Reply{
 				protocol.MakeBulkReply([]byte(name)),
-				protocol.MakeIntReply(int64(c)))
+				protocol.MakeIntReply(int64(c)),
+			}))
 		}
 
 		return protocol.MakeMultiRawReply([]redis.Reply{
