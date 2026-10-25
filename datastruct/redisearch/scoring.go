@@ -46,8 +46,10 @@ func IsKnownScorer(name string) bool {
 // BM25 parameters used by BM25STD and its variants. k1 controls term-frequency
 // saturation; b controls length normalization. These match RediSearch defaults.
 const (
-	bm25K1 = 1.2
-	bm25B  = 0.09
+	// Real RediSearch keeps k1/b in C float32 lanes; the double arithmetic
+	// downstream sees 1.2000000476837158 exactly. Probed byte-for-byte.
+	bm25K1 = float64(float32(1.2))
+	bm25B  = float64(float32(0.75))
 )
 
 // scoreContext bundles the per-query statistics a scorer needs. Computed once
@@ -144,19 +146,47 @@ func scorerBM25STD(doc *Document, sc *scoreContext, k1, b float64) float64 {
 	}
 	for _, term := range sc.queryTerms {
 		idfDenom := float64(len(sc.idx.terms[term]))
-		if idfDenom == 0 {
+		hasTagPosting := false
+		for _, field := range sc.idx.fields {
+			if field != nil && field.Type == FieldTypeTag && len(sc.idx.terms[field.Name+":$"+term]) > 0 {
+				hasTagPosting = true
+				break
+			}
+		}
+		if idfDenom == 0 && !hasTagPosting {
 			continue
 		}
-		idf := math.Log((sc.docCount-idfDenom+0.5)/(idfDenom+0.5) + 1)
+		idf := 0.0
+		if idfDenom > 0 {
+			idf = math.Log((sc.docCount-idfDenom+0.5)/(idfDenom+0.5) + 1)
+		}
 		denomBase := k1 * (1 - b + b*dl/avgdl)
 		fieldContrib := 0.0
 		usedField := false
 		if !sc.idx.noFields {
 			for _, field := range sc.idx.fields {
-				if field == nil || field.Type != FieldTypeText || field.NoIndex {
+				if field == nil || field.NoIndex {
 					continue
 				}
-				tf := float64(len(sc.idx.terms[field.Name+":"+term][doc.ID]))
+				var tf, fieldIDF float64
+				switch field.Type {
+				case FieldTypeText:
+					tf = float64(len(sc.idx.terms[field.Name+":"+term][doc.ID]))
+					fieldIDF = idf
+				case FieldTypeTag:
+					posting := sc.idx.terms[field.Name+":$"+term]
+					if len(posting[doc.ID]) == 0 {
+						continue
+					}
+					// Tags feed tf_norm with f=1 but score against the plain
+					// document frequency (probed on a clean index: df=2 ->
+					// ln(1.6), matching TEXT scoring).
+					tf = 1
+					n := float64(len(posting))
+					fieldIDF = math.Log((sc.docCount-n+0.5)/(n+0.5) + 1)
+				default:
+					continue
+				}
 				if tf == 0 {
 					continue
 				}
@@ -164,7 +194,7 @@ func scorerBM25STD(doc *Document, sc *scoreContext, k1, b float64) float64 {
 				if w <= 0 {
 					w = 1
 				}
-				fieldContrib += w * idf * (tf * (k1 + 1)) / (tf + denomBase)
+				fieldContrib += w * fieldIDF * tf * (k1 + 1) / (tf + denomBase)
 				usedField = true
 			}
 		}
@@ -176,7 +206,7 @@ func scorerBM25STD(doc *Document, sc *scoreContext, k1, b float64) float64 {
 		if tf == 0 {
 			continue
 		}
-		score += idf * (tf * (k1 + 1)) / (tf + denomBase)
+		score += idf * tf * (k1 + 1) / (tf + denomBase)
 	}
 	return score
 }

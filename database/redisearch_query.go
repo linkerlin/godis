@@ -702,7 +702,7 @@ func execFTSearch(db *DB, args [][]byte) redis.Reply {
 			// [id, score?, fields...] flattened; COUNT is in documents.
 			rowArgs := [][]byte{[]byte(result.Document.ID)}
 			if withScores {
-				rowArgs = append(rowArgs, []byte(fmt.Sprintf("%.6f", result.Score)))
+				rowArgs = append(rowArgs, []byte(formatFTScore(result.Score)))
 			}
 			if !noContent {
 				var fields [][]byte
@@ -728,7 +728,7 @@ func execFTSearch(db *DB, args [][]byte) redis.Reply {
 		replies = append(replies, protocol.MakeBulkReply([]byte(result.Document.ID)))
 
 		if withScores {
-			scoreBulk := protocol.MakeBulkReply([]byte(fmt.Sprintf("%.6f", result.Score)))
+			scoreBulk := protocol.MakeBulkReply([]byte(formatFTScore(result.Score)))
 			if opts.ExplainScore && result.ScoreExplain != nil {
 				// Redis: score slot becomes [score, explain] when EXPLAINSCORE.
 				replies = append(replies, protocol.MakeMultiRawReply([]redis.Reply{
@@ -1345,3 +1345,8 @@ func execFTAggregate(db *DB, args [][]byte) redis.Reply {
 
 // parseFTCursorCountArg parses WITHCURSOR COUNT n (Redis 8.x Bad arguments for COUNT:…).
 // idx is the index of the COUNT value token (may be past len(args)).
+// formatFTScore renders scores at full shortest-roundtrip precision like
+// real RediSearch (probed: 0.49917626886198924, not %.6f).
+func formatFTScore(score float64) string {
+	return strconv.FormatFloat(score, 'g', -1, 64)
+}

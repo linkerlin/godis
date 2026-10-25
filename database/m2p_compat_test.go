@@ -65,6 +65,7 @@ func TestM2pXGroupEntriesReadAndFTAlterExplain(t *testing.T) {
 		"XGROUP", "CREATE", "s", "g", "0-0", "ENTRIESREAD", "7",
 	)), "OK")
 
+		db.Exec(nil, utils.ToCmdLine("FT.DROPINDEX", "idx"))
 	asserts.AssertStatusReply(t, db.Exec(nil, utils.ToCmdLine(
 		"FT.CREATE", "idx", "SCHEMA", "t", "TEXT",
 	)), "OK")

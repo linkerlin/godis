@@ -24,6 +24,7 @@ func TestM2iTSMAddAndMRevRange(t *testing.T) {
 	db.Exec(nil, utils.ToCmdLine("TS.CREATE", "tsm", "LABELS", "a", "1"))
 	db.Exec(nil, utils.ToCmdLine("TS.ADD", "tsm", "10", "1"))
 	db.Exec(nil, utils.ToCmdLine("TS.ADD", "tsm", "20", "2"))
+	db.Exec(nil, utils.ToCmdLine("FT.DROPINDEX", "idx"))
 	r = db.Exec(nil, utils.ToCmdLine("TS.MREVRANGE", "-", "+", "FILTER", "a=1"))
 	if protocol.IsErrorReply(r) {
 		t.Fatalf("TS.MREVRANGE: %s", r.ToBytes())

@@ -12,6 +12,7 @@ import (
 
 func TestM2oFTAliasAndTagVals(t *testing.T) {
 	db := makeTestDB()
+		db.Exec(nil, utils.ToCmdLine("FT.DROPINDEX", "idx"))
 	asserts.AssertStatusReply(t, db.Exec(nil, utils.ToCmdLine(
 		"FT.CREATE", "idx", "SCHEMA", "tags", "TAG", "title", "TEXT",
 	)), "OK")

@@ -722,6 +722,7 @@ func (server *Server) flushAll() redis.Reply {
 	for i := range server.dbSet {
 		server.flushDB(i)
 	}
+	ClearSearchState() // real FLUSHALL drops FT index definitions too (probed)
 	if server.persister != nil {
 		server.persister.SaveCmdLine(0, utils.ToCmdLine("FlushAll"))
 	}

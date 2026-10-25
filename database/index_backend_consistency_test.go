@@ -59,6 +59,8 @@ func withVectorBackend(t *testing.T, backend, sqlitePath string, fn func(db *DB)
 }
 
 func execTestCmd(db *DB, parts ...string) redis.Reply {
+			db.Exec(nil, utils.ToCmdLine("FT.DROPINDEX", "idx"))
+			db.Exec(nil, utils.ToCmdLine("FT.DROPINDEX", "idx"))
 	return db.Exec(nil, utils.ToCmdLine(parts...))
 }
 

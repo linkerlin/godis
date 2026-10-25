@@ -329,6 +329,11 @@ func execFTCreate(db *DB, args [][]byte) redis.Reply {
 	if reply := validateBulkBytes(args[0]); reply != nil {
 		return reply
 	}
+	// Real: duplicate index names are rejected before any parsing (probed:
+	// SEARCH_INDEX_EXISTS Index already exists).
+	if hasSearchEngine(indexName) {
+		return protocol.MakeErrReply("SEARCH_INDEX_EXISTS Index already exists")
+	}
 
 	// Parse options
 	var prefix []string
@@ -1400,4 +1405,22 @@ func init() {
 		attachCommandExtra([]string{redisFlagWrite}, 1, 1, 1)
 	registerCommand("FT.SugLen", execFTSugLen, readFirstKey, nil, 2, flagReadOnly).
 		attachCommandExtra([]string{redisFlagReadonly}, 1, 1, 1)
+}
+
+// ClearSearchState drops every FT index, alias and synonym group (real:
+// FLUSHALL removes the index definitions too, probed — _LIST empties and
+// subsequent FT.SEARCH replies SEARCH_INDEX_NOT_FOUND).
+func ClearSearchState() {
+	searchEnginesMu.Lock()
+	searchEngines = make(map[string]*redisearch.RediSearchEngine)
+	searchEnginesMu.Unlock()
+	searchIndexMetaMu.Lock()
+	searchIndexMeta = make(map[string]*indexMeta)
+	searchIndexMetaMu.Unlock()
+	searchAliasesMu.Lock()
+	searchAliases = make(map[string]string)
+	searchAliasesMu.Unlock()
+	synonymDBMu.Lock()
+	synonymDBs = make(map[string]*synonymGroups)
+	synonymDBMu.Unlock()
 }

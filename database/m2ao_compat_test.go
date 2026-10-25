@@ -43,6 +43,7 @@ func TestM2aoXInfoFullCount(t *testing.T) {
 
 func TestM2aoFTSearchUnknownOption(t *testing.T) {
 	db := makeTestDB()
+		db.Exec(nil, utils.ToCmdLine("FT.DROPINDEX", "idx"))
 	asserts.AssertStatusReply(t, db.Exec(nil, utils.ToCmdLine(
 		"FT.CREATE", "idx", "SCHEMA", "t", "TEXT",
 	)), "OK")

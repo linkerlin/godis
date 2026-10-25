@@ -27,6 +27,7 @@ func TestFTCreateMultiFieldSchema(t *testing.T) {
 
 func TestFTCreateMultiFieldAddSearch(t *testing.T) {
 	db := makeTestDB()
+		db.Exec(nil, utils.ToCmdLine("FT.DROPINDEX", "idx"))
 	if reply := db.Exec(nil, utils.ToCmdLine(
 		"FT.CREATE", "idx", "SCHEMA", "title", "TEXT", "body", "TEXT",
 	)); protocol.IsErrorReply(reply) {
