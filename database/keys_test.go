@@ -72,7 +72,7 @@ func TestType(t *testing.T) {
 	asserts.AssertStatusReply(t, testDB.Exec(nil, utils.ToCmdLine("TYPE", key)), "MBbloom--")
 
 	testDB.Remove(key)
-	testDB.Exec(nil, utils.ToCmdLine("VADD", key, "VALUES", "2", "0", "1", "ELE", "e1"))
+	testDB.Exec(nil, utils.ToCmdLine("VADD", key, "VALUES", "2", "0", "1", "e1"))
 	asserts.AssertStatusReply(t, testDB.Exec(nil, utils.ToCmdLine("TYPE", key)), "vectorset")
 }
 

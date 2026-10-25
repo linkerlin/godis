@@ -71,10 +71,10 @@ func TestM2vEvalPrepareInMulti(t *testing.T) {
 func TestM2vVRandMember(t *testing.T) {
 	db := makeTestDB()
 	asserts.AssertIntReply(t, db.Exec(nil, utils.ToCmdLine(
-		"VADD", "vk", "VALUES", "2", "1", "0", "ELE", "a",
+		"VADD", "vk", "VALUES", "2", "1", "0", "a",
 	)), 1)
 	asserts.AssertIntReply(t, db.Exec(nil, utils.ToCmdLine(
-		"VADD", "vk", "VALUES", "2", "0", "1", "ELE", "b",
+		"VADD", "vk", "VALUES", "2", "0", "1", "b",
 	)), 1)
 	one := db.Exec(nil, utils.ToCmdLine("VRANDMEMBER", "vk"))
 	bulk, ok := one.(*protocol.BulkReply)

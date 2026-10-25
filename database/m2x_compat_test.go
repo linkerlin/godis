@@ -27,7 +27,7 @@ func TestM2xCopyDeepCopy(t *testing.T) {
 func TestM2xVSimWithAttribs(t *testing.T) {
 	db := makeTestDB()
 	asserts.AssertIntReply(t, db.Exec(nil, utils.ToCmdLine(
-		"VADD", "vx", "VALUES", "2", "1", "0", "ELE", "a",
+		"VADD", "vx", "VALUES", "2", "1", "0", "a",
 	)), 1)
 	asserts.AssertIntReply(t, db.Exec(nil, utils.ToCmdLine(
 		"VSETATTR", "vx", "a", `{"k":1}`,

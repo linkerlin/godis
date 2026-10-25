@@ -29,7 +29,9 @@ import (
 // HNSW graph is live: M/EF on VADD and EF/TRUTH on VSIM take effect.
 
 func execVAdd(db *DB, args [][]byte) redis.Reply {
-	if len(args) < 2 {
+	// Real 8.10 wire form: VADD key VALUES n v1..vn element [options]
+	// (the element is positional, no ELE keyword; texts pinned vs sidecar).
+	if len(args) < 4 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'VADD' command")
 	}
 	key := string(args[0])
@@ -45,15 +47,19 @@ func execVAdd(db *DB, args [][]byte) redis.Reply {
 		tok := strings.ToUpper(string(args[i]))
 		switch tok {
 		case "VALUES":
+			if floats != nil {
+				return protocol.MakeErrReply("ERR invalid vector specification")
+			}
 			if i+1 >= len(args) {
-				return protocol.MakeSyntaxErrReply()
+				return protocol.MakeErrReply("ERR invalid vector specification")
 			}
 			dim, err := strconv.Atoi(string(args[i+1]))
 			if err != nil || dim <= 0 {
-				return protocol.MakeErrReply("ERR invalid vector dimension")
-			}
-			if i+1+dim >= len(args) {
 				return protocol.MakeErrReply("ERR invalid vector specification")
+			}
+			if i+2+dim >= len(args) {
+				// Values must leave the trailing positional element.
+				return protocol.MakeErrReply("ERR wrong number of arguments for 'VADD' command")
 			}
 			floats = make([]float64, dim)
 			for d := 0; d < dim; d++ {
@@ -64,12 +70,8 @@ func execVAdd(db *DB, args [][]byte) redis.Reply {
 				floats[d] = f
 			}
 			i += 2 + dim
-		case "ELE":
-			if i+1 >= len(args) {
-				return protocol.MakeSyntaxErrReply()
-			}
-			ele = string(args[i+1])
-			i += 2
+			ele = string(args[i]) // positional element right after the values
+			i++
 		case "FP32":
 			return protocol.MakeErrReply("ERR FP32 binary form not supported; use VALUES")
 		case "NX":
@@ -121,11 +123,24 @@ func execVAdd(db *DB, args [][]byte) redis.Reply {
 			hnswM = n
 			i += 2
 		default:
-			return protocol.MakeSyntaxErrReply()
+			if ele == "" {
+				return protocol.MakeErrReply("ERR invalid vector specification")
+			}
+			return protocol.MakeErrReply("ERR invalid option after element")
 		}
 	}
 	if ele == "" || floats == nil {
-		return protocol.MakeErrReply("ERR VADD requires VALUES and ELE")
+		return protocol.MakeErrReply("ERR invalid vector specification")
+	}
+
+	// Dimension is locked by the first element (8.10 text).
+	if entity, exists := db.GetEntity(key); exists {
+		if vs, ok := entity.Data.(*vector.VectorSet); ok {
+			if dim := vs.Dimension(); dim != 0 && dim != len(floats) {
+				return protocol.MakeErrReply("ERR Vector dimension mismatch - got " +
+					strconv.Itoa(len(floats)) + " but set has " + strconv.Itoa(dim))
+			}
+		}
 	}
 
 	// NX/XX/SETATTR apply to the in-memory vector backend.
@@ -181,7 +196,8 @@ func execVAdd(db *DB, args [][]byte) redis.Reply {
 }
 
 func execVSim(db *DB, args [][]byte) redis.Reply {
-	if len(args) < 2 {
+	// Real 8.10: VSIM key ELE element | VALUES n v... [COUNT n]
+	if len(args) < 3 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'VSIM' command")
 	}
 	key := string(args[0])
@@ -205,9 +221,9 @@ func execVSim(db *DB, args [][]byte) redis.Reply {
 			}
 			dim, err := strconv.Atoi(string(args[i+1]))
 			if err != nil || dim <= 0 {
-				return protocol.MakeErrReply("ERR invalid vector dimension")
+				return protocol.MakeErrReply("ERR invalid vector specification")
 			}
-			if i+1+dim >= len(args) {
+			if i+1+dim > len(args) {
 				return protocol.MakeErrReply("ERR wrong number of arguments for 'VSIM' command")
 			}
 			floats = make([]float64, dim)
@@ -231,7 +247,7 @@ func execVSim(db *DB, args [][]byte) redis.Reply {
 			}
 			n, err := strconv.Atoi(string(args[i+1]))
 			if err != nil || n <= 0 {
-				return protocol.MakeErrReply("ERR COUNT must be a positive integer")
+				return protocol.MakeErrReply("ERR invalid COUNT")
 			}
 			count = n
 			i += 2
@@ -274,7 +290,11 @@ func execVSim(db *DB, args [][]byte) redis.Reply {
 		case "NOTHREAD":
 			i++
 		default:
-			return protocol.MakeSyntaxErrReply()
+			if ele == "" && floats == nil {
+				// Unknown token before any vector spec.
+				return protocol.MakeErrReply("ERR invalid vector specification")
+			}
+			return protocol.MakeErrReply("ERR syntax error in VSIM command")
 		}
 	}
 
@@ -304,7 +324,7 @@ func execVSim(db *DB, args [][]byte) redis.Reply {
 	if ele != "" {
 		item, found := vs.Get(ele)
 		if !found {
-			return protocol.MakeEmptyMultiBulkReply()
+			return protocol.MakeErrReply("ERR element not found in set")
 		}
 		results = vs.SearchWithMetricEF(item.Vector, searchLimit, vector.CosineSimilarity, efSearch, exact)
 	} else if floats != nil {
@@ -416,10 +436,16 @@ func formatVSimResults(results []*vector.SearchResult, withScores, withAttribs b
 }
 
 func execVRem(db *DB, args [][]byte) redis.Reply {
+	if len(args) != 2 {
+		return protocol.MakeErrReply("ERR wrong number of arguments for 'VREM' command")
+	}
 	return execVSDel(db, args)
 }
 
 func execVCard(db *DB, args [][]byte) redis.Reply {
+	if len(args) != 1 {
+		return protocol.MakeErrReply("ERR wrong number of arguments for 'VCARD' command")
+	}
 	return execVSCard(db, args)
 }
 
@@ -438,8 +464,25 @@ func execVDim(db *DB, args [][]byte) redis.Reply {
 	return protocol.MakeIntReply(int64(vs.Dimension()))
 }
 
+// execVEmb implements VEMB key element [option] — 8.10.2 rejects any third
+// token with "ERR invalid option" (arity error only below 2 args).
 func execVEmb(db *DB, args [][]byte) redis.Reply {
-	return execVSGet(db, args)
+	if len(args) < 2 {
+		return protocol.MakeErrReply("ERR wrong number of arguments for 'VEMB' command")
+	}
+	if len(args) > 2 {
+		return protocol.MakeErrReply("ERR invalid option")
+	}
+	r := execVSGet(db, args)
+	if m, ok := r.(*protocol.MultiBulkReply); ok {
+		// VSGet formats %.6f; real 8.10 prints shortest round-trip ("1", "0.5").
+		for i, a := range m.Args {
+			if f, err := strconv.ParseFloat(string(a), 64); err == nil {
+				m.Args[i] = []byte(strconv.FormatFloat(f, 'g', -1, 32))
+			}
+		}
+	}
+	return r
 }
 
 func execVInfo(db *DB, args [][]byte) redis.Reply {
@@ -454,22 +497,34 @@ func execVInfo(db *DB, args [][]byte) redis.Reply {
 	if !ok {
 		return &protocol.WrongTypeErrReply{}
 	}
-	m, efC, maxUID, maxLevel := vs.HNSWInfo()
+	m, _, maxUID, maxLevel := vs.HNSWInfo()
+	attrCount := 0
+	vs.ForEach(func(id string, item *vector.VectorItem) bool {
+		if item.Attributes != "" {
+			attrCount++
+		}
+		return true
+	})
+	// Field set/order pinned against 8.10 (vset-uid is engine-internal).
 	return protocol.MakeMultiRawReply([]redis.Reply{
 		protocol.MakeBulkReply([]byte("quant-type")),
 		protocol.MakeBulkReply([]byte(vs.QuantMode().QuantTypeName())),
-		protocol.MakeBulkReply([]byte("vector-dim")),
-		protocol.MakeIntReply(int64(vs.Dimension())),
-		protocol.MakeBulkReply([]byte("size")),
-		protocol.MakeIntReply(int64(vs.Len())),
 		protocol.MakeBulkReply([]byte("hnsw-m")),
 		protocol.MakeIntReply(int64(m)),
-		protocol.MakeBulkReply([]byte("hnsw-ef-construction")),
-		protocol.MakeIntReply(int64(efC)),
-		protocol.MakeBulkReply([]byte("hnsw-max-node-uid")),
-		protocol.MakeIntReply(int64(maxUID)),
+		protocol.MakeBulkReply([]byte("vector-dim")),
+		protocol.MakeIntReply(int64(vs.Dimension())),
+		protocol.MakeBulkReply([]byte("projection-input-dim")),
+		protocol.MakeIntReply(0),
+		protocol.MakeBulkReply([]byte("size")),
+		protocol.MakeIntReply(int64(vs.Len())),
 		protocol.MakeBulkReply([]byte("max-level")),
 		protocol.MakeIntReply(int64(maxLevel)),
+		protocol.MakeBulkReply([]byte("attributes-count")),
+		protocol.MakeIntReply(int64(attrCount)),
+		protocol.MakeBulkReply([]byte("vset-uid")),
+		protocol.MakeIntReply(1),
+		protocol.MakeBulkReply([]byte("hnsw-max-node-uid")),
+		protocol.MakeIntReply(int64(maxUID)),
 	})
 }
 
@@ -568,12 +623,6 @@ func execVSetAttr(db *DB, args [][]byte) redis.Reply {
 		return &protocol.WrongTypeErrReply{}
 	}
 	jsonAttr := string(args[2])
-	if jsonAttr != "" {
-		// Light validation: must look like JSON object/array or empty already handled.
-		if jsonAttr[0] != '{' && jsonAttr[0] != '[' {
-			return protocol.MakeErrReply("ERR invalid attribute format: must be a valid JSON object")
-		}
-	}
 	if !vs.SetAttributes(string(args[1]), jsonAttr) {
 		return protocol.MakeIntReply(0)
 	}
@@ -628,37 +677,23 @@ func execVLinks(db *DB, args [][]byte) redis.Reply {
 	if !found {
 		return &protocol.NullBulkReply{}
 	}
-	layers, ok := vs.HNSWLinks(ele)
-	if !ok {
-		return protocol.MakeMultiRawReply([]redis.Reply{
-			protocol.MakeMultiBulkReply([][]byte{}),
-		})
-	}
-	replies := make([]redis.Reply, 0, len(layers))
+	layers, _ := vs.HNSWLinks(ele)
+	// Real 8.10 replies with a FLAT list (name [score ...]); scores are the
+	// rescaled similarity (1+cos)/2, not raw cosine.
+	out := make([][]byte, 0, len(layers)*4)
 	for _, neighbors := range layers {
-		if !withScores {
-			args := make([][]byte, len(neighbors))
-			for i, nb := range neighbors {
-				args[i] = []byte(nb)
-			}
-			replies = append(replies, protocol.MakeMultiBulkReply(args))
-			continue
-		}
-		args := make([][]byte, 0, len(neighbors)*2)
 		for _, nb := range neighbors {
-			args = append(args, []byte(nb))
-			score := float32(0)
-			if other, ok := vs.Get(nb); ok && item.Vector != nil && other.Vector != nil {
-				score = item.Vector.CosineSimilarity(other.Vector)
+			out = append(out, []byte(nb))
+			if withScores {
+				score := float32(0)
+				if other, ok := vs.Get(nb); ok && item.Vector != nil && other.Vector != nil {
+					score = (item.Vector.CosineSimilarity(other.Vector) + 1) / 2
+				}
+				out = append(out, []byte(strconv.FormatFloat(float64(score), 'f', -1, 32)))
 			}
-			args = append(args, []byte(strconv.FormatFloat(float64(score), 'f', -1, 32)))
 		}
-		replies = append(replies, protocol.MakeMultiBulkReply(args))
 	}
-	if len(replies) == 0 {
-		replies = append(replies, protocol.MakeMultiBulkReply([][]byte{}))
-	}
-	return protocol.MakeMultiRawReply(replies)
+	return protocol.MakeMultiBulkReply(out)
 }
 
 // execVRange returns elements in a lexicographical id range.
@@ -755,7 +790,7 @@ func init() {
 		attachCommandExtra([]string{redisFlagReadonly, redisFlagFast}, 1, 1, 1)
 	registerCommand("VDim", execVDim, readFirstKey, nil, 2, flagReadOnly).
 		attachCommandExtra([]string{redisFlagReadonly, redisFlagFast}, 1, 1, 1)
-	registerCommand("VEmb", execVEmb, readFirstKey, nil, 3, flagReadOnly).
+	registerCommand("VEmb", execVEmb, readFirstKey, nil, -3, flagReadOnly).
 		attachCommandExtra([]string{redisFlagReadonly}, 1, 1, 1)
 	registerCommand("VInfo", execVInfo, readFirstKey, nil, 2, flagReadOnly).
 		attachCommandExtra([]string{redisFlagReadonly}, 1, 1, 1)

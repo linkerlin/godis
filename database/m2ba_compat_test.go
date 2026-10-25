@@ -89,7 +89,7 @@ func TestM2baJSONEnhancedLenMutators(t *testing.T) {
 func TestM2baVInfoHNSWStubsAndVAddNoop(t *testing.T) {
 	db := makeTestDB()
 	asserts.AssertIntReply(t, db.Exec(nil, utils.ToCmdLine(
-		"VADD", "v", "VALUES", "2", "1", "0", "ELE", "e1", "NOQUANT", "EF", "200",
+		"VADD", "v", "VALUES", "2", "1", "0", "e1", "NOQUANT", "EF", "200",
 	)), 1)
 	r := db.Exec(nil, utils.ToCmdLine("VINFO", "v"))
 	mr := ftSearchMultiRaw(r)
@@ -100,9 +100,12 @@ func TestM2baVInfoHNSWStubsAndVAddNoop(t *testing.T) {
 	if !strings.Contains(body, "hnsw-m") || !strings.Contains(body, "max-level") {
 		t.Fatalf("VINFO missing hnsw fields: %s", body)
 	}
-	// EF 200 on first VADD should surface in VINFO (real HNSW, not stub zeros).
-	if !strings.Contains(body, "200") {
-		t.Fatalf("VINFO should include ef-construction 200: %s", body)
+	// Real 8.10 field set: no hnsw-ef-construction field (EF still applies
+	// to the graph); assert the real fields instead of the old godis extra.
+	for _, f := range []string{"quant-type", "vector-dim", "projection-input-dim", "size", "attributes-count", "vset-uid", "hnsw-max-node-uid"} {
+		if !strings.Contains(body, f) {
+			t.Fatalf("VINFO missing %s: %s", f, body)
+		}
 	}
 	_ = mr
 }

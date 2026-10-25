@@ -12,7 +12,7 @@ import (
 func TestVAddBINTrueQuant(t *testing.T) {
 	db := makeTestDB()
 	asserts.AssertIntReply(t, db.Exec(nil, utils.ToCmdLine(
-		"VADD", "vb", "VALUES", "4", "1.2", "0.3", "-0.5", "-1.0", "ELE", "e1", "BIN",
+		"VADD", "vb", "VALUES", "4", "1.2", "0.3", "-0.5", "-1.0", "e1", "BIN",
 	)), 1)
 	info := db.Exec(nil, utils.ToCmdLine("VINFO", "vb"))
 	mr, ok := info.(*protocol.MultiRawReply)
@@ -40,7 +40,7 @@ func TestVAddBINTrueQuant(t *testing.T) {
 		t.Fatalf("VSIM: %s", sim.ToBytes())
 	}
 	bad := db.Exec(nil, utils.ToCmdLine(
-		"VADD", "vb", "VALUES", "4", "0", "0", "0", "0", "ELE", "e2", "Q8",
+		"VADD", "vb", "VALUES", "4", "0", "0", "0", "0", "e2", "Q8",
 	))
 	if !protocol.IsErrorReply(bad) {
 		t.Fatalf("want quant mismatch ERR, got %s", bad.ToBytes())

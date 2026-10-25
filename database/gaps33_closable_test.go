@@ -30,6 +30,7 @@ func TestGaps33ClientStreamBloomVector(t *testing.T) {
 		"ERR wrong number of arguments for 'xgroup|help' command")
 	asserts.AssertErrReply(t, db.Exec(nil, utils.ToCmdLine("BF.RESERVE", "bf", "0.01", "0")),
 		"ERR capacity must be in the range [1, 1073741824]")
+	// Real 8.10: values without the trailing element is an arity error.
 	asserts.AssertErrReply(t, db.Exec(nil, utils.ToCmdLine("VADD", "v", "VALUES", "2", "1")),
-		"ERR invalid vector specification")
+		"ERR wrong number of arguments for 'VADD' command")
 }

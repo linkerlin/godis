@@ -15,10 +15,10 @@ import (
 func TestM2wVSetGetAttrAndRange(t *testing.T) {
 	db := makeTestDB()
 	asserts.AssertIntReply(t, db.Exec(nil, utils.ToCmdLine(
-		"VADD", "vw", "VALUES", "2", "1", "0", "ELE", "apple",
+		"VADD", "vw", "VALUES", "2", "1", "0", "apple",
 	)), 1)
 	asserts.AssertIntReply(t, db.Exec(nil, utils.ToCmdLine(
-		"VADD", "vw", "VALUES", "2", "0", "1", "ELE", "banana",
+		"VADD", "vw", "VALUES", "2", "0", "1", "banana",
 	)), 1)
 	asserts.AssertIntReply(t, db.Exec(nil, utils.ToCmdLine(
 		"VSETATTR", "vw", "apple", `{"color":"red"}`,

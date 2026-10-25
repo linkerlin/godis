@@ -37,20 +37,20 @@ func TestM2ayJSONEnhancedNumAndLen(t *testing.T) {
 func TestM2ayVAddNXXxSetAttr(t *testing.T) {
 	db := makeTestDB()
 	asserts.AssertIntReply(t, db.Exec(nil, utils.ToCmdLine(
-		"VADD", "v", "VALUES", "2", "1", "0", "ELE", "e1", "SETATTR", `{"k":1}`,
+		"VADD", "v", "VALUES", "2", "1", "0", "e1", "SETATTR", `{"k":1}`,
 	)), 1)
 	asserts.AssertBulkReply(t, db.Exec(nil, utils.ToCmdLine("VGETATTR", "v", "e1")), `{"k":1}`)
 
 	asserts.AssertIntReply(t, db.Exec(nil, utils.ToCmdLine(
-		"VADD", "v", "VALUES", "2", "0", "1", "ELE", "e1", "NX",
+		"VADD", "v", "VALUES", "2", "0", "1", "e1", "NX",
 	)), 0)
 
 	asserts.AssertIntReply(t, db.Exec(nil, utils.ToCmdLine(
-		"VADD", "v", "VALUES", "2", "0", "1", "ELE", "missing", "XX",
+		"VADD", "v", "VALUES", "2", "0", "1", "missing", "XX",
 	)), 0)
 
 	asserts.AssertIntReply(t, db.Exec(nil, utils.ToCmdLine(
-		"VADD", "v", "VALUES", "2", "0", "1", "ELE", "e1", "XX", "SETATTR", `{"k":2}`,
+		"VADD", "v", "VALUES", "2", "0", "1", "e1", "XX", "SETATTR", `{"k":2}`,
 	)), 0)
 	asserts.AssertBulkReply(t, db.Exec(nil, utils.ToCmdLine("VGETATTR", "v", "e1")), `{"k":2}`)
 }

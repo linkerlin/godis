@@ -12,7 +12,7 @@ import (
 func TestVAddQ8TrueQuant(t *testing.T) {
 	db := makeTestDB()
 	asserts.AssertIntReply(t, db.Exec(nil, utils.ToCmdLine(
-		"VADD", "vq", "VALUES", "2", "1.262185", "1.958231", "ELE", "e1", "Q8",
+		"VADD", "vq", "VALUES", "2", "1.262185", "1.958231", "e1", "Q8",
 	)), 1)
 	info := db.Exec(nil, utils.ToCmdLine("VINFO", "vq"))
 	mr, ok := info.(*protocol.MultiRawReply)
@@ -43,7 +43,7 @@ func TestVAddQ8TrueQuant(t *testing.T) {
 	}
 	// Format mismatch: NOQUANT after Q8.
 	bad := db.Exec(nil, utils.ToCmdLine(
-		"VADD", "vq", "VALUES", "2", "0", "1", "ELE", "e2", "NOQUANT",
+		"VADD", "vq", "VALUES", "2", "0", "1", "e2", "NOQUANT",
 	))
 	if !protocol.IsErrorReply(bad) {
 		t.Fatalf("want quant mismatch ERR, got %s", bad.ToBytes())

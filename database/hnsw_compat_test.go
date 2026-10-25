@@ -13,13 +13,13 @@ import (
 func TestHNSWVInfoAndVLinks(t *testing.T) {
 	db := makeTestDB()
 	asserts.AssertIntReply(t, db.Exec(nil, utils.ToCmdLine(
-		"VADD", "vh", "VALUES", "2", "1", "0", "ELE", "a", "M", "16", "EF", "100",
+		"VADD", "vh", "VALUES", "2", "1", "0", "a", "M", "16", "EF", "100",
 	)), 1)
 	asserts.AssertIntReply(t, db.Exec(nil, utils.ToCmdLine(
-		"VADD", "vh", "VALUES", "2", "0.9", "0.1", "ELE", "b",
+		"VADD", "vh", "VALUES", "2", "0.9", "0.1", "b",
 	)), 1)
 	asserts.AssertIntReply(t, db.Exec(nil, utils.ToCmdLine(
-		"VADD", "vh", "VALUES", "2", "0", "1", "ELE", "c",
+		"VADD", "vh", "VALUES", "2", "0", "1", "c",
 	)), 1)
 
 	info := db.Exec(nil, utils.ToCmdLine("VINFO", "vh"))
@@ -27,20 +27,20 @@ func TestHNSWVInfoAndVLinks(t *testing.T) {
 	if !strings.Contains(body, "hnsw-m") || !strings.Contains(body, "16") {
 		t.Fatalf("VINFO should report hnsw-m=16: %s", body)
 	}
-	if !strings.Contains(body, "hnsw-ef-construction") || !strings.Contains(body, "100") {
-		t.Fatalf("VINFO should report ef-construction=100: %s", body)
+	// Real 8.10 field set (no hnsw-ef-construction field).
+	for _, f := range []string{"quant-type", "vector-dim", "projection-input-dim", "size", "max-level", "attributes-count", "vset-uid", "hnsw-max-node-uid"} {
+		if !strings.Contains(body, f) {
+			t.Fatalf("VINFO missing %s: %s", f, body)
+		}
 	}
 
+	// Real 8.10 replies with a FLAT neighbor list.
 	links := db.Exec(nil, utils.ToCmdLine("VLINKS", "vh", "a"))
-	mr, ok := links.(*protocol.MultiRawReply)
-	if !ok || len(mr.Replies) == 0 {
-		t.Fatalf("VLINKS: %T %s", links, links.ToBytes())
-	}
-	layer0, ok := mr.Replies[0].(*protocol.MultiBulkReply)
+	mb, ok := links.(*protocol.MultiBulkReply)
 	if !ok {
-		t.Fatalf("layer0 type %T", mr.Replies[0])
+		t.Fatalf("VLINKS should be a flat array: %T %s", links, links.ToBytes())
 	}
-	if len(layer0.Args) == 0 {
+	if len(mb.Args) == 0 {
 		t.Fatalf("expected non-empty HNSW neighbors for a: %s", links.ToBytes())
 	}
 }
@@ -52,7 +52,7 @@ func TestHNSWVSimEFAndTruth(t *testing.T) {
 		x := strconv.FormatFloat(float64(i)/80.0, 'f', 6, 64)
 		y := strconv.FormatFloat(1.0-float64(i)/80.0, 'f', 6, 64)
 		r := db.Exec(nil, utils.ToCmdLine(
-			"VADD", "vs", "VALUES", "2", x, y, "ELE", "e"+strconv.Itoa(i), "M", "16", "EF", "50",
+			"VADD", "vs", "VALUES", "2", x, y, "e"+strconv.Itoa(i), "M", "16", "EF", "50",
 		))
 		if protocol.IsErrorReply(r) {
 			t.Fatalf("VADD e%d: %s", i, r.ToBytes())
@@ -81,10 +81,10 @@ func TestHNSWVSimEFAndTruth(t *testing.T) {
 func TestHNSWVSimEpsilon(t *testing.T) {
 	db := makeTestDB()
 	asserts.AssertIntReply(t, db.Exec(nil, utils.ToCmdLine(
-		"VADD", "ve", "VALUES", "2", "1", "0", "ELE", "near",
+		"VADD", "ve", "VALUES", "2", "1", "0", "near",
 	)), 1)
 	asserts.AssertIntReply(t, db.Exec(nil, utils.ToCmdLine(
-		"VADD", "ve", "VALUES", "2", "0", "1", "ELE", "far",
+		"VADD", "ve", "VALUES", "2", "0", "1", "far",
 	)), 1)
 
 	all := db.Exec(nil, utils.ToCmdLine(

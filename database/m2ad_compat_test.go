@@ -65,10 +65,10 @@ func TestM2adXGroupSetIDEntriesRead(t *testing.T) {
 func TestM2adVSimFilter(t *testing.T) {
 	db := makeTestDB()
 	asserts.AssertIntReply(t, db.Exec(nil, utils.ToCmdLine(
-		"VADD", "vx", "VALUES", "2", "1", "0", "ELE", "a",
+		"VADD", "vx", "VALUES", "2", "1", "0", "a",
 	)), 1)
 	asserts.AssertIntReply(t, db.Exec(nil, utils.ToCmdLine(
-		"VADD", "vx", "VALUES", "2", "0", "1", "ELE", "b",
+		"VADD", "vx", "VALUES", "2", "0", "1", "b",
 	)), 1)
 	asserts.AssertIntReply(t, db.Exec(nil, utils.ToCmdLine(
 		"VSETATTR", "vx", "a", `{"tag":"keep"}`,

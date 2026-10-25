@@ -34,10 +34,10 @@ func TestM1XInfoAndXGroupSpaced(t *testing.T) {
 func TestM1VectorRedisAliases(t *testing.T) {
 	db := makeTestDB()
 	asserts.AssertIntReply(t, db.Exec(nil, utils.ToCmdLine(
-		"VADD", "v:m1", "VALUES", "3", "1", "0", "0", "ELE", "a",
+		"VADD", "v:m1", "VALUES", "3", "1", "0", "0", "a",
 	)), 1)
 	asserts.AssertIntReply(t, db.Exec(nil, utils.ToCmdLine(
-		"VADD", "v:m1", "VALUES", "3", "0.9", "0.1", "0", "ELE", "b",
+		"VADD", "v:m1", "VALUES", "3", "0.9", "0.1", "0", "b",
 	)), 1)
 	asserts.AssertIntReply(t, db.Exec(nil, utils.ToCmdLine("VCARD", "v:m1")), 2)
 	asserts.AssertIntReply(t, db.Exec(nil, utils.ToCmdLine("VDIM", "v:m1")), 3)

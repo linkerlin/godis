@@ -17,7 +17,7 @@ func TestM2aoObjectEncodingHLLVector(t *testing.T) {
 	db.Exec(nil, utils.ToCmdLine("PFADD", "h", "a"))
 	asserts.AssertBulkReply(t, db.Exec(nil, utils.ToCmdLine("OBJECT", "ENCODING", "h")), "hyperloglog")
 
-	db.Exec(nil, utils.ToCmdLine("VADD", "v", "VALUES", "2", "1", "0", "ELE", "e1"))
+	db.Exec(nil, utils.ToCmdLine("VADD", "v", "VALUES", "2", "1", "0", "e1"))
 	enc := db.Exec(nil, utils.ToCmdLine("OBJECT", "ENCODING", "v"))
 	asserts.AssertBulkReply(t, enc, "vectorset")
 }

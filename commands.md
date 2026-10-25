@@ -309,14 +309,17 @@
 
 | 命令 | 描述 |
 |------|------|
-| VS.ADD | 添加向量 |
-| VS.GET | 获取向量 |
-| VS.SEARCH | 向量相似度搜索 |
-| VS.QUERY | 查询向量 |
-| VS.RANGE | 范围查询 |
-| VS.REM / VS.DEL | 移除向量 |
-| VS.DROPINDEX | 删除整个向量集 |
-| VS.LEN / VS.CARD | 向量数量 |
+| VADD | 添加向量（Redis 8.10 线级语法：`VADD key VALUES n v1..vn element [SETATTR json] [CAS]`） |
+| VSIM | 相似度搜索（`VSIM key ELE element` 或 `VALUES n v...`，`[COUNT n]`） |
+| VEMB | 读取元素向量 |
+| VCARD / VDIM | 元素数量 / 维度 |
+| VISMEMBER | 元素是否存在 |
+| VGETATTR / VSETATTR | 读/写元素 JSON 属性 |
+| VREM | 移除元素 |
+| VRANDMEMBER | 随机元素 |
+| VLINKS | HNSW 邻居（平铺列表） |
+| VINFO | 集合元信息（8.10 九字段） |
+| VS.ADD / VS.GET / VS.SEARCH / VS.QUERY / VS.RANGE / VS.REM / VS.DEL / VS.DROPINDEX / VS.LEN / VS.CARD | godis 方言（与官方不互通，保留为超集） |
 
 ---
 
