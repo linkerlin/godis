@@ -1,6 +1,7 @@
 package database
 
 import (
+		"crypto/rand"
 	"fmt"
 	"strconv"
 	"strings"
@@ -10,6 +11,8 @@ import (
 	"github.com/linkerlin/godis/interface/redis"
 	"github.com/linkerlin/godis/redis/protocol"
 )
+
+var cryptorand = rand.Read
 
 // === Bloom Filter Commands ===
 
@@ -948,6 +951,11 @@ func execTopKReserve(db *DB, args [][]byte) redis.Reply {
 
 	key := string(args[0])
 
+	// Real: the key-exists gate precedes parameter validation.
+	if _, exists := db.GetEntity(key); exists {
+		return protocol.MakeErrReply("TopK: key already exists")
+	}
+
 	k, err := strconv.Atoi(string(args[1]))
 	if err != nil || k <= 0 {
 		return protocol.MakeErrReply("TopK: invalid k")
@@ -958,23 +966,18 @@ func execTopKReserve(db *DB, args [][]byte) redis.Reply {
 	if len(args) >= 5 {
 		width, err = strconv.Atoi(string(args[2]))
 		if err != nil || width <= 0 {
-			return protocol.MakeErrReply("ERR width must be a positive integer")
+			return protocol.MakeErrReply("TopK: invalid width")
 		}
 		depth, err = strconv.Atoi(string(args[3]))
 		if err != nil || depth <= 0 {
-			return protocol.MakeErrReply("ERR depth must be a positive integer")
+			return protocol.MakeErrReply("TopK: invalid depth")
 		}
 		decay, err = strconv.ParseFloat(string(args[4]), 64)
 		if err != nil || decay <= 0 || decay > 1 {
-			return protocol.MakeErrReply("ERR decay must be a float in (0,1]")
+			return protocol.MakeErrReply("TopK: invalid decay value. must be '<= 1' & '> 0'")
 		}
 	} else if len(args) != 2 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'topk.reserve' command")
-	}
-
-	_, exists := db.GetEntity(key)
-	if exists {
-		return protocol.MakeErrReply("TopK: key already exists")
 	}
 
 	topk := probabilistic.NewTopKOpts(k, width, depth, decay)
@@ -984,129 +987,116 @@ func execTopKReserve(db *DB, args [][]byte) redis.Reply {
 	return protocol.MakeOkReply()
 }
 
-// execTopKAdd adds items to Top-K
+// execTopKAdd adds items to Top-K (heavy keeper, per-command random seed;
+// AOF replays deterministically via topk._addseeded like real replication).
 // TOPK.ADD key item [item ...]
 func execTopKAdd(db *DB, args [][]byte) redis.Reply {
-	if len(args) < 2 {
+	return topKAddCommon(db, args, false)
+}
+
+// execTopKAddSeeded is the deterministic form real replication uses.
+// TOPK._ADDSEEDED key seed item [item ...]
+func execTopKAddSeeded(db *DB, args [][]byte) redis.Reply {
+	return topKAddCommon(db, args, true)
+}
+
+func topKAddCommon(db *DB, args [][]byte, seeded bool) redis.Reply {
+	firstItem := 1
+	if seeded {
+		firstItem = 2
+	}
+	if len(args) <= firstItem {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'topk.add' command")
 	}
-
-	key := string(args[0])
-
-	entity, exists := db.GetEntity(key)
-	if !exists {
-		return protocol.MakeErrReply("TopK: key does not exist")
+	seed, errReply := topKSeed(args, seeded)
+	if errReply != nil {
+		return errReply
 	}
-	topk, ok := entity.Data.(*probabilistic.TopK)
-	if !ok {
-		return &protocol.WrongTypeErrReply{}
+	topk, errReply := topKLookup(db, string(args[0]))
+	if errReply != nil {
+		return errReply
 	}
-
-	// Return items that were dropped (null if none)
-	dropped := make([][]byte, len(args)-1)
-	for i := 1; i < len(args); i++ {
-		if name, ok := topk.Add(args[i]); ok {
-			dropped[i-1] = []byte(name)
+	rngState := seed
+	dropped := make([][]byte, 0, len(args)-firstItem)
+	for i := firstItem; i < len(args); i++ {
+		if name, ok := topk.AddSeeded(args[i], 1, &rngState); ok {
+			dropped = append(dropped, []byte(name))
 		} else {
-			dropped[i-1] = nil // RESP null bulk
+			dropped = append(dropped, nil) // RESP null bulk in array
 		}
 	}
-
-	db.addAof(prependCmd("topk.add", args))
+	if seeded {
+		db.addAof(prependCmd("topk._addseeded", args))
+	} else {
+		aofArgs := make([][]byte, 0, len(args)+1)
+		aofArgs = append(aofArgs, args[0], []byte(strconv.FormatUint(seed, 10)))
+		aofArgs = append(aofArgs, args[1:]...)
+		db.addAof(prependCmd("topk._addseeded", aofArgs))
+	}
 	return protocol.MakeMultiBulkReply(dropped)
 }
 
-// execTopKQuery queries if items are in Top-K
+// execTopKQuery reports heap membership.
 // TOPK.QUERY key item [item ...]
 func execTopKQuery(db *DB, args [][]byte) redis.Reply {
 	if len(args) < 2 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'topk.query' command")
 	}
-
-	key := string(args[0])
-
-	entity, exists := db.GetEntity(key)
-	if !exists {
-		return protocol.MakeErrReply("TopK: key does not exist")
+	topk, errReply := topKLookup(db, string(args[0]))
+	if errReply != nil {
+		return errReply
 	}
-
-	topk, ok := entity.Data.(*probabilistic.TopK)
-	if !ok {
-		return &protocol.WrongTypeErrReply{}
-	}
-
 	results := make([][]byte, len(args)-1)
 	for i := 1; i < len(args); i++ {
-		_, _, found := topk.Query(args[i])
-		if found {
+		if topk.Query(args[i]) {
 			results[i-1] = []byte("1")
 		} else {
 			results[i-1] = []byte("0")
 		}
 	}
-
 	return protocol.MakeMultiBulkReply(results)
 }
 
-// execTopKList returns the Top-K list
+// execTopKList returns the Top-K list sorted by count desc.
 // TOPK.LIST key [WITHCOUNT]
 func execTopKList(db *DB, args [][]byte) redis.Reply {
 	if len(args) < 1 || len(args) > 2 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'topk.list' command")
 	}
-
-	key := string(args[0])
 	withCount := false
-
-	if len(args) == 2 && strings.ToUpper(string(args[1])) == "WITHCOUNT" {
+	if len(args) == 2 {
+		if !strings.EqualFold(string(args[1]), "WITHCOUNT") {
+			return protocol.MakeErrReply("WITHCOUNT keyword expected")
+		}
 		withCount = true
 	}
-
-	entity, exists := db.GetEntity(key)
-	if !exists {
-		return protocol.MakeErrReply("TopK: key does not exist")
+	topk, errReply := topKLookup(db, string(args[0]))
+	if errReply != nil {
+		return errReply
 	}
-
-	topk, ok := entity.Data.(*probabilistic.TopK)
-	if !ok {
-		return &protocol.WrongTypeErrReply{}
-	}
-
-	items := topk.List()
-
-	var reply [][]byte
-	for _, item := range items {
-		reply = append(reply, []byte(item.Item))
+	reply := [][]byte{}
+	for _, e := range topk.List() {
+		reply = append(reply, []byte(e.Item))
 		if withCount {
-			reply = append(reply, []byte(strconv.FormatUint(item.Count, 10)))
+			reply = append(reply, []byte(strconv.FormatUint(e.Count, 10)))
 		}
 	}
-
 	return protocol.MakeMultiBulkReply(reply)
 }
 
-// execTopKCount returns counts for items (0 if not in structure)
+// execTopKCount returns the heavy-keeper count estimates.
 // TOPK.COUNT key item [item ...]
 func execTopKCount(db *DB, args [][]byte) redis.Reply {
 	if len(args) < 2 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'topk.count' command")
 	}
+	topk, errReply := topKLookup(db, string(args[0]))
+	if errReply != nil {
+		return errReply
+	}
 	results := make([][]byte, len(args)-1)
-	entity, exists := db.GetEntity(string(args[0]))
-	if !exists {
-		return protocol.MakeErrReply("TopK: key does not exist")
-	}
-	topk, ok := entity.Data.(*probabilistic.TopK)
-	if !ok {
-		return &protocol.WrongTypeErrReply{}
-	}
 	for i := 1; i < len(args); i++ {
-		count, _, found := topk.Query(args[i])
-		if !found {
-			results[i-1] = []byte("0")
-		} else {
-			results[i-1] = []byte(strconv.FormatUint(count, 10))
-		}
+		results[i-1] = []byte(strconv.FormatUint(topk.Count(args[i]), 10))
 	}
 	return protocol.MakeMultiBulkReply(results)
 }
@@ -1128,43 +1118,94 @@ func execTopKInfo(db *DB, args [][]byte) redis.Reply {
 	return flatInfoReply(topk.Info())
 }
 
-// execTopKIncrBy increments item counts (via repeated Add)
+// execTopKIncrBy increments item counts (heavy-keeper increments; the C
+// error text's long space run is reproduced byte-for-byte).
 // TOPK.INCRBY key item increment [item increment ...]
 func execTopKIncrBy(db *DB, args [][]byte) redis.Reply {
-	if len(args) < 3 || (len(args)-1)%2 != 0 {
+	return topKIncrByCommon(db, args, false)
+}
+
+// execTopKIncrBySeeded is the deterministic replication form.
+// TOPK._INCRBYSEEDED key seed item increment [item increment ...]
+func execTopKIncrBySeeded(db *DB, args [][]byte) redis.Reply {
+	return topKIncrByCommon(db, args, true)
+}
+
+var topkIncrErr = "TopK: increment must be an integer greater or equal to 0" +
+	strings.Repeat(" ", 28) + "and smaller or equal to 100,000"
+
+func topKIncrByCommon(db *DB, args [][]byte, seeded bool) redis.Reply {
+	firstItem := 1
+	if seeded {
+		firstItem = 2
+	}
+	if len(args) < firstItem+2 || (len(args)-firstItem)%2 != 0 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'topk.incrby' command")
 	}
-	key := string(args[0])
-	entity, exists := db.GetEntity(key)
-	if !exists {
-		return protocol.MakeErrReply("TopK: key does not exist")
+	seed, errReply := topKSeed(args, seeded)
+	if errReply != nil {
+		return errReply
 	}
-	topk, ok := entity.Data.(*probabilistic.TopK)
-	if !ok {
-		return &protocol.WrongTypeErrReply{}
+	topk, errReply := topKLookup(db, string(args[0]))
+	if errReply != nil {
+		return errReply
 	}
-	dropped := make([][]byte, 0, (len(args)-1)/2)
-	for i := 1; i < len(args); i += 2 {
-		inc, err := strconv.ParseInt(string(args[i+1]), 10, 64)
-		if err != nil || inc <= 0 {
-			return protocol.MakeErrReply("ERR increment must be a positive integer")
+	rngState := seed
+	itemCount := (len(args) - firstItem) / 2
+	dropped := make([][]byte, 0, itemCount)
+	i := 0
+	for ; i < itemCount; i++ {
+		item := args[firstItem+i*2]
+		inc, err := strconv.ParseInt(string(args[firstItem+i*2+1]), 10, 64)
+		if err != nil || inc < 0 || inc > 100000 {
+			return protocol.MakeErrReply(topkIncrErr)
 		}
-		var lastDropped string
-		var hadDrop bool
-		for j := int64(0); j < inc; j++ {
-			if name, ok := topk.Add(args[i]); ok {
-				lastDropped = name
-				hadDrop = true
-			}
-		}
-		if hadDrop {
-			dropped = append(dropped, []byte(lastDropped))
+		if name, ok := topk.AddSeeded(item, uint32(inc), &rngState); ok {
+			dropped = append(dropped, []byte(name))
 		} else {
 			dropped = append(dropped, nil)
 		}
 	}
-	db.addAof(prependCmd("topk.incrby", args))
+	if !seeded {
+		aofArgs := make([][]byte, 0, len(args)+1)
+		aofArgs = append(aofArgs, args[0], []byte(strconv.FormatUint(seed, 10)))
+		aofArgs = append(aofArgs, args[1:]...)
+		db.addAof(prependCmd("topk._incrbyseeded", aofArgs))
+	} else {
+		db.addAof(prependCmd("topk._incrbyseeded", args))
+	}
 	return protocol.MakeMultiBulkReply(dropped)
+}
+
+func topKSeed(args [][]byte, seeded bool) (uint64, redis.Reply) {
+	if seeded {
+		v, err := strconv.ParseUint(string(args[1]), 10, 64)
+		if err != nil {
+			return 0, protocol.MakeErrReply("TopK: invalid seed")
+		}
+		return v, nil
+	}
+	var b [8]byte
+	if _, err := cryptorand(b[:]); err != nil {
+		return 0, protocol.MakeErrReply("TopK: internal random error")
+	}
+	v := uint64(0)
+	for _, x := range b {
+		v = v<<8 | uint64(x)
+	}
+	return v >> 1, nil
+}
+
+func topKLookup(db *DB, key string) (*probabilistic.TopK, redis.Reply) {
+	entity, exists := db.GetEntity(key)
+	if !exists {
+		return nil, protocol.MakeErrReply("TopK: key does not exist")
+	}
+	topk, ok := entity.Data.(*probabilistic.TopK)
+	if !ok {
+		return nil, &protocol.WrongTypeErrReply{}
+	}
+	return topk, nil
 }
 
 func prepareCMSMerge(args [][]byte) ([]string, []string) {
@@ -1316,5 +1357,9 @@ func init() {
 	registerCommand("TopK.List", execTopKList, readFirstKey, nil, -2, flagReadOnly).
 		attachCommandExtra([]string{redisFlagReadonly}, 1, 1, 1)
 	registerCommand("TopK.Info", execTopKInfo, readFirstKey, nil, 2, flagReadOnly).
-		attachCommandExtra([]string{redisFlagReadonly}, 1, 1, 1)
+		attachCommandExtra([]string{redisFlagReadonly, redisFlagFast}, 1, 1, 1)
+	registerCommand("TopK._AddSeeded", execTopKAddSeeded, writeFirstKey, nil, -4, flagWrite).
+		attachCommandExtra([]string{redisFlagWrite, redisFlagDenyOOM}, 1, 1, 1)
+	registerCommand("TopK._IncrBySeeded", execTopKIncrBySeeded, writeFirstKey, nil, -5, flagWrite).
+		attachCommandExtra([]string{redisFlagWrite, redisFlagDenyOOM}, 1, 1, 1)
 }

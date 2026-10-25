@@ -15987,7 +15987,12 @@ TD-tie-cdf-max|0.875|TDIGEST.CDF ptdtie:{{ID}} 10
 @ TOPK.RESERVE ptk:{{ID}} 3 50 4 0.9
 TOPK-info|k\n3\nwidth\n50\ndepth\n4\ndecay\n0.9|TOPK.INFO ptk:{{ID}}
 TOPK-reserve-exists|TopK: key already exists|TOPK.RESERVE ptk:{{ID}} 3 50 4 0.9
-@todo TOPK.ADD/LIST/QUERY need the real heavy-keeper algorithm (godis eviction/tie-break differs; known gap)
+TOPK-add-drops|\n\n\n\nb\n\nc\nd\ne\nf|TOPK.ADD ptk:{{ID}} a a b c d a e f g h
+TOPK-add-more|$empty|TOPK.ADD ptk:{{ID}} a a a
+TOPK-list|a\ng\nh|TOPK.LIST ptk:{{ID}}
+TOPK-list-count|a\n6\ng\n1\nh\n1|TOPK.LIST ptk:{{ID}} WITHCOUNT
+TOPK-query|1\n0\n0|TOPK.QUERY ptk:{{ID}} a b zz
+TOPK-count|6\n1\n0|TOPK.COUNT ptk:{{ID}} a g zz
 UNK-noargs|ERR unknown command 'NOSUCHCMD:{{ID}}'|NOSUCHCMD:{{ID}}
 UNK-withargs|ERR unknown command 'NOSUCHCMD:{{ID}}', with args beginning with: 'a' 'b' |NOSUCHCMD:{{ID}} a b
 

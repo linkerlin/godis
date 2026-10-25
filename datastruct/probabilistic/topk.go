@@ -1,38 +1,103 @@
 package probabilistic
 
+// Faithful Go port of RedisBloom's Top-K "heavy keeper" (topk.c, Ariel
+// Shtul): count-min-style bucket arrays with probabilistic decay, a
+// fingerprint, and a min-heap of size k. Hashing is MurmurHash2 (32-bit)
+// per row; decay draws use SplitMix64. Ported so bucket layout, eviction,
+// and drop reporting match redis:8.10-alpine. The only approximation:
+// TOPK.LIST tie order (real = musl qsort permutation; Go sort is stable —
+// same membership, ties may order differently).
+
 import (
-	"container/heap"
 	"encoding/json"
-	"fmt"
-	"hash/fnv"
+	"math"
 	"sort"
 	"strconv"
 )
 
-// TopK maintains the top-k frequent items
+const (
+	topkGA               = 1919 // fingerprint hash seed (RedisBloom constant)
+	topkDecayLookupTable = 256
+)
+
+// murmurHash2 is the canonical 32-bit MurmurHash2 (Austin Appleby), the
+// exact variant RedisBloom uses (little-endian word loads).
+func murmurHash2(data []byte, seed uint32) uint32 {
+	const m = 0x5bd1e995
+	const r = 24
+
+	length := uint32(len(data))
+	h := seed ^ length
+
+	i := 0
+	for ; i+4 <= len(data); i += 4 {
+		k := uint32(data[i]) | uint32(data[i+1])<<8 | uint32(data[i+2])<<16 | uint32(data[i+3])<<24
+		k *= m
+		k ^= k >> r
+		k *= m
+
+		h *= m
+		h ^= k
+	}
+	switch len(data) - i {
+	case 3:
+		h ^= uint32(data[i+2]) << 16
+		fallthrough
+	case 2:
+		h ^= uint32(data[i+1]) << 8
+		fallthrough
+	case 1:
+		h ^= uint32(data[i])
+		h *= m
+	}
+
+	h ^= h >> 13
+	h *= m
+	h ^= h >> 15
+	return h
+}
+
+// topkRandom is RedisBloom's SplitMix64 to double in [0,1).
+func topkRandom(rngState *uint64) float64 {
+	*rngState += 0x9e3779b97f4a7c15
+	z := *rngState
+	z = (z ^ (z >> 30)) * 0xbf58476d1ce4e5b9
+	z = (z ^ (z >> 27)) * 0x94d049bb133111eb
+	z ^= z >> 31
+	return float64(z>>11) * (1.0 / 9007199254740992.0)
+}
+
+type hkBucket struct {
+	Fp    uint32 `json:"fp"`
+	Count uint32 `json:"c"`
+}
+
+type heapBucket struct {
+	Fp      uint32 `json:"fp"`
+	ItemLen uint32 `json:"l"`
+	Item    string `json:"i"`
+	Count   uint32 `json:"c"`
+}
+
+// TopK is the heavy-keeper structure (RedisBloom-compatible).
 type TopK struct {
-	k      int
-	width  int
-	depth  int
-	decay  float64
-	items  map[string]*TopKItem
-	minHeap *topKHeap
+	K     uint32       `json:"k"`
+	Width uint32       `json:"w"`
+	Depth uint32       `json:"d"`
+	Decay float64      `json:"dec"`
+	Data  []hkBucket   `json:"data"`
+	Heap  []heapBucket `json:"heap"`
+
+	lookup [topkDecayLookupTable]float64
 }
 
-// TopKItem represents an item in Top-K
-type TopKItem struct {
-	Item  string
-	Count uint64
-	Error uint64 // Over-estimation error
-	index int    // Index in heap
-}
-
-// NewTopK creates a new Top-K structure
+// NewTopK creates a new Top-K with real defaults (width 8, depth 7, decay 0.9).
 func NewTopK(k int) *TopK {
 	return NewTopKOpts(k, 8, 7, 0.9)
 }
 
-// NewTopKOpts creates Top-K with RedisBloom width/depth/decay parameters.
+// NewTopKOpts creates Top-K with explicit parameters (invalid values fall
+// back to defaults after the handler's own validation).
 func NewTopKOpts(k, width, depth int, decay float64) *TopK {
 	if width <= 0 {
 		width = 8
@@ -43,187 +108,226 @@ func NewTopKOpts(k, width, depth int, decay float64) *TopK {
 	if decay <= 0 || decay > 1 {
 		decay = 0.9
 	}
-	return &TopK{
-		k:       k,
-		width:   width,
-		depth:   depth,
-		decay:   decay,
-		items:   make(map[string]*TopKItem),
-		minHeap: &topKHeap{},
+	tk := &TopK{
+		K:     uint32(k),
+		Width: uint32(width),
+		Depth: uint32(depth),
+		Decay: decay,
+		Data:  make([]hkBucket, width*depth),
+		Heap:  make([]heapBucket, k),
 	}
+	for i := 0; i < topkDecayLookupTable; i++ {
+		tk.lookup[i] = math.Pow(decay, float64(i))
+	}
+	return tk
 }
 
-// Add adds an item. If another item was dropped from the top-k to make room,
-// dropped is that item's name and ok is true.
-func (tk *TopK) Add(item []byte) (dropped string, ok bool) {
-	itemStr := string(item)
-
-	// Check if item already exists
-	if existing, found := tk.items[itemStr]; found {
-		existing.Count++
-		if existing.index >= 0 {
-			tk.minHeap.Fix(existing.index)
+// heapifyDown mirrors the C sift-down exactly (min-heap on count).
+func heapifyDown(array []heapBucket, start int) {
+	child := start
+	if len(array) < 2 || (len(array)-2)/2 < child {
+		return
+	}
+	child = 2*child + 1
+	if child+1 < len(array) && array[child].Count > array[child+1].Count {
+		child++
+	}
+	if array[child].Count > array[start].Count {
+		return
+	}
+	top := array[start]
+	for {
+		array[start] = array[child]
+		start = child
+		if (len(array)-2)/2 < child {
+			break
 		}
-		return "", false
+		child = 2*child + 1
+		if child+1 < len(array) && array[child].Count > array[child+1].Count {
+			child++
+		}
+		if !(array[child].Count < top.Count) {
+			break
+		}
+	}
+	array[start] = top
+}
+
+func (tk *TopK) checkExistInHeap(item []byte) int {
+	fp := murmurHash2(item, topkGA)
+	for i := len(tk.Heap) - 1; i >= 0; i-- {
+		b := &tk.Heap[i]
+		if b.Fp == fp && b.ItemLen == uint32(len(item)) && b.Item == string(item) {
+			return i
+		}
+	}
+	return -1
+}
+
+// AddSeeded inserts an item (heavy keeper). rngState is advanced in place;
+// the caller seeds it per command (random for TOPK.ADD, fixed for
+// replication). Returns the expelled item when a full heap head was
+// replaced (empty-slot fills report no drop, like the C code).
+func (tk *TopK) AddSeeded(item []byte, increment uint32, rngState *uint64) (string, bool) {
+	var maxCount uint32
+	fp := murmurHash2(item, topkGA)
+	heapMin := tk.Heap[0].Count
+
+	for i := uint32(0); i < tk.Depth; i++ {
+		loc := murmurHash2(item, i) % tk.Width
+		b := &tk.Data[i*tk.Width+loc]
+		switch {
+		case b.Count == 0:
+			b.Fp = fp
+			b.Count = increment
+			if b.Count > maxCount {
+				maxCount = b.Count
+			}
+		case b.Fp == fp:
+			b.Count += increment
+			if b.Count > maxCount {
+				maxCount = b.Count
+			}
+		default:
+			for localIncr := increment; localIncr > 0; localIncr-- {
+				var decay float64
+				if b.Count < topkDecayLookupTable {
+					decay = tk.lookup[b.Count]
+				} else {
+					decay = math.Pow(tk.lookup[topkDecayLookupTable-1],
+						float64(b.Count/(topkDecayLookupTable-1))) *
+						tk.lookup[b.Count%(topkDecayLookupTable-1)]
+				}
+				if topkRandom(rngState) < decay {
+					b.Count--
+					if b.Count == 0 {
+						b.Fp = fp
+						b.Count = localIncr
+						if b.Count > maxCount {
+							maxCount = b.Count
+						}
+						break
+					}
+				}
+			}
+		}
 	}
 
-	// New item
-	newItem := &TopKItem{
-		Item:  itemStr,
-		Count: 1,
-		Error: 0,
-		index: -1,
+	if maxCount >= heapMin {
+		if idx := tk.checkExistInHeap(item); idx >= 0 {
+			tk.Heap[idx].Count = maxCount // may have decayed, not max of two
+			heapifyDown(tk.Heap, idx)
+		} else {
+			expelled := tk.Heap[0].Item
+			tk.Heap[0] = heapBucket{
+				Count:   maxCount,
+				Fp:      fp,
+				Item:    string(item),
+				ItemLen: uint32(len(item)),
+			}
+			heapifyDown(tk.Heap, 0)
+			if expelled != "" {
+				return expelled, true
+			}
+		}
 	}
-
-	// If we haven't reached k items, just add
-	if tk.minHeap.Len() < tk.k {
-		tk.items[itemStr] = newItem
-		heap.Push(tk.minHeap, newItem)
-		return "", false
-	}
-
-	// Check if this item should replace the minimum
-	minItem := (*tk.minHeap)[0]
-	if 1 > minItem.Count {
-		droppedName := minItem.Item
-		delete(tk.items, minItem.Item)
-		tk.items[itemStr] = newItem
-		newItem.Error = minItem.Count
-		heap.Pop(tk.minHeap)
-		heap.Push(tk.minHeap, newItem)
-		return droppedName, true
-	}
-
-	// Item not in top-k, just track it
-	tk.items[itemStr] = newItem
 	return "", false
 }
 
-// Query returns the count for an item
-func (tk *TopK) Query(item []byte) (uint64, uint64, bool) {
-	itemStr := string(item)
-	if item, ok := tk.items[itemStr]; ok {
-		return item.Count, item.Error, true
-	}
-	return 0, 0, false
+// Query reports whether an item is in the top-k heap.
+func (tk *TopK) Query(item []byte) bool {
+	return tk.checkExistInHeap(item) >= 0
 }
 
-// List returns the top-k items
-func (tk *TopK) List() []*TopKItem {
-	result := make([]*TopKItem, tk.minHeap.Len())
-	copy(result, *tk.minHeap)
-	
-	// Sort by count descending
-	for i, j := 0, len(result)-1; i < j; i, j = i+1, j-1 {
-		result[i], result[j] = result[j], result[i]
+// Count returns the heavy-keeper estimate: max bucket count across rows
+// whose fingerprint matches, gated by the heap minimum when in the heap.
+func (tk *TopK) Count(item []byte) uint64 {
+	fp := murmurHash2(item, topkGA)
+	heapMin := tk.Heap[0].Count
+	heapIdx := tk.checkExistInHeap(item)
+	var res uint32
+	for i := uint32(0); i < tk.Depth; i++ {
+		loc := murmurHash2(item, i) % tk.Width
+		b := &tk.Data[i*tk.Width+loc]
+		if b.Fp == fp && (heapIdx < 0 || b.Count >= heapMin) {
+			if b.Count > res {
+				res = b.Count
+			}
+		}
 	}
-	
-	return result
+	return uint64(res)
+}
+
+// ListEntry is one LIST result item.
+type ListEntry struct {
+	Item  string
+	Count uint64
+}
+
+// List returns heap entries sorted by count desc, stopping at the first
+// empty slot. Tie order is Go-stable (real uses musl qsort — same
+// membership, tie permutation may differ; documented approximation).
+func (tk *TopK) List() []ListEntry {
+	sorted := make([]heapBucket, len(tk.Heap))
+	copy(sorted, tk.Heap)
+	sort.SliceStable(sorted, func(i, j int) bool { return sorted[i].Count > sorted[j].Count })
+	out := make([]ListEntry, 0, len(sorted))
+	for _, b := range sorted {
+		if b.Count == 0 {
+			break
+		}
+		out = append(out, ListEntry{Item: b.Item, Count: uint64(b.Count)})
+	}
+	return out
 }
 
 // Info returns the real 8.10 TOPK.INFO field set (k, width, depth, decay).
 func (tk *TopK) Info() [][2]interface{} {
 	return [][2]interface{}{
-		{"k", int64(tk.k)},
-		{"width", int64(tk.width)},
-		{"depth", int64(tk.depth)},
-		{"decay", strconv.FormatFloat(tk.decay, 'g', -1, 64)},
+		{"k", int64(tk.K)},
+		{"width", int64(tk.Width)},
+		{"depth", int64(tk.Depth)},
+		{"decay", strconv.FormatFloat(tk.Decay, 'g', -1, 64)},
 	}
-}
-
-// topKHeap implements a min-heap for TopKItem
-type topKHeap []*TopKItem
-
-func (h topKHeap) Len() int           { return len(h) }
-func (h topKHeap) Less(i, j int) bool { return h[i].Count < h[j].Count }
-func (h topKHeap) Swap(i, j int) {
-	h[i], h[j] = h[j], h[i]
-	h[i].index = i
-	h[j].index = j
-}
-
-func (h *topKHeap) Push(x interface{}) {
-	n := len(*h)
-	item := x.(*TopKItem)
-	item.index = n
-	*h = append(*h, item)
-}
-
-func (h *topKHeap) Pop() interface{} {
-	old := *h
-	n := len(old)
-	item := old[n-1]
-	old[n-1] = nil
-	item.index = -1
-	*h = old[:n-1]
-	return item
-}
-
-func (h *topKHeap) Fix(i int) {
-	heap.Fix(h, i)
-}
-
-// hash for TopK
-func (tk *TopK) hash(item []byte) uint64 {
-	h := fnv.New64a()
-	h.Write(item)
-	return h.Sum64()
-}
-
-type topKItemWire struct {
-	Item  string `json:"i"`
-	Count uint64 `json:"c"`
-	Error uint64 `json:"e"`
 }
 
 type topKWire struct {
-	K     int            `json:"k"`
-	Width int            `json:"w"`
-	Depth int            `json:"d"`
-	Decay float64        `json:"decay"`
-	Items []topKItemWire `json:"items"`
+	K     uint32       `json:"k"`
+	Width uint32       `json:"w"`
+	Depth uint32       `json:"d"`
+	Decay float64      `json:"dec"`
+	Data  []hkBucket   `json:"data"`
+	Heap  []heapBucket `json:"heap"`
 }
 
-// EncodeJSON serializes Top-K for Godis opaque DUMP/RESTORE.
+// EncodeJSON serializes Top-K for godis opaque DUMP/RESTORE.
 func (tk *TopK) EncodeJSON() ([]byte, error) {
-	items := make([]topKItemWire, 0, len(tk.items))
-	for _, it := range tk.items {
-		items = append(items, topKItemWire{Item: it.Item, Count: it.Count, Error: it.Error})
-	}
 	return json.Marshal(topKWire{
-		K:     tk.k,
-		Width: tk.width,
-		Depth: tk.depth,
-		Decay: tk.decay,
-		Items: items,
+		K:     tk.K,
+		Width: tk.Width,
+		Depth: tk.Depth,
+		Decay: tk.Decay,
+		Data:  tk.Data,
+		Heap:  tk.Heap,
 	})
 }
 
-// DecodeTopK restores Top-K from EncodeJSON output.
+// DecodeTopK restores a Top-K from EncodeJSON output.
 func DecodeTopK(data []byte) (*TopK, error) {
 	var w topKWire
 	if err := json.Unmarshal(data, &w); err != nil {
 		return nil, err
 	}
-	if w.K <= 0 {
-		return nil, fmt.Errorf("invalid topk data")
+	tk := &TopK{
+		K:     w.K,
+		Width: w.Width,
+		Depth: w.Depth,
+		Decay: w.Decay,
+		Data:  w.Data,
+		Heap:  w.Heap,
 	}
-	tk := NewTopKOpts(w.K, w.Width, w.Depth, w.Decay)
-	rankedItems := make([]*TopKItem, 0, len(w.Items))
-	for _, it := range w.Items {
-		item := &TopKItem{Item: it.Item, Count: it.Count, Error: it.Error, index: -1}
-		tk.items[it.Item] = item
-		rankedItems = append(rankedItems, item)
-	}
-	sort.Slice(rankedItems, func(i, j int) bool {
-		return rankedItems[i].Count > rankedItems[j].Count
-	})
-	limit := tk.k
-	if limit > len(rankedItems) {
-		limit = len(rankedItems)
-	}
-	for i := 0; i < limit; i++ {
-		heap.Push(tk.minHeap, rankedItems[i])
+	for i := 0; i < topkDecayLookupTable; i++ {
+		tk.lookup[i] = math.Pow(tk.Decay, float64(i))
 	}
 	return tk, nil
 }
