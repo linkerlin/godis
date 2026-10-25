@@ -53,32 +53,24 @@ func TestM2bbJSONEnhancedArrObj(t *testing.T) {
 		"JSON.SET", "j", "$", `{"a":[1,2,3],"o":{"x":1,"y":2}}`,
 	)), "OK")
 
-	r := db.Exec(nil, utils.ToCmdLine("JSON.ARRPOP", "j", "$.a"))
-	asserts.AssertBulkReply(t, r, "[3]")
+	// Real 8.10: a single-match ARRPOP replies the popped value bare.
+	asserts.AssertIntReply(t, db.Exec(nil, utils.ToCmdLine("JSON.ARRPOP", "j", "$.a")), 3)
 
-	r = db.Exec(nil, utils.ToCmdLine("JSON.ARRTRIM", "j", "$.a", "0", "0"))
+	// Real 8.10: ARRTRIM replies an array even for a single match.
+	r := db.Exec(nil, utils.ToCmdLine("JSON.ARRTRIM", "j", "$.a", "0", "0"))
 	mr := ftSearchMultiRaw(r)
 	if mr == nil || len(mr.Replies) != 1 {
 		t.Fatalf("ARRTRIM $: %T %s", r, r.ToBytes())
 	}
 	asserts.AssertIntReply(t, mr.Replies[0], 1)
 
-	r = db.Exec(nil, utils.ToCmdLine("JSON.OBJKEYS", "j", "$.o"))
-	mr = ftSearchMultiRaw(r)
-	if mr == nil || len(mr.Replies) != 1 {
-		t.Fatalf("OBJKEYS $: %T %s", r, r.ToBytes())
-	}
-	inner, ok := mr.Replies[0].(*protocol.MultiBulkReply)
-	if !ok || len(inner.Args) != 2 {
-		t.Fatalf("OBJKEYS nested: %T %s", mr.Replies[0], r.ToBytes())
+	keys := db.Exec(nil, utils.ToCmdLine("JSON.OBJKEYS", "j", "$.o"))
+	mb, ok := keys.(*protocol.MultiBulkReply)
+	if !ok || len(mb.Args) != 2 {
+		t.Fatalf("OBJKEYS $: %T %s", keys, keys.ToBytes())
 	}
 
-	r = db.Exec(nil, utils.ToCmdLine("JSON.ARRINDEX", "j", "$.a", "1"))
-	mr = ftSearchMultiRaw(r)
-	if mr == nil || len(mr.Replies) != 1 {
-		t.Fatalf("ARRINDEX $: %T %s", r, r.ToBytes())
-	}
-	asserts.AssertIntReply(t, mr.Replies[0], 0)
+	asserts.AssertIntReply(t, db.Exec(nil, utils.ToCmdLine("JSON.ARRINDEX", "j", "$.a", "1")), 0)
 }
 
 func TestM2bbLuaVersionAndReplConstants(t *testing.T) {

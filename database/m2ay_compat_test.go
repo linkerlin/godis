@@ -19,19 +19,10 @@ func TestM2ayJSONEnhancedNumAndLen(t *testing.T) {
 	asserts.AssertBulkReply(t, db.Exec(nil, utils.ToCmdLine("JSON.NUMMULTBY", "j", "$.a", "2")), "[6]")
 	asserts.AssertBulkReply(t, db.Exec(nil, utils.ToCmdLine("JSON.NUMINCRBY", "j", ".a", "1")), "7")
 
-	arr := db.Exec(nil, utils.ToCmdLine("JSON.ARRLEN", "j", "$.b"))
-	mr := ftSearchMultiRaw(arr)
-	if mr == nil || len(mr.Replies) != 1 {
-		t.Fatalf("ARRLEN $: %T %s", arr, arr.ToBytes())
-	}
-	asserts.AssertIntReply(t, mr.Replies[0], 3)
+	// Real 8.10: a single-match `$` path replies the bare length.
+	asserts.AssertIntReply(t, db.Exec(nil, utils.ToCmdLine("JSON.ARRLEN", "j", "$.b")), 3)
 
-	obj := db.Exec(nil, utils.ToCmdLine("JSON.OBJLEN", "j", "$.c"))
-	mr = ftSearchMultiRaw(obj)
-	if mr == nil || len(mr.Replies) != 1 {
-		t.Fatalf("OBJLEN $: %T %s", obj, obj.ToBytes())
-	}
-	asserts.AssertIntReply(t, mr.Replies[0], 2)
+	asserts.AssertIntReply(t, db.Exec(nil, utils.ToCmdLine("JSON.OBJLEN", "j", "$.c")), 2)
 }
 
 func TestM2ayVAddNXXxSetAttr(t *testing.T) {

@@ -49,8 +49,9 @@ func TestM2iJSONClearToggle(t *testing.T) {
 	db.Exec(nil, utils.ToCmdLine("JSON.SET", "j", ".", `{"a":[1,2],"b":true}`))
 	asserts.AssertIntReply(t, db.Exec(nil, utils.ToCmdLine("JSON.CLEAR", "j", ".a")), 1)
 	asserts.AssertBulkReply(t, db.Exec(nil, utils.ToCmdLine("JSON.GET", "j", ".a")), "[]")
-	asserts.AssertIntReply(t, db.Exec(nil, utils.ToCmdLine("JSON.TOGGLE", "j", ".b")), 0)
-	asserts.AssertIntReply(t, db.Exec(nil, utils.ToCmdLine("JSON.TOGGLE", "j", ".b")), 1)
+	// Real 8.10: legacy-path TOGGLE replies the new value as bulk JSON text.
+	asserts.AssertBulkReply(t, db.Exec(nil, utils.ToCmdLine("JSON.TOGGLE", "j", ".b")), "false")
+	asserts.AssertBulkReply(t, db.Exec(nil, utils.ToCmdLine("JSON.TOGGLE", "j", ".b")), "true")
 }
 
 func TestM2iXAutoClaim(t *testing.T) {

@@ -28,6 +28,7 @@ func TestM2bcJSONClearToggleDebugWrap(t *testing.T) {
 	if !ok || len(mr.Replies) != 1 {
 		t.Fatalf("TOGGLE $: %T %s", r, r.ToBytes())
 	}
+	// Real 8.10: $-path TOGGLE replies per-match integers (new value).
 	asserts.AssertIntReply(t, mr.Replies[0], 0)
 
 	r = db.Exec(nil, utils.ToCmdLine("JSON.DEBUG", "MEMORY", "j", "$"))

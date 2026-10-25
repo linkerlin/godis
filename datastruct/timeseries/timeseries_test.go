@@ -65,10 +65,14 @@ func TestDuplicatePolicies(t *testing.T) {
 
 func TestRetentionTrimAndInfo(t *testing.T) {
 	ts := NewTimeSeries("k", 10*time.Millisecond)
+	now := time.Now().UnixMilli()
 	ts.Samples = []Sample{
-		{Timestamp: time.Now().Add(-time.Second).UnixMilli(), Value: 1},
-		{Timestamp: time.Now().UnixMilli(), Value: 2},
+		{Timestamp: now - 1000, Value: 1},
+		{Timestamp: now, Value: 2},
 	}
+	// Retention is series-time (lastTimestamp-retention) since the batch-15
+	// alignment; seeds must carry the series clock.
+	ts.lastTimestamp = now
 	if got := ts.Trim(); got != 1 {
 		t.Fatalf("Trim = %d, want 1", got)
 	}

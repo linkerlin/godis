@@ -14,7 +14,7 @@
 # Placeholder {{ID}} -> process id (unique keys per run).
 #
 # WANT may embed \n for multi-line --raw (e.g. ZPOPMIN member\nscore).
-# @allowlist PING,ECHO,SET,SETNX,GET,GETDEL,GETSET,GETEX,STRLEN,APPEND,DEL,EXISTS,INCR,DECR,INCRBY,DECRBY,INCRBYFLOAT,TYPE,MSET,MGET,MSETNX,SETRANGE,GETRANGE,SUBSTR,SETEX,PSETEX,UNLINK,HSET,HMSET,HGET,HMGET,HSETNX,HINCRBY,HINCRBYFLOAT,HSTRLEN,HLEN,HEXISTS,HDEL,HEXPIRE,HTTL,HPEXPIRE,HPTTL,HKEYS,HVALS,HRANDFIELD,HGETDEL,HGETEX,LPUSH,LPUSHX,RPUSH,RPUSHX,LLEN,LINDEX,LRANGE,LPOP,RPOP,RPOPLPUSH,LSET,LINSERT,LREM,LTRIM,LPOS,LMOVE,LMPOP,BLMOVE,SADD,SCARD,SISMEMBER,SMISMEMBER,SMOVE,SREM,SPOP,SRANDMEMBER,SUNION,SUNIONSTORE,SINTERSTORE,SDIFFSTORE,SDIFF,SINTER,SINTERCARD,ZADD,ZINCRBY,ZSCORE,ZMSCORE,ZRANK,ZREVRANK,ZRANGE,ZREVRANGE,ZRANGEBYSCORE,ZREVRANGEBYSCORE,ZRANGEBYLEX,ZRANGESTORE,ZCARD,ZREM,ZCOUNT,ZREMRANGEBYRANK,ZREMRANGEBYSCORE,ZREMRANGEBYLEX,ZUNION,ZUNIONSTORE,ZINTER,ZINTERSTORE,ZINTERCARD,ZDIFFSTORE,ZDIFF,ZPOPMIN,ZPOPMAX,ZMPOP,ZLEXCOUNT,ZRANDMEMBER,BZPOPMIN,TTL,PTTL,PEXPIRE,PEXPIREAT,EXPIRE,EXPIREAT,EXPIRETIME,PEXPIRETIME,PERSIST,TOUCH,RENAME,MOVE,XADD,XLEN,XDEL,XTRIM,XREVRANGE,XRANGE,GEOADD,GEOHASH,GEORADIUS,GEOSEARCH,GEORADIUS_RO,GEORADIUSBYMEMBER_RO,SETBIT,GETBIT,BITCOUNT,BITPOS,BITOP,BITFIELD,PFADD,PFCOUNT,PFMERGE,COPY,RENAMENX,LCS,OBJECT,DBSIZE,SORT,MEMORY,SUNIONCARD,SDIFFCARD,LMOVEM,DELEX,DIGEST,MSETEX,XREAD,CONFIG,XNACK,XCFGSET,INCREX,XREADGROUP,XGROUP,TS.CREATE,TS.ADD,TS.MADD,TS.RANGE,TS.NRANGE,TS.QUERYLABELS,HOTKEYS,TS.READ,ARSET,ARMSET,ARGET,ARMGET,ARGETRANGE,ARLEN,ARCOUNT,ARDEL,ARDELRANGE,ARINSERT,ARNEXT,ARSEEK,ARINFO,ARLASTITEMS,AROP,ARGREP,ARRING,ARSCAN,JSON.SET,JSON.GET,AUTH,ACL,FUNCTION,FCALL,FCALL_RO,EVAL,EVAL_RO,EVALSHA,EVALSHA_RO,HELLO,VADD,VSIM,VEMB,VCARD,VDIM,VISMEMBER,VGETATTR,VSETATTR,VREM,VRANDMEMBER,BF.RESERVE,BF.ADD,BF.MADD,BF.EXISTS,BF.INFO,CF.RESERVE,CF.ADD,CF.DEL,CF.INFO,CMS.INITBYDIM,CMS.INCRBY,CMS.QUERY,CMS.INFO,TDIGEST.CREATE,TDIGEST.ADD,TDIGEST.INFO,TDIGEST.QUANTILE,TDIGEST.CDF,TOPK.RESERVE,TOPK.INFO,TS.CREATE,TS.ADD,TS.GET,TS.RANGE,TS.REVRANGE,TS.INFO
+# @allowlist PING,ECHO,SET,SETNX,GET,GETDEL,GETSET,GETEX,STRLEN,APPEND,DEL,EXISTS,INCR,DECR,INCRBY,DECRBY,INCRBYFLOAT,TYPE,MSET,MGET,MSETNX,SETRANGE,GETRANGE,SUBSTR,SETEX,PSETEX,UNLINK,HSET,HMSET,HGET,HMGET,HSETNX,HINCRBY,HINCRBYFLOAT,HSTRLEN,HLEN,HEXISTS,HDEL,HEXPIRE,HTTL,HPEXPIRE,HPTTL,HKEYS,HVALS,HRANDFIELD,HGETDEL,HGETEX,LPUSH,LPUSHX,RPUSH,RPUSHX,LLEN,LINDEX,LRANGE,LPOP,RPOP,RPOPLPUSH,LSET,LINSERT,LREM,LTRIM,LPOS,LMOVE,LMPOP,BLMOVE,SADD,SCARD,SISMEMBER,SMISMEMBER,SMOVE,SREM,SPOP,SRANDMEMBER,SUNION,SUNIONSTORE,SINTERSTORE,SDIFFSTORE,SDIFF,SINTER,SINTERCARD,ZADD,ZINCRBY,ZSCORE,ZMSCORE,ZRANK,ZREVRANK,ZRANGE,ZREVRANGE,ZRANGEBYSCORE,ZREVRANGEBYSCORE,ZRANGEBYLEX,ZRANGESTORE,ZCARD,ZREM,ZCOUNT,ZREMRANGEBYRANK,ZREMRANGEBYSCORE,ZREMRANGEBYLEX,ZUNION,ZUNIONSTORE,ZINTER,ZINTERSTORE,ZINTERCARD,ZDIFFSTORE,ZDIFF,ZPOPMIN,ZPOPMAX,ZMPOP,ZLEXCOUNT,ZRANDMEMBER,BZPOPMIN,TTL,PTTL,PEXPIRE,PEXPIREAT,EXPIRE,EXPIREAT,EXPIRETIME,PEXPIRETIME,PERSIST,TOUCH,RENAME,MOVE,XADD,XLEN,XDEL,XTRIM,XREVRANGE,XRANGE,GEOADD,GEOHASH,GEORADIUS,GEOSEARCH,GEORADIUS_RO,GEORADIUSBYMEMBER_RO,SETBIT,GETBIT,BITCOUNT,BITPOS,BITOP,BITFIELD,PFADD,PFCOUNT,PFMERGE,COPY,RENAMENX,LCS,OBJECT,DBSIZE,SORT,MEMORY,SUNIONCARD,SDIFFCARD,LMOVEM,DELEX,DIGEST,MSETEX,XREAD,CONFIG,XNACK,XCFGSET,INCREX,XREADGROUP,XGROUP,TS.CREATE,TS.ADD,TS.MADD,TS.RANGE,TS.NRANGE,TS.QUERYLABELS,HOTKEYS,TS.READ,ARSET,ARMSET,ARGET,ARMGET,ARGETRANGE,ARLEN,ARCOUNT,ARDEL,ARDELRANGE,ARINSERT,ARNEXT,ARSEEK,ARINFO,ARLASTITEMS,AROP,ARGREP,ARRING,ARSCAN,JSON.SET,JSON.GET,JSON.TYPE,JSON.DEL,JSON.TOGGLE,JSON.CLEAR,JSON.STRLEN,JSON.STRAPPEND,JSON.ARRAPPEND,JSON.ARRINSERT,JSON.ARRINDEX,JSON.ARRPOP,JSON.ARRTRIM,JSON.ARRLEN,JSON.OBJKEYS,JSON.OBJLEN,JSON.NUMINCRBY,JSON.NUMMULTBY,JSON.MERGE,JSON.MSET,JSON.RESP,JSON.DEBUG,AUTH,ACL,FUNCTION,FCALL,FCALL_RO,EVAL,EVAL_RO,EVALSHA,EVALSHA_RO,HELLO,VADD,VSIM,VEMB,VCARD,VDIM,VISMEMBER,VGETATTR,VSETATTR,VREM,VRANDMEMBER,BF.RESERVE,BF.ADD,BF.MADD,BF.EXISTS,BF.INFO,CF.RESERVE,CF.ADD,CF.DEL,CF.INFO,CMS.INITBYDIM,CMS.INCRBY,CMS.QUERY,CMS.INFO,TDIGEST.CREATE,TDIGEST.ADD,TDIGEST.INFO,TDIGEST.QUANTILE,TDIGEST.CDF,TOPK.RESERVE,TOPK.INFO,TS.CREATE,TS.ADD,TS.GET,TS.RANGE,TS.REVRANGE,TS.INFO
 
 # --- String / ping ---
 PING|PONG|PING
@@ -16013,3 +16013,116 @@ TS-ret-in-window|1200|TS.ADD ptsr:{{ID}} 1200 8
 TS-ret-advance2|3500|TS.ADD ptsr:{{ID}} 3500 9
 TS-ret-too-old|ERR TSDB: Timestamp is older than retention|TS.ADD ptsr:{{ID}} 1200 8
 TS-ret-range2|3500\n9|TS.RANGE ptsr:{{ID}} - +
+
+# --- R4-1 batch17: JSON deep surface vs real 8.10 core (ordered storage, int/float split, toggle/~ family, error texts) ---
+@CMD JSON.SET json17:{{ID}}:doc $ {"a":1,"f":1.5,"b":true,"s":"str","obj":{"b":1,"a":2},"arr":[1,2,3],"nested":{"deep":{"x":[10,20,30]}}}
+get-root|{"a":1,"f":1.5,"b":true,"s":"str","obj":{"b":1,"a":2},"arr":[1,2,3],"nested":{"deep":{"x":[10,20,30]}}}|JSON.GET json17:{{ID}}:doc
+get-a-int|[1]|JSON.GET json17:{{ID}}:doc $.a
+get-f-float|[1.5]|JSON.GET json17:{{ID}}:doc $.f
+type-root|object|JSON.TYPE json17:{{ID}}:doc $
+type-integer|integer|JSON.TYPE json17:{{ID}}:doc $.a
+type-number|number|JSON.TYPE json17:{{ID}}:doc $.f
+type-boolean|boolean|JSON.TYPE json17:{{ID}}:doc $.b
+type-string|string|JSON.TYPE json17:{{ID}}:doc $.s
+type-object|object|JSON.TYPE json17:{{ID}}:doc $.obj
+type-array|array|JSON.TYPE json17:{{ID}}:doc $.arr
+type-miss|[]|JSON.GET json17:{{ID}}:doc $.zz
+type-miss-type|$empty|JSON.TYPE json17:{{ID}}:doc $.zz
+strlen-s|3|JSON.STRLEN json17:{{ID}}:doc $.s
+strlen-nonstring|$empty|JSON.STRLEN json17:{{ID}}:doc $.a
+objkeys-order|b\na|JSON.OBJKEYS json17:{{ID}}:doc $.obj
+objkeys-legacy|b\na|JSON.OBJKEYS json17:{{ID}}:doc .obj
+objkeys-array|$empty|JSON.OBJKEYS json17:{{ID}}:doc $.arr
+objlen|2|JSON.OBJLEN json17:{{ID}}:doc $.obj
+objlen-miss|$empty|JSON.OBJLEN json17:{{ID}}:doc $.zz
+arrlen|3|JSON.ARRLEN json17:{{ID}}:doc $.arr
+arrlen-nonarray|$empty|JSON.ARRLEN json17:{{ID}}:doc $.obj
+resp-obj|{\nb\n1\na\n2|JSON.RESP json17:{{ID}}:doc $.obj
+resp-arr|[\n1\n2\n3|JSON.RESP json17:{{ID}}:doc $.arr
+tilde-obj|["b","a"]|JSON.GET json17:{{ID}}:doc $.obj~
+tilde-star|["b","a","deep"]|JSON.GET json17:{{ID}}:doc $.*~
+tilde-arr|[]|JSON.GET json17:{{ID}}:doc $.arr~
+tilde-miss|[]|JSON.GET json17:{{ID}}:doc $.obj.zz~
+tilde-scalar|[]|JSON.GET json17:{{ID}}:doc $.obj.a~
+tilde-dotted|Error occurred at position 6, Error at position 6: expected one of the following: <string>, function_name, '*'|JSON.GET json17:{{ID}}:doc $.obj.~
+tilde-dotdot|Error occurred at position 3, Error at position 3: expected one of the following: <string>, '*'|JSON.GET json17:{{ID}}:doc $..~
+recursive-obj|["b","a"]|JSON.GET json17:{{ID}}:doc $..obj~
+recursive-star|[1,1.5,true,"str",{"b":1,"a":2},[1,2,3],{"deep":{"x":[10,20,30]}},1,2,1,2,3,{"x":[10,20,30]},[10,20,30],10,20,30]|JSON.GET json17:{{ID}}:doc $..*
+recursive-index|[2,20]|JSON.GET json17:{{ID}}:doc $..[1]
+recursive-key|[[10,20,30]]|JSON.GET json17:{{ID}}:doc $..x
+keys-fn|["b","a"]|JSON.GET json17:{{ID}}:doc keys($.obj)
+keys-nested-fn|[2]|JSON.GET json17:{{ID}}:doc length(keys($.obj))
+abs-min-fn|[10.0]|JSON.GET json17:{{ID}}:doc abs(min($..x))
+@CMD JSON.SET json17:{{ID}}:arr $ {"arr":[1,2,3]}
+arrappend|5|JSON.ARRAPPEND json17:{{ID}}:arr $.arr 4 5
+arrappend-get|[[1,2,3,4,5]]|JSON.GET json17:{{ID}}:arr $.arr
+arrappend-nonarray|$empty|JSON.ARRAPPEND json17:{{ID}}:arr $ 9
+arrindex-hit|1|JSON.ARRINDEX json17:{{ID}}:arr $.arr 2
+arrindex-miss|-1|JSON.ARRINDEX json17:{{ID}}:arr $.arr 99
+arrinsert|6|JSON.ARRINSERT json17:{{ID}}:arr $.arr 1 9
+arrtrim|2|JSON.ARRTRIM json17:{{ID}}:arr $.arr 1 2
+arrpop|2|JSON.ARRPOP json17:{{ID}}:arr $.arr
+arrpop-neg|9|JSON.ARRPOP json17:{{ID}}:arr $.arr -1
+arrpop-oob|$empty|JSON.ARRPOP json17:{{ID}}:arr $.arr 99
+arrpop-empty|$empty|JSON.ARRPOP json17:{{ID}}:arr $.arr
+@CMD JSON.SET json17:{{ID}}:tgl $ {"a":true,"b":{"c":false,"d":2}}
+toggle-single|0|JSON.TOGGLE json17:{{ID}}:tgl $.a
+toggle-single-back|1|JSON.TOGGLE json17:{{ID}}:tgl $.a
+toggle-root|$empty|JSON.TOGGLE json17:{{ID}}:tgl $
+toggle-miss|$empty|JSON.TOGGLE json17:{{ID}}:tgl $.zz
+toggle-nonbool|$empty|JSON.TOGGLE json17:{{ID}}:tgl $.d
+toggle-nokey|ERR could not perform this operation on a key that doesn't exist|JSON.TOGGLE json17:{{ID}}:nokey $
+toggle-legacy|ERR Path does not exist or not a bool|JSON.TOGGLE json17:{{ID}}:tgl .c
+toggle-legacy-back|ERR Path does not exist or not a bool|JSON.TOGGLE json17:{{ID}}:tgl .c
+toggle-legacy-miss|ERR Path does not exist or not a bool|JSON.TOGGLE json17:{{ID}}:tgl .zz
+@CMD JSON.SET json17:{{ID}}:m $ {"a":true,"b":{"c":false,"d":2}}
+toggle-recursive|0\n\n1|JSON.TOGGLE json17:{{ID}}:m $..*
+toggle-recursive-get|{"a":false,"b":{"c":true,"d":2}}|JSON.GET json17:{{ID}}:m
+@CMD JSON.SET json17:{{ID}}:num $ {"a":1,"f":1.5,"s":"str"}
+numincrby-int|[6]|JSON.NUMINCRBY json17:{{ID}}:num $.a 5
+numincrby-int-again|[4]|JSON.NUMINCRBY json17:{{ID}}:num $.a -2
+numincrby-float|[2.5]|JSON.NUMINCRBY json17:{{ID}}:num $.f 1
+numincrby-nonnum|[null]|JSON.NUMINCRBY json17:{{ID}}:num $.s 1
+numincrby-miss|[]|JSON.NUMINCRBY json17:{{ID}}:num $.zz 1
+nummultby-int|[8]|JSON.NUMMULTBY json17:{{ID}}:num $.a 2
+nummultby-float|[5.0]|JSON.NUMMULTBY json17:{{ID}}:num $.f 2
+numincrby-type|integer|JSON.TYPE json17:{{ID}}:num $.a
+@CMD JSON.SET json17:{{ID}}:str $ {"s":"str","a":1}
+strappend|5|JSON.STRAPPEND json17:{{ID}}:str $.s '"-x"'
+strappend-nonstring|$empty|JSON.STRAPPEND json17:{{ID}}:str $.a '"x"'
+strappend-badjson|ERR expected value at line 1 column 1|JSON.STRAPPEND json17:{{ID}}:str $.s xx
+strappend-len|5|JSON.STRLEN json17:{{ID}}:str $.s
+@CMD JSON.SET json17:{{ID}}:del $ {"obj":{"a":1,"b":2,"c":3,"d":4,"e":5}}
+del-swapdelete|1|JSON.DEL json17:{{ID}}:del $.obj.b
+del-order-after|["a","e","c","d"]|JSON.GET json17:{{ID}}:del $.obj~
+del-count|1|JSON.DEL json17:{{ID}}:del $..c
+del-root|1|JSON.DEL json17:{{ID}}:del $
+del-after|$empty|JSON.GET json17:{{ID}}:del
+@CMD JSON.SET json17:{{ID}}:mrg $ {"obj":{"b":1,"a":2},"keep":true}
+merge|OK|JSON.MERGE json17:{{ID}}:mrg $ {"obj":{"c":3},"m":1}
+merge-get|{"obj":{"b":1,"a":2,"c":3},"keep":true,"m":1}|JSON.GET json17:{{ID}}:mrg
+merge-patch-null|OK|JSON.MERGE json17:{{ID}}:mrg $.obj {"a":null}
+merge-get2|{"obj":{"b":1,"c":3},"keep":true,"m":1}|JSON.GET json17:{{ID}}:mrg
+@CMD JSON.MSET json17:{{ID}}:ms1 $ 1 json17:{{ID}}:ms2 $ {"x":2}
+mset-get1|1|JSON.GET json17:{{ID}}:ms1
+mset-get2|{"x":2}|JSON.GET json17:{{ID}}:ms2
+mset-bad|EOF while parsing an object at line 1 column 1|JSON.MSET json17:{{ID}}:ms1 $ {
+set-eof-obj|EOF while parsing an object at line 1 column 1|JSON.SET json17:{{ID}}:err $ {
+set-eof-arr|EOF while parsing a list at line 1 column 1|JSON.SET json17:{{ID}}:err $ [
+set-bad-start|expected value at line 1 column 1|JSON.SET json17:{{ID}}:err $ x
+set-ident|EOF while parsing a value at line 1 column 3|JSON.SET json17:{{ID}}:err $ tru
+set-key-not-string|key must be a string at line 1 column 2|JSON.SET json17:{{ID}}:err $ {1:2}
+set-nx-existing|OK|JSON.SET json17:{{ID}}:err $ 1
+set-nx-hit|$empty|JSON.SET json17:{{ID}}:err $ 2 NX
+set-xx-miss|$empty|JSON.SET json17:{{ID}}:xx $ 3 XX
+set-wrongpath|$empty|JSON.SET json17:{{ID}}:err $.a.b 1
+@CMD JSON.SET json17:{{ID}}:clr $ {"arr":[1,2,3],"obj":{"a":1},"s":"x","n":5,"b":true}
+clear-arr|1|JSON.CLEAR json17:{{ID}}:clr $.arr
+clear-arr-get|[[]]|JSON.GET json17:{{ID}}:clr $.arr
+clear-obj|1|JSON.CLEAR json17:{{ID}}:clr $.obj
+clear-num|1|JSON.CLEAR json17:{{ID}}:clr $.n
+clear-str|0|JSON.CLEAR json17:{{ID}}:clr $.s
+clear-bool|0|JSON.CLEAR json17:{{ID}}:clr $.b
+clear-root|1|JSON.CLEAR json17:{{ID}}:clr $
+debug-help|MEMORY <key> [path] - reports memory usage\nHELP                - this message|JSON.DEBUG HELP
+debug-unknown|ERR unknown subcommand - try `JSON.DEBUG HELP`|JSON.DEBUG NOPE

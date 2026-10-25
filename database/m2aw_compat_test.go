@@ -26,7 +26,7 @@ func TestM2awJSONGetEnhancedWrap(t *testing.T) {
 
 	typ := db.Exec(nil, utils.ToCmdLine("JSON.TYPE", "j", "$.a"))
 	mr, ok := typ.(*protocol.MultiBulkReply)
-	if !ok || len(mr.Args) != 1 || string(mr.Args[0]) != "number" {
+	if !ok || len(mr.Args) != 1 || string(mr.Args[0]) != "integer" {
 		t.Fatalf("JSON.TYPE $: %T %s", typ, typ.ToBytes())
 	}
 }

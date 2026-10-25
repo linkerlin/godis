@@ -54,6 +54,20 @@ func PathHasFilter(path string) bool {
 // ApplyFilter evaluates pred against each element of arr and returns the
 // matching elements as a new array.
 func ApplyFilter(arr []interface{}, pred string) ([]interface{}, error) {
+	idxs, err := ApplyFilterIndices(arr, pred)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]interface{}, 0, len(idxs))
+	for _, i := range idxs {
+		out = append(out, arr[i])
+	}
+	return out, nil
+}
+
+// ApplyFilterIndices returns the indices of the elements matching pred —
+// the write-back twin of ApplyFilter (used by toggle's slot walker).
+func ApplyFilterIndices(arr []interface{}, pred string) ([]int, error) {
 	expr := strings.TrimSpace(pred)
 	if !strings.HasPrefix(expr, "?(") || !strings.HasSuffix(expr, ")") {
 		return nil, ErrJSONPathSyntax
@@ -70,10 +84,10 @@ func ApplyFilter(arr []interface{}, pred string) ([]interface{}, error) {
 	if p.pos != len(p.toks) {
 		return nil, ErrJSONPathSyntax
 	}
-	out := make([]interface{}, 0, len(arr))
-	for _, elem := range arr {
+	out := make([]int, 0, len(arr))
+	for i, elem := range arr {
 		if evalNode(node, elem) {
-			out = append(out, elem)
+			out = append(out, i)
 		}
 	}
 	return out, nil
@@ -765,12 +779,26 @@ func nodeValue(n *predNode, elem interface{}) interface{} {
 // partial) and concat on strings. Unknown or mistyped calls yield Nothing.
 func applyFunction(fn string, recv interface{}, argNode *predNode, elem interface{}) interface{} {
 	numsOf := func(v interface{}) ([]float64, bool) {
-		arr, ok := asNodeSlice(v)
-		if !ok {
-			return nil, false
+		// A nodeList may carry array-valued matches ($..x selects the whole
+		// array); real flattens those into the aggregation (min($..x)=10).
+		var flat []interface{}
+		if nl, ok := v.(nodeList); ok {
+			for _, e := range nl {
+				if sub, isArr := asNodeSlice(e); isArr {
+					flat = append(flat, sub...)
+				} else {
+					flat = append(flat, e)
+				}
+			}
+		} else {
+			arr, ok := asNodeSlice(v)
+			if !ok {
+				return nil, false
+			}
+			flat = arr
 		}
-		nums := make([]float64, 0, len(arr))
-		for _, e := range arr {
+		nums := make([]float64, 0, len(flat))
+		for _, e := range flat {
 			f, ok := toFloat(e)
 			if !ok {
 				return nil, false
@@ -858,6 +886,13 @@ func applyFunction(fn string, recv interface{}, argNode *predNode, elem interfac
 			return math.Sqrt(sq / float64(len(nums)-1))
 		}
 	case "keys":
+		if obj, ok := ObjAsOrdered(recv); ok {
+			keys := make([]interface{}, 0, obj.Len())
+			for _, k := range obj.Keys() {
+				keys = append(keys, k)
+			}
+			return keys
+		}
 		obj, ok := recv.(map[string]interface{})
 		if !ok {
 			return nil
@@ -997,6 +1032,20 @@ func walkRelative(start interface{}, rel string) interface{} {
 			continue
 		}
 		switch c := current.(type) {
+		case *OrderedObj:
+			if part == "~" {
+				keys := make([]interface{}, 0, c.Len())
+				for _, k := range c.Keys() {
+					keys = append(keys, k)
+				}
+				current = keys
+				continue
+			}
+			v, ok := c.Get(part)
+			if !ok {
+				return nil
+			}
+			current = v
 		case map[string]interface{}:
 			if part == "~" {
 				keys := make([]interface{}, 0, len(c))
@@ -1033,6 +1082,8 @@ func truthy(v interface{}) bool {
 		return t
 	case float64:
 		return t != 0
+	case int64:
+		return t != 0
 	case string:
 		return t != ""
 	case nodeList:
@@ -1054,6 +1105,8 @@ func lengthOf(v interface{}) (int, bool) {
 		return len(t), true
 	case map[string]interface{}:
 		return len(t), true
+	case *OrderedObj:
+		return t.Len(), true
 	}
 	return 0, false
 }
@@ -1165,9 +1218,42 @@ func deepEqual(l, r interface{}) bool {
 }
 
 func fmtEqual(l, r interface{}) bool {
-	lb, err1 := json.Marshal(l)
-	rb, err2 := json.Marshal(r)
-	// ponytail: marshal-based deep equality — key order from encoding/json
-	// is deterministic for map[string]interface{}, so this is exact.
+	lb, err1 := json.Marshal(normalizeForCompare(l))
+	rb, err2 := json.Marshal(normalizeForCompare(r))
+	// ponytail: marshal-based deep equality after normalizing ordered objects
+	// to plain maps — serde_json's map equality is key-order-insensitive, so
+	// encoding/json's deterministic sorted map keys make this exact.
 	return err1 == nil && err2 == nil && string(lb) == string(rb)
+}
+
+// normalizeForCompare converts ordered objects (and arrays containing them)
+// to plain maps so marshal-based equality ignores key order.
+func normalizeForCompare(v interface{}) interface{} {
+	switch t := v.(type) {
+	case *OrderedObj:
+		m := make(map[string]interface{}, t.Len())
+		for k, val := range t.m {
+			m[k] = normalizeForCompare(val)
+		}
+		return m
+	case map[string]interface{}:
+		m := make(map[string]interface{}, len(t))
+		for k, val := range t {
+			m[k] = normalizeForCompare(val)
+		}
+		return m
+	case []interface{}:
+		out := make([]interface{}, len(t))
+		for i, e := range t {
+			out[i] = normalizeForCompare(e)
+		}
+		return out
+	case nodeList:
+		out := make([]interface{}, len(t))
+		for i, e := range t {
+			out[i] = normalizeForCompare(e)
+		}
+		return out
+	}
+	return v
 }

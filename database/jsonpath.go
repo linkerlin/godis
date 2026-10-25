@@ -3,7 +3,6 @@ package database
 import (
 	"encoding/json"
 	"strconv"
-	"strings"
 
 	godisjson "github.com/linkerlin/godis/datastruct/json"
 	"github.com/linkerlin/godis/interface/redis"
@@ -36,13 +35,13 @@ func execJSONNumMultBy(db *DB, args [][]byte) redis.Reply {
 		return &protocol.WrongTypeErrReply{}
 	}
 
-	newVal, err := jv.NumMultBy(path, multiplier)
+	newVals, err := jv.NumMultBy(path, multiplier)
 	if err != nil {
 		return protocol.MakeErrReply("ERR " + err.Error())
 	}
 
 	db.addAof(utils.ToCmdLine3("json.nummultby", args...))
-	return wrapEnhancedJSONNumReply(path, newVal)
+	return renderNumResults(path, newVals)
 }
 
 // execJSONStrLen returns string length
@@ -70,11 +69,15 @@ func execJSONStrLen(db *DB, args [][]byte) redis.Reply {
 		return &protocol.WrongTypeErrReply{}
 	}
 
-	length, err := jv.StrLen(path)
-	if err != nil {
-		return protocol.MakeErrReply("ERR " + err.Error())
+	if godisjson.IsLegacyJSONPath(path) {
+		length, err := jv.StrLen(path)
+		if err != nil {
+			return protocol.MakeErrReply(err.Error())
+		}
+		return protocol.MakeIntReply(int64(length))
 	}
-	return wrapEnhancedJSONIntReply(path, explicitPath, int64(length))
+	_ = explicitPath
+	return renderMatchValues(jv.StrLenMatches(path))
 }
 
 // execJSONArrPop pops an element from array
@@ -97,10 +100,8 @@ func execJSONArrPop(db *DB, args [][]byte) redis.Reply {
 	}
 
 	path := "$"
-	explicitPath := false
 	if len(args) > 1 {
 		path = string(args[1])
-		explicitPath = true
 	}
 
 	index := -1 // Last element by default
@@ -109,28 +110,30 @@ func execJSONArrPop(db *DB, args [][]byte) redis.Reply {
 		index = idx
 	}
 
-	elem, err := jv.ArrPop(path, index)
-	if err != nil {
-		return protocol.MakeErrReply("ERR " + err.Error())
-	}
-
-	// Convert element to JSON string
-	if elem == nil {
-		return &protocol.NullBulkReply{}
-	}
-
-	if explicitPath && strings.HasPrefix(path, "$") {
-		data, err := json.Marshal([]interface{}{elem})
+	if godisjson.IsLegacyJSONPath(path) {
+		elem, err := jv.ArrPop(path, index)
 		if err != nil {
 			return protocol.MakeErrReply("ERR " + err.Error())
 		}
+		if elem == nil {
+			return &protocol.NullBulkReply{}
+		}
+		data, _ := json.Marshal(elem)
 		db.addAof(utils.ToCmdLine3("json.arrpop", args...))
 		return protocol.MakeBulkReply(data)
 	}
-
-	data, _ := json.Marshal(elem)
-	db.addAof(utils.ToCmdLine3("json.arrpop", args...))
-	return protocol.MakeBulkReply(data)
+	results := jv.ArrPopMatches(path, index)
+	changed := false
+	for _, r := range results {
+		if r != nil {
+			changed = true
+			break
+		}
+	}
+	if changed {
+		db.addAof(utils.ToCmdLine3("json.arrpop", args...))
+	}
+	return renderMatchValues(results)
 }
 
 // execJSONArrTrim trims an array
@@ -197,12 +200,14 @@ func execJSONArrIndex(db *DB, args [][]byte) redis.Reply {
 		stop, _ = strconv.Atoi(string(args[4]))
 	}
 
-	index, err := jv.ArrIndex(path, value, start, stop)
-	if err != nil {
-		return wrapEnhancedJSONIntReply(path, true, -1)
+	if godisjson.IsLegacyJSONPath(path) {
+		index, err := jv.ArrIndex(path, value, start, stop)
+		if err != nil {
+			return protocol.MakeIntReply(-1)
+		}
+		return protocol.MakeIntReply(int64(index))
 	}
-
-	return wrapEnhancedJSONIntReply(path, true, int64(index))
+	return renderMatchValues(jv.ArrIndexMatches(path, value, start, stop))
 }
 
 func init() {

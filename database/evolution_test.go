@@ -478,9 +478,15 @@ func TestE4_JSONPathNestedProjectionsParenArithAndKeyOperator(t *testing.T) {
 	r2 := srv.Exec(c, utils.ToCmdLine("JSON.GET", "jp:doc", "length(keys($.obj))"))
 	asserts.AssertBulkReply(t, r2, "[2]")
 
-	// 3. Property-name operator `~`: $.obj.~ -> [["a","b"]]
-	r3 := srv.Exec(c, utils.ToCmdLine("JSON.GET", "jp:doc", "$.obj.~"))
-	asserts.AssertBulkReply(t, r3, `[["a","b"]]`)
+	// 3. Property-name suffix operator: `$.obj~` -> insertion-order keys
+	//    (real: ["b","a"] for {"b":1,"a":2}); the dotted form is a grammar
+	//    error on real 8.10.
+	r3 := srv.Exec(c, utils.ToCmdLine("JSON.GET", "jp:doc", "$.obj~"))
+	asserts.AssertBulkReply(t, r3, `["b","a"]`)
+	if r := srv.Exec(c, utils.ToCmdLine("JSON.GET", "jp:doc", "$.obj.~")); !protocol.IsErrorReply(r) ||
+		string(r.ToBytes()) != "-Error occurred at position 6, Error at position 6: expected one of the following: <string>, function_name, '*'\r\n" {
+		t.Fatalf("dotted tilde: %s", r.ToBytes())
+	}
 
 	// 4. Filter with parenthesized arithmetic and prefix function calls:
 	//    ($.items[?((@.a + @.b) * 2 == 10 && abs(@.x - 5) <= 2 && length(@.name) == 3)].name) -> ["cat"]

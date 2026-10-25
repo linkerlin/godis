@@ -8,8 +8,7 @@
 
 ### Added
 
-### Added
-
+- **JSON 深面整体对齐——存储模型重建 + 24 命令逐字节对拍（2026-10-25，第十七批）**：godis 的 JSON 存储一直用 Go map（键序随机丢失、int 一律 float64、1.0 序列化成 1），与 RedisJSON（Rust serde_json + preserve_order）语义差距是结构性的。本批重建存储模型：`datastruct/json/ordered.go` 新增 `OrderedObj`（插入序对象 + swap-delete 删除语义——删键后末位成员补位，与实机 `{"a":1,"b":2,"c":3}` 删 b 得 `a,c` 序一致）、int64-first 数字解析（`JSON.TYPE` 的 integer/number 类型分离、`NUMINCRBY 1+5=6` 保持整数）、整值浮点一位小数渲染（`1.0`/`100.0`）；`serde.go` 新增 serde_json 兼容校验器（错误文案族逐字节：`EOF while parsing an object at line 1 column 1`、`key must be a string`、`expected ident`、`invalid number`，EOF 列号=输入长度）。路径引擎补齐实机语法：`~` 属性名后缀（`$.obj~` 扁平插入序；点分形态 `$.obj.~` 是带 position 的语法错误）、`$..[N]` 递归索引、`$..*` children-first 顺序、过滤器/算术/函数投影对有序对象的识别。命令面逐命令对齐实机回复形状：TOGGLE（legacy 路径回 bulk JSON 文本、`$` 路径回整数数组、非布尔匹配为 null）、STRLEN/ARRLEN/ARRPOP/ARRAPPEND/ARRINDEX/OBJLEN（单匹配裸值、多匹配数组、非目标类型 null 元素）、NUMINCRBY/NUMMULTBY（整结果 bulk JSON 数组 `[2,null]`、miss 空数组）、GET `$` 路径 miss 回 `[]`、SET 不可达 `$` 路径静默 null、DEL 递归 descent（`$..b` 全删 + 每容器 swap-delete）、CLEAR 容器清空/数字清零/字符串布尔不动、MERGE/MSET/ARRINSERT/ARRAPPEND 值保序保 int。写回机制以「slot」（容器成员可写位）重构：`resolveSlots`/`stepSlots` 把路径文法映射为逐匹配写位，TOGGLE/NUMINCRBY/DEL 递归/STRAPPEND 全走该机制（多匹配各自独立写回）。`scripts/r4-1-cases.txt` 新增 101 条对拍（13 族独立键设计，写命令按序自洽；multipath 多路径 GET 因实机哈希序不稳定不可对拍、已注明）。
 - **TOPK heavy-keeper 算法移植——RedisBloom topk.c 逐行 Go 移植（2026-10-25，第十六批）**：旧实现是朴素精确计数 map，与实机算法零关系——ADD 从不报 drop、成员集/计数全偏。按 C 源移植：MurmurHash2（32 位，行种子 i、指纹种子 1919）、SplitMix64 衰减随机、计数桶数组（fp+count）与逐出式 decay 循环、C 式 min-heap sift-down、LIST 计数降序、COUNT 的 heapMin 门控。**ADD/INCRBY 携带每命令随机种子（crypto 8 字节 >>1），AOF 经 `TOPK._ADDSEEDED/_INCRBYSEEDED` 确定性重放**（与实机复制机制同构）；错误文案逐字节（INCRBY 范围错误的 28 连空格、`WITHCOUNT keyword expected`、invalid k/width/depth/decay、key-exists 先于参数校验的顺序）。对拍钉死 10 项 ADD 5 连 drop 逐出链、LIST/WITHCOUNT、QUERY、COUNT。已知近似：LIST 平局序（实机是 musl qsort 置换，Go 用稳定排序——成员集相同、平局顺序可能不同）。**全量对拍 12,777 条 0 失败**。
 ### Added
 
@@ -49,8 +48,8 @@
 
 ### Fixed
 
-### Fixed
-
+- **两个预存在测试失败（全仓复验时实抓，非本批改动引入）**：①`scripts/sidecar_allowlist_test.go` 的 banned 列表仍禁 `FUNCTION`——第十三批已加 FUNC-load 错误契约对拍面，禁令过时（13 批提交时 scripts 包未复跑），移除；②`datastruct/timeseries` 的 `TestRetentionTrimAndInfo` 仍按墙钟语义播种（直接塞 Samples 不设系列时钟）——第十五批把 RETENTION 改为系列时间（lastTimestamp-retention）后未同步，种子补 `lastTimestamp`。
+- **JSON 面向真实 RedisJSON 客户端的十八处契约断裂（2026-10-25，sidecar 对拍实抓）**：①键序丢失（Go map → 插入序）；②int/float 不分（TYPE 全 number、整值渲染无 `.0`）；③TOGGLE 回复形状错（曾实现为 RESP boolean，实机是 legacy bulk 文本/`$` 整数数组含 null）；④`~` 操作符形态与键序错（点分应报 `Error occurred at position N…` 语法错、后缀形态应扁平插入序）；⑤`keys()` 排序应插入序且投影多包一层；⑥`$..*` 顺序、`$..[N]` 递归索引缺失；⑦serde 错误文案与 EOF 列号 off-by-one；⑧GET `$` miss 应 `[]` 非 `ERR Path does not exist`；⑨SET 不可达 `$` 路径应 null 非 `ERR cannot traverse`；⑩STRLEN/ARRLEN/ARRPOP/ARRAPPEND/ARRINDEX/OBJLEN/OBJKEYS 的 `$` 路径非目标类型应 null 元素（godis 全部报错）、单匹配应裸值（godis 恒数组）；⑪NUMINCRBY/NUMMULTBY 多匹配应 `[2,null]` 形（godis 报错）且 float 结果丢 `.0`；⑫DEL 不支持递归 descent（`$..c` 恒 0）；⑬CLEAR 把字符串/布尔也「清空」且数字不动（实机数字清零计 1、字符串布尔计 0）；⑭MERGE/MSET/ARRINSERT/ARRAPPEND 值经 `encoding/json` 解析丢 int64（弹出 `9` 变 `9.0`）；⑮MSET 坏值文案应 serde 裸文案；⑯过滤器/walkRelative 不识别有序对象（一切 `?(@.age>29)` 空结果）；⑰`min($..x)` 类聚合对 nodelist 内数组不展平；⑱delPath 递归分支重复拿锁死锁（`JSON.DEL $..c` 卡死连接）。连带修复 OBJKEYS legacy 文案（`ERR Path does not exist or not an object`）与 DEBUG HELP 文案。
 - **TOPK 整体算法错误：朴素计数 map 冒充 heavy-keeper（2026-10-25，sidecar 对拍实抓）**：ADD 的 drop 回报、LIST 成员集、COUNT 估计全部与实机不符；INCRBY 增量语义错（应单次 AddSeeded(incr)，非循环 inc 次）、允许范围错（实机 0..100000 含 0）、错误文案错；RESERVE 的 key-exists 检查在参数校验之后（实机先查 key）。修复=整体移植（见 Added）。
 ### Fixed
 

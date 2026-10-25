@@ -17,6 +17,16 @@ import (
 
 // execJSONSet sets a JSON value at the specified path
 // JSON.SET key path value [NX | XX]
+// parseOrderedJSONArg decodes a JSON command argument into the ordered
+// representation (objects keep document order; integers stay int64).
+func parseOrderedJSONArg(data []byte) (interface{}, error) {
+	jv, err := godisjson.NewJSONValueFromBytes(data)
+	if err != nil {
+		return nil, err
+	}
+	return jv.Data(), nil
+}
+
 func execJSONSet(db *DB, args [][]byte) redis.Reply {
 	if len(args) < 3 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'json.set' command")
@@ -31,14 +41,13 @@ func execJSONSet(db *DB, args [][]byte) redis.Reply {
 		return reply
 	}
 
-	// Parse the JSON value
-	var value interface{}
-	if err := json.Unmarshal(args[2], &value); err != nil {
-		msg := err.Error()
-		if strings.Contains(msg, "unexpected end of JSON") {
-			return protocol.MakeErrReply("EOF while parsing an object at line 1 column 1")
-		}
-		return protocol.MakeErrReply(msg)
+	// Parse the JSON value (serde_json-style error texts, real RedisJSON)
+	if err := godisjson.ValidateSerdeJSON(args[2]); err != nil {
+		return protocol.MakeErrReply(err.Error())
+	}
+	value, err := parseOrderedJSONArg(args[2])
+	if err != nil {
+		return protocol.MakeErrReply(err.Error())
 	}
 
 	// Parse options
@@ -83,9 +92,13 @@ func execJSONSet(db *DB, args [][]byte) redis.Reply {
 		}
 	}
 
-	// Set the value
+	// Set the value. Real 8.10: an unreachable `$` path (e.g. `$.a.b`
+	// where a is a scalar) silently replies null instead of an error.
 	ok, err := jv.Set(path, value, nx, xx)
 	if err != nil {
+		if strings.HasPrefix(path, "$") {
+			return &protocol.NullBulkReply{}
+		}
 		return protocol.MakeErrReply(fmt.Sprintf("ERR %v", err))
 	}
 
@@ -138,12 +151,16 @@ func execJSONGet(db *DB, args [][]byte) redis.Reply {
 	if len(paths) == 1 {
 		val, err := jv.Get(paths[0])
 		if err != nil {
-			// Filter syntax errors are real errors; missing legacy paths
-			// keep the historical null reply.
+			// Filter/grammar syntax errors are real errors; a missing `$`
+			// path replies an empty array, a missing legacy path errors
+			// "ERR Path does not exist" (probed against 8.10).
 			if errors.Is(err, godisjson.ErrJSONPathSyntax) {
 				return protocol.MakeErrReply(err.Error())
 			}
-			return &protocol.NullBulkReply{}
+			if strings.HasPrefix(paths[0], "$") {
+				return protocol.MakeBulkReply([]byte("[]"))
+			}
+			return protocol.MakeErrReply("ERR Path does not exist")
 		}
 		if !godisjson.PathHasFilter(paths[0]) && !godisjson.PathHasNodelist(paths[0]) {
 			val = wrapEnhancedJSONPathValue(paths[0], val)
@@ -218,6 +235,37 @@ func wrapEnhancedJSONIntReply(path string, wrap bool, n int64) redis.Reply {
 		return protocol.MakeMultiRawReply([]redis.Reply{protocol.MakeIntReply(n)})
 	}
 	return protocol.MakeIntReply(n)
+}
+
+// renderMatchValues renders real-8.10 per-match replies: one match → the
+// bare value; several → an array (nil → null bulk, integers → integer,
+// everything else → its JSON serialization).
+func renderMatchValues(results []interface{}) redis.Reply {
+	if len(results) == 1 {
+		return matchValueReply(results[0])
+	}
+	replies := make([]redis.Reply, len(results))
+	for i, v := range results {
+		replies[i] = matchValueReply(v)
+	}
+	return protocol.MakeMultiRawReply(replies)
+}
+
+func matchValueReply(v interface{}) redis.Reply {
+	switch t := v.(type) {
+	case nil:
+		return &protocol.NullBulkReply{}
+	case int:
+		return protocol.MakeIntReply(int64(t))
+	case int64:
+		return protocol.MakeIntReply(t)
+	default:
+		data, err := godisjson.MarshalValue(t)
+		if err != nil {
+			return &protocol.NullBulkReply{}
+		}
+		return protocol.MakeBulkReply(data)
+	}
 }
 
 type jsonGetFormatOpts struct {
@@ -414,14 +462,36 @@ func execJSONNumIncrBy(db *DB, args [][]byte) redis.Reply {
 	}
 
 	// Increment
-	newVal, err := jv.NumIncrBy(path, increment)
+	newVals, err := jv.NumIncrBy(path, increment)
 	if err != nil {
-		return protocol.MakeErrReply(fmt.Sprintf("ERR %v", err))
+		return protocol.MakeErrReply(err.Error())
 	}
 
 	db.addAof(utils.ToCmdLine3("json.numincrby", args...))
 	reindexJSON(db, key)
-	return wrapEnhancedJSONNumReply(path, newVal)
+	return renderNumResults(path, newVals)
+}
+
+// renderNumResults serializes NUMINCRBY/NUMMULTBY replies the way real does:
+// `$` paths reply one bulk JSON array of per-match results (integers bare,
+// whole floats with `.0`, null for non-numbers); a legacy path replies the
+// bare serialized number.
+func renderNumResults(path string, results []interface{}) redis.Reply {
+	if godisjson.IsLegacyJSONPath(path) {
+		if len(results) == 0 {
+			return &protocol.NullBulkReply{}
+		}
+		data, err := godisjson.MarshalValue(results[0])
+		if err != nil {
+			return protocol.MakeErrReply("ERR " + err.Error())
+		}
+		return protocol.MakeBulkReply(data)
+	}
+	data, err := godisjson.MarshalValue(results)
+	if err != nil {
+		return protocol.MakeErrReply("ERR " + err.Error())
+	}
+	return protocol.MakeBulkReply(data)
 }
 
 // execJSONStrAppend appends a string to the value at the specified path
@@ -451,13 +521,9 @@ func execJSONStrAppend(db *DB, args [][]byte) redis.Reply {
 		}
 	}
 
-	// Parse string value (remove quotes if present)
-	strVal := string(value)
-	if len(strVal) >= 2 && strVal[0] == '"' && strVal[len(strVal)-1] == '"' {
-		strVal = strVal[1 : len(strVal)-1]
-	}
-
-	// Get JSON value
+	// Real checks the target type before the value: a non-string match
+	// contributes null regardless of the appended value's validity; when at
+	// least one string matches, the value must parse as a JSON string.
 	entity, exists := db.GetEntity(key)
 	if !exists {
 		return protocol.MakeErrReply("ERR could not perform this operation on a key that doesn't exist")
@@ -468,15 +534,59 @@ func execJSONStrAppend(db *DB, args [][]byte) redis.Reply {
 		return &protocol.WrongTypeErrReply{}
 	}
 
-	// Append
-	newLen, err := jv.StrAppend(path, strVal)
-	if err != nil {
-		return protocol.MakeErrReply(fmt.Sprintf("ERR %v", err))
+	if godisjson.IsLegacyJSONPath(path) {
+		cur, gerr := jv.Get(path)
+		if gerr != nil {
+			return &protocol.NullBulkReply{}
+		}
+		if _, isStr := cur.(string); !isStr {
+			return &protocol.NullBulkReply{}
+		}
+		if err := godisjson.ValidateSerdeJSON(value); err != nil {
+			return protocol.MakeErrReply("ERR " + err.Error())
+		}
+		parsed, perr := parseOrderedJSONArg(value)
+		if perr != nil {
+			return protocol.MakeErrReply("ERR " + perr.Error())
+		}
+		strVal, isStr := parsed.(string)
+		if !isStr {
+			return protocol.MakeErrReply("WRONGTYPE wrong type of path value - expected string")
+		}
+		newLen, err := jv.StrAppend(path, strVal)
+		if err != nil {
+			return protocol.MakeErrReply(fmt.Sprintf("ERR %v", err))
+		}
+		db.addAof(utils.ToCmdLine3("json.strappend", args...))
+		reindexJSON(db, key)
+		return protocol.MakeIntReply(int64(newLen))
 	}
 
+	hasString := false
+	for _, m := range jv.StrLenMatches(path) {
+		if m != nil {
+			hasString = true
+			break
+		}
+	}
+	if !hasString {
+		return &protocol.NullBulkReply{}
+	}
+	if err := godisjson.ValidateSerdeJSON(value); err != nil {
+		return protocol.MakeErrReply("ERR " + err.Error())
+	}
+	parsed, perr := parseOrderedJSONArg(value)
+	if perr != nil {
+		return protocol.MakeErrReply("ERR " + perr.Error())
+	}
+	strVal, isStr := parsed.(string)
+	if !isStr {
+		return protocol.MakeErrReply("WRONGTYPE wrong type of path value - expected string")
+	}
+	results := jv.StrAppendMatches(path, strVal)
 	db.addAof(utils.ToCmdLine3("json.strappend", args...))
 	reindexJSON(db, key)
-	return wrapEnhancedJSONIntReply(path, len(args) == 3, int64(newLen))
+	return renderMatchValues(results)
 }
 
 // execJSONArrAppend appends values to an array at the specified path
@@ -492,15 +602,15 @@ func execJSONArrAppend(db *DB, args [][]byte) redis.Reply {
 		return reply
 	}
 
-	// Parse values
+	// Parse values (ordered: integers stay int64 so popped elements render
+	// bare like real — probed: ARRPOP of an ARRINSERTed 9 replies "9").
 	values := make([]interface{}, len(args)-2)
 	for i := 2; i < len(args); i++ {
 		if reply := validateBulkBytes(args[i]); reply != nil {
 			return reply
 		}
-		var val interface{}
-		if err := json.Unmarshal(args[i], &val); err != nil {
-			// Try as string
+		val, err := parseOrderedJSONArg(args[i])
+		if err != nil {
 			val = string(args[i])
 		}
 		values[i-2] = val
@@ -518,14 +628,28 @@ func execJSONArrAppend(db *DB, args [][]byte) redis.Reply {
 	}
 
 	// Append
-	newLen, err := jv.ArrAppend(path, values...)
-	if err != nil {
-		return protocol.MakeErrReply(fmt.Sprintf("ERR %v", err))
+	if godisjson.IsLegacyJSONPath(path) {
+		newLen, err := jv.ArrAppend(path, values...)
+		if err != nil {
+			return protocol.MakeErrReply(err.Error())
+		}
+		db.addAof(utils.ToCmdLine3("json.arrappend", args...))
+		reindexJSON(db, key)
+		return protocol.MakeIntReply(int64(newLen))
 	}
-
-	db.addAof(utils.ToCmdLine3("json.arrappend", args...))
-	reindexJSON(db, key)
-	return wrapEnhancedJSONIntReply(path, true, int64(newLen))
+	results := jv.ArrAppendMatches(path, values...)
+	changed := false
+	for _, r := range results {
+		if r != nil {
+			changed = true
+			break
+		}
+	}
+	if changed {
+		db.addAof(utils.ToCmdLine3("json.arrappend", args...))
+		reindexJSON(db, key)
+	}
+	return renderMatchValues(results)
 }
 
 // execJSONArrInsert inserts values into an array at index
@@ -542,8 +666,8 @@ func execJSONArrInsert(db *DB, args [][]byte) redis.Reply {
 	}
 	values := make([]interface{}, len(args)-3)
 	for i := 3; i < len(args); i++ {
-		var val interface{}
-		if err := json.Unmarshal(args[i], &val); err != nil {
+		val, err := parseOrderedJSONArg(args[i])
+		if err != nil {
 			val = string(args[i])
 		}
 		values[i-3] = val
@@ -608,10 +732,8 @@ func execJSONArrLen(db *DB, args [][]byte) redis.Reply {
 
 	key := string(args[0])
 	path := "$"
-	explicitPath := false
 	if len(args) > 1 {
 		path = string(args[1])
-		explicitPath = true
 	}
 
 	// Get JSON value
@@ -625,15 +747,14 @@ func execJSONArrLen(db *DB, args [][]byte) redis.Reply {
 		return &protocol.WrongTypeErrReply{}
 	}
 
-	length, err := jv.ArrLen(path)
-	if err != nil {
-		return protocol.MakeErrReply(fmt.Sprintf("ERR %v", err))
+	if godisjson.IsLegacyJSONPath(path) {
+		length, err := jv.ArrLen(path)
+		if err != nil {
+			return protocol.MakeErrReply(err.Error())
+		}
+		return protocol.MakeIntReply(int64(length))
 	}
-
-	if explicitPath && strings.HasPrefix(path, "$") {
-		return protocol.MakeMultiRawReply([]redis.Reply{protocol.MakeIntReply(int64(length))})
-	}
-	return protocol.MakeIntReply(int64(length))
+	return renderMatchValues(jv.ArrLenMatches(path))
 }
 
 // execJSONMSet sets multiple key/path/value triples
@@ -651,9 +772,14 @@ func execJSONMSet(db *DB, args [][]byte) redis.Reply {
 	}
 	triples := make([]triple, 0, len(args)/3)
 	for i := 0; i < len(args); i += 3 {
-		var value interface{}
-		if err := json.Unmarshal(args[i+2], &value); err != nil {
-			return protocol.MakeErrReply(fmt.Sprintf("ERR invalid JSON: %v", err))
+		// Real replies the bare serde_json parse error (probed: `{` ->
+		// "EOF while parsing an object at line 1 column 1").
+		if err := godisjson.ValidateSerdeJSON(args[i+2]); err != nil {
+			return protocol.MakeErrReply(err.Error())
+		}
+		value, err := parseOrderedJSONArg(args[i+2])
+		if err != nil {
+			return protocol.MakeErrReply(fmt.Sprintf("ERR %v", err))
 		}
 		triples = append(triples, triple{
 			key:   string(args[i]),
@@ -727,10 +853,8 @@ func execJSONToggle(db *DB, args [][]byte) redis.Reply {
 	}
 	key := string(args[0])
 	path := "$"
-	explicitPath := false
 	if len(args) > 1 {
 		path = string(args[1])
-		explicitPath = true
 	}
 	entity, exists := db.GetEntity(key)
 	if !exists {
@@ -740,17 +864,28 @@ func execJSONToggle(db *DB, args [][]byte) redis.Reply {
 	if !ok {
 		return &protocol.WrongTypeErrReply{}
 	}
-	newVal, err := jv.Toggle(path)
+	results, err := jv.Toggle(path)
 	if err != nil {
-		return protocol.MakeErrReply(fmt.Sprintf("ERR %v", err))
+		return protocol.MakeErrReply(err.Error())
 	}
 	db.addAof(utils.ToCmdLine3("json.toggle", args...))
 	reindexJSON(db, key)
-	v := int64(0)
-	if newVal {
-		v = 1
+	if !strings.HasPrefix(path, "$") {
+		// Legacy path: the new value as a bulk JSON string ("true"/"false").
+		if b, ok := results[0].(bool); ok && b {
+			return protocol.MakeBulkReply([]byte("true"))
+		}
+		return protocol.MakeBulkReply([]byte("false"))
 	}
-	return wrapEnhancedJSONIntReply(path, explicitPath, v)
+	replies := make([]redis.Reply, len(results))
+	for i, r := range results {
+		if n, ok := r.(int64); ok {
+			replies[i] = protocol.MakeIntReply(n)
+		} else {
+			replies[i] = &protocol.NullBulkReply{}
+		}
+	}
+	return protocol.MakeMultiRawReply(replies)
 }
 
 // execJSONMerge applies JSON Merge Patch (RFC7396)
@@ -761,9 +896,9 @@ func execJSONMerge(db *DB, args [][]byte) redis.Reply {
 	}
 	key := string(args[0])
 	path := string(args[1])
-	var patch interface{}
-	if err := json.Unmarshal(args[2], &patch); err != nil {
-		return protocol.MakeErrReply(fmt.Sprintf("ERR invalid JSON: %v", err))
+	patch, err := parseOrderedJSONArg(args[2])
+	if err != nil {
+		return protocol.MakeErrReply(fmt.Sprintf("ERR %v", err))
 	}
 	entity, exists := db.GetEntity(key)
 	var jv *godisjson.JSONValue
@@ -834,15 +969,21 @@ func jsonValueToRESP(v interface{}) redis.Reply {
 	case int64:
 		return protocol.MakeIntReply(val)
 	case []interface{}:
-		replies := make([]redis.Reply, len(val))
-		for i, item := range val {
-			replies[i] = jsonValueToRESP(item)
+		// Real RedisJSON RESP form: `[` prefix, then elements (no close).
+		replies := make([]redis.Reply, 0, len(val)+1)
+		replies = append(replies, protocol.MakeBulkReply([]byte("[")))
+		for _, item := range val {
+			replies = append(replies, jsonValueToRESP(item))
 		}
 		return protocol.MakeMultiRawReply(replies)
-	case map[string]interface{}:
-		replies := make([]redis.Reply, 0, len(val)*2)
-		for k, item := range val {
-			replies = append(replies, protocol.MakeBulkReply([]byte(k)), jsonValueToRESP(item))
+	case *godisjson.OrderedObj:
+		// Real RedisJSON RESP form: `{` prefix, then key/value pairs in
+		// document order (no close).
+		replies := make([]redis.Reply, 0, val.Len()*2+1)
+		replies = append(replies, protocol.MakeBulkReply([]byte("{")))
+		for _, k := range val.Keys() {
+			v, _ := val.Get(k)
+			replies = append(replies, protocol.MakeBulkReply([]byte(k)), jsonValueToRESP(v))
 		}
 		return protocol.MakeMultiRawReply(replies)
 	default:
@@ -863,9 +1004,8 @@ func execJSONDebug(db *DB, args [][]byte) redis.Reply {
 	switch sub {
 	case "HELP":
 		help := []string{
-			"JSON.DEBUG HELP",
-			"JSON.DEBUG MEMORY key [path]",
-			"JSON.DEBUG FIELDS key [path]",
+			"MEMORY <key> [path] - reports memory usage",
+			"HELP                - this message",
 		}
 		replies := make([]redis.Reply, len(help))
 		for i, h := range help {
@@ -921,7 +1061,7 @@ func execJSONDebug(db *DB, args [][]byte) redis.Reply {
 		}
 		return wrapEnhancedJSONIntReply(path, explicitPath, int64(n))
 	default:
-		return protocol.MakeErrReply("ERR unknown subcommand '" + string(args[0]) + "'")
+		return protocol.MakeErrReply("ERR unknown subcommand - try `JSON.DEBUG HELP`")
 	}
 }
 
@@ -934,13 +1074,10 @@ func execJSONObjKeys(db *DB, args [][]byte) redis.Reply {
 
 	key := string(args[0])
 	path := "$"
-	explicitPath := false
 	if len(args) > 1 {
 		path = string(args[1])
-		explicitPath = true
 	}
 
-	// Get JSON value
 	entity, exists := db.GetEntity(key)
 	if !exists {
 		return protocol.MakeErrReply("ERR could not perform this operation on a key that doesn't exist")
@@ -951,17 +1088,25 @@ func execJSONObjKeys(db *DB, args [][]byte) redis.Reply {
 		return &protocol.WrongTypeErrReply{}
 	}
 
-	keys, err := jv.ObjKeys(path)
-	if err != nil {
-		return protocol.MakeErrReply(fmt.Sprintf("ERR %v", err))
+	if godisjson.IsLegacyJSONPath(path) {
+		keys, err := jv.ObjKeys(path)
+		if err != nil {
+			return protocol.MakeErrReply(fmt.Sprintf("ERR %v", err))
+		}
+		result := make([][]byte, len(keys))
+		for i, k := range keys {
+			result[i] = []byte(k)
+		}
+		return protocol.MakeMultiBulkReply(result)
+	}
+	keys, ok := jv.ObjKeysMatches(path)
+	if !ok {
+		return &protocol.NullBulkReply{}
 	}
 
 	result := make([][]byte, len(keys))
 	for i, k := range keys {
 		result[i] = []byte(k)
-	}
-	if explicitPath && strings.HasPrefix(path, "$") {
-		return protocol.MakeMultiRawReply([]redis.Reply{protocol.MakeMultiBulkReply(result)})
 	}
 	return protocol.MakeMultiBulkReply(result)
 }
@@ -995,15 +1140,22 @@ func execJSONObjLen(db *DB, args [][]byte) redis.Reply {
 		return &protocol.WrongTypeErrReply{}
 	}
 
-	length, err := jv.ObjLen(path)
-	if err != nil {
-		return protocol.MakeErrReply(fmt.Sprintf("ERR %v", err))
+	if godisjson.IsLegacyJSONPath(path) {
+		length, err := jv.ObjLen(path)
+		if err != nil {
+			// Real: a missing path on OBJLEN replies nil (probed).
+			if strings.Contains(err.Error(), "Path does not exist") {
+				return protocol.MakeNullBulkReply()
+			}
+			return protocol.MakeErrReply(err.Error())
+		}
+		return protocol.MakeIntReply(int64(length))
 	}
-
-	if explicitPath && strings.HasPrefix(path, "$") {
-		return protocol.MakeMultiRawReply([]redis.Reply{protocol.MakeIntReply(int64(length))})
+	results := jv.ObjLenMatches(path)
+	if len(results) == 0 {
+		return &protocol.NullBulkReply{}
 	}
-	return protocol.MakeIntReply(int64(length))
+	return renderMatchValues(results)
 }
 
 // Helper function for JSON command key preparation

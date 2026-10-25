@@ -64,26 +64,10 @@ func TestM2baJSONEnhancedLenMutators(t *testing.T) {
 		"JSON.SET", "j", "$", `{"s":"ab","a":[1],"b":[1,2]}`,
 	)), "OK")
 
-	r := db.Exec(nil, utils.ToCmdLine("JSON.STRAPPEND", "j", "$.s", `"c"`))
-	mr := ftSearchMultiRaw(r)
-	if mr == nil || len(mr.Replies) != 1 {
-		t.Fatalf("STRAPPEND $: %T %s", r, r.ToBytes())
-	}
-	asserts.AssertIntReply(t, mr.Replies[0], 3)
-
-	r = db.Exec(nil, utils.ToCmdLine("JSON.ARRAPPEND", "j", "$.a", "2"))
-	mr = ftSearchMultiRaw(r)
-	if mr == nil || len(mr.Replies) != 1 {
-		t.Fatalf("ARRAPPEND $: %T %s", r, r.ToBytes())
-	}
-	asserts.AssertIntReply(t, mr.Replies[0], 2)
-
-	r = db.Exec(nil, utils.ToCmdLine("JSON.STRLEN", "j", "$.s"))
-	mr = ftSearchMultiRaw(r)
-	if mr == nil || len(mr.Replies) != 1 {
-		t.Fatalf("STRLEN $: %T %s", r, r.ToBytes())
-	}
-	asserts.AssertIntReply(t, mr.Replies[0], 3)
+	// Real 8.10: single-match `$` paths reply the bare results.
+	asserts.AssertIntReply(t, db.Exec(nil, utils.ToCmdLine("JSON.STRAPPEND", "j", "$.s", `"c"`)), 3)
+	asserts.AssertIntReply(t, db.Exec(nil, utils.ToCmdLine("JSON.ARRAPPEND", "j", "$.a", "2")), 2)
+	asserts.AssertIntReply(t, db.Exec(nil, utils.ToCmdLine("JSON.STRLEN", "j", "$.s")), 3)
 }
 
 func TestM2baVInfoHNSWStubsAndVAddNoop(t *testing.T) {

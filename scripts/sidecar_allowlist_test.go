@@ -44,7 +44,9 @@ func TestR41SidecarAllowlistScaffold(t *testing.T) {
 			t.Fatalf("r4-1-cases.txt missing allowlist cmd %s", cmd)
 		}
 	}
-	for _, banned := range []string{"DUMP", "RESTORE", "FT.SEARCH", "CLUSTER MEET", "FUNCTION", "SMEMBERS", "HGETALL"} {
+	// FUNCTION was banned while out of scope; batch 13 added the FUNC-load
+	// error-contract cases, so the surface is covered and the ban is stale.
+	for _, banned := range []string{"DUMP", "RESTORE", "FT.SEARCH", "CLUSTER MEET", "SMEMBERS", "HGETALL"} {
 		if lineInvokesBanned(cases, banned) {
 			t.Fatalf("r4-1-cases.txt must not invoke %s", banned)
 		}

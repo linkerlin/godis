@@ -41,7 +41,7 @@ func TestGetWildcardAndRecursive(t *testing.T) {
 		t.Fatalf("wildcard: %v", err)
 	}
 	nl, ok := v.(nodeList)
-	if !ok || len(nl) != 2 || nl[0] != float64(10) || nl[1] != float64(20) {
+	if !ok || len(nl) != 2 || nl[0] != int64(10) || nl[1] != int64(20) {
 		t.Fatalf("wildcard = %#v, want [10 20]", v)
 	}
 	v, err = jv.Get("$..price")
@@ -49,7 +49,7 @@ func TestGetWildcardAndRecursive(t *testing.T) {
 		t.Fatalf("recursive: %v", err)
 	}
 	nl, ok = v.(nodeList)
-	if !ok || len(nl) != 3 || nl[0] != float64(10) || nl[1] != float64(20) || nl[2] != float64(30) {
+	if !ok || len(nl) != 3 || nl[0] != int64(10) || nl[1] != int64(20) || nl[2] != int64(30) {
 		t.Fatalf("recursive = %#v, want [10 20 30]", v)
 	}
 }
@@ -128,7 +128,7 @@ func TestProjectionFloatFormatting(t *testing.T) {
 
 func TestGetSetDelType(t *testing.T) {
 	jv := mustJSON(t, `{"a":{"b":[1,2]},"s":"x"}`)
-	if v, err := jv.Get("$.a.b[1]"); err != nil || v != float64(2) {
+	if v, err := jv.Get("$.a.b[1]"); err != nil || v != int64(2) {
 		t.Fatalf("Get nested = %#v/%v", v, err)
 	}
 	if typ, err := jv.Type("$.a"); err != nil || typ != "object" {
@@ -215,10 +215,10 @@ func TestProjectionUnknownFunctionError(t *testing.T) {
 
 func TestMutationAndAccessors(t *testing.T) {
 	jv := mustJSON(t, `{"n":1,"s":"ab","arr":[1,2,3],"obj":{"b":1,"a":2},"flag":false}`)
-	if v, err := jv.NumIncrBy("$.n", 2); err != nil || v != 3 {
+	if v, err := jv.NumIncrBy("$.n", 2); err != nil || len(v) != 1 || v[0] != int64(3) {
 		t.Fatalf("NumIncrBy = %v/%v", v, err)
 	}
-	if v, err := jv.NumMultBy("$.n", 2); err != nil || v != 6 {
+	if v, err := jv.NumMultBy("$.n", 2); err != nil || len(v) != 1 || v[0] != int64(6) {
 		t.Fatalf("NumMultBy = %v/%v", v, err)
 	}
 	if n, err := jv.StrLen("$.s"); err != nil || n != 2 {
@@ -259,14 +259,15 @@ func TestMutationAndAccessors(t *testing.T) {
 	if n, err := jv.ObjLen("$.obj"); err != nil || n != 2 {
 		t.Fatalf("ObjLen = %d/%v", n, err)
 	}
-	if v, err := jv.Toggle("$.flag"); err != nil || !v {
+	if v, err := jv.Toggle("$.flag"); err != nil || len(v) != 1 || v[0] != int64(1) {
 		t.Fatalf("Toggle = %v/%v", v, err)
 	}
-	if n, err := jv.Clear("$.s"); err != nil || n != 1 {
+	// Real 8.10: CLEAR only empties containers; strings report 0.
+	if n, err := jv.Clear("$.s"); err != nil || n != 0 {
 		t.Fatalf("Clear = %d/%v", n, err)
 	}
-	if n, err := jv.Clear("$.s"); err != nil || n != 0 {
-		t.Fatalf("Clear empty = %d/%v", n, err)
+	if n, err := jv.Clear("$.obj"); err != nil || n != 1 {
+		t.Fatalf("Clear obj = %d/%v", n, err)
 	}
 	if err := jv.Merge("$", map[string]interface{}{"new": float64(1)}); err != nil {
 		t.Fatalf("Merge: %v", err)
