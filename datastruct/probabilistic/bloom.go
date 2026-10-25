@@ -12,6 +12,7 @@ type BloomFilter struct {
 	size       uint
 	hashNum    uint // Number of hash functions
 	count      uint
+	capacity   uint // as reserved (BF.INFO Capacity)
 	expansion  uint
 	nonScaling bool
 }
@@ -34,11 +35,19 @@ func NewBloomFilter(capacity uint, errorRate float64) *BloomFilter {
 	}
 
 	return &BloomFilter{
-		bits:    make([]bool, size),
-		size:    size,
-		hashNum: hashNum,
+		bits:      make([]bool, size),
+		size:      size,
+		hashNum:   hashNum,
+		capacity:  capacity,
+		expansion: 2, // Redis 8 default for a non-scaling-less RESERVE
 	}
 }
+
+// Capacity returns the reserved capacity (0 when unknown/legacy dump).
+func (bf *BloomFilter) Capacity() uint { return bf.capacity }
+
+// Count returns the number of items inserted.
+func (bf *BloomFilter) Count() uint { return bf.count }
 
 // SetExpansion stores RedisBloom EXPANSION factor (scaling not fully implemented).
 func (bf *BloomFilter) SetExpansion(n uint) {
@@ -94,8 +103,21 @@ func (bf *BloomFilter) Merge(other *BloomFilter) error {
 	return nil
 }
 
-// Info returns filter information
-func (bf *BloomFilter) Info() map[string]interface{} {
+// Info returns the real 8.10 BF.INFO field set in wire order:
+// Capacity, Size, Number of filters, Number of items inserted, Expansion rate.
+func (bf *BloomFilter) Info() [][2]interface{} {
+	byteLen := (bf.size + 7) / 8
+	return [][2]interface{}{
+		{"Capacity", int64(bf.capacity)},
+		{"Size", int64(24 + byteLen + 17)},
+		{"Number of filters", int64(1)},
+		{"Number of items inserted", int64(bf.count)},
+		{"Expansion rate", int64(bf.expansion)},
+	}
+}
+
+// InfoLegacy returns the previous godis field set (kept for old tests).
+func (bf *BloomFilter) InfoLegacy() map[string]interface{} {
 	// Calculate bit count
 	bitCount := 0
 	for _, b := range bf.bits {
@@ -162,6 +184,13 @@ func (bf *BloomFilter) MarshalBinary() []byte {
 			out[24+i/8] |= 1 << (i % 8)
 		}
 	}
+	// Trailer keeps the 24-byte prefix format loadable by older builds.
+	out = append(out, make([]byte, 8+8+1)...)
+	putU64(out[len(out)-17:], uint64(bf.capacity))
+	putU64(out[len(out)-9:], uint64(bf.expansion))
+	if bf.nonScaling {
+		out[len(out)-1] = 1
+	}
 	return out
 }
 
@@ -178,10 +207,17 @@ func UnmarshalBloomFilter(data []byte) (*BloomFilter, error) {
 		return nil, fmt.Errorf("invalid bloom data")
 	}
 	bf := &BloomFilter{
-		bits:    make([]bool, size),
-		size:    size,
-		hashNum: hashNum,
-		count:   count,
+		bits:     make([]bool, size),
+		size:     size,
+		hashNum:  hashNum,
+		count:    count,
+		expansion: 2,
+	}
+	// Optional trailer (capacity/expansion/nonScaling); absent in legacy dumps.
+	if rem := uint(len(data)-24) - byteLen; rem >= 17 {
+		bf.capacity = uint(getU64(data[24+byteLen:]))
+		bf.expansion = uint(getU64(data[24+byteLen+8:]))
+		bf.nonScaling = data[24+byteLen+16] == 1
 	}
 	for i := uint(0); i < size; i++ {
 		if data[24+i/8]&(1<<(i%8)) != 0 {

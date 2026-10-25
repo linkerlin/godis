@@ -88,6 +88,37 @@ func (r *MultiBulkReply) ToBytes() []byte {
 /* ---- Multi Raw Reply ---- */
 
 // MultiRawReply store complex list structure, for example GeoPos command
+// OrderedMapReply renders as a flat array in RESP2 and a map (%) in RESP3,
+// preserving entry order (RedisBloom-style INFO replies).
+type OrderedMapReply struct {
+	Entries []redis.Reply // alternating key, value
+}
+
+// MakeOrderedMapReply creates an OrderedMapReply from alternating entries.
+func MakeOrderedMapReply(entries []redis.Reply) *OrderedMapReply {
+	return &OrderedMapReply{Entries: entries}
+}
+
+// ToBytes renders the RESP2 flat array form.
+func (r *OrderedMapReply) ToBytes() []byte {
+	var buf bytes.Buffer
+	buf.WriteString("*" + strconv.Itoa(len(r.Entries)) + CRLF)
+	for _, e := range r.Entries {
+		buf.Write(e.ToBytes())
+	}
+	return buf.Bytes()
+}
+
+// ToRESP3 renders the RESP3 map form.
+func (r *OrderedMapReply) ToRESP3() []byte {
+	var buf bytes.Buffer
+	buf.WriteString("%" + strconv.Itoa(len(r.Entries)/2) + CRLF)
+	for _, e := range r.Entries {
+		buf.Write(ReplyToRESP3(e))
+	}
+	return buf.Bytes()
+}
+
 type MultiRawReply struct {
 	Replies []redis.Reply
 }

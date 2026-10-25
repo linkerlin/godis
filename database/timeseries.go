@@ -208,7 +208,7 @@ func execTSAdd(db *DB, args [][]byte) redis.Reply {
 	}
 	if err != nil {
 		if err == timeseries.ErrTimestampTooOld {
-			return protocol.MakeErrReply("ERR Timestamp is older than retention")
+			return protocol.MakeErrReply("ERR TSDB: Timestamp is older than retention")
 		}
 		if err == timeseries.ErrDuplicateTimestamp {
 			return protocol.MakeErrReply("TSDB: Error at TEMPADD, update is not supported when DUPLICATE_POLICY is set to BLOCK policy.")
@@ -260,7 +260,7 @@ func execTSMAdd(db *DB, args [][]byte) redis.Reply {
 		tsTimestamp, err := ts.Add(timestamp, value)
 		if err != nil {
 			if err == timeseries.ErrTimestampTooOld {
-				return protocol.MakeErrReply("ERR Timestamp is older than retention")
+				return protocol.MakeErrReply("ERR TSDB: Timestamp is older than retention")
 			}
 			return protocol.MakeErrReply(fmt.Sprintf("ERR %v", err))
 		}
@@ -486,20 +486,25 @@ func execTSInfo(db *DB, args [][]byte) redis.Reply {
 		return &protocol.WrongTypeErrReply{}
 	}
 
-	info := ts.Info()
-	m := protocol.MakeMapReply()
-	for k, v := range info {
-		m.Put(k, infoScalarReply(v))
+	// Real 8.10 TS.INFO wire order; block/sourceKey null, rules empty array.
+	entries := make([]redis.Reply, 0, 32)
+	for _, kv := range ts.InfoOrdered() {
+		entries = append(entries, protocol.MakeBulkReply([]byte(fmt.Sprint(kv[0]))))
+		entries = append(entries, infoValueReply(kv[1]))
 	}
-
-	// RESP3: labels as nested Map; RESP2 flat via MapReply.ToBytes.
 	labels := ts.GetLabels()
 	labelMap := protocol.MakeMapReply()
 	for k, v := range labels {
 		labelMap.Put(k, protocol.MakeBulkReply([]byte(v)))
 	}
-	m.Put("labels", labelMap)
-	return m
+	entries = append(entries,
+		protocol.MakeBulkReply([]byte("labels")), labelMap,
+		protocol.MakeBulkReply([]byte("sourceKey")), protocol.MakeNullBulkReply(),
+		protocol.MakeBulkReply([]byte("rules")), protocol.MakeEmptyMultiBulkReply(),
+		protocol.MakeBulkReply([]byte("ignoreMaxTimeDiff")), protocol.MakeIntReply(0),
+		protocol.MakeBulkReply([]byte("ignoreMaxValDiff")), protocol.MakeIntReply(0),
+	)
+	return protocol.MakeOrderedMapReply(entries)
 }
 
 // execTSDel deletes samples in a range

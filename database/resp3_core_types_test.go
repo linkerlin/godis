@@ -9,7 +9,8 @@ import (
 	"github.com/linkerlin/godis/redis/connection"
 	"github.com/linkerlin/godis/redis/protocol"
 	"github.com/linkerlin/godis/redis/protocol/asserts"
-)
+
+	"github.com/linkerlin/godis/interface/redis")
 
 // TestResp3CoreWireTypes verifies HELLO-3 wire forms for HGETALL / SMEMBERS / ZSCORE / ZMSCORE
 // while RESP2 path stays array/bulk (Map/Set/Double ToBytes downgrade).
@@ -541,23 +542,26 @@ func TestResp3ProbabilisticInfoMaps(t *testing.T) {
 		{"TDIGEST.INFO", "td"},
 	} {
 		r := db.Exec(nil, utils.ToCmdLine(cmd...))
-		m, ok := r.(*protocol.MapReply)
+		m, ok := r.(*protocol.OrderedMapReply)
 		if !ok {
 			t.Fatalf("%v type %T %s", cmd, r, r.ToBytes())
 		}
+		_ = m
 		if r.ToBytes()[0] != '*' {
 			t.Fatalf("%v RESP2: %q", cmd, r.ToBytes())
 		}
 		if protocol.ReplyToRESP3(r)[0] != '%' {
 			t.Fatalf("%v RESP3: %q", cmd, protocol.ReplyToRESP3(r))
 		}
-		if len(m.Data) == 0 {
+		if len(m.Entries) == 0 {
 			t.Fatalf("%v empty map", cmd)
 		}
 	}
-	tk := db.Exec(nil, utils.ToCmdLine("TOPK.INFO", "tk")).(*protocol.MapReply)
-	if _, ok := tk.Data["decay"].(*protocol.DoubleReply); !ok {
-		t.Fatalf("TOPK.INFO decay should be Double, got %T", tk.Data["decay"])
+	// Real 8.10 prints decay as the plain configured value ("0.9").
+	tk := db.Exec(nil, utils.ToCmdLine("TOPK.INFO", "tk")).(*protocol.OrderedMapReply)
+	dl, okD := tk.Entries[6].(*protocol.BulkReply)
+	if len(tk.Entries) != 8 || !okD || string(dl.Arg) != "decay" {
+		t.Fatalf("TOPK.INFO: %s", tk.ToBytes())
 	}
 }
 
@@ -573,22 +577,35 @@ func TestResp3FTConfigGetMap(t *testing.T) {
 	}
 }
 
+func toArg(r redis.Reply) []byte {
+	if b, ok := r.(*protocol.BulkReply); ok {
+		return b.Arg
+	}
+	return nil
+}
+
 func TestResp3TSInfoAndLCSIdxMaps(t *testing.T) {
 	db := makeTestDB()
 	asserts.AssertStatusReply(t, db.Exec(nil, utils.ToCmdLine(
 		"TS.CREATE", "ts", "LABELS", "room", "lab",
 	)), "OK")
+	// Real 8.10: ordered flat map (OrderedMapReply), labels nested map.
 	info := db.Exec(nil, utils.ToCmdLine("TS.INFO", "ts"))
-	m, ok := info.(*protocol.MapReply)
+	m, ok := info.(*protocol.OrderedMapReply)
 	if !ok {
 		t.Fatalf("TS.INFO type %T", info)
 	}
 	if protocol.ReplyToRESP3(info)[0] != '%' {
 		t.Fatalf("TS.INFO RESP3: %q", protocol.ReplyToRESP3(info))
 	}
-	labels, ok := m.Data["labels"].(*protocol.MapReply)
-	if !ok {
-		t.Fatalf("TS.INFO labels type %T", m.Data["labels"])
+	var labels *protocol.MapReply
+	for i := 0; i+1 < len(m.Entries); i += 2 {
+		if string(toArg(m.Entries[i])) == "labels" {
+			labels, _ = m.Entries[i+1].(*protocol.MapReply)
+		}
+	}
+	if labels == nil {
+		t.Fatalf("TS.INFO labels missing")
 	}
 	if _, ok := labels.Data["room"]; !ok {
 		t.Fatalf("TS.INFO labels missing room: %v", labels.Data)

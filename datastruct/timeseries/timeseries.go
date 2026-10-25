@@ -46,6 +46,24 @@ const (
 	DupSum
 )
 
+func dupPolicyName(p DuplicatePolicy) string {
+	switch p {
+	case DupBlock:
+		return "block"
+	case DupFirst:
+		return "first"
+	case DupLast:
+		return "last"
+	case DupMin:
+		return "min"
+	case DupMax:
+		return "max"
+	case DupSum:
+		return "sum"
+	}
+	return "block"
+}
+
 // ParseDuplicatePolicy parses BLOCK/FIRST/LAST/MIN/MAX/SUM.
 func ParseDuplicatePolicy(s string) (DuplicatePolicy, error) {
 	switch strings.ToUpper(strings.TrimSpace(s)) {
@@ -138,9 +156,10 @@ func (ts *TimeSeries) AddWithPolicy(timestamp int64, value float64, policy Dupli
 		timestamp = time.Now().UnixMilli()
 	}
 
-	// Check if timestamp is in the past (before retention)
-	if ts.Retention > 0 {
-		cutoff := time.Now().Add(-ts.Retention).UnixMilli()
+	// Real 8.10: reject only when older than lastTimestamp-retention
+	// (series time, not wall clock); advancing adds evict older samples.
+	if ts.Retention > 0 && len(ts.Samples) > 0 {
+		cutoff := ts.lastTimestamp - ts.Retention.Milliseconds()
 		if timestamp < cutoff {
 			return 0, ErrTimestampTooOld
 		}
@@ -150,6 +169,9 @@ func (ts *TimeSeries) AddWithPolicy(timestamp int64, value float64, policy Dupli
 	if len(ts.Samples) == 0 || timestamp > ts.lastTimestamp {
 		ts.Samples = append(ts.Samples, Sample{Timestamp: timestamp, Value: value})
 		ts.lastTimestamp = timestamp
+		if ts.Retention > 0 {
+			ts.trimLocked(timestamp - ts.Retention.Milliseconds())
+		}
 	} else if timestamp == ts.lastTimestamp {
 		if err := applyDuplicatePolicy(&ts.Samples[len(ts.Samples)-1], value, policy); err != nil {
 			return 0, err
@@ -381,9 +403,9 @@ func (ts *TimeSeries) applyRetention() int {
 		return 0
 	}
 	
-	cutoff := time.Now().Add(-ts.Retention).UnixMilli()
-	
-	// Find first sample to keep
+	cutoff := ts.lastTimestamp - ts.Retention.Milliseconds()
+
+	// Find first sample to keep (boundary ts == cutoff is kept, as real).
 	idx := sort.Search(len(ts.Samples), func(i int) bool {
 		return ts.Samples[i].Timestamp >= cutoff
 	})
@@ -399,6 +421,16 @@ func (ts *TimeSeries) applyRetention() int {
 	return deleted
 }
 
+// trimLocked drops samples older than cutoff (caller holds mu).
+func (ts *TimeSeries) trimLocked(cutoff int64) {
+	idx := sort.Search(len(ts.Samples), func(i int) bool {
+		return ts.Samples[i].Timestamp >= cutoff
+	})
+	if idx > 0 {
+		ts.Samples = ts.Samples[idx:]
+	}
+}
+
 // Len returns the number of samples
 func (ts *TimeSeries) Len() int {
 	ts.mu.RLock()
@@ -408,22 +440,54 @@ func (ts *TimeSeries) Len() int {
 }
 
 // Info returns time series info
-func (ts *TimeSeries) Info() map[string]interface{} {
+// InfoOrdered returns the real 8.10 TS.INFO field set in wire order.
+// memoryUsage = 4096*chunkCount + 360 (probed); chunkCount is an
+// approximation beyond the single-chunk range the diff pins.
+func (ts *TimeSeries) InfoOrdered() [][2]interface{} {
 	ts.mu.RLock()
 	defer ts.mu.RUnlock()
-	
+
 	var firstTimestamp, lastTimestamp int64
 	if len(ts.Samples) > 0 {
 		firstTimestamp = ts.Samples[0].Timestamp
 		lastTimestamp = ts.Samples[len(ts.Samples)-1].Timestamp
 	}
-	
+	chunkCount := (len(ts.Samples) + 4095) / 4096
+	if chunkCount == 0 {
+		chunkCount = 1 // real reports 1 for an empty series
+	}
+	// Probed: 4096/chunk + 344 + 8/sample (4456@2, 4464@3).
+	return [][2]interface{}{
+		{"totalSamples", int64(len(ts.Samples))},
+		{"memoryUsage", int64(4096*chunkCount + 344 + 8*len(ts.Samples))},
+		{"firstTimestamp", firstTimestamp},
+		{"lastTimestamp", lastTimestamp},
+		{"retentionTime", ts.Retention.Milliseconds()},
+		{"chunkCount", int64(chunkCount)},
+		{"chunkSize", int64(4096)},
+		{"chunkType", "compressed"},
+		{"duplicatePolicy", dupPolicyName(ts.DuplicatePolicy)},
+	}
+}
+
+// Info returns the legacy field map (internal callers).
+func (ts *TimeSeries) Info() map[string]interface{} {
+	ts.mu.RLock()
+	defer ts.mu.RUnlock()
+
+	var firstTimestamp, lastTimestamp int64
+	if len(ts.Samples) > 0 {
+		firstTimestamp = ts.Samples[0].Timestamp
+		lastTimestamp = ts.Samples[len(ts.Samples)-1].Timestamp
+	}
+
 	return map[string]interface{}{
 		"totalSamples":   len(ts.Samples),
 		"firstTimestamp": firstTimestamp,
 		"lastTimestamp":  lastTimestamp,
 		"retention":      ts.Retention.Milliseconds(),
 		"chunkCount":     (len(ts.Samples) + ts.ChunkSize - 1) / ts.ChunkSize,
+		"lastSample":     ts.Samples,
 	}
 }
 

@@ -13,27 +13,31 @@ type CuckooFilter struct {
 	size       uint
 	bucketSize uint
 	count      uint
+	deleted    uint // CF.INFO "Number of items deleted"
 	maxKicks   uint
 	expansion  uint // grow factor when full; 0 = no auto-expand
 }
 
 // NewCuckooFilter creates a new Cuckoo filter
 func NewCuckooFilter(capacity uint) *CuckooFilter {
-	return NewCuckooFilterOpts(capacity, 4, 500)
+	return NewCuckooFilterOpts(capacity, 2, 20)
 }
 
 // NewCuckooFilterOpts creates a Cuckoo filter with explicit bucket size and max kicks.
 func NewCuckooFilterOpts(capacity, bucketSize, maxKicks uint) *CuckooFilter {
 	if bucketSize == 0 {
-		bucketSize = 4
+		bucketSize = 2
 	}
 	if maxKicks == 0 {
-		maxKicks = 500
+		maxKicks = 20
 	}
+	// Real 8.10 sizing: next power of two of ceil(capacity/bucketSize)
+	// (probed: 100/2→64, 1000/2→512, 100/4→32).
 	numBuckets := (capacity + bucketSize - 1) / bucketSize
 	if numBuckets == 0 {
 		numBuckets = 1
 	}
+	numBuckets = nextPow2(numBuckets)
 
 	buckets := make([][]string, numBuckets)
 	for i := range buckets {
@@ -50,6 +54,14 @@ func NewCuckooFilterOpts(capacity, bucketSize, maxKicks uint) *CuckooFilter {
 }
 
 // SetExpansion sets auto-expansion factor (0 disables).
+func nextPow2(v uint) uint {
+	p := uint(1)
+	for p < v {
+		p <<= 1
+	}
+	return p
+}
+
 func (cf *CuckooFilter) SetExpansion(exp uint) {
 	cf.expansion = exp
 }
@@ -176,6 +188,7 @@ func (cf *CuckooFilter) Delete(data []byte) bool {
 		if f == fp {
 			cf.buckets[i1] = append(cf.buckets[i1][:i], cf.buckets[i1][i+1:]...)
 			cf.count--
+			cf.deleted++
 			return true
 		}
 	}
@@ -184,6 +197,7 @@ func (cf *CuckooFilter) Delete(data []byte) bool {
 		if f == fp {
 			cf.buckets[i2] = append(cf.buckets[i2][:i], cf.buckets[i2][i+1:]...)
 			cf.count--
+			cf.deleted++
 			return true
 		}
 	}
@@ -210,24 +224,19 @@ func (cf *CuckooFilter) Count() uint {
 	return cf.count
 }
 
-// Info returns filter info
-func (cf *CuckooFilter) Info() map[string]interface{} {
-	usedBuckets := 0
-	for _, b := range cf.buckets {
-		if len(b) > 0 {
-			usedBuckets++
-		}
-	}
-
-	return map[string]interface{}{
-		"size":        cf.size * cf.bucketSize,
-		"buckets":     cf.size,
-		"bucketSize":  cf.bucketSize,
-		"count":       cf.count,
-		"usedBuckets": usedBuckets,
-		"loadFactor":  float64(cf.count) / float64(cf.size*cf.bucketSize),
-		"expansion":   cf.expansion,
-		"maxKicks":    cf.maxKicks,
+// Info returns the real 8.10 CF.INFO field set in wire order.
+func (cf *CuckooFilter) Info() [][2]interface{} {
+	return [][2]interface{}{
+		// Size = slots + 56 bytes (probed 2..8192 buckets); inserted =
+		// live items (probed: ADD+DEL → 0 inserted, 1 deleted).
+		{"Size", int64(int(cf.size)*int(cf.bucketSize) + 56)},
+		{"Number of buckets", int64(cf.size)},
+		{"Number of filters", int64(1)},
+		{"Number of items inserted", int64(cf.count)},
+		{"Number of items deleted", int64(cf.deleted)},
+		{"Bucket size", int64(cf.bucketSize)},
+		{"Expansion rate", int64(cf.expansion)},
+		{"Max iterations", int64(cf.maxKicks)},
 	}
 }
 

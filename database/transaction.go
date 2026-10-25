@@ -61,9 +61,11 @@ func EnqueueCmd(conn redis.Connection, cmdLine [][]byte) redis.Reply {
 			}
 			return reply
 		}
-		err := protocol.MakeErrReply("ERR unknown command '" + cmdName + "'")
-		conn.AddTxError(err)
-		return err
+		errReply := unknownCommandReply(cmdLine)
+		if er, ok := errReply.(error); ok {
+			conn.AddTxError(er)
+		}
+		return errReply
 	}
 	cmd := cmdTable[cmdName]
 	if cmd.prepare == nil {

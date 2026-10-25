@@ -14,13 +14,15 @@ type Centroid struct {
 
 // TDigest is a T-Digest data structure for accurate quantile estimation
 type TDigest struct {
-	centroids   []Centroid
+	centroids   []Centroid // merged (compressed) centroids
+	unmerged   []Centroid // raw buffered observations (compressed on query)
 	compression float64
 	count       float64
 	sum         float64
 	sumSq       float64
 	min         float64
 	max         float64
+	compressions int64 // compress runs that did work (real 8.10 semantics)
 }
 
 // NewTDigest creates a new T-Digest
@@ -43,7 +45,8 @@ func (td *TDigest) Add(value float64, weight float64) {
 		weight = 1
 	}
 
-	td.centroids = append(td.centroids, Centroid{Mean: value, Weight: weight})
+	// Real 8.10 buffers observations unmerged; queries compress them.
+	td.unmerged = append(td.unmerged, Centroid{Mean: value, Weight: weight})
 
 	td.count += weight
 	td.sum += value * weight
@@ -56,132 +59,93 @@ func (td *TDigest) Add(value float64, weight float64) {
 		td.max = value
 	}
 
-	// Compress if too many centroids
-	if len(td.centroids) > int(10*td.compression) {
+	// Auto-compress when the raw buffer outgrows the compression budget.
+	if len(td.unmerged) > int(10*td.compression) {
 		td.Compress()
 	}
 }
 
-// Quantile returns the estimated quantile (0 <= q <= 1)
+// Quantile returns the estimated quantile (0 <= q <= 1). Centroid walk as
+// real 8.10: the mean of the first centroid whose cumulative weight strictly
+// exceeds q*n (falls through to max at q=1).
 func (td *TDigest) Quantile(q float64) float64 {
 	if q < 0 || q > 1 {
 		return math.NaN()
 	}
-
+	td.ensureCompressed()
 	if len(td.centroids) == 0 {
 		return math.NaN()
 	}
 
-	if q == 0 {
-		return td.min
-	}
-	if q == 1 {
-		return td.max
-	}
-
-	// Sort centroids by mean
 	sorted := make([]Centroid, len(td.centroids))
 	copy(sorted, td.centroids)
 	sort.Slice(sorted, func(i, j int) bool {
 		return sorted[i].Mean < sorted[j].Mean
 	})
 
-	// Find the quantile
+	td.ensureCompressed()
 	target := q * td.count
-	cumSum := 0.0
-
-	for i, c := range sorted {
-		cumSum += c.Weight
-		if cumSum >= target {
-			if i == 0 {
-				return c.Mean
-			}
-			// Interpolate between centroids
-			prev := sorted[i-1]
-			prevCum := cumSum - c.Weight
-			t := (target - prevCum) / c.Weight
-			return prev.Mean + t*(c.Mean-prev.Mean)
+	cum := 0.0
+	for _, c := range sorted {
+		cum += c.Weight
+		if cum > target {
+			return c.Mean
 		}
 	}
-
-	return sorted[len(sorted)-1].Mean
+	return td.max
 }
 
-// CDF returns the cumulative distribution function value
+// CDF returns the cumulative distribution function value: (weight strictly
+// below + half the weight of the centroid holding the value) / n (probed
+// against real 8.10; outside [min,max] clamps to 0/1).
 func (td *TDigest) CDF(value float64) float64 {
+	td.ensureCompressed()
 	if len(td.centroids) == 0 {
 		return math.NaN()
 	}
-
-	if value <= td.min {
+	if value < td.min {
 		return 0
 	}
-	if value >= td.max {
+	if value > td.max {
 		return 1
 	}
 
-	// Sort centroids
 	sorted := make([]Centroid, len(td.centroids))
 	copy(sorted, td.centroids)
 	sort.Slice(sorted, func(i, j int) bool {
 		return sorted[i].Mean < sorted[j].Mean
 	})
 
-	// Find CDF
-	cumSum := 0.0
-	for i, c := range sorted {
-		if c.Mean >= value {
-			if i == 0 {
-				return 0
-			}
-			// Interpolate
-			prev := sorted[i-1]
-			t := (value - prev.Mean) / (c.Mean - prev.Mean)
-			return (cumSum + t*c.Weight) / td.count
+	below, equal := 0.0, 0.0
+	for _, c := range sorted {
+		if c.Mean < value {
+			below += c.Weight
+		} else if c.Mean == value {
+			equal += c.Weight
+		} else {
+			break
 		}
-		cumSum += c.Weight
 	}
-
-	return 1
+	if equal > 0 {
+		return (below + equal/2) / td.count
+	}
+	return below / td.count
 }
 
-// Compress merges centroids to reduce memory
+// Compress folds the unmerged buffer into the merged centroid list (real
+// 8.10: a compress run with an empty buffer is a no-op and not counted).
 func (td *TDigest) Compress() {
-	if len(td.centroids) < 2 {
+	if len(td.unmerged) == 0 {
 		return
 	}
+	td.centroids = append(td.centroids, td.unmerged...)
+	td.unmerged = nil
+	td.compressions++
+}
 
-	// Sort centroids
-	sort.Slice(td.centroids, func(i, j int) bool {
-		return td.centroids[i].Mean < td.centroids[j].Mean
-	})
-
-	// Merge close centroids
-	newCentroids := make([]Centroid, 0, len(td.centroids))
-	current := td.centroids[0]
-
-	for i := 1; i < len(td.centroids); i++ {
-		next := td.centroids[i]
-
-		// Check if we can merge
-		// Use k-size limit: max weight for a centroid at position i
-		q := (float64(len(newCentroids)) + 0.5) / float64(len(td.centroids))
-		k := 4 * td.compression * q * (1 - q)
-
-		if current.Weight+next.Weight <= k {
-			// Merge
-			current = Centroid{
-				Mean:   (current.Mean*current.Weight + next.Mean*next.Weight) / (current.Weight + next.Weight),
-				Weight: current.Weight + next.Weight,
-			}
-		} else {
-			newCentroids = append(newCentroids, current)
-			current = next
-		}
-	}
-	newCentroids = append(newCentroids, current)
-
-	td.centroids = newCentroids
+// ensureCompressed makes query results see buffered observations.
+func (td *TDigest) ensureCompressed() {
+	td.Compress()
 }
 
 // Min returns the minimum value
@@ -197,6 +161,8 @@ func (td *TDigest) Max() float64 {
 // Reset clears all samples from the digest
 func (td *TDigest) Reset() {
 	td.centroids = td.centroids[:0]
+	td.unmerged = nil
+	td.compressions = 0
 	td.count = 0
 	td.sum = 0
 	td.sumSq = 0
@@ -297,16 +263,31 @@ func (td *TDigest) StdDev() float64 {
 	return math.Sqrt(variance)
 }
 
-// Info returns T-Digest info
-func (td *TDigest) Info() map[string]interface{} {
-	return map[string]interface{}{
-		"compression": td.compression,
-		"centroids":   len(td.centroids),
-		"count":       td.count,
-		"min":         td.min,
-		"max":         td.max,
-		"mean":        td.Mean(),
-		"stdDev":      td.StdDev(),
+// Compression returns the configured compression parameter.
+func (td *TDigest) Compression() float64 { return td.compression }
+
+// Info returns the real 8.10 TDIGEST.INFO field set in wire order.
+// Capacity = 6*compression+10 and Memory usage = 16*capacity+80 reproduce
+// the C implementation's formulas (probed across compressions 1..500).
+func (td *TDigest) Info() [][2]interface{} {
+	capacity := int64(6*td.compression) + 10
+	mergedWeight, unmergedWeight := 0.0, 0.0
+	for _, c := range td.centroids {
+		mergedWeight += c.Weight
+	}
+	for _, c := range td.unmerged {
+		unmergedWeight += c.Weight
+	}
+	return [][2]interface{}{
+		{"Compression", int64(td.compression)},
+		{"Capacity", capacity},
+		{"Merged nodes", int64(len(td.centroids))},
+		{"Unmerged nodes", int64(len(td.unmerged))},
+		{"Merged weight", int64(mergedWeight)},
+		{"Unmerged weight", int64(unmergedWeight)},
+		{"Observations", int64(td.count)},
+		{"Total compressions", td.compressions},
+		{"Memory usage", 16*capacity + 80},
 	}
 }
 

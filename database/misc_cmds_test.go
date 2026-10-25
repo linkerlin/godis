@@ -67,9 +67,14 @@ func TestBloomFilterBasic(t *testing.T) {
 	asserts.AssertIntReply(t, db.Exec(nil, utils.ToCmdLine("BF.ADD", "bf:1", "item")), 1)
 	asserts.AssertIntReply(t, db.Exec(nil, utils.ToCmdLine("BF.EXISTS", "bf:1", "item")), 1)
 
+	// Real 8.10: flat label/value array in wire order.
 	info := db.Exec(nil, utils.ToCmdLine("BF.INFO", "bf:1"))
-	if _, ok := info.(*protocol.MapReply); !ok {
+	mr, ok := info.(*protocol.OrderedMapReply)
+	if !ok || len(mr.Entries) != 10 {
 		t.Fatalf("BF.INFO: got %T %s", info, info.ToBytes())
+	}
+	if lbl, ok := mr.Entries[0].(*protocol.BulkReply); !ok || string(lbl.Arg) != "Capacity" {
+		t.Fatalf("BF.INFO first field: %s", info.ToBytes())
 	}
 }
 
@@ -82,8 +87,12 @@ func TestCFAndCMSBasic(t *testing.T) {
 	asserts.AssertIntReply(t, db.Exec(nil, utils.ToCmdLine("CF.ADD", "cf:1", "x")), 1)
 	asserts.AssertIntReply(t, db.Exec(nil, utils.ToCmdLine("CF.EXISTS", "cf:1", "x")), 1)
 	info := db.Exec(nil, utils.ToCmdLine("CF.INFO", "cf:1"))
-	if _, ok := info.(*protocol.MapReply); !ok {
+	mr, ok := info.(*protocol.OrderedMapReply)
+	if !ok || len(mr.Entries) != 16 {
 		t.Fatalf("CF.INFO: got %T %s", info, info.ToBytes())
+	}
+	if lbl, ok := mr.Entries[0].(*protocol.BulkReply); !ok || string(lbl.Arg) != "Size" {
+		t.Fatalf("CF.INFO first field: %s", info.ToBytes())
 	}
 
 	asserts.AssertStatusReply(t, db.Exec(nil, utils.ToCmdLine(

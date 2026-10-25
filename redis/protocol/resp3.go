@@ -624,6 +624,8 @@ func ReplyToRESP3(reply redis.Reply) []byte {
 			}
 		}
 		return buf.Bytes()
+	case *OrderedMapReply:
+		return r.ToRESP3()
 	case *MultiRawReply:
 		var buf bytes.Buffer
 		buf.WriteString("*" + strconv.Itoa(len(r.Replies)) + CRLF)

@@ -219,13 +219,28 @@ func (db *DB) Exec(c redis.Connection, cmdLine [][]byte) redis.Reply {
 	return db.execNormalCommand(c, cmdLine)
 }
 
+// unknownCommandReply formats the real 8.10 unknown-command error, echoing
+// the command name in original case and the leading args quoted.
+func unknownCommandReply(cmdLine [][]byte) redis.Reply {
+	if len(cmdLine) <= 1 {
+		return protocol.MakeErrReply("ERR unknown command '" + string(cmdLine[0]) + "'")
+	}
+	var b strings.Builder
+	b.WriteString("ERR unknown command '" + string(cmdLine[0]) + "', with args beginning with:")
+	for _, a := range cmdLine[1:] {
+		b.WriteString(" '" + string(a) + "'")
+	}
+	b.WriteString(" ")
+	return protocol.MakeErrReply(b.String())
+}
+
 func (db *DB) execNormalCommand(c redis.Connection, cmdLine [][]byte) redis.Reply {
 	cmdLine, cmdName, ok := ResolveCommandLine(cmdLine)
 	if !ok {
 		if reply := unknownParentSubcommandReply(cmdLine); reply != nil {
 			return reply
 		}
-		return protocol.MakeErrReply("ERR unknown command '" + cmdName + "'")
+		return unknownCommandReply(cmdLine)
 	}
 	cmd := cmdTable[cmdName]
 	if reply := validateCmdArgCount(cmdLine); reply != nil {
@@ -297,7 +312,7 @@ func (db *DB) execWithLock(c redis.Connection, cmdLine [][]byte) redis.Reply {
 		if reply := unknownParentSubcommandReply(cmdLine); reply != nil {
 			return reply
 		}
-		return protocol.MakeErrReply("ERR unknown command '" + cmdName + "'")
+		return unknownCommandReply(cmdLine)
 	}
 	cmd := cmdTable[cmdName]
 	if reply := validateCmdArgCount(cmdLine); reply != nil {

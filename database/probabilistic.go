@@ -63,7 +63,7 @@ func execBFReserve(db *DB, args [][]byte) redis.Reply {
 
 	_, exists := db.GetEntity(key)
 	if exists {
-		return protocol.MakeErrReply("ERR key already exists")
+		return protocol.MakeErrReply("ERR item exists")
 	}
 
 	bf := probabilistic.NewBloomFilter(uint(capacity), errorRate)
@@ -296,15 +296,14 @@ func execBFCard(db *DB, args [][]byte) redis.Reply {
 	if !ok {
 		return &protocol.WrongTypeErrReply{}
 	}
-	info := bf.Info()
-	count, _ := info["count"].(uint)
-	return protocol.MakeIntReply(int64(count))
+	return protocol.MakeIntReply(int64(bf.Count()))
 }
 
-// execBFInfo returns Bloom filter info
-// BF.INFO key
+// execBFInfo returns Bloom filter info (real 8.10 flat field order, optional
+// section: CAPACITY/SIZE/FILTERS/ITEMS/EXPANSION).
+// BF.INFO key [section]
 func execBFInfo(db *DB, args [][]byte) redis.Reply {
-	if len(args) != 1 {
+	if len(args) < 1 || len(args) > 2 {
 		return protocol.MakeErrReply("ERR wrong number of arguments for 'bf.info' command")
 	}
 
@@ -321,7 +320,31 @@ func execBFInfo(db *DB, args [][]byte) redis.Reply {
 	}
 
 	info := bf.Info()
-	return mapReplyFromInfo(info)
+	if len(args) == 2 {
+		section := strings.ToUpper(string(args[1]))
+		switch section {
+		case "CAPACITY", "SIZE", "FILTERS", "ITEMS", "EXPANSION":
+		default:
+			return protocol.MakeErrReply("Invalid information value")
+		}
+		want := "Number of items inserted"
+		switch section {
+		case "CAPACITY":
+			want = "Capacity"
+		case "SIZE":
+			want = "Size"
+		case "FILTERS":
+			want = "Number of filters"
+		case "EXPANSION":
+			want = "Expansion rate"
+		}
+		for _, kv := range info {
+			if kv[0] == want {
+				return infoValueReply(kv[1])
+			}
+		}
+	}
+	return flatInfoReply(info)
 }
 
 // === Cuckoo Filter Commands ===
@@ -341,8 +364,9 @@ func execCFReserve(db *DB, args [][]byte) redis.Reply {
 		return protocol.MakeErrReply("Bad capacity")
 	}
 
-	bucketSize := uint(4)
-	maxIter := uint(500)
+	// Real 8.10 defaults: BUCKETSIZE 2, MAXITERATIONS 20.
+	bucketSize := uint(2)
+	maxIter := uint(20)
 	expansion := uint(1)
 	for i := 2; i < len(args); {
 		opt := strings.ToUpper(string(args[i]))
@@ -391,7 +415,7 @@ func execCFReserve(db *DB, args [][]byte) redis.Reply {
 
 	_, exists := db.GetEntity(key)
 	if exists {
-		return protocol.MakeErrReply("ERR key already exists")
+		return protocol.MakeErrReply("ERR item exists")
 	}
 
 	cf := probabilistic.NewCuckooFilterOpts(uint(capacity), bucketSize, maxIter)
@@ -672,7 +696,7 @@ func execCFInfo(db *DB, args [][]byte) redis.Reply {
 	if !ok {
 		return &protocol.WrongTypeErrReply{}
 	}
-	return mapReplyFromInfo(cf.Info())
+	return flatInfoReply(cf.Info())
 }
 
 // execCFCompact is a no-op compatibility stub (Redis may rearrange buckets)
@@ -714,7 +738,7 @@ func execCMSInitByDim(db *DB, args [][]byte) redis.Reply {
 
 	_, exists := db.GetEntity(key)
 	if exists {
-		return protocol.MakeErrReply("ERR key already exists")
+		return protocol.MakeErrReply("CMS: key already exists")
 	}
 
 	cms := probabilistic.NewCountMinSketch(uint(width), uint(depth))
@@ -807,7 +831,7 @@ func execCMSInitByProb(db *DB, args [][]byte) redis.Reply {
 		return protocol.MakeErrReply("CMS: invalid prob value")
 	}
 	if _, exists := db.GetEntity(key); exists {
-		return protocol.MakeErrReply("ERR key already exists")
+		return protocol.MakeErrReply("CMS: key already exists")
 	}
 	cms := probabilistic.NewCountMinSketchFromError(errRate, prob)
 	db.PutEntity(key, &database.DataEntity{Data: cms})
@@ -906,11 +930,11 @@ func execCMSInfo(db *DB, args [][]byte) redis.Reply {
 		return &protocol.WrongTypeErrReply{}
 	}
 	info := cms.Info()
-	m := protocol.MakeMapReply()
-	m.Put("width", infoScalarReply(info["width"]))
-	m.Put("depth", infoScalarReply(info["depth"]))
-	m.Put("count", infoScalarReply(info["count"]))
-	return m
+	return flatInfoReply([][2]interface{}{
+		{"width", info["width"]},
+		{"depth", info["depth"]},
+		{"count", info["count"]},
+	})
 }
 
 // === Top-K Commands ===
@@ -950,7 +974,7 @@ func execTopKReserve(db *DB, args [][]byte) redis.Reply {
 
 	_, exists := db.GetEntity(key)
 	if exists {
-		return protocol.MakeErrReply("ERR key already exists")
+		return protocol.MakeErrReply("TopK: key already exists")
 	}
 
 	topk := probabilistic.NewTopKOpts(k, width, depth, decay)
@@ -1101,8 +1125,7 @@ func execTopKInfo(db *DB, args [][]byte) redis.Reply {
 	if !ok {
 		return &protocol.WrongTypeErrReply{}
 	}
-	info := topk.Info()
-	return mapReplyFromInfo(info)
+	return flatInfoReply(topk.Info())
 }
 
 // execTopKIncrBy increments item counts (via repeated Add)
@@ -1160,6 +1183,32 @@ func prepareCMSMerge(args [][]byte) ([]string, []string) {
 	return keys, nil
 }
 
+// flatInfoReply renders ordered label/value pairs in real 8.10 wire form:
+// flat array in RESP2, map (%) in RESP3.
+func flatInfoReply(info [][2]interface{}) redis.Reply {
+	out := make([]redis.Reply, 0, len(info)*2)
+	for _, kv := range info {
+		out = append(out, protocol.MakeBulkReply([]byte(fmt.Sprint(kv[0]))))
+		out = append(out, infoValueReply(kv[1]))
+	}
+	return protocol.MakeOrderedMapReply(out)
+}
+
+func infoValueReply(v interface{}) redis.Reply {
+	switch x := v.(type) {
+	case int64:
+		return protocol.MakeIntReply(x)
+	case int:
+		return protocol.MakeIntReply(int64(x))
+	case uint:
+		return protocol.MakeIntReply(int64(x))
+	case string:
+		return protocol.MakeBulkReply([]byte(x))
+	default:
+		return protocol.MakeBulkReply([]byte(fmt.Sprint(x)))
+	}
+}
+
 // mapReplyFromInfo builds a RESP3 Map from *INFO-style key/value data.
 func mapReplyFromInfo(info map[string]interface{}) *protocol.MapReply {
 	m := protocol.MakeMapReply()
@@ -1212,7 +1261,7 @@ func init() {
 		attachCommandExtra([]string{redisFlagReadonly, redisFlagFast}, 1, 1, 1)
 	registerCommand("BF.Card", execBFCard, readFirstKey, nil, 2, flagReadOnly).
 		attachCommandExtra([]string{redisFlagReadonly, redisFlagFast}, 1, 1, 1)
-	registerCommand("BF.Info", execBFInfo, readFirstKey, nil, 2, flagReadOnly).
+	registerCommand("BF.Info", execBFInfo, readFirstKey, nil, -2, flagReadOnly).
 		attachCommandExtra([]string{redisFlagReadonly}, 1, 1, 1)
 
 	// Cuckoo Filter

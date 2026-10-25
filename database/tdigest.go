@@ -198,8 +198,7 @@ func execTDigestInfo(db *DB, args [][]byte) redis.Reply {
 		return &protocol.WrongTypeErrReply{}
 	}
 
-	info := td.Info()
-	return mapReplyFromInfo(info)
+	return flatInfoReply(td.Info())
 }
 
 // execTDigestMin returns the minimum observed value
@@ -433,7 +432,7 @@ func execTDigestMerge(db *DB, args [][]byte) redis.Reply {
 		if compression > 0 {
 			c = compression
 		} else if len(sources) > 0 {
-			c = sources[0].Info()["compression"].(float64)
+			c = sources[0].Compression()
 		}
 		destTD = probabilistic.NewTDigest(c)
 	}

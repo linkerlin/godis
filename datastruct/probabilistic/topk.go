@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"hash/fnv"
 	"sort"
+	"strconv"
 )
 
 // TopK maintains the top-k frequent items
@@ -120,15 +121,13 @@ func (tk *TopK) List() []*TopKItem {
 	return result
 }
 
-// Info returns Top-K info
-func (tk *TopK) Info() map[string]interface{} {
-	return map[string]interface{}{
-		"k":     tk.k,
-		"width": tk.width,
-		"depth": tk.depth,
-		"decay": tk.decay,
-		"size":  len(tk.items),
-		"added": tk.minHeap.Len(),
+// Info returns the real 8.10 TOPK.INFO field set (k, width, depth, decay).
+func (tk *TopK) Info() [][2]interface{} {
+	return [][2]interface{}{
+		{"k", int64(tk.k)},
+		{"width", int64(tk.width)},
+		{"depth", int64(tk.depth)},
+		{"decay", strconv.FormatFloat(tk.decay, 'g', -1, 64)},
 	}
 }
 
